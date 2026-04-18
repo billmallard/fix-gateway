@@ -106,16 +106,6 @@ Configuration files live in `src/fixgw/config/`:
 - `database/custom.yaml` — add or override parameters without touching upstream files
 - `init_data/custom.ini` — set initial parameter values for your specific aircraft
 
-## Role in the MAOS Ecosystem
-
-FIX-Gateway is the **recommended avionics data bus layer** for MAOS. Its MAVLink plugin makes it directly compatible with MAOS-FCS serial/network output. The `CTLPTCH`, `CTLROLL`, `CTLYAW` control keys in the database provide a natural bridge between FCS commanded surfaces and cockpit display confirmation.
-
-For MAOS integration:
-- **MAOS-FCS** publishes attitude, airspeed, altitude, and control state via MAVLink → FIX-Gateway MAVLink plugin
-- **MAOS-VISION** can publish track/position data via a custom plugin or MAVLink
-- **pyEfis** consumes all published keys for display
-- The `quorum` plugin can arbitrate between redundant sensor sources before values reach the display
-
 ## Important Disclaimer
 
 > FIX-Gateway is developed for Experimental Amateur-Built aircraft use only.  
