@@ -43,9 +43,11 @@ xplane:
 
         # idx 17 — Pitch, roll, headings (X-Plane 12 layout verified by capture)
         # slots: [Pitch, Roll, Hdg_true, _, Hdg_mag, MagVar, _, Track]
-        # HEAD = magnetic heading (slot 4); TRACK from slot 7 if you'd rather
-        # use idx 17's ground-track-from-north instead of idx 18 slot 2.
-        17: [PITCH, ROLL, _, _, HEAD, _, _, _]
+        # HEAD  = magnetic heading (slot 4) — what the HSI displays.
+        # MAGVAR = magnetic variation (slot 5) — used by the AI widget to
+        #          derive true heading for SVS geographic projection
+        #          (TRUE = HEAD - MAGVAR; positive MAGVAR = west variation).
+        17: [PITCH, ROLL, _, _, HEAD, MAGVAR, _, _]
 
         # idx 18 — AOA, sideslip, paths
         # slots: [alpha, beta, hpath, vpath, _, _, _, _]

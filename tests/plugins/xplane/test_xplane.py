@@ -137,6 +137,30 @@ def test_writedata_unmapped_index_is_silent(mock_parent, main_thread):
     mock_parent.log.debug.assert_called_with("xplane: unmapped index %d", 99)
 
 
+def test_writedata_filters_no_value_sentinel(mock_parent, main_thread):
+    """X-Plane fills slots that aren't enabled in the data-output
+    panel with -999.0. The plugin must NOT propagate that value to the
+    FIX database — it would silently turn downstream consumers (e.g.
+    ``HEAD - MAGVAR`` correction in pyEfis) into nonsense."""
+    main_thread.writedata(20, [-999.0, -999.0, -999.0, -999.0, 0, 0, 0, 0])
+    # No db_write call should have fired for the four sentinel slots
+    # (the remaining four are mapped to "_" so they wouldn't write anyway).
+    mock_parent.db_write.assert_not_called()
+
+
+def test_writedata_filters_sentinel_per_slot(mock_parent, main_thread):
+    """A mixed row with some valid floats and some -999 sentinels must
+    publish only the valid slots."""
+    # idx 20 slots: [LAT, LONG, ALT, AGL, _, _, _, _]
+    main_thread.writedata(20, [34.5, -999.0, 1000.0, -999.0, 0, 0, 0, 0])
+    keys_written = sorted(c.args[0] for c in mock_parent.db_write.call_args_list)
+    assert keys_written == ["ALT", "LAT"]
+    # And the values came through unmodified
+    by_key = {c.args[0]: c.args[1] for c in mock_parent.db_write.call_args_list}
+    assert by_key["LAT"] == 34.5
+    assert by_key["ALT"] == 1000.0
+
+
 def test_writedata_db_failure_is_logged_not_raised(mock_parent, main_thread):
     mock_parent.db_write.side_effect = RuntimeError("no such key")
     # Should not propagate; the loop must keep running across bad keys.

@@ -68,6 +68,14 @@ SLOTS_PER_ROW = 8
 # checks for "this slot intentionally not sent" still works.
 NO_VALUE = b"\x00\xc0\x79\xc4"
 
+# X-Plane fills disabled slots in a data row with -999.0. Writing that
+# value into the FIX database would publish a bogus reading downstream
+# (e.g. MAGVAR=-999 silently turning HEAD into HEAD+999 wherever it's
+# used as a true-heading correction). Anything magnitude-comparable
+# to the sentinel is treated as "no data" and skipped.
+NO_VALUE_SENTINEL = -999.0
+NO_VALUE_TOL = 0.5
+
 
 def _normalise_slot(value):
     """Return the FIX key for a slot, or None when it should be skipped."""
@@ -153,12 +161,18 @@ class MainThread(threading.Thread):
         for slot_i, key in enumerate(slots):
             if key is None or slot_i >= len(values):
                 continue
+            v = float(values[slot_i])
+            # Skip X-Plane's "this slot is disabled" sentinel — don't
+            # let -999 reach the FIX database where it would corrupt
+            # any downstream consumer that takes the value at face
+            # value (e.g. ``HEAD - MAGVAR`` for true-heading correction).
+            if abs(v - NO_VALUE_SENTINEL) < NO_VALUE_TOL:
+                continue
             try:
-                self.parent.db_write(key, float(values[slot_i]))
+                self.parent.db_write(key, v)
             except Exception as e:
                 self.log.warning(
-                    "xplane: db_write %s=%r failed (%s)",
-                    key, values[slot_i], e)
+                    "xplane: db_write %s=%r failed (%s)", key, v, e)
 
     def _ingest_packet(self, data):
         if len(data) < HEADER_LEN or data[:4] != HEADER:
