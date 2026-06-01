@@ -41,9 +41,11 @@ xplane:
         # slots: [Qrad_sec, Prad_sec, Rrad_sec, ...]   (pitch/roll/yaw rates)
         16: [_, _, ROT, _, _, _, _, _]
 
-        # idx 17 — Pitch, roll, headings
-        # slots: [Pitch_deg, Roll_deg, Heading_true, Heading_mag, _, _, _, _]
-        17: [PITCH, ROLL, _, HEAD, _, _, _, _]
+        # idx 17 — Pitch, roll, headings (X-Plane 12 layout verified by capture)
+        # slots: [Pitch, Roll, Hdg_true, _, Hdg_mag, MagVar, _, Track]
+        # HEAD = magnetic heading (slot 4); TRACK from slot 7 if you'd rather
+        # use idx 17's ground-track-from-north instead of idx 18 slot 2.
+        17: [PITCH, ROLL, _, _, HEAD, _, _, _]
 
         # idx 18 — AOA, sideslip, paths
         # slots: [alpha, beta, hpath, vpath, _, _, _, _]
