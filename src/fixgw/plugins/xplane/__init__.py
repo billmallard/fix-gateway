@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 #  Copyright (c) 2014 Phil Birkelbach
+#  Copyright (c) 2026 Bill Mallard — data-driven rewrite
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -11,111 +12,226 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 #  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software
-#  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-#  X-Plane Plugin
+"""X-Plane fix-gateway plugin.
 
+Speaks X-Plane's UDP "DATA" packet protocol used by
+``Settings → Network → Data Output → Send network data output via UDP``.
+Each packet carries a 5-byte header (``"DATA\\0"``) followed by 36-byte
+rows: an int32 index plus eight float32 slots. The slot layout per
+index is defined by X-Plane; this plugin maps row index -> list of
+eight FIX keys via YAML, so adding a new index means a single config
+edit, not a code patch.
+
+Config schema (``connections/xplane.yaml``):
+
+    xplane:
+        load: XPLANE
+        module: fixgw.plugins.xplane
+        ipaddress: 127.0.0.1     # X-Plane host (for outgoing DREF writes)
+        udp_in:  49001           # local UDP port we receive on
+        udp_out: 49002           # X-Plane UDP port we send to
+        send_interval: 0.1       # seconds between FIX -> X-Plane bursts
+
+        # X-Plane -> FIX. Eight slots per index. ``_`` / ``x`` / blank skip.
+        recv:
+            3:  [IAS,   _,   TAS, GS,   _, _, _, _]      # speeds
+            4:  [_,     _,   VS,  _,    _, _, _, _]      # mach/VVI/g
+            17: [PITCH, ROLL, _,  HEAD, _, _, _, _]      # pitch/roll/headings
+            18: [AOA,   _,   TRACK, _,  _, _, _, _]      # AOA/sideslip/paths
+            20: [LAT,   LONG, ALT, AGL, _, _, _, _]      # position
+
+        # FIX -> X-Plane. Same format. (Optional; omit for read-only.)
+        send:
+            25: [THR1, _, _, _, _, _, _, _]              # throttle command
+
+Legacy ``idxN: KEY1,KEY2,...`` entries at the top level are still
+honoured and treated as ``send`` mappings (matching the old plugin's
+behaviour).
+"""
 import threading
 import socket
 import select
 import struct
+
 import fixgw.plugin as plugin
 
-# TODO Replace with configuration
-UDP_IP = "127.0.0.1"
-UDP_PORT = 49203
+
+# X-Plane packet framing.
+HEADER = b"DATA"
+HEADER_LEN = 5                 # "DATA" + one reserved byte
+ROW_SIZE = 36                  # i32 index + 8 * f32
+SLOTS_PER_ROW = 8
+
+# X-Plane's "no value" sentinel float (negative NaN-ish). Lifted from
+# the original plugin so existing X-Plane UI / aircraft code that
+# checks for "this slot intentionally not sent" still works.
+NO_VALUE = b"\x00\xc0\x79\xc4"
+
+
+def _normalise_slot(value):
+    """Return the FIX key for a slot, or None when it should be skipped."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s or s.lower() in ("_", "x"):
+        return None
+    return s.upper()
+
+
+def _parse_slot_list(value):
+    """Accept either a YAML list or the legacy comma-separated string."""
+    if isinstance(value, (list, tuple)):
+        items = list(value)
+    else:
+        items = [s for s in str(value).split(",")]
+    items = (items + [None] * SLOTS_PER_ROW)[:SLOTS_PER_ROW]
+    return [_normalise_slot(s) for s in items]
+
+
+def _build_index_map(spec):
+    """Turn a {idx: slot_list} dict (with int or str keys) into
+    {int: [8 keys or None]}."""
+    out = {}
+    if not isinstance(spec, dict):
+        return out
+    for raw_key, raw_val in spec.items():
+        try:
+            idx = int(raw_key)
+        except (TypeError, ValueError):
+            continue
+        out[idx] = _parse_slot_list(raw_val)
+    return out
+
+
+def _legacy_send_map(config):
+    """Top-level ``idxN`` entries in the legacy schema meant "send to
+    X-Plane at index N". Promote them into the new send_map shape."""
+    legacy = {}
+    for k, v in config.items():
+        ks = str(k)
+        if ks.lower().startswith("idx") and ks[3:].isdigit():
+            legacy[int(ks[3:])] = v
+    return _build_index_map(legacy)
 
 
 class MainThread(threading.Thread):
     def __init__(self, parent):
-        super(MainThread, self).__init__()
-        self.getout = False  # indicator for when to stop
-        self.parent = parent  # parent plugin object
-        self.log = parent.log  # simplifies logging
+        super().__init__()
+        self.getout = False
+        self.parent = parent
+        self.log = parent.log
+        cfg = parent.config
 
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # Internet  # UDP
-        self.sock.bind((UDP_IP, UDP_PORT))
-        self.sock.setblocking(0)
+        self.xplane_ip = cfg.get("ipaddress", "127.0.0.1")
+        self.udp_in = int(cfg.get("udp_in", 49001))
+        self.udp_out = int(cfg.get("udp_out", 49002))
+        self.send_interval = float(cfg.get("send_interval", 0.1))
 
-        # inputkeys is a dictionary that holds the data out indexes from X-Plane
-        # and the keys to use for that data in FixGW to know what to send.  It's
-        # read from the config file.  Only data that is found in this config
-        # will be read from the database and sent to X-Plane
-        self.inputkeys = {}
-        for each in self.parent.config:
-            if each[:3].lower() == "idx":
-                index = int(each[3:])
-                l = self.parent.config[each].replace(" ", "").split(",")
-                self.inputkeys[index] = l
+        self.recv_map = _build_index_map(cfg.get("recv", {}))
+        self.send_map = _build_index_map(cfg.get("send", {}))
+        if not self.send_map:
+            self.send_map = _legacy_send_map(cfg)
 
-    def writedata(self, index, data):
-        if index == 3:
-            self.parent.db_write("IAS", data[0])
-            self.parent.db_write("TAS", data[2])
-        elif index == 20:
-            self.parent.db_write("ALT", data[2])
-            self.parent.db_write("LAT", data[0])
-            self.parent.db_write("LONG", data[1])
-        else:
-            self.parent.log.debug("Dunno Index:" + str(index))
-        # self.parent.db_write("",data[0])
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.bind(("0.0.0.0", self.udp_in))
+        self.sock.setblocking(False)
 
+        self.log.info(
+            "xplane: listening udp:%d, dest %s:%d; recv indices=%s, send indices=%s",
+            self.udp_in, self.xplane_ip, self.udp_out,
+            sorted(self.recv_map.keys()), sorted(self.send_map.keys()))
+
+    # ------------------------------------------------------------------
+    # X-Plane -> FIX
+    # ------------------------------------------------------------------
+    def writedata(self, index, values):
+        slots = self.recv_map.get(index)
+        if not slots:
+            self.log.debug("xplane: unmapped index %d", index)
+            return
+        for slot_i, key in enumerate(slots):
+            if key is None or slot_i >= len(values):
+                continue
+            try:
+                self.parent.db_write(key, float(values[slot_i]))
+            except Exception as e:
+                self.log.warning(
+                    "xplane: db_write %s=%r failed (%s)",
+                    key, values[slot_i], e)
+
+    def _ingest_packet(self, data):
+        if len(data) < HEADER_LEN or data[:4] != HEADER:
+            self.log.error("xplane: bad header on packet length %d", len(data))
+            return
+        body = data[HEADER_LEN:]
+        if len(body) % ROW_SIZE != 0:
+            self.log.error(
+                "xplane: bad packet length %d (body %d, row %d)",
+                len(data), len(body), ROW_SIZE)
+            return
+        for r in range(len(body) // ROW_SIZE):
+            base = r * ROW_SIZE
+            idx = struct.unpack_from("<i", body, base)[0]
+            slots = struct.unpack_from("<8f", body, base + 4)
+            self.writedata(idx, list(slots))
+
+    # ------------------------------------------------------------------
+    # FIX -> X-Plane
+    # ------------------------------------------------------------------
     def senddata(self):
-        """Function that sends data to X-Plane"""
-        for each in self.inputkeys:
-            data = "DATA" + chr(0)
-            data += struct.pack("i", int(each))
-
-            for i in range(8):
-                if self.inputkeys[each][i].lower() == "x":
-                    data += chr(0) + chr(192) + chr(121) + chr(196)
-                    # data += struct.pack("f", 0.0)
+        for index, slots in self.send_map.items():
+            buf = HEADER + b"\x00" + struct.pack("<i", int(index))
+            for slot_i in range(SLOTS_PER_ROW):
+                key = slots[slot_i] if slot_i < len(slots) else None
+                if key is None:
+                    buf += NO_VALUE
                 else:
-                    data += struct.pack(
-                        "f", float(self.parent.db_read(self.inputkeys[each][i].upper()))
-                    )
-            # for each in data:
-            #    print hex(ord(each)),
-            # print ""
-            self.sock.sendto(data, (UDP_IP, 49200))
+                    try:
+                        v = float(self.parent.db_read(key)[0])
+                    except (TypeError, IndexError, ValueError):
+                        # db_read can return a scalar in some plugin builds —
+                        # accept that too.
+                        try:
+                            v = float(self.parent.db_read(key))
+                        except Exception:
+                            v = 0.0
+                    except Exception:
+                        v = 0.0
+                    buf += struct.pack("<f", v)
+            try:
+                self.sock.sendto(buf, (self.xplane_ip, self.udp_out))
+            except OSError as e:
+                self.log.warning("xplane: sendto failed (%s)", e)
 
+    # ------------------------------------------------------------------
+    # Loop
+    # ------------------------------------------------------------------
     def run(self):
-        while True:
-            if self.getout:
-                break
-            ready = select.select([self.sock], [], [], 0.1)
-            if ready[0]:
-                data, addr = self.sock.recvfrom(4096)
-                # print data
-                header = data[:4]
-                if header != "DATA":
-                    self.parent.log.error("Bad data packet")
+        while not self.getout:
+            ready, _, _ = select.select(
+                [self.sock], [], [], self.send_interval)
+            if ready:
+                try:
+                    data, _addr = self.sock.recvfrom(4096)
+                except OSError as e:
+                    self.log.warning("xplane: recv error (%s)", e)
                     continue
-                if (len(data) - 5) % 36 != 0:
-                    self.parent.log.error("Bad packet length")
-                    continue
-                for x in range((len(data) - 5) / 36):
-                    start = x * 36 + 5
-                    # index = struct.unpack("i",data[start:start+4])[0]
-                    index = ord(data[start])
-                    udata = []
-                    for i in range(8):
-                        y = start + i * 4 + 4
-                        udata.append(struct.unpack("f", data[y : y + 4])[0])  # noqa: E203
-                    self.writedata(index, udata)
-                    # print "index:", index, "Data: ", udata
-            self.senddata()
+                self._ingest_packet(data)
+            if self.send_map:
+                self.senddata()
 
     def stop(self):
         self.getout = True
+        try:
+            self.sock.close()
+        except Exception:
+            pass
 
 
 class Plugin(plugin.PluginBase):
     def __init__(self, name, config, config_meta):
-        super(Plugin, self).__init__(name, config, config_meta)
+        super().__init__(name, config, config_meta)
         self.thread = MainThread(self)
 
     def run(self):
