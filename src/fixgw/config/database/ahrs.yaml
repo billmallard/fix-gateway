@@ -161,6 +161,15 @@ items:
   initial: 0.0
   tol: 2000
 
+- key: MAGVAR
+  description: Local Magnetic Variation (positive = west variation, MAG = TRUE + VAR)
+  type: float
+  min: -30.0
+  max: 30.0
+  units: deg
+  initial: 0.0
+  tol: 60000
+
 - key: TRACK
   description: Current Aircraft Bearing
   type: float
