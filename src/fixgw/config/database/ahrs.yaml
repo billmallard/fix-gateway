@@ -170,6 +170,18 @@ items:
   initial: 0.0
   tol: 60000
 
+- key: VPATH
+  description: Vertical Flight Path Angle (negative = descending). Authoritative
+    when source can compute it from instantaneous velocity components (e.g. a sim
+    or AHRS with inertial state); pyEfis FPM falls back to atan2(VS, GS) when
+    VPATH is not published.
+  type: float
+  min: -90.0
+  max: 90.0
+  units: deg
+  initial: 0.0
+  tol: 2000
+
 - key: TRACK
   description: Current Aircraft Bearing
   type: float

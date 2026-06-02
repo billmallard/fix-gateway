@@ -51,7 +51,11 @@ xplane:
 
         # idx 18 — AOA, sideslip, paths
         # slots: [alpha, beta, hpath, vpath, _, _, _, _]
-        18: [AOA, _, TRACK, _, _, _, _, _]
+        # VPATH = X-Plane's authoritative vertical flight path angle
+        # (negative = descending). Matches X-Plane's own FPM symbol;
+        # pyEfis uses it directly so the two displays agree even
+        # during transient descents where atan2(VS, GS) lags vpath.
+        18: [AOA, _, TRACK, VPATH, _, _, _, _]
 
         # idx 20 — Lat, lon, altitude
         # slots: [lat, lon, alt_ft_msl, alt_ft_agl, _, _, _, _]
