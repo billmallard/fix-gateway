@@ -84,14 +84,21 @@ xplane:
     dataref_hz: 10
 
     # ---------------------------------------------------------------------
-    # FIX -> X-Plane.  pyEfis writes its controls back so a hardware
-    # throttle/mixture / autopilot can drive the simulator. Same per-index
+    # FIX -> X-Plane.  pyEfis/hardware writes its controls back so a hardware
+    # throttle/mixture / autopilot can DRIVE the simulator. Same per-index
     # 8-slot format. Omit a slot with "_" to leave that X-Plane control
     # untouched.
+    #
+    # DISABLED BY DEFAULT. These rows are sent to udp_out (X-Plane's command
+    # port) every send_interval. If the mapped FIX keys are NOT actively driven
+    # by real hardware, they read 0 and will command X-Plane's throttle CLOSED
+    # and mixture to CUTOFF — killing the engine. Only enable this when a
+    # hardware throttle/mixture is genuinely publishing THR1/MIX1. For a normal
+    # X-Plane -> pyEfis test (the sim drives the display), leave it commented.
     # ---------------------------------------------------------------------
-    send:
-        # idx 25 — Throttle command (1.0 = full throttle)
-        25: [THR1, _, _, _, _, _, _, _]
-
-        # idx 29 — Mixture command
-        29: [MIX1, _, _, _, _, _, _, _]
+    # send:
+    #     # idx 25 — Throttle command (1.0 = full throttle)
+    #     25: [THR1, _, _, _, _, _, _, _]
+    #
+    #     # idx 29 — Mixture command
+    #     29: [MIX1, _, _, _, _, _, _, _]
