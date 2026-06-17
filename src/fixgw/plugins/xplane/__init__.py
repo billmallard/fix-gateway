@@ -63,6 +63,15 @@ HEADER_LEN = 5                 # "DATA" + one reserved byte
 ROW_SIZE = 36                  # i32 index + 8 * f32
 SLOTS_PER_ROW = 8
 
+# Named-dataref (RREF) subscription support. Some values pyEfis needs are not
+# in the indexed "Data Output" rows (notably nav-radio OBS course / deflection
+# for the HSI). RREF lets us request specific datarefs by name; X-Plane streams
+# them back as (int index, float value) pairs under a "RREF" header. We assign
+# each configured dataref a request index from RREF_BASE and map the echoed
+# index back to a FIX key. Protocol mirrors the proven MAOS-FCS xplane_bridge.
+RREF_HEADER = b"RREF"
+RREF_BASE = 1000               # first request index (X-Plane echoes it back)
+
 # X-Plane's "no value" sentinel float (negative NaN-ish). Lifted from
 # the original plugin so existing X-Plane UI / aircraft code that
 # checks for "this slot intentionally not sent" still works.
@@ -112,6 +121,31 @@ def _build_index_map(spec):
     return out
 
 
+def _build_dataref_map(spec):
+    """Turn a ``{FIX_KEY: dataref}`` (or ``{FIX_KEY: [dataref, scale]}``) dict
+    into ``{rref_index: (key, dataref, scale)}`` with sequential request
+    indices. ``scale`` multiplies the raw dataref value before it's written to
+    FIX (e.g. nav deflection dots +/-2.5 -> HSI +/-1 needs scale 0.4)."""
+    out = {}
+    if not isinstance(spec, dict):
+        return out
+    idx = RREF_BASE
+    for raw_key, raw_val in spec.items():
+        key = _normalise_slot(raw_key)
+        if key is None:
+            continue
+        if isinstance(raw_val, (list, tuple)):
+            dref = str(raw_val[0]).strip()
+            scale = float(raw_val[1]) if len(raw_val) > 1 else 1.0
+        else:
+            dref, scale = str(raw_val).strip(), 1.0
+        if not dref:
+            continue
+        out[idx] = (key, dref, scale)
+        idx += 1
+    return out
+
+
 def _legacy_send_map(config):
     """Top-level ``idxN`` entries in the legacy schema meant "send to
     X-Plane at index N". Promote them into the new send_map shape."""
@@ -140,6 +174,13 @@ class MainThread(threading.Thread):
         self.send_map = _build_index_map(cfg.get("send", {}))
         if not self.send_map:
             self.send_map = _legacy_send_map(cfg)
+
+        # Named-dataref (RREF) subscriptions: {rref_index: (key, dataref, scale)}.
+        self.dataref_map = _build_dataref_map(cfg.get("datarefs", {}))
+        self.dataref_hz = int(cfg.get("dataref_hz", 10))
+        # Re-send subscriptions every ~5s so they survive an X-Plane (re)start
+        # or a lost subscribe packet, expressed in select-loop iterations.
+        self._resub_every = max(1, int(5.0 / self.send_interval))
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("0.0.0.0", self.udp_in))
@@ -191,6 +232,38 @@ class MainThread(threading.Thread):
             self.writedata(idx, list(slots))
 
     # ------------------------------------------------------------------
+    # X-Plane named-dataref (RREF) subscriptions
+    # ------------------------------------------------------------------
+    def _send_rref(self, freq, index, dref):
+        """Subscribe (freq>0, Hz) or cancel (freq=0) one dataref."""
+        packet = (RREF_HEADER + b"\x00" + struct.pack("<II", int(freq), int(index))
+                  + dref.encode("ascii") + b"\x00")
+        try:
+            self.sock.sendto(packet, (self.xplane_ip, self.udp_out))
+        except OSError as e:
+            self.log.warning("xplane: RREF subscribe send failed (%s)", e)
+
+    def subscribe_datarefs(self, freq):
+        for index, (_key, dref, _scale) in self.dataref_map.items():
+            self._send_rref(freq, index, dref)
+
+    def _ingest_rref(self, data):
+        # "RREF," 5-byte header, then N x (int32 index, float32 value).
+        payload = data[5:]
+        offset = 0
+        while offset + 8 <= len(payload):
+            index, value = struct.unpack_from("<If", payload, offset)
+            offset += 8
+            entry = self.dataref_map.get(index)
+            if entry is None:
+                continue
+            key, _dref, scale = entry
+            try:
+                self.parent.db_write(key, float(value) * scale)
+            except Exception as e:
+                self.log.warning("xplane: db_write %s failed (%s)", key, e)
+
+    # ------------------------------------------------------------------
     # FIX -> X-Plane
     # ------------------------------------------------------------------
     def senddata(self):
@@ -222,6 +295,9 @@ class MainThread(threading.Thread):
     # Loop
     # ------------------------------------------------------------------
     def run(self):
+        if self.dataref_map:
+            self.subscribe_datarefs(self.dataref_hz)
+        loops = 0
         while not self.getout:
             ready, _, _ = select.select(
                 [self.sock], [], [], self.send_interval)
@@ -231,12 +307,23 @@ class MainThread(threading.Thread):
                 except OSError as e:
                     self.log.warning("xplane: recv error (%s)", e)
                     continue
-                self._ingest_packet(data)
+                if data[:4] == HEADER:          # "DATA" — indexed rows
+                    self._ingest_packet(data)
+                elif data[:4] == RREF_HEADER:   # "RREF" — subscribed datarefs
+                    self._ingest_rref(data)
             if self.send_map:
                 self.senddata()
+            loops += 1
+            if self.dataref_map and loops % self._resub_every == 0:
+                self.subscribe_datarefs(self.dataref_hz)   # survive X-Plane restart
 
     def stop(self):
         self.getout = True
+        if self.dataref_map:
+            try:
+                self.subscribe_datarefs(0)   # freq 0 cancels the subscriptions
+            except Exception:
+                pass
         try:
             self.sock.close()
         except Exception:

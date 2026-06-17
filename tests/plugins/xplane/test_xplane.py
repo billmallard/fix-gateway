@@ -13,8 +13,10 @@ import pytest
 from fixgw.plugins.xplane import (
     HEADER,
     NO_VALUE,
+    RREF_BASE,
     MainThread,
     Plugin,
+    _build_dataref_map,
     _build_index_map,
     _normalise_slot,
     _parse_slot_list,
@@ -260,6 +262,71 @@ def test_legacy_idx_keys_become_send_map():
     assert t.send_map[29] == ["MIX1", None, None, None, None, None, None, None]
     # recv_map left empty when no `recv:` block is provided.
     assert t.recv_map == {}
+
+
+# ---------------------------------------------------------------------------
+# Named-dataref (RREF) subscriptions — X-Plane nav radios -> FIX
+# ---------------------------------------------------------------------------
+
+def test_build_dataref_map_assigns_indices_and_scale():
+    m = _build_dataref_map({
+        "COURSE": "sim/cockpit/radios/nav1_obs_degm",
+        "CDI": ["sim/cockpit/radios/nav1_hdef_dot", 0.4],
+        "_": "skip/me",                       # skip-alias key dropped
+    })
+    assert len(m) == 2
+    by_key = {e[0]: e for e in m.values()}
+    assert set(by_key) == {"COURSE", "CDI"}
+    assert by_key["CDI"][1] == "sim/cockpit/radios/nav1_hdef_dot"
+    assert by_key["CDI"][2] == 0.4            # scale parsed
+    assert by_key["COURSE"][2] == 1.0         # default scale
+    assert min(m.keys()) == RREF_BASE         # indices start at RREF_BASE
+
+
+@pytest.fixture
+def main_thread_nav(mock_parent):
+    cfg = dict(mock_parent.config)
+    cfg["datarefs"] = {
+        "COURSE": "sim/cockpit/radios/nav1_obs_degm",
+        "CDI": ["sim/cockpit/radios/nav1_hdef_dot", 0.4],
+    }
+    mock_parent.config = cfg
+    with patch("socket.socket"):
+        return MainThread(mock_parent)
+
+
+def test_ingest_rref_writes_scaled_values(mock_parent, main_thread_nav):
+    idx_by_key = {e[0]: i for i, e in main_thread_nav.dataref_map.items()}
+    # RREF response: "RREF," 5-byte header + (int32 index, float32 value) pairs
+    pkt = (b"RREF,"
+           + struct.pack("<If", idx_by_key["COURSE"], 52.0)
+           + struct.pack("<If", idx_by_key["CDI"], 1.25))   # 1.25 dots
+    main_thread_nav._ingest_rref(pkt)
+    by_key = {c.args[0]: c.args[1] for c in mock_parent.db_write.call_args_list}
+    assert by_key["COURSE"] == pytest.approx(52.0)          # degrees, unscaled
+    assert by_key["CDI"] == pytest.approx(0.5)              # 1.25 * 0.4
+
+
+def test_ingest_rref_ignores_unknown_index(mock_parent, main_thread_nav):
+    main_thread_nav._ingest_rref(b"RREF," + struct.pack("<If", 99999, 12.0))
+    mock_parent.db_write.assert_not_called()
+
+
+def test_subscribe_datarefs_sends_rref_requests(mock_parent, main_thread_nav):
+    sent = []
+    main_thread_nav.sock.sendto = MagicMock(
+        side_effect=lambda buf, addr: sent.append((buf, addr)))
+    main_thread_nav.subscribe_datarefs(10)
+    assert len(sent) == 2
+    for buf, addr in sent:
+        assert buf[:4] == b"RREF"
+        assert addr == ("10.0.0.99", 49002)
+        freq, index = struct.unpack_from("<II", buf, 5)
+        assert freq == 10 and index >= RREF_BASE
+
+
+def test_no_datarefs_config_means_empty_map(main_thread):
+    assert main_thread.dataref_map == {}     # back-compat: nav RREF is opt-in
 
 
 # ---------------------------------------------------------------------------

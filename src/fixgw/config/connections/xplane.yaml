@@ -62,6 +62,24 @@ xplane:
         20: [LAT, LONG, ALT, AGL, _, _, _, _]
 
     # ---------------------------------------------------------------------
+    # X-Plane -> FIX via named datarefs (RREF subscriptions). Use for values
+    # the indexed "Data Output" rows above don't carry -- notably the nav-radio
+    # OBS course and lateral deflection the HSI course bug + CDI need. fix-gateway
+    # requests these by name, so X-Plane needs no extra Data Output checkboxes.
+    #   FIX_KEY: dataref            -> written as-is
+    #   FIX_KEY: [dataref, scale]   -> written * scale
+    # Defaults use NAV1; swap nav1_ for nav2_ or gps_ for those sources.
+    # ---------------------------------------------------------------------
+    datarefs:
+        # Selected OBS course (degrees magnetic) -> magenta course bug.
+        COURSE: sim/cockpit/radios/nav1_obs_degm
+        # Lateral deviation: X-Plane reports +/-2.5 dots full scale; the HSI
+        # needle is +/-1.0 full scale, so scale by 1/2.5 = 0.4.
+        CDI: [sim/cockpit/radios/nav1_hdef_dot, 0.4]
+    # RREF stream rate (Hz).
+    dataref_hz: 10
+
+    # ---------------------------------------------------------------------
     # FIX -> X-Plane.  pyEfis writes its controls back so a hardware
     # throttle/mixture / autopilot can drive the simulator. Same per-index
     # 8-slot format. Omit a slot with "_" to leave that X-Plane control
