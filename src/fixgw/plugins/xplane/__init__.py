@@ -188,6 +188,9 @@ class MainThread(threading.Thread):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("0.0.0.0", self.udp_in))
         self.sock.setblocking(False)
+        # close() idempotency guard. Mirrors upstream's plugin lifecycle:
+        # Plugin.stop() calls thread.close() after the join.
+        self.sock_closed = False
 
         self.log.info(
             "xplane: listening udp:%d, dest %s:%d; recv indices=%s, send indices=%s",
@@ -340,6 +343,11 @@ class MainThread(threading.Thread):
         except Exception:
             pass
 
+    def close(self):
+        if not self.sock_closed:
+            self.sock.close()
+            self.sock_closed = True
+
 
 class Plugin(plugin.PluginBase):
     def __init__(self, name, config, config_meta):
@@ -355,3 +363,4 @@ class Plugin(plugin.PluginBase):
             self.thread.join(2.0)
         if self.thread.is_alive():
             raise plugin.PluginFail
+        self.thread.close()
