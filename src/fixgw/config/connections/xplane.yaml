@@ -11,11 +11,15 @@ xplane:
     # Match this against X-Plane's "IP of data receiver" → port.
     udp_in:  49001
 
-    # X-Plane's UDP port for incoming DATA writes (throttle, mixture, etc).
-    # Default X-Plane "Port we send to other computers" is 49000; the
-    # legacy fix-gateway plugin used 49200 — kept here for compatibility
-    # with the old behaviour.
-    udp_out: 49002
+    # X-Plane's "Port we receive on" — where fix-gateway SENDS to X-Plane
+    # (DATA control writes AND named-dataref RREF requests). In X-Plane's
+    # Settings -> Network -> UDP PORTS this is the LEGACY receive port,
+    # default 49000. The newer "Port we receive on" (default 49010) does
+    # NOT accept the RREF protocol, so it must be the legacy port here.
+    # NOTE: X-Plane must allow inbound UDP on this port through the host
+    # firewall, or the requests are silently dropped (Data Output still
+    # flows, since that's outbound from X-Plane).
+    udp_out: 49000
 
     # Seconds between FIX -> X-Plane bursts. 0.1 = 10 Hz.
     send_interval: 0.1

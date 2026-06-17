@@ -28,9 +28,9 @@ Config schema (``connections/xplane.yaml``):
     xplane:
         load: XPLANE
         module: fixgw.plugins.xplane
-        ipaddress: 127.0.0.1     # X-Plane host (for outgoing DREF writes)
+        ipaddress: 127.0.0.1     # X-Plane host (for outgoing DATA/RREF/DREF)
         udp_in:  49001           # local UDP port we receive on
-        udp_out: 49002           # X-Plane UDP port we send to
+        udp_out: 49000           # X-Plane's "port we receive on" (commands)
         send_interval: 0.1       # seconds between FIX -> X-Plane bursts
 
         # X-Plane -> FIX. Eight slots per index. ``_`` / ``x`` / blank skip.
@@ -167,7 +167,10 @@ class MainThread(threading.Thread):
 
         self.xplane_ip = cfg.get("ipaddress", "127.0.0.1")
         self.udp_in = int(cfg.get("udp_in", 49001))
-        self.udp_out = int(cfg.get("udp_out", 49002))
+        # X-Plane's "port we receive on" -- where DATA writes and RREF/DREF
+        # requests must be sent. Default 49000 is X-Plane's legacy receiver;
+        # the modern port (default 49010) does NOT accept the RREF protocol.
+        self.udp_out = int(cfg.get("udp_out", 49000))
         self.send_interval = float(cfg.get("send_interval", 0.1))
 
         self.recv_map = _build_index_map(cfg.get("recv", {}))
@@ -235,9 +238,17 @@ class MainThread(threading.Thread):
     # X-Plane named-dataref (RREF) subscriptions
     # ------------------------------------------------------------------
     def _send_rref(self, freq, index, dref):
-        """Subscribe (freq>0, Hz) or cancel (freq=0) one dataref."""
-        packet = (RREF_HEADER + b"\x00" + struct.pack("<II", int(freq), int(index))
-                  + dref.encode("ascii") + b"\x00")
+        """Subscribe (freq>0, Hz) or cancel (freq=0) one dataref.
+
+        The dataref string MUST be packed into a fixed 400-byte field
+        (``<4sxii400s`` = "RREF" + pad byte + int freq + int index + 400-byte
+        dref). X-Plane silently ignores requests where the dref field is the
+        wrong length -- it answers with index 0 / value 0 instead of echoing
+        the request index, so a short ``dref + b"\\x00"`` looks like it works
+        (a reply arrives) but never carries the value. Verified against
+        X-Plane 12's legacy UDP receiver."""
+        packet = struct.pack(
+            "<4sxii400s", RREF_HEADER, int(freq), int(index), dref.encode("ascii"))
         try:
             self.sock.sendto(packet, (self.xplane_ip, self.udp_out))
         except OSError as e:

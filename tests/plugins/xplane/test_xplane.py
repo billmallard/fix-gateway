@@ -320,9 +320,15 @@ def test_subscribe_datarefs_sends_rref_requests(mock_parent, main_thread_nav):
     assert len(sent) == 2
     for buf, addr in sent:
         assert buf[:4] == b"RREF"
-        assert addr == ("10.0.0.99", 49002)
+        assert addr == ("10.0.0.99", 49002)   # sent to udp_out (X-Plane receiver)
+        # "<4sxii400s": "RREF" + pad byte + freq + index + 400-byte dref field.
+        # X-Plane silently drops RREF requests whose dref field isn't 400 bytes,
+        # so the packet must be exactly 4 + 1 + 4 + 4 + 400 = 413 bytes.
+        assert len(buf) == 413
         freq, index = struct.unpack_from("<II", buf, 5)
         assert freq == 10 and index >= RREF_BASE
+        dref = buf[13:].rstrip(b"\x00")
+        assert dref.startswith(b"sim/cockpit/radios/nav1_")
 
 
 def test_no_datarefs_config_means_empty_map(main_thread):
