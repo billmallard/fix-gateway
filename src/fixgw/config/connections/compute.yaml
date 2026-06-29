@@ -27,6 +27,17 @@ compute:
     - function: xte
       inputs: ["LAT", "LONG", "WPLAT", "WPLON", "COURSE"]
       output: XTRACK
+    # EFIS nav-source selector: NAVSRC (0=GPS, 1=NAV1; add NAV2 inputs later)
+    # routes the selected source into the canonical COURSE/CDI the HSI +
+    # autopilot read. require_leader off so it runs without a quorum leader.
+    - function: select
+      inputs: ["NAVSRC", "GPSCRS", "NAV1CRS"]
+      output: COURSE
+      require_leader: false
+    - function: select
+      inputs: ["NAVSRC", "GPSCDI", "NAV1CDI"]
+      output: CDI
+      require_leader: false
     #   inputs: []
     #   output: x
     # - function: span

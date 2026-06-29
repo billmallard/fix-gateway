@@ -757,6 +757,37 @@ def xteFunction(inputs, output, require_leader):
     return func
 
 
+def selectFunction(inputs, output, require_leader):
+    # inputs[0] is the selector key; inputs[1:] are the source options. The
+    # selector's (rounded, clamped) value picks which source is copied to the
+    # output, so ONE canonical key (e.g. CDI / COURSE) always carries the
+    # selected source -- which the HSI display and the autopilot both read.
+    # Models an EFIS nav-source selector (GPS / NAV1 / NAV2).
+    vals = {}
+    for each in inputs:
+        vals[each] = None
+
+    def func(key, value, parent):
+        if not quorum.leader and require_leader:
+            return  # Only the leader can do calculations
+        if type(value) != tuple:
+            return  # aux data, ignore
+        vals[key] = value
+        sel = vals[inputs[0]]
+        if sel is None:
+            return  # no selection yet
+        idx = max(0, min(len(inputs) - 2, int(round(sel[0]))))
+        src = vals[inputs[idx + 1]]
+        if src is None:
+            return  # selected source has no value yet
+        o = parent.db_get_item(output)
+        o.value = src[0]
+        o.bad = src[3]
+        o.fail = src[4]
+
+    return func
+
+
 class Plugin(plugin.PluginBase):
     # def __init__(self, name, config):
     #     super(Plugin, self).__init__(name, config)
@@ -776,6 +807,7 @@ class Plugin(plugin.PluginBase):
             "altd": altDensity,
             "encoder": encoderFunction,
             "set": setFunction,
+            "select": selectFunction,
         }
 
         for function in self.config["functions"]:
