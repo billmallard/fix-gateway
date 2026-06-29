@@ -75,11 +75,20 @@ xplane:
     # Defaults use NAV1; swap nav1_ for nav2_ or gps_ for those sources.
     # ---------------------------------------------------------------------
     datarefs:
-        # Selected OBS course (degrees magnetic) -> magenta course bug.
-        COURSE: sim/cockpit/radios/nav1_obs_degm
+        # Selected course (deg mag) -> the magenta course pointer. GPS course by
+        # default, matching a magenta GPS CRS on the EFIS. Swap to
+        # nav1_obs_degm for a VOR/LOC OBS course, or to
+        # sim/cockpit2/radios/indicators/hsi_obs_deg_mag_pilot to auto-follow
+        # whichever source the EFIS HSI is currently using.
+        COURSE: sim/cockpit/radios/gps_course_degtm
         # Lateral deviation: X-Plane reports +/-2.5 dots full scale; the HSI
         # needle is +/-1.0 full scale, so scale by 1/2.5 = 0.4.
         CDI: [sim/cockpit/radios/nav1_hdef_dot, 0.4]
+        # Autopilot selected heading (deg mag) -> cyan heading bug. X-Plane
+        # always publishes this (no nav tuning needed), so it doubles as an
+        # RREF health check. NOTE: this makes X-Plane drive HEADBUG, so it will
+        # override the HDG +/- buttons (which write HEADBUG locally).
+        HEADBUG: sim/cockpit/autopilot/heading_mag
     # RREF stream rate (Hz).
     dataref_hz: 10
 
