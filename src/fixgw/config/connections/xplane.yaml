@@ -99,6 +99,13 @@ xplane:
     # RREF stream rate (Hz).
     dataref_hz: 10
 
+    # FIX -> X-Plane named-dataref writes (DREF), sent on change. The nav-source
+    # selector's XPHSISRC (remapped from NAVSRC by the compute plugin) drives
+    # X-Plane's pilot HSI source, so the sim's native autopilot tracks whatever
+    # source the EFIS has selected.
+    dataref_writes:
+        XPHSISRC: sim/cockpit2/radios/actuators/HSI_source_select_pilot
+
     # ---------------------------------------------------------------------
     # FIX -> X-Plane.  pyEfis/hardware writes its controls back so a hardware
     # throttle/mixture / autopilot can DRIVE the simulator. Same per-index

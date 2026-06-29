@@ -43,6 +43,14 @@ compute:
       inputs: ["NAVSRC", "GPSGSI", "NAV1GSI", "NAV2GSI"]
       output: GSI
       require_leader: false
+    # Translate NAVSRC (0=GPS,1=NAV1,2=NAV2) -> X-Plane HSI_source_select
+    # (0=NAV1,1=NAV2,2=GPS) so the sim's native autopilot follows the selection.
+    # The xplane plugin's dataref_writes sends XPHSISRC out as a DREF.
+    - function: remap
+      inputs: ["NAVSRC"]
+      output: XPHSISRC
+      table: [2, 0, 1]
+      require_leader: false
     #   inputs: []
     #   output: x
     # - function: span

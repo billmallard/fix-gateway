@@ -72,6 +72,13 @@ SLOTS_PER_ROW = 8
 RREF_HEADER = b"RREF"
 RREF_BASE = 1000               # first request index (X-Plane echoes it back)
 
+# DREF: write a named dataref back to X-Plane. Packet is "DREF" + null + a
+# 4-byte float value + the 500-byte null-padded dataref path (509 bytes total).
+# Lets a FIX key drive a sim control (e.g. the EFIS nav-source selector setting
+# X-Plane's HSI source so the native autopilot follows). Same UDP socket / dest
+# as RREF, so it needs no extra reachability beyond the proven read path.
+DREF_HEADER = b"DREF"
+
 # X-Plane's "no value" sentinel float (negative NaN-ish). Lifted from
 # the original plugin so existing X-Plane UI / aircraft code that
 # checks for "this slot intentionally not sent" still works.
@@ -181,6 +188,11 @@ class MainThread(threading.Thread):
         # Named-dataref (RREF) subscriptions: {rref_index: (key, dataref, scale)}.
         self.dataref_map = _build_dataref_map(cfg.get("datarefs", {}))
         self.dataref_hz = int(cfg.get("dataref_hz", 10))
+        # FIX -> X-Plane named-dataref writes: {fix_key: dataref}. Sent (DREF)
+        # only when the FIX value changes, so a slow setpoint like the HSI
+        # source isn't blasted at the loop rate.
+        self.dref_writes = dict(cfg.get("dataref_writes", {}))
+        self._dref_last = {}
         # Re-send subscriptions every ~5s so they survive an X-Plane (re)start
         # or a lost subscribe packet, expressed in select-loop iterations.
         self._resub_every = max(1, int(5.0 / self.send_interval))
@@ -305,6 +317,27 @@ class MainThread(threading.Thread):
             except OSError as e:
                 self.log.warning("xplane: sendto failed (%s)", e)
 
+    def senddref(self):
+        for key, dref in self.dref_writes.items():
+            try:
+                v = float(self.parent.db_read(key)[0])
+            except (TypeError, IndexError, ValueError):
+                try:
+                    v = float(self.parent.db_read(key))
+                except Exception:
+                    continue
+            except Exception:
+                continue
+            if self._dref_last.get(key) == v:
+                continue          # only transmit on change
+            self._dref_last[key] = v
+            packet = struct.pack(
+                "<4sxf500s", DREF_HEADER, v, dref.encode("ascii"))
+            try:
+                self.sock.sendto(packet, (self.xplane_ip, self.udp_out))
+            except OSError as e:
+                self.log.warning("xplane: DREF %s failed (%s)", dref, e)
+
     # ------------------------------------------------------------------
     # Loop
     # ------------------------------------------------------------------
@@ -327,6 +360,8 @@ class MainThread(threading.Thread):
                     self._ingest_rref(data)
             if self.send_map:
                 self.senddata()
+            if self.dref_writes:
+                self.senddref()
             loops += 1
             if self.dataref_map and loops % self._resub_every == 0:
                 self.subscribe_datarefs(self.dataref_hz)   # survive X-Plane restart

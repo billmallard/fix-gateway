@@ -321,6 +321,14 @@ items:
   initial: 0.0
   tol: 2000
 
+- key: XPHSISRC
+  description: X-Plane HSI source index (0=NAV1, 1=NAV2, 2=GPS), remapped from NAVSRC
+  type: float
+  min: 0.0
+  max: 2.0
+  initial: 2.0
+  tol: 2000
+
 - key: XTRACK
   description: Signed Cross Track Error (left/right of desired course)
   type: float

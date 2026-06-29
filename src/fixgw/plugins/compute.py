@@ -788,6 +788,23 @@ def selectFunction(inputs, output, require_leader):
     return func
 
 
+def remapFunction(inputs, output, table, require_leader):
+    # inputs[0] is an index key; table is a list of output values. Emits
+    # table[round(index)] (clamped). Translates one selector scheme into
+    # another -- e.g. NAVSRC (0=GPS,1=NAV1,2=NAV2) -> X-Plane HSI_source_select
+    # (0=NAV1,1=NAV2,2=GPS) via table [2, 0, 1].
+    def func(key, value, parent):
+        if not quorum.leader and require_leader:
+            return
+        if type(value) != tuple:
+            return
+        i = max(0, min(len(table) - 1, int(round(value[0]))))
+        o = parent.db_get_item(output)
+        o.value = float(table[i])
+
+    return func
+
+
 class Plugin(plugin.PluginBase):
     # def __init__(self, name, config):
     #     super(Plugin, self).__init__(name, config)
@@ -808,6 +825,7 @@ class Plugin(plugin.PluginBase):
             "encoder": encoderFunction,
             "set": setFunction,
             "select": selectFunction,
+            "remap": remapFunction,
         }
 
         for function in self.config["functions"]:
@@ -830,6 +848,13 @@ class Plugin(plugin.PluginBase):
                         function["inputs"],
                         function["output"],
                         function["value"],
+                        req_lead,
+                    )
+                elif fname == "remap":
+                    f = aggregate_functions[fname](
+                        function["inputs"],
+                        function["output"],
+                        function["table"],
                         req_lead,
                     )
                 else:
