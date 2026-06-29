@@ -161,6 +161,15 @@ items:
   initial: 0.0
   tol: 2000
 
+- key: HEADBUG
+  description: Selected Heading Bug
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 2000
+
 - key: MAGVAR
   description: Local Magnetic Variation (positive = west variation, MAG = TRUE + VAR)
   type: float
