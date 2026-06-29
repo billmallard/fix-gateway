@@ -84,6 +84,13 @@ xplane:
         GPSCDI:  [sim/cockpit/radios/gps_hdef_dot, 0.4]
         NAV1CRS: sim/cockpit/radios/nav1_obs_degm
         NAV1CDI: [sim/cockpit/radios/nav1_hdef_dot, 0.4]
+        NAV2CRS: sim/cockpit/radios/nav2_obs_degm
+        NAV2CDI: [sim/cockpit/radios/nav2_hdef_dot, 0.4]
+        # Vertical deviation (glidepath / glideslope) -> the GSI needle, same
+        # +/-2.5-dot -> +/-1.0 scaling. gps_vdef is the GPS LPV/glidepath.
+        GPSGSI:  [sim/cockpit/radios/gps_vdef_dot, 0.4]
+        NAV1GSI: [sim/cockpit/radios/nav1_vdef_dot, 0.4]
+        NAV2GSI: [sim/cockpit/radios/nav2_vdef_dot, 0.4]
         # Autopilot selected heading (deg mag) -> cyan heading bug. X-Plane
         # always publishes this (no nav tuning needed), so it doubles as an
         # RREF health check. NOTE: this makes X-Plane drive HEADBUG, so it will

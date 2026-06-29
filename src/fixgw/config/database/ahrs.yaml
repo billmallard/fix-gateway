@@ -234,14 +234,15 @@ items:
   initial: 0.0
   tol: 2000
 
-# Nav-source selector + per-source course/deviation. A button sets NAVSRC; the
-# compute "select" function routes the chosen source into the canonical
-# COURSE/CDI above, which the HSI and autopilot read.
+# Nav-source selector + per-source course / lateral / vertical deviation. A
+# button cycles NAVSRC; the compute "select" routes the chosen source into the
+# canonical COURSE/CDI/GSI the HSI and autopilot read. max = the cycle modulus
+# (3 sources) so change-value-wrap steps 0 -> 1 -> 2 -> 0.
 - key: NAVSRC
   description: Selected Nav Source (0=GPS, 1=NAV1, 2=NAV2)
   type: float
   min: 0.0
-  max: 2.0
+  max: 3.0
   initial: 0.0
   tol: 2000
 
@@ -273,6 +274,47 @@ items:
 
 - key: NAV1CDI
   description: NAV1 Course Deviation
+  type: float
+  min: -1.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+- key: NAV2CRS
+  description: NAV2 OBS Course
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 2000
+
+- key: NAV2CDI
+  description: NAV2 Course Deviation
+  type: float
+  min: -1.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+- key: GPSGSI
+  description: GPS Vertical Deviation (glidepath)
+  type: float
+  min: -1.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+- key: NAV1GSI
+  description: NAV1 Glideslope Deviation
+  type: float
+  min: -1.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+- key: NAV2GSI
+  description: NAV2 Glideslope Deviation
   type: float
   min: -1.0
   max: 1.0
