@@ -27,6 +27,14 @@ compute:
     - function: xte
       inputs: ["LAT", "LONG", "WPLAT", "WPLON", "COURSE"]
       output: XTRACK
+    # Magnetic ground track = true ground track (TRACK) + magnetic variation
+    # (MAGVAR), wrapped to [0,360). The HSI compass rose is magnetic (HEAD), so
+    # its ground-track diamond must read TRACKM, not TRACK (true) -- otherwise the
+    # diamond sits off by the full magnetic variation.
+    - function: wrap360
+      inputs: ["TRACK", "MAGVAR"]
+      output: TRACKM
+      require_leader: false
     # EFIS nav-source selector: NAVSRC (0=NAV1, 1=NAV2, 2=GPS) routes the
     # selected source's course / lateral / vertical deviation into the canonical
     # COURSE / CDI / GSI the HSI + autopilot read. Source order matches NAVSRC:

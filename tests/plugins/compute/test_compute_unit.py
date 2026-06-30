@@ -211,6 +211,34 @@ def test_sum_function_combines_values_and_quality_flags():
     assert output.secfail is True
 
 
+def test_wrap360_function_adds_inputs_modulo_360():
+    parent = FakeParent()
+    func = compute.wrap360Function(["TRACK", "MAGVAR"], "TRACKM", require_leader=False)
+
+    # 350 true track + 15 variation wraps to 5 magnetic
+    func("TRACK", value_tuple(350.0), parent)
+    func("MAGVAR", value_tuple(15.0), parent)
+    assert parent.db_get_item("TRACKM").value == 5.0
+
+    # negative variation wraps the other way: 10 + (-20) -> 350
+    func("MAGVAR", value_tuple(-20.0), parent)
+    func("TRACK", value_tuple(10.0), parent)
+    assert parent.db_get_item("TRACKM").value == 350.0
+
+
+def test_wrap360_function_combines_quality_flags():
+    parent = FakeParent()
+    func = compute.wrap360Function(["TRACK", "MAGVAR"], "TRACKM", require_leader=False)
+
+    func("TRACK", value_tuple(100.0, old=True), parent)
+    func("MAGVAR", value_tuple(10.0, fail=True), parent)
+
+    out = parent.db_get_item("TRACKM")
+    assert out.old is True
+    assert out.fail is True
+    assert out.value == 0.0   # fail forces value to 0.0
+
+
 def test_max_and_min_forward_aux_metadata():
     parent = FakeParent()
     max_func = compute.maxFunction(["A", "B"], "MAX", require_leader=False)

@@ -805,6 +805,49 @@ def remapFunction(inputs, output, table, require_leader):
     return func
 
 
+def wrap360Function(inputs, output, require_leader):
+    """Sum of the inputs wrapped to [0, 360) -- modular heading/track addition.
+    e.g. magnetic ground track = true ground track + magnetic variation
+    (TRACKM = TRACK + MAGVAR), since MAG = TRUE + VAR."""
+    vals = {}
+    for each in inputs:
+        vals[each] = None
+
+    def func(key, value, parent):
+        if type(value) != tuple:
+            return  # This might be a meta data update
+        if not quorum.leader and require_leader:
+            return  # Only the leader can do calculations
+        vals[key] = value
+        arrsum = 0
+        flag_old = False
+        flag_bad = False
+        flag_fail = False
+        flag_secfail = False
+        for each in vals:
+            if vals[each] is None:
+                return  # We don't have one of each yet
+            arrsum += vals[each][0]
+            if vals[each][2]:
+                flag_old = True
+            if vals[each][3]:
+                flag_bad = True
+            if vals[each][4]:
+                flag_fail = True
+            if vals[each][5]:
+                flag_secfail = True
+        o = parent.db_get_item(output)
+        o.value = arrsum % 360.0
+        o.fail = flag_fail
+        if o.fail:
+            o.value = 0.0
+        o.bad = flag_bad
+        o.old = flag_old
+        o.secfail = flag_secfail
+
+    return func
+
+
 class Plugin(plugin.PluginBase):
     # def __init__(self, name, config):
     #     super(Plugin, self).__init__(name, config)
@@ -826,6 +869,7 @@ class Plugin(plugin.PluginBase):
             "set": setFunction,
             "select": selectFunction,
             "remap": remapFunction,
+            "wrap360": wrap360Function,
         }
 
         for function in self.config["functions"]:
