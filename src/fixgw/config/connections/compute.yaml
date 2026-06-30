@@ -52,6 +52,16 @@ compute:
       inputs: ["NAVSRC", "NAV1GSI", "NAV2GSI", "GPSGSI"]
       output: GSI
       require_leader: false
+    # Per-source glideslope-valid + TO/FROM, routed to the canonical GSV / TOFROM
+    # the HSI reads (GSV=0 hides the GS needle; TOFROM drives the TO/FROM triangle).
+    - function: select
+      inputs: ["NAVSRC", "NAV1GSV", "NAV2GSV", "GPSGSV"]
+      output: GSV
+      require_leader: false
+    - function: select
+      inputs: ["NAVSRC", "NAV1TF", "NAV2TF", "GPSTF"]
+      output: TOFROM
+      require_leader: false
     # NAVSRC already matches X-Plane's HSI_source_select numbering
     # (0=NAV1, 1=NAV2, 2=GPS), so XPHSISRC is an identity map; the table is kept
     # as the seam that collapses an optional GPS2 (3) onto X-Plane's GPS (2).

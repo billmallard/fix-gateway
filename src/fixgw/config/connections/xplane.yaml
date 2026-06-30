@@ -91,6 +91,14 @@ xplane:
         GPSGSI:  [sim/cockpit/radios/gps_vdef_dot, 0.4]
         NAV1GSI: [sim/cockpit/radios/nav1_vdef_dot, 0.4]
         NAV2GSI: [sim/cockpit/radios/nav2_vdef_dot, 0.4]
+        # Vertical-guidance validity (1=GS present, 0=none) -> hides the GS needle
+        # for a VOR. nav#_display_vertical / gps_display_vertical indicators.
+        NAV1GSV: sim/cockpit2/radios/indicators/nav1_display_vertical
+        NAV2GSV: sim/cockpit2/radios/indicators/nav2_display_vertical
+        GPSGSV:  sim/cockpit2/radios/indicators/gps_display_vertical
+        # VOR TO/FROM (0=off, 1=TO, 2=FROM) -> the HSI TO/FROM triangle.
+        NAV1TF:  sim/cockpit/radios/nav1_fromto
+        NAV2TF:  sim/cockpit/radios/nav2_fromto
         # Autopilot selected heading (deg mag) -> cyan heading bug. X-Plane
         # always publishes this (no nav tuning needed), so it doubles as an
         # RREF health check. NOTE: this makes X-Plane drive HEADBUG, so it will

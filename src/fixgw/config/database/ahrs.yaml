@@ -326,6 +326,77 @@ items:
   initial: 0.0
   tol: 2000
 
+# Glideslope/glidepath validity per source (1 = GS present, 0 = none). A VOR has
+# no glideslope, so the HSI hides the GS needle when the selected source's GSV is
+# 0. From X-Plane's nav#_display_vertical indicators; a real GPS / nav radio
+# reports it directly.
+- key: NAV1GSV
+  description: NAV1 vertical guidance valid (1=GS present)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+- key: NAV2GSV
+  description: NAV2 vertical guidance valid (1=GS present)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+- key: GPSGSV
+  description: GPS vertical guidance valid (1=glidepath present)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+- key: GSV
+  description: Selected-source glideslope/glidepath valid (1=show GS needle)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+# VOR TO/FROM per source (0=off/flag, 1=TO, 2=FROM). From X-Plane nav#_fromto;
+# GPS has no TO/FROM so GPSTF stays 0. The HSI draws a TO/FROM triangle on the
+# course line for the selected source.
+- key: NAV1TF
+  description: NAV1 TO/FROM (0=off, 1=TO, 2=FROM)
+  type: float
+  min: 0.0
+  max: 2.0
+  initial: 0.0
+  tol: 2000
+
+- key: NAV2TF
+  description: NAV2 TO/FROM (0=off, 1=TO, 2=FROM)
+  type: float
+  min: 0.0
+  max: 2.0
+  initial: 0.0
+  tol: 2000
+
+- key: GPSTF
+  description: GPS TO/FROM (always 0; GPS has no TO/FROM)
+  type: float
+  min: 0.0
+  max: 2.0
+  initial: 0.0
+  tol: 2000
+
+- key: TOFROM
+  description: Selected-source TO/FROM (0=off, 1=TO, 2=FROM)
+  type: float
+  min: 0.0
+  max: 2.0
+  initial: 0.0
+  tol: 2000
+
 - key: XPHSISRC
   description: X-Plane HSI source index (0=NAV1, 1=NAV2, 2=GPS); = NAVSRC (identity map)
   type: float
