@@ -161,14 +161,14 @@ autopilot tracks whatever the EFIS has selected.
 The mechanism uses this plugin together with the :doc:`compute` plugin:
 
 #. A button on the EFIS cycles the ``NAVSRC`` selector key
-   (``0`` = GPS, ``1`` = NAV1, ``2`` = NAV2).
+   (``0`` = NAV1, ``1`` = NAV2, ``2`` = GPS).
 #. The compute plugin's ``select`` function routes the chosen source's
-   per-source keys (``GPSCRS`` / ``NAV1CRS`` / ``NAV2CRS``, etc., populated by
+   per-source keys (``NAV1CRS`` / ``NAV2CRS`` / ``GPSCRS``, etc., populated by
    the ``datarefs`` section above) into the canonical ``COURSE`` / ``CDI`` /
    ``GSI`` keys.
-#. The compute plugin's ``remap`` function translates ``NAVSRC`` into X-Plane's
-   own source ordering (X-Plane uses ``0`` = NAV1, ``1`` = NAV2, ``2`` = GPS) and
-   writes it to ``XPHSISRC``.
+#. ``NAVSRC`` already matches X-Plane's own source ordering (``0`` = NAV1,
+   ``1`` = NAV2, ``2`` = GPS), so the compute plugin's ``remap`` copies it to
+   ``XPHSISRC`` unchanged (an identity map).
 #. ``dataref_writes`` sends ``XPHSISRC`` out to
    ``sim/cockpit2/radios/actuators/HSI_source_select_pilot``, so X-Plane
    switches its HSI source and its autopilot follows.

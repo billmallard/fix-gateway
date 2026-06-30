@@ -27,29 +27,31 @@ compute:
     - function: xte
       inputs: ["LAT", "LONG", "WPLAT", "WPLON", "COURSE"]
       output: XTRACK
-    # EFIS nav-source selector: NAVSRC (0=GPS, 1=NAV1, 2=NAV2) routes the
+    # EFIS nav-source selector: NAVSRC (0=NAV1, 1=NAV2, 2=GPS) routes the
     # selected source's course / lateral / vertical deviation into the canonical
-    # COURSE / CDI / GSI the HSI + autopilot read. require_leader off so it runs
+    # COURSE / CDI / GSI the HSI + autopilot read. Source order matches NAVSRC:
+    # inputs[1]=NAV1, inputs[2]=NAV2, inputs[3]=GPS. require_leader off so it runs
     # without a quorum leader.
     - function: select
-      inputs: ["NAVSRC", "GPSCRS", "NAV1CRS", "NAV2CRS"]
+      inputs: ["NAVSRC", "NAV1CRS", "NAV2CRS", "GPSCRS"]
       output: COURSE
       require_leader: false
     - function: select
-      inputs: ["NAVSRC", "GPSCDI", "NAV1CDI", "NAV2CDI"]
+      inputs: ["NAVSRC", "NAV1CDI", "NAV2CDI", "GPSCDI"]
       output: CDI
       require_leader: false
     - function: select
-      inputs: ["NAVSRC", "GPSGSI", "NAV1GSI", "NAV2GSI"]
+      inputs: ["NAVSRC", "NAV1GSI", "NAV2GSI", "GPSGSI"]
       output: GSI
       require_leader: false
-    # Translate NAVSRC (0=GPS,1=NAV1,2=NAV2) -> X-Plane HSI_source_select
-    # (0=NAV1,1=NAV2,2=GPS) so the sim's native autopilot follows the selection.
+    # NAVSRC already matches X-Plane's HSI_source_select numbering
+    # (0=NAV1, 1=NAV2, 2=GPS), so XPHSISRC is an identity map; the table is kept
+    # as the seam that collapses an optional GPS2 (3) onto X-Plane's GPS (2).
     # The xplane plugin's dataref_writes sends XPHSISRC out as a DREF.
     - function: remap
       inputs: ["NAVSRC"]
       output: XPHSISRC
-      table: [2, 0, 1]
+      table: [0, 1, 2]
       require_leader: false
     #   inputs: []
     #   output: x

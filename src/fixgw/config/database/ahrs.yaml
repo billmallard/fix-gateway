@@ -238,12 +238,17 @@ items:
 # button cycles NAVSRC; the compute "select" routes the chosen source into the
 # canonical COURSE/CDI/GSI the HSI and autopilot read. max = the cycle modulus
 # (3 sources) so change-value-wrap steps 0 -> 1 -> 2 -> 0.
+#
+# Ordering is bus-native: 0=NAV1, 1=NAV2, 2=GPS matches CAN-FiX OBI Flags (id 450
+# b1:b2) and X-Plane's HSI_source_select, so XPHSISRC is an identity map (no table
+# inversion) and a real nav radio's OBI Flags decodes straight into NAVSRC.
+# initial 2.0 keeps the boot default on GPS. Extensible to 3=GPS2 (max 4).
 - key: NAVSRC
-  description: Selected Nav Source (0=GPS, 1=NAV1, 2=NAV2)
+  description: Selected Nav Source (0=NAV1, 1=NAV2, 2=GPS)
   type: float
   min: 0.0
   max: 3.0
-  initial: 0.0
+  initial: 2.0
   tol: 2000
 
 - key: GPSCRS
@@ -322,7 +327,7 @@ items:
   tol: 2000
 
 - key: XPHSISRC
-  description: X-Plane HSI source index (0=NAV1, 1=NAV2, 2=GPS), remapped from NAVSRC
+  description: X-Plane HSI source index (0=NAV1, 1=NAV2, 2=GPS); = NAVSRC (identity map)
   type: float
   min: 0.0
   max: 2.0

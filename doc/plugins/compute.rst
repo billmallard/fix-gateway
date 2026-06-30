@@ -116,33 +116,35 @@ so the EFIS can both *display* the selected source and *publish* its guidance to
 the keys the autopilot reads -- and, with the :doc:`xplane` plugin, drive a
 simulator's autopilot to match.
 
-A single selector key, ``NAVSRC`` (``0`` = GPS, ``1`` = NAV1, ``2`` = NAV2), is
+A single selector key, ``NAVSRC`` (``0`` = NAV1, ``1`` = NAV2, ``2`` = GPS), is
 cycled by a button on the EFIS.  ``select`` routes the chosen source's
 per-source keys into the canonical ``COURSE`` / ``CDI`` / ``GSI`` keys that the
 HSI and autopilot consume::
 
   functions:
     - function: select
-      inputs: ["NAVSRC", "GPSCRS", "NAV1CRS", "NAV2CRS"]
+      inputs: ["NAVSRC", "NAV1CRS", "NAV2CRS", "GPSCRS"]
       output: COURSE
       require_leader: false
     - function: select
-      inputs: ["NAVSRC", "GPSCDI", "NAV1CDI", "NAV2CDI"]
+      inputs: ["NAVSRC", "NAV1CDI", "NAV2CDI", "GPSCDI"]
       output: CDI
       require_leader: false
     - function: select
-      inputs: ["NAVSRC", "GPSGSI", "NAV1GSI", "NAV2GSI"]
+      inputs: ["NAVSRC", "NAV1GSI", "NAV2GSI", "GPSGSI"]
       output: GSI
       require_leader: false
 
-A ``remap`` then translates ``NAVSRC`` into X-Plane's own HSI source numbering
-(X-Plane uses ``0`` = NAV1, ``1`` = NAV2, ``2`` = GPS) for the
-:doc:`xplane` plugin's ``dataref_writes`` to send out::
+``NAVSRC`` already uses X-Plane's HSI source numbering (``0`` = NAV1,
+``1`` = NAV2, ``2`` = GPS), so the ``remap`` to ``XPHSISRC`` is an identity map;
+the table is kept as the seam that collapses an optional second GPS (``3`` =
+GPS2) onto X-Plane's single GPS, for the :doc:`xplane` plugin's
+``dataref_writes`` to send out::
 
     - function: remap
       inputs: ["NAVSRC"]
       output: XPHSISRC
-      table: [2, 0, 1]
+      table: [0, 1, 2]
       require_leader: false
 
 The per-source keys (``GPSCRS``, ``NAV1CRS``, ...) are populated by the

@@ -791,8 +791,8 @@ def selectFunction(inputs, output, require_leader):
 def remapFunction(inputs, output, table, require_leader):
     # inputs[0] is an index key; table is a list of output values. Emits
     # table[round(index)] (clamped). Translates one selector scheme into
-    # another -- e.g. NAVSRC (0=GPS,1=NAV1,2=NAV2) -> X-Plane HSI_source_select
-    # (0=NAV1,1=NAV2,2=GPS) via table [2, 0, 1].
+    # another -- e.g. collapsing NAVSRC's optional dual GPS (GPS1=2, GPS2=3) onto
+    # X-Plane's single HSI_source_select GPS (2) via table [0, 1, 2, 2].
     def func(key, value, parent):
         if not quorum.leader and require_leader:
             return

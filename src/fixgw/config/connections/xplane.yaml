@@ -100,7 +100,7 @@ xplane:
     dataref_hz: 10
 
     # FIX -> X-Plane named-dataref writes (DREF), sent on change. The nav-source
-    # selector's XPHSISRC (remapped from NAVSRC by the compute plugin) drives
+    # selector's XPHSISRC (= NAVSRC via the compute plugin, identity map) drives
     # X-Plane's pilot HSI source, so the sim's native autopilot tracks whatever
     # source the EFIS has selected.
     dataref_writes:
