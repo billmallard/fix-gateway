@@ -99,6 +99,13 @@ xplane:
         NAV1GSF: sim/cockpit2/radios/indicators/nav1_flag_glideslope
         NAV2GSF: sim/cockpit2/radios/indicators/nav2_flag_glideslope
         GPSGSF:  sim/cockpit2/radios/indicators/gps_flag_glideslope
+        # Localizer (lateral) display-valid per source. 1 = the LOC/VOR deviation
+        # is in range / displayable; 0 = no valid lateral signal. The compute
+        # plugin gates the ILS glideslope on this (NAV#GSV = min(NAV#DH,
+        # GS-received)) so the GS diamond never shows without a captured localizer,
+        # matching X-Plane's own HSI. GPS/LPV has no localizer and ignores this.
+        NAV1DH:  sim/cockpit2/radios/indicators/nav1_display_horizontal
+        NAV2DH:  sim/cockpit2/radios/indicators/nav2_display_horizontal
         # VOR TO/FROM (0=off, 1=TO, 2=FROM) -> the HSI TO/FROM triangle.
         NAV1TF:  sim/cockpit/radios/nav1_fromto
         NAV2TF:  sim/cockpit/radios/nav2_fromto

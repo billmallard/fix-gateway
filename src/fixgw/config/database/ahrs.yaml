@@ -354,9 +354,48 @@ items:
   initial: 1.0
   tol: 2000
 
-# Glideslope/glidepath validity per source (1 = show the GS), derived from the
-# flag above by a compute remap. GSV=0 hides the GS diamond (VOR, or ILS outside
-# the cone); GSV=1 shows it (glideslope actually received).
+# Localizer (lateral) display-valid per source (X-Plane nav#_display_horizontal:
+# 1 = the LOC/VOR deviation is in range / displayable; 0 = no valid lateral
+# signal). Gates the ILS glideslope: no GS diamond without a captured localizer.
+- key: NAV1DH
+  description: NAV1 localizer display valid (1=LOC shown)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+- key: NAV2DH
+  description: NAV2 localizer display valid (1=LOC shown)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+# Glideslope received per source, inverted from the flag above by a compute remap
+# (NAV#GSNF = NOT nav#_flag_glideslope). For the ILS sources this is combined with
+# the localizer-valid signal -- NAV#GSV = min(NAV#DH, NAV#GSNF) -- so the GS
+# diamond needs BOTH a received glideslope AND a valid localizer.
+- key: NAV1GSNF
+  description: NAV1 glideslope received (1=GS signal present)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+- key: NAV2GSNF
+  description: NAV2 glideslope received (1=GS signal present)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+# Glideslope/glidepath validity per source (1 = show the GS). GSV=0 hides the GS
+# diamond (VOR, ILS outside the cone, or ILS without a valid localizer); GSV=1
+# shows it. The selected source is routed into the canonical GSV the HSI reads.
 - key: NAV1GSV
   description: NAV1 vertical guidance valid (1=GS present)
   type: float

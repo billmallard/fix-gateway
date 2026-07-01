@@ -54,19 +54,34 @@ compute:
       require_leader: false
     # Per-source glideslope-valid + TO/FROM, routed to the canonical GSV / TOFROM
     # the HSI reads (GSV=0 hides the GS needle; TOFROM drives the TO/FROM triangle).
-    # Invert each source's glideslope flag (1=no valid GS) into a "valid" signal,
-    # then select the active source into GSV. So the GS diamond shows only with a
-    # real glideslope (ILS in the cone) and flags/hides otherwise (VOR / outside
-    # the cone).
+    #
+    # An ILS glideslope diamond requires BOTH a received glideslope AND a valid
+    # localizer -- a real HSI never shows vertical guidance without lateral
+    # capture. So for the ILS sources (NAV1/NAV2):
+    #   NAV#GSNF = NOT nav#_flag_glideslope    (glideslope actually received)
+    #   NAV#GSV  = min(NAV#DH, NAV#GSNF)        (LOC displayed AND GS received)
+    # where NAV#DH is X-Plane's nav#_display_horizontal (localizer valid / in
+    # range). This suppresses the GS when off the localizer -- turned off the
+    # approach, or a false glideslope lobe while climbing out -- matching how
+    # X-Plane's own HSI and modern glass behave. GPS/LPV has no separate localizer,
+    # so its glidepath follows the flag alone.
     - function: remap
       inputs: ["NAV1GSF"]
-      output: NAV1GSV
+      output: NAV1GSNF
       table: [1, 0]
+      require_leader: false
+    - function: min
+      inputs: ["NAV1DH", "NAV1GSNF"]
+      output: NAV1GSV
       require_leader: false
     - function: remap
       inputs: ["NAV2GSF"]
-      output: NAV2GSV
+      output: NAV2GSNF
       table: [1, 0]
+      require_leader: false
+    - function: min
+      inputs: ["NAV2DH", "NAV2GSNF"]
+      output: NAV2GSV
       require_leader: false
     - function: remap
       inputs: ["GPSGSF"]
