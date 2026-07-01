@@ -88,9 +88,11 @@ xplane:
         NAV2CDI: [sim/cockpit/radios/nav2_hdef_dot, 0.4]
         # Vertical deviation (glidepath / glideslope) -> the GSI needle, same
         # +/-2.5-dot -> +/-1.0 scaling. gps_vdef is the GPS LPV/glidepath.
-        GPSGSI:  [sim/cockpit/radios/gps_vdef_dot, 0.4]
-        NAV1GSI: [sim/cockpit/radios/nav1_vdef_dot, 0.4]
-        NAV2GSI: [sim/cockpit/radios/nav2_vdef_dot, 0.4]
+        # Vertical deviation: negative scale flips X-Plane's vdef sense so that
+        # below the glideslope drives the GS diamond UP (fly up), per HSI convention.
+        GPSGSI:  [sim/cockpit/radios/gps_vdef_dot, -0.4]
+        NAV1GSI: [sim/cockpit/radios/nav1_vdef_dot, -0.4]
+        NAV2GSI: [sim/cockpit/radios/nav2_vdef_dot, -0.4]
         # Vertical-guidance validity (1=GS present, 0=none) -> hides the GS needle
         # for a VOR. nav#_display_vertical / gps_display_vertical indicators.
         NAV1GSV: sim/cockpit2/radios/indicators/nav1_display_vertical
