@@ -54,6 +54,25 @@ compute:
       require_leader: false
     # Per-source glideslope-valid + TO/FROM, routed to the canonical GSV / TOFROM
     # the HSI reads (GSV=0 hides the GS needle; TOFROM drives the TO/FROM triangle).
+    # Invert each source's glideslope flag (1=no valid GS) into a "valid" signal,
+    # then select the active source into GSV. So the GS diamond shows only with a
+    # real glideslope (ILS in the cone) and flags/hides otherwise (VOR / outside
+    # the cone).
+    - function: remap
+      inputs: ["NAV1GSF"]
+      output: NAV1GSV
+      table: [1, 0]
+      require_leader: false
+    - function: remap
+      inputs: ["NAV2GSF"]
+      output: NAV2GSV
+      table: [1, 0]
+      require_leader: false
+    - function: remap
+      inputs: ["GPSGSF"]
+      output: GPSGSV
+      table: [1, 0]
+      require_leader: false
     - function: select
       inputs: ["NAVSRC", "NAV1GSV", "NAV2GSV", "GPSGSV"]
       output: GSV

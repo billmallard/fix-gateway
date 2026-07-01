@@ -326,10 +326,37 @@ items:
   initial: 0.0
   tol: 2000
 
-# Glideslope/glidepath validity per source (1 = GS present, 0 = none). A VOR has
-# no glideslope, so the HSI hides the GS needle when the selected source's GSV is
-# 0. From X-Plane's nav#_display_vertical indicators; a real GPS / nav radio
-# reports it directly.
+# Raw glideslope flag per source (X-Plane nav#_flag_glideslope: 1 = flagged / no
+# valid GS -- a VOR, or an ILS outside the reception cone; 0 = valid GS). A compute
+# remap inverts these into the NAV#GSV "valid" keys below. Default 1 so the GS is
+# flagged/hidden until a glideslope is actually received.
+- key: NAV1GSF
+  description: NAV1 glideslope flag (1=no valid GS)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 1.0
+  tol: 2000
+
+- key: NAV2GSF
+  description: NAV2 glideslope flag (1=no valid GS)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 1.0
+  tol: 2000
+
+- key: GPSGSF
+  description: GPS glidepath flag (1=no valid glidepath)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 1.0
+  tol: 2000
+
+# Glideslope/glidepath validity per source (1 = show the GS), derived from the
+# flag above by a compute remap. GSV=0 hides the GS diamond (VOR, or ILS outside
+# the cone); GSV=1 shows it (glideslope actually received).
 - key: NAV1GSV
   description: NAV1 vertical guidance valid (1=GS present)
   type: float

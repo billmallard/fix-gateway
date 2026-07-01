@@ -93,11 +93,12 @@ xplane:
         GPSGSI:  [sim/cockpit/radios/gps_vdef_dot, -0.4]
         NAV1GSI: [sim/cockpit/radios/nav1_vdef_dot, -0.4]
         NAV2GSI: [sim/cockpit/radios/nav2_vdef_dot, -0.4]
-        # Vertical-guidance validity (1=GS present, 0=none) -> hides the GS needle
-        # for a VOR. nav#_display_vertical / gps_display_vertical indicators.
-        NAV1GSV: sim/cockpit2/radios/indicators/nav1_display_vertical
-        NAV2GSV: sim/cockpit2/radios/indicators/nav2_display_vertical
-        GPSGSV:  sim/cockpit2/radios/indicators/gps_display_vertical
+        # Glideslope flag (1 = no valid GS: a VOR, or an ILS outside the cone;
+        # 0 = valid GS). Inverted into the GSV "valid" keys by a compute remap, so
+        # the GS diamond flags/hides until the glideslope is actually received.
+        NAV1GSF: sim/cockpit2/radios/indicators/nav1_flag_glideslope
+        NAV2GSF: sim/cockpit2/radios/indicators/nav2_flag_glideslope
+        GPSGSF:  sim/cockpit2/radios/indicators/gps_flag_glideslope
         # VOR TO/FROM (0=off, 1=TO, 2=FROM) -> the HSI TO/FROM triangle.
         NAV1TF:  sim/cockpit/radios/nav1_fromto
         NAV2TF:  sim/cockpit/radios/nav2_fromto
