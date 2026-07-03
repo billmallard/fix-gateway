@@ -182,7 +182,7 @@ items:
 - key: VPATH
   description: Vertical Flight Path Angle (negative = descending). Authoritative
     when source can compute it from instantaneous velocity components (e.g. a sim
-    or AHRS with inertial state); pyEfis FPM falls back to atan2(VS, GS) when
+    or AHRS with inertial state) - pyEfis FPM falls back to atan2(VS, GS) when
     VPATH is not published.
   type: float
   min: -90.0
@@ -448,7 +448,7 @@ items:
   tol: 2000
 
 - key: GPSTF
-  description: GPS TO/FROM (always 0; GPS has no TO/FROM)
+  description: GPS TO/FROM (always 0 - GPS has no TO/FROM)
   type: float
   min: 0.0
   max: 2.0
@@ -464,7 +464,7 @@ items:
   tol: 2000
 
 - key: XPHSISRC
-  description: X-Plane HSI source index (0=NAV1, 1=NAV2, 2=GPS); = NAVSRC (identity map)
+  description: X-Plane HSI source index (0=NAV1, 1=NAV2, 2=GPS) = NAVSRC (identity map)
   type: float
   min: 0.0
   max: 2.0

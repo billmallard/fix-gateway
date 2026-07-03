@@ -16,3 +16,21 @@ items:
   type: str
   initial: "Example value"
 
+
+# --- Open GCU contract keys (pyEfis docs/gcu_design.md) ---------------------
+# Selected altitude (altitude bug). Written by the gcu mapper on user action.
+- key: ALTSEL
+  description: "Selected Altitude"
+  type: int
+  min: -1000
+  max: 60000
+  units: ft
+  initial: 3000
+
+# GCU edit focus: which set-point the control-head knobs currently drive.
+# Written ONLY by the gcu mapper; displays subscribe to annunciate focus.
+# Values: NONE, BARO, HDG, CRS, ALT (extensible).
+- key: GCUSEL
+  description: "GCU Edit Focus"
+  type: str
+  initial: "NONE"
