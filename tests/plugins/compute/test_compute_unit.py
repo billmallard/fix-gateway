@@ -239,6 +239,54 @@ def test_wrap360_function_combines_quality_flags():
     assert out.value == 0.0   # fail forces value to 0.0
 
 
+def test_select_routes_the_selected_source():
+    parent = FakeParent()
+    func = compute.selectFunction(
+        ["NAVSRC", "NAV1CRS", "NAV2CRS", "GPSCRS"], "COURSE", require_leader=False)
+
+    func("NAV1CRS", value_tuple(241.0), parent)
+    func("GPSCRS", value_tuple(7.7), parent)
+
+    func("NAVSRC", value_tuple(2.0), parent)          # 2 = GPS
+    assert parent.db_get_item("COURSE").value == 7.7
+    func("NAVSRC", value_tuple(0.0), parent)          # 0 = NAV1
+    assert parent.db_get_item("COURSE").value == 241.0
+
+
+def test_select_invalidates_output_when_selected_source_absent():
+    # Issue #84 companion: selecting a source that has never published must NOT
+    # leave the previously selected source's value showing as valid -- the
+    # canonical output is flagged failed (honest "no source"), then self-heals.
+    parent = FakeParent()
+    func = compute.selectFunction(
+        ["NAVSRC", "NAV1CRS", "NAV2CRS", "GPSCRS"], "COURSE", require_leader=False)
+
+    func("GPSCRS", value_tuple(7.7), parent)
+    func("NAVSRC", value_tuple(2.0), parent)          # GPS -> COURSE 7.7
+    course = parent.db_get_item("COURSE")
+    assert course.value == 7.7 and course.fail is False
+
+    func("NAVSRC", value_tuple(1.0), parent)          # NAV2, never published
+    assert course.fail is True                        # flagged, not stale-7.7
+
+    func("NAV2CRS", value_tuple(123.0), parent)       # source appears
+    assert course.value == 123.0 and course.fail is False
+
+
+def test_select_propagates_quality_flags():
+    parent = FakeParent()
+    func = compute.selectFunction(
+        ["NAVSRC", "NAV1CRS", "GPSCRS"], "COURSE", require_leader=False)
+
+    func("NAVSRC", value_tuple(0.0), parent)          # NAV1
+    func("NAV1CRS", value_tuple(241.0, old=True, bad=True), parent)
+    course = parent.db_get_item("COURSE")
+    assert course.old is True and course.bad is True
+
+    func("NAV1CRS", value_tuple(241.0, fail=True), parent)
+    assert course.fail is True and course.value == 0.0
+
+
 def test_max_and_min_forward_aux_metadata():
     parent = FakeParent()
     max_func = compute.maxFunction(["A", "B"], "MAX", require_leader=False)

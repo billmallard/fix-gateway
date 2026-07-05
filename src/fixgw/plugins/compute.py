@@ -775,15 +775,29 @@ def selectFunction(inputs, output, require_leader):
         vals[key] = value
         sel = vals[inputs[0]]
         if sel is None:
-            return  # no selection yet
+            return  # no selection yet -- leave the output untouched at boot
+        o = parent.db_get_item(output)
         idx = max(0, min(len(inputs) - 2, int(round(sel[0]))))
         src = vals[inputs[idx + 1]]
         if src is None:
-            return  # selected source has no value yet
-        o = parent.db_get_item(output)
+            # The selected source has never published a value. Do NOT leave the
+            # previously selected source's value showing as if it were valid --
+            # mark the canonical output FAILED so the HSI removes/flags the
+            # needle (an honest "no source"), rather than a stale, sourceless
+            # indication. Self-heals when the source starts publishing.
+            o.fail = True
+            return
+        # Copy the selected source's value AND its quality flags, so a stale,
+        # bad or failed source reads honestly downstream (the HSI greys/flags
+        # instead of showing a frozen or sourceless needle). Mirrors
+        # wrap360Function's flag handling.
         o.value = src[0]
-        o.bad = src[3]
         o.fail = src[4]
+        if o.fail:
+            o.value = 0.0
+        o.bad = src[3]
+        o.old = src[2]
+        o.secfail = src[5]
 
     return func
 
