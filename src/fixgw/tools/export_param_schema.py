@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+#  SPDX-License-Identifier: GPL-2.0-or-later
 """Export the aircraft-parameters schema for the web configurator.
 
 fix-gateway is the source of truth for FIX keys and their aux slots
