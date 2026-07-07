@@ -34,3 +34,35 @@ items:
   description: "GCU Edit Focus"
   type: str
   initial: "NONE"
+
+# --- Moving-map control-binding keys ----------------------------------------
+# Hand-defined UI/setting keys so a button or knob can drive the moving map's
+# range/orientation/terrain at runtime (makerplane-data docs/control_bindings.md,
+# Phase 1). The auto-generated UI-key namespace is Phase 3; these are the manual
+# stand-ins for testing. A control writes the key; the map derives the setting.
+#
+# IMPORTANT: an index_ladder key's max = the LADDER STEP COUNT (not count-1), so
+# "change value wrap" (span = max - min) reaches every index and rolls over.
+- key: MAPRANGE
+  description: "Moving map range (ladder index)"
+  type: int
+  min: 0
+  max: 7                 # steps in the default ladder 2,5,10,20,40,80,160
+  units: index
+  initial: 2             # index of 10 NM = the map's default range
+  tol: 0
+
+- key: MAPORIENT
+  description: "Moving map orientation (0=track up, 1=north up)"
+  type: int
+  min: 0
+  max: 2                 # two orientations
+  units: index
+  initial: 0
+  tol: 0
+
+- key: MAPTERRAIN
+  description: "Moving map terrain layer on/off"
+  type: bool
+  initial: true
+  tol: 0
