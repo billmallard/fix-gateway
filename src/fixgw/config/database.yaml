@@ -16,6 +16,7 @@ entries:
 - include: database/mavlink.yaml
 - include: database/system.yaml
 - include: database/control.yaml
+- include: database/map.yaml
 - include: database/misc.yaml
 - include: database/tires.yaml
 #################################################

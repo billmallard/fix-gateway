@@ -1,0 +1,31 @@
+# Moving-map control/setting keys.
+#
+# Avoid editing this file -- future updates may change it, and once edited it
+# will no longer be auto-updated. To change min/max/initial/tol, use custom.ini.
+#
+# These keys let a button or knob drive the pyEFIS moving map at runtime: a
+# control writes the key and the map derives the setting.
+items:
+- key: MAPRANGE
+  description: "Moving map range (ladder index)"
+  type: int
+  min: 0
+  max: 7                 # steps in the default ladder 2,5,10,20,40,80,160
+  units: index
+  initial: 2             # index of 10 NM = the map's default range
+  tol: 0
+
+- key: MAPORIENT
+  description: "Moving map orientation (0=track up, 1=north up)"
+  type: int
+  min: 0
+  max: 2
+  units: index
+  initial: 0
+  tol: 0
+
+- key: MAPTERRAIN
+  description: "Moving map terrain layer on/off"
+  type: bool
+  initial: true
+  tol: 0
