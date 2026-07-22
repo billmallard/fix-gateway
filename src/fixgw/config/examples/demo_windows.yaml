@@ -1,0 +1,111 @@
+# Windows-compatible demo config for fix-gateway
+# Strips Linux-only features: syslog, socketcan/CAN-FIX, backlight dimmer
+
+database file: "{CONFIG}/database.yaml"
+
+initialization files:
+  - "{CONFIG}/init_data/default.ini"
+
+connections:
+  netfix:
+    load: yes
+    module: fixgw.plugins.netfix
+    type: server
+    host: 0.0.0.0
+    port: 3490
+    buffer_size: 1024
+    timeout: 1.0
+
+  system:
+    load: yes
+    module: fixgw.plugins.system
+    time:
+      enable: yes
+      keys:
+        gmt_seconds: TIMEZS
+        gmt_minutes: TIMEZM
+        gmt_hours: TIMEZH
+        gmt_string: TIMEZ
+        local_seconds:
+        local_minutes:
+        local_hours:
+        local_string: TIMEL
+      gmt_format: "%H:%M:%SZ"
+      local_format: "%H:%M:%S %Z"
+
+  annunciate:
+    load: yes
+    module: fixgw.plugins.annunciate
+    defaults:
+      low_aux_point: lowAlarm
+      high_aux_point: highAlarm
+      start_bypass: no
+      cond_bypass: None
+      deadband: 1%
+    items:
+      - key: OILT1
+        start_bypass: yes
+        cond_bypass: TACH1 < 500
+        deadband: 4
+      - key: OILP1
+        start_bypass: yes
+        cond_bypass: TACH1 < 500
+        deadband: 2
+      - key: CHT11
+      - key: CHT12
+      - key: CHT13
+      - key: CHT14
+      - key: CURRNT
+      - key: VOLT
+        cond_bypass: TACH1 < 500
+      - key: FUELP1
+      - key: FUELQ1
+      - key: FUELQ2
+      - key: FUELQT
+      - key: OAT
+
+  compute:
+    load: yes
+    module: fixgw.plugins.compute
+    functions:
+      - function: average
+        inputs: ["EGT11", "EGT12", "EGT13", "EGT14"]
+        output: EGTAVG1
+      - function: span
+        inputs: ["EGT11", "EGT12", "EGT13", "EGT14"]
+        output: EGTSPAN1
+      - function: max
+        inputs: ["CHT11", "CHT12", "CHT13", "CHT14"]
+        output: CHTMAX1
+      - function: sum
+        inputs: ["FUELQ1", "FUELQ2"]
+        output: FUELQT
+      - function: wind_triangle
+        inputs: ["GS", "TRACK", "TAS", "HEAD"]
+        output: ["WINDSPD", "WINDDIR"]
+      - function: wind_components
+        inputs: ["WINDSPD", "WINDDIR", "HEAD"]
+        output: ["HWIND", "XWIND"]
+
+  demo:
+    load: yes
+    module: fixgw.plugins.demo
+
+logging:
+  version: 1
+  disable_existing_loggers: False
+  loggers:
+    '':
+      level: WARNING
+      handlers: [stderr]
+      propagate: True
+  formatters:
+    standard:
+      format: "%(levelname)s:%(asctime)s:%(name)s - %(message)s"
+      datefmt: "%Y%m%d-%H:%M:%S"
+      class: logging.Formatter
+  handlers:
+    stderr:
+      class: logging.StreamHandler
+      formatter: standard
+      stream: ext://sys.stderr

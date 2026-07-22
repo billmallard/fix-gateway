@@ -83,7 +83,7 @@ logging:
       #level: ERROR
       #level: CRITICAL
 
-      handlers: [stderr, syslog]
+      handlers: [stderr]
       propagate: True
 
   formatters:
@@ -105,8 +105,8 @@ logging:
 #      mode: w
 #      #mode: a
 
-    syslog:
-      class: logging.handlers.SysLogHandler
-      address: /dev/log
-      facility: local6
-      formatter: standard
+#    syslog:
+#      class: logging.handlers.SysLogHandler
+#      address: /dev/log
+#      facility: local6
+#      formatter: standard
