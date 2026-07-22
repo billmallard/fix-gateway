@@ -1,0 +1,41 @@
+# CANaerospace test mapfile.  Canids here are arbitrary test values in the
+# User-Defined High (200-299) and Normal Operation (300-1799) ranges; they
+# do not represent any real device.
+ignore_fixid_missing: false
+strict_types: false
+
+inputs:
+  - canid: 200          # 0xC8
+    fixid: TACH1
+    type: USHORT
+  - canid: 201
+    fixid: OILP1
+    type: FLOAT
+    converter: kpa2psi
+  - canid: 202
+    fixid: OILT1
+    type: FLOAT
+    converter: k2c
+    nodes: [16, 17]
+  - canid: 205          # one UCHAR4 frame feeds two cylinders
+    fixid: EGT11
+    type: UCHAR4
+    element: 0
+    scale: 10.0
+  - canid: 205
+    fixid: EGT12
+    type: UCHAR4
+    element: 1
+    scale: 10.0
+  - canid: 300
+    fixid: H2OT1
+    type: SHORT
+    scale: 0.1
+
+events:
+  - canid: 16
+    fixid: BTN1
+    match_code: null
+  - canid: 17
+    fixid: BTN2
+    match_code: 305419896   # 0x12345678
