@@ -1,0 +1,15 @@
+# Minimal bench config for GCU bring-up: database + netfix server only.
+# Run: python -m fixgw.server --config-file src/fixgw/config/bench_gcu.yaml
+database file: "{CONFIG}/database.yaml"
+auto start: true
+initialization files:
+   - "{CONFIG}/init_data/default.ini"
+connections:
+  netfix:
+    load: yes
+    module: fixgw.plugins.netfix
+    type: server
+    host: 0.0.0.0
+    port: 3490
+    buffer_size: 1024
+    timeout: 1.0

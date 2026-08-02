@@ -1,0 +1,15 @@
+# CANaerospace input bridge (e.g. Rotax 912iS / 915iS engine ECU).
+# Listen-only: decodes CANaerospace V1.7 frames and writes mapped values
+# into the FIX database.  This plugin never transmits on the bus.
+canaerospace:
+  load: no
+  module: fixgw.plugins.canaerospace
+  # python-can options. Bit rate is an interface-level concern:
+  # for socketcan set it with `ip link set can0 up type can bitrate ...`;
+  # for serial/slcan adapters see the python-can documentation.
+  interface: socketcan
+  channel: can0
+  mapfile: "{CONFIG}/canaerospace/rotax_is_map.yaml"
+  # Seconds without a frame from a higher-priority node before a
+  # lower-priority node's data is accepted (dual-lane failover).
+  node_timeout: 2.0

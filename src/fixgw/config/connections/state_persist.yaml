@@ -1,0 +1,12 @@
+# Persist pilot selections across restarts (issue #84).
+# Restores the last value of each listed key at startup and saves it back on
+# change. See fixgw/plugins/state_persist. NAVSRC (the HSI nav-source selector)
+# is the first consumer -- so a chosen GPS/VLOC source survives a reboot instead
+# of resetting to the default every boot.
+state_persist:
+  load: yes
+  module: fixgw.plugins.state_persist
+  keys:
+    - NAVSRC
+  # state_file: "{CONFIG}/persist_state.json"   # optional; default shown
+  # restore_delay: 2.0                           # seconds before restoring

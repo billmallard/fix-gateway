@@ -487,9 +487,6 @@ def AOAFunction(inputs, output, require_leader):
             ve = vals[each]
             if not isinstance(ve, tuple):
                 continue
-            if ve is None:
-                AOA_hist_count = 0
-                break
             if ve[2]:
                 AOA_hist_count = 0
                 break
@@ -760,6 +757,111 @@ def xteFunction(inputs, output, require_leader):
     return func
 
 
+def selectFunction(inputs, output, require_leader):
+    # inputs[0] is the selector key; inputs[1:] are the source options. The
+    # selector's (rounded, clamped) value picks which source is copied to the
+    # output, so ONE canonical key (e.g. CDI / COURSE) always carries the
+    # selected source -- which the HSI display and the autopilot both read.
+    # Models an EFIS nav-source selector (GPS / NAV1 / NAV2).
+    vals = {}
+    for each in inputs:
+        vals[each] = None
+
+    def func(key, value, parent):
+        if not quorum.leader and require_leader:
+            return  # Only the leader can do calculations
+        if type(value) != tuple:
+            return  # aux data, ignore
+        vals[key] = value
+        sel = vals[inputs[0]]
+        if sel is None:
+            return  # no selection yet -- leave the output untouched at boot
+        o = parent.db_get_item(output)
+        idx = max(0, min(len(inputs) - 2, int(round(sel[0]))))
+        src = vals[inputs[idx + 1]]
+        if src is None:
+            # The selected source has never published a value. Do NOT leave the
+            # previously selected source's value showing as if it were valid --
+            # mark the canonical output FAILED so the HSI removes/flags the
+            # needle (an honest "no source"), rather than a stale, sourceless
+            # indication. Self-heals when the source starts publishing.
+            o.fail = True
+            return
+        # Copy the selected source's value AND its quality flags, so a stale,
+        # bad or failed source reads honestly downstream (the HSI greys/flags
+        # instead of showing a frozen or sourceless needle). Mirrors
+        # wrap360Function's flag handling.
+        o.value = src[0]
+        o.fail = src[4]
+        if o.fail:
+            o.value = 0.0
+        o.bad = src[3]
+        o.old = src[2]
+        o.secfail = src[5]
+
+    return func
+
+
+def remapFunction(inputs, output, table, require_leader):
+    # inputs[0] is an index key; table is a list of output values. Emits
+    # table[round(index)] (clamped). Translates one selector scheme into
+    # another -- e.g. collapsing NAVSRC's optional dual GPS (GPS1=2, GPS2=3) onto
+    # X-Plane's single HSI_source_select GPS (2) via table [0, 1, 2, 2].
+    def func(key, value, parent):
+        if not quorum.leader and require_leader:
+            return
+        if type(value) != tuple:
+            return
+        i = max(0, min(len(table) - 1, int(round(value[0]))))
+        o = parent.db_get_item(output)
+        o.value = float(table[i])
+
+    return func
+
+
+def wrap360Function(inputs, output, require_leader):
+    """Sum of the inputs wrapped to [0, 360) -- modular heading/track addition.
+    e.g. magnetic ground track = true ground track + magnetic variation
+    (TRACKM = TRACK + MAGVAR), since MAG = TRUE + VAR."""
+    vals = {}
+    for each in inputs:
+        vals[each] = None
+
+    def func(key, value, parent):
+        if type(value) != tuple:
+            return  # This might be a meta data update
+        if not quorum.leader and require_leader:
+            return  # Only the leader can do calculations
+        vals[key] = value
+        arrsum = 0
+        flag_old = False
+        flag_bad = False
+        flag_fail = False
+        flag_secfail = False
+        for each in vals:
+            if vals[each] is None:
+                return  # We don't have one of each yet
+            arrsum += vals[each][0]
+            if vals[each][2]:
+                flag_old = True
+            if vals[each][3]:
+                flag_bad = True
+            if vals[each][4]:
+                flag_fail = True
+            if vals[each][5]:
+                flag_secfail = True
+        o = parent.db_get_item(output)
+        o.value = arrsum % 360.0
+        o.fail = flag_fail
+        if o.fail:
+            o.value = 0.0
+        o.bad = flag_bad
+        o.old = flag_old
+        o.secfail = flag_secfail
+
+    return func
+
+
 def windTriangle(inputs, output, require_leader):
     """Computes wind speed and direction from GPS wind triangle.
 
@@ -933,6 +1035,9 @@ class Plugin(plugin.PluginBase):
             "altd": altDensity,
             "encoder": encoderFunction,
             "set": setFunction,
+            "select": selectFunction,
+            "remap": remapFunction,
+            "wrap360": wrap360Function,
             "wind_triangle": windTriangle,
             "wind_components": windComponents,
         }
@@ -957,6 +1062,13 @@ class Plugin(plugin.PluginBase):
                         function["inputs"],
                         function["output"],
                         function["value"],
+                        req_lead,
+                    )
+                elif fname == "remap":
+                    f = aggregate_functions[fname](
+                        function["inputs"],
+                        function["output"],
+                        function["table"],
                         req_lead,
                     )
                 else:
