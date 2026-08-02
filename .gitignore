@@ -7,7 +7,10 @@
 doc/_*
 .ropeproject/*
 .directory
-config/
+# Anchored to the repo root: ignore a runtime ./config/, NOT the tracked
+# package config under src/fixgw/config/ (so new database/connection yaml is
+# tracked normally without git add -f).
+/config/
 init.marker
 venv.marker
 

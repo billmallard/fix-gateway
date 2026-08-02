@@ -161,6 +161,36 @@ items:
   initial: 0.0
   tol: 2000
 
+- key: HEADBUG
+  description: Selected Heading Bug
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 2000
+
+- key: MAGVAR
+  description: Local Magnetic Variation (positive = west variation, MAG = TRUE + VAR)
+  type: float
+  min: -30.0
+  max: 30.0
+  units: deg
+  initial: 0.0
+  tol: 60000
+
+- key: VPATH
+  description: Vertical Flight Path Angle (negative = descending). Authoritative
+    when source can compute it from instantaneous velocity components (e.g. a sim
+    or AHRS with inertial state) - pyEfis FPM falls back to atan2(VS, GS) when
+    VPATH is not published.
+  type: float
+  min: -90.0
+  max: 90.0
+  units: deg
+  initial: 0.0
+  tol: 2000
+
 - key: TRACK
   description: Current Aircraft Bearing
   type: float
@@ -202,6 +232,243 @@ items:
   min: -1.0
   max: 1.0
   initial: 0.0
+  tol: 2000
+
+# Nav-source selector + per-source course / lateral / vertical deviation. A
+# button cycles NAVSRC; the compute "select" routes the chosen source into the
+# canonical COURSE/CDI/GSI the HSI and autopilot read. max = the cycle modulus
+# (3 sources) so change-value-wrap steps 0 -> 1 -> 2 -> 0.
+#
+# Ordering is bus-native: 0=NAV1, 1=NAV2, 2=GPS matches CAN-FiX OBI Flags (id 450
+# b1:b2) and X-Plane's HSI_source_select, so XPHSISRC is an identity map (no table
+# inversion) and a real nav radio's OBI Flags decodes straight into NAVSRC.
+# initial 2.0 keeps the boot default on GPS. Extensible to 3=GPS2 (max 4).
+- key: NAVSRC
+  description: Selected Nav Source (0=NAV1, 1=NAV2, 2=GPS)
+  type: float
+  min: 0.0
+  max: 3.0
+  initial: 2.0
+  tol: 2000
+
+- key: GPSCRS
+  description: GPS Course
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 2000
+
+- key: GPSCDI
+  description: GPS Course Deviation
+  type: float
+  min: -1.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+- key: NAV1CRS
+  description: NAV1 OBS Course
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 2000
+
+- key: NAV1CDI
+  description: NAV1 Course Deviation
+  type: float
+  min: -1.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+- key: NAV2CRS
+  description: NAV2 OBS Course
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 2000
+
+- key: NAV2CDI
+  description: NAV2 Course Deviation
+  type: float
+  min: -1.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+- key: GPSGSI
+  description: GPS Vertical Deviation (glidepath)
+  type: float
+  min: -1.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+- key: NAV1GSI
+  description: NAV1 Glideslope Deviation
+  type: float
+  min: -1.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+- key: NAV2GSI
+  description: NAV2 Glideslope Deviation
+  type: float
+  min: -1.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+# Raw glideslope flag per source (X-Plane nav#_flag_glideslope: 1 = flagged / no
+# valid GS -- a VOR, or an ILS outside the reception cone; 0 = valid GS). A compute
+# remap inverts these into the NAV#GSV "valid" keys below. Default 1 so the GS is
+# flagged/hidden until a glideslope is actually received.
+- key: NAV1GSF
+  description: NAV1 glideslope flag (1=no valid GS)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 1.0
+  tol: 2000
+
+- key: NAV2GSF
+  description: NAV2 glideslope flag (1=no valid GS)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 1.0
+  tol: 2000
+
+- key: GPSGSF
+  description: GPS glidepath flag (1=no valid glidepath)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 1.0
+  tol: 2000
+
+# Localizer (lateral) display-valid per source (X-Plane nav#_display_horizontal:
+# 1 = the LOC/VOR deviation is in range / displayable; 0 = no valid lateral
+# signal). Gates the ILS glideslope: no GS diamond without a captured localizer.
+- key: NAV1DH
+  description: NAV1 localizer display valid (1=LOC shown)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+- key: NAV2DH
+  description: NAV2 localizer display valid (1=LOC shown)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+# Glideslope received per source, inverted from the flag above by a compute remap
+# (NAV#GSNF = NOT nav#_flag_glideslope). For the ILS sources this is combined with
+# the localizer-valid signal -- NAV#GSV = min(NAV#DH, NAV#GSNF) -- so the GS
+# diamond needs BOTH a received glideslope AND a valid localizer.
+- key: NAV1GSNF
+  description: NAV1 glideslope received (1=GS signal present)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+- key: NAV2GSNF
+  description: NAV2 glideslope received (1=GS signal present)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+# Glideslope/glidepath validity per source (1 = show the GS). GSV=0 hides the GS
+# diamond (VOR, ILS outside the cone, or ILS without a valid localizer); GSV=1
+# shows it. The selected source is routed into the canonical GSV the HSI reads.
+- key: NAV1GSV
+  description: NAV1 vertical guidance valid (1=GS present)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+- key: NAV2GSV
+  description: NAV2 vertical guidance valid (1=GS present)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+- key: GPSGSV
+  description: GPS vertical guidance valid (1=glidepath present)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+- key: GSV
+  description: Selected-source glideslope/glidepath valid (1=show GS needle)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+# VOR TO/FROM per source (0=off/flag, 1=TO, 2=FROM). From X-Plane nav#_fromto;
+# GPS has no TO/FROM so GPSTF stays 0. The HSI draws a TO/FROM triangle on the
+# course line for the selected source.
+- key: NAV1TF
+  description: NAV1 TO/FROM (0=off, 1=TO, 2=FROM)
+  type: float
+  min: 0.0
+  max: 2.0
+  initial: 0.0
+  tol: 2000
+
+- key: NAV2TF
+  description: NAV2 TO/FROM (0=off, 1=TO, 2=FROM)
+  type: float
+  min: 0.0
+  max: 2.0
+  initial: 0.0
+  tol: 2000
+
+- key: GPSTF
+  description: GPS TO/FROM (always 0 - GPS has no TO/FROM)
+  type: float
+  min: 0.0
+  max: 2.0
+  initial: 0.0
+  tol: 2000
+
+- key: TOFROM
+  description: Selected-source TO/FROM (0=off, 1=TO, 2=FROM)
+  type: float
+  min: 0.0
+  max: 2.0
+  initial: 0.0
+  tol: 2000
+
+- key: XPHSISRC
+  description: X-Plane HSI source index (0=NAV1, 1=NAV2, 2=GPS) = NAVSRC (identity map)
+  type: float
+  min: 0.0
+  max: 2.0
+  initial: 2.0
   tol: 2000
 
 - key: XTRACK
@@ -393,4 +660,40 @@ items:
   max: 60000
   initial: 0
   tol: 2000
- 
+
+- key: WINDSPD
+  description: Wind Speed
+  type: float
+  min: 0.0
+  max: 200.0
+  units: knots
+  initial: 0.0
+  tol: 20000
+
+- key: WINDDIR
+  description: Wind Direction (magnetic, from direction)
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 20000
+
+- key: HWIND
+  description: Headwind component (positive = headwind, negative = tailwind)
+  type: float
+  min: -200.0
+  max: 200.0
+  units: knots
+  initial: 0.0
+  tol: 20000
+
+- key: XWIND
+  description: Crosswind component (positive = from right, negative = from left)
+  type: float
+  min: -200.0
+  max: 200.0
+  units: knots
+  initial: 0.0
+  tol: 20000
+

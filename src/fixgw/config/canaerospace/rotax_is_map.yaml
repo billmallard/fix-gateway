@@ -1,0 +1,65 @@
+# CANaerospace -> FIX mapping for the Rotax 912iS / 915iS engine ECU.
+#
+# SKELETON -- every mapping entry below is commented out ON PURPOSE.
+# The CAN identifiers used by the Rotax ECU are NOT published in this
+# repository and none have been invented here.  An entry may be
+# uncommented ONLY after it has passed a bench check against a real
+# engine or ECU.  The authoritative sources, in order:
+#
+#   1. The BRP-Rotax Installation Manual for the 912 iS / 915 iS, CAN bus
+#      appendix (available via the Rotax owner/OEM portal).  Also verify
+#      the bus BIT RATE there before bench day -- it is an `ip link`
+#      setting, not plugin configuration.
+#   2. A bench capture from a real engine or ECU (`candump -ta can0`),
+#      correlating values against the cockpit display while varying
+#      RPM / temperatures.
+#   3. Open-source decoders as cross-checks (Kanardia / MGL protocol
+#      notes, GitHub "Rotax 912iS CAN" projects).
+#
+# Fill in each entry's canid (and type/scale/converter as observed), test
+# it on the bench, then uncomment it.  The FIX key decisions below are
+# final -- they are the existing engine vocabulary in
+# src/fixgw/config/database/engine.yaml.
+#
+#   Rotax parameter        FIX key   notes
+#   ---------------------  --------  -------------------------------------
+#   Engine speed           TACH1     rpm, no converter expected
+#   Manifold pressure      MAP1      likely kPa or hPa -> kpa2inhg
+#   Oil pressure           OILP1     likely kPa -> kpa2psi
+#   Oil temperature        OILT1     likely K or degC -> k2c if needed
+#   Coolant temperature    H2OT1     as oil temperature
+#   EGT cylinder n         EGT1n     one entry per reported cylinder
+#   Throttle position      THR1      likely 0-1 or % (THR1 is 0-1; use
+#                                    scale, not pct, if the wire is %)
+#   Fuel pressure (915iS)  FUELP1    likely kPa -> kpa2psi
+#   System voltage         VOLT      volts
+#   Lane/status word       (none)    v1: visible in plugin status only;
+#                                    latching annunciator keys are a
+#                                    follow-up
+#
+# The Rotax dual-lane ECU broadcasts from two node-ids; once those are
+# known from the bench, list them in priority order on each entry, e.g.
+# `nodes: [<lane A>, <lane B>]`, and the plugin will fail over when the
+# preferred lane goes quiet for node_timeout seconds.
+
+ignore_fixid_missing: false
+strict_types: false
+
+inputs: []
+# Template for a bench-verified entry:
+#  - canid: 0x000          # from the Rotax manual or bench capture ONLY
+#    fixid: TACH1
+#    type: USHORT          # expectation check; the wire's type byte rules
+#    element: 0            # index into multi-element types (0-3)
+#    scale: 1.0            # value*scale + offset, then converter
+#    offset: 0.0
+#    converter: none       # none|k2c|c2f|kpa2inhg|kpa2psi|mps2knots|m2ft|pct
+#    nodes: [16, 17]       # allowed sender node-ids, priority order
+
+events: []
+# Emergency Event Data (canid 0-127) can latch an annunciator fixid.
+# The fixid stays true until reset by pilot/screen logic (the sender's
+# event is edge-triggered).
+#  - canid: 0x00
+#    fixid: BTN1
+#    match_code: null      # only fire when the 4-byte payload equals this

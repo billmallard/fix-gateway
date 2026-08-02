@@ -27,6 +27,84 @@ compute:
     - function: xte
       inputs: ["LAT", "LONG", "WPLAT", "WPLON", "COURSE"]
       output: XTRACK
+    # Magnetic ground track = true ground track (TRACK) + magnetic variation
+    # (MAGVAR), wrapped to [0,360). The HSI compass rose is magnetic (HEAD), so
+    # its ground-track diamond must read TRACKM, not TRACK (true) -- otherwise the
+    # diamond sits off by the full magnetic variation.
+    - function: wrap360
+      inputs: ["TRACK", "MAGVAR"]
+      output: TRACKM
+      require_leader: false
+    # EFIS nav-source selector: NAVSRC (0=NAV1, 1=NAV2, 2=GPS) routes the
+    # selected source's course / lateral / vertical deviation into the canonical
+    # COURSE / CDI / GSI the HSI + autopilot read. Source order matches NAVSRC:
+    # inputs[1]=NAV1, inputs[2]=NAV2, inputs[3]=GPS. require_leader off so it runs
+    # without a quorum leader.
+    - function: select
+      inputs: ["NAVSRC", "NAV1CRS", "NAV2CRS", "GPSCRS"]
+      output: COURSE
+      require_leader: false
+    - function: select
+      inputs: ["NAVSRC", "NAV1CDI", "NAV2CDI", "GPSCDI"]
+      output: CDI
+      require_leader: false
+    - function: select
+      inputs: ["NAVSRC", "NAV1GSI", "NAV2GSI", "GPSGSI"]
+      output: GSI
+      require_leader: false
+    # Per-source glideslope-valid + TO/FROM, routed to the canonical GSV / TOFROM
+    # the HSI reads (GSV=0 hides the GS needle; TOFROM drives the TO/FROM triangle).
+    #
+    # An ILS glideslope diamond requires BOTH a received glideslope AND a valid
+    # localizer -- a real HSI never shows vertical guidance without lateral
+    # capture. So for the ILS sources (NAV1/NAV2):
+    #   NAV#GSNF = NOT nav#_flag_glideslope    (glideslope actually received)
+    #   NAV#GSV  = min(NAV#DH, NAV#GSNF)        (LOC displayed AND GS received)
+    # where NAV#DH is X-Plane's nav#_display_horizontal (localizer valid / in
+    # range). This suppresses the GS when off the localizer -- turned off the
+    # approach, or a false glideslope lobe while climbing out -- matching how
+    # X-Plane's own HSI and modern glass behave. GPS/LPV has no separate localizer,
+    # so its glidepath follows the flag alone.
+    - function: remap
+      inputs: ["NAV1GSF"]
+      output: NAV1GSNF
+      table: [1, 0]
+      require_leader: false
+    - function: min
+      inputs: ["NAV1DH", "NAV1GSNF"]
+      output: NAV1GSV
+      require_leader: false
+    - function: remap
+      inputs: ["NAV2GSF"]
+      output: NAV2GSNF
+      table: [1, 0]
+      require_leader: false
+    - function: min
+      inputs: ["NAV2DH", "NAV2GSNF"]
+      output: NAV2GSV
+      require_leader: false
+    - function: remap
+      inputs: ["GPSGSF"]
+      output: GPSGSV
+      table: [1, 0]
+      require_leader: false
+    - function: select
+      inputs: ["NAVSRC", "NAV1GSV", "NAV2GSV", "GPSGSV"]
+      output: GSV
+      require_leader: false
+    - function: select
+      inputs: ["NAVSRC", "NAV1TF", "NAV2TF", "GPSTF"]
+      output: TOFROM
+      require_leader: false
+    # NAVSRC already matches X-Plane's HSI_source_select numbering
+    # (0=NAV1, 1=NAV2, 2=GPS), so XPHSISRC is an identity map; the table is kept
+    # as the seam that collapses an optional GPS2 (3) onto X-Plane's GPS (2).
+    # The xplane plugin's dataref_writes sends XPHSISRC out as a DREF.
+    - function: remap
+      inputs: ["NAVSRC"]
+      output: XPHSISRC
+      table: [0, 1, 2]
+      require_leader: false
     #   inputs: []
     #   output: x
     # - function: span
