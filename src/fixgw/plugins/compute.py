@@ -862,6 +862,160 @@ def wrap360Function(inputs, output, require_leader):
     return func
 
 
+def windTriangle(inputs, output, require_leader):
+    """Computes wind speed and direction from GPS wind triangle.
+
+    inputs order: [GS, TRACK, TAS, HEAD]
+    output: [windspd_key, winddir_key]
+    All angles in degrees magnetic.  Speeds in knots.
+    Writes windspd_key (knots) and winddir_key (degrees, FROM direction).
+    """
+    vals = {}
+    for each in inputs:
+        vals[each] = None
+
+    def func(key, value, parent):
+        if type(value) != tuple:
+            return
+        if not quorum.leader and require_leader:
+            return
+
+        vals[key] = value
+        flag_old = False
+        flag_bad = False
+        flag_fail = False
+        flag_secfail = False
+        for each in vals:
+            if vals[each] is None:
+                return
+            if vals[each][2]:
+                flag_old = True
+            if vals[each][3]:
+                flag_bad = True
+            if vals[each][4]:
+                flag_fail = True
+            if vals[each][5]:
+                flag_secfail = True
+
+        o_spd = parent.db_get_item(output[0])
+        o_dir = parent.db_get_item(output[1])
+
+        if flag_fail:
+            o_spd.value = 0.0
+            o_spd.fail = True
+            o_dir.value = 0.0
+            o_dir.fail = True
+            return
+
+        gs = vals[inputs[0]][0]
+        track_rad = math.radians(vals[inputs[1]][0])
+        tas = vals[inputs[2]][0]
+        head_rad = math.radians(vals[inputs[3]][0])
+
+        # Ground velocity vector (north/east components)
+        gv_n = gs * math.cos(track_rad)
+        gv_e = gs * math.sin(track_rad)
+
+        # Air velocity vector (north/east components)
+        av_n = tas * math.cos(head_rad)
+        av_e = tas * math.sin(head_rad)
+
+        # Wind velocity vector (direction wind is blowing TO)
+        wv_n = gv_n - av_n
+        wv_e = gv_e - av_e
+
+        windspd = math.sqrt(wv_n ** 2 + wv_e ** 2)
+        # Wind FROM direction = atan2 of wind-to vector + 180
+        winddir = (math.degrees(math.atan2(wv_e, wv_n)) + 180.0) % 360.0
+
+        o_spd.value = windspd
+        o_spd.fail = False
+        o_spd.bad = flag_bad
+        o_spd.old = flag_old
+        o_spd.secfail = flag_secfail
+
+        o_dir.value = winddir
+        o_dir.fail = False
+        o_dir.bad = flag_bad
+        o_dir.old = flag_old
+        o_dir.secfail = flag_secfail
+
+    return func
+
+
+def windComponents(inputs, output, require_leader):
+    """Computes headwind and crosswind components from wind speed/direction and heading.
+
+    inputs order: [WINDSPD, WINDDIR, HEAD]
+    output: [hwind_key, xwind_key]
+    WINDDIR and HEAD in degrees magnetic.  WINDSPD in knots.
+    HWIND positive = headwind, negative = tailwind.
+    XWIND positive = wind from right, negative = wind from left.
+    """
+    vals = {}
+    for each in inputs:
+        vals[each] = None
+
+    def func(key, value, parent):
+        if type(value) != tuple:
+            return
+        if not quorum.leader and require_leader:
+            return
+
+        vals[key] = value
+        flag_old = False
+        flag_bad = False
+        flag_fail = False
+        flag_secfail = False
+        for each in vals:
+            if vals[each] is None:
+                return
+            if vals[each][2]:
+                flag_old = True
+            if vals[each][3]:
+                flag_bad = True
+            if vals[each][4]:
+                flag_fail = True
+            if vals[each][5]:
+                flag_secfail = True
+
+        o_hw = parent.db_get_item(output[0])
+        o_xw = parent.db_get_item(output[1])
+
+        if flag_fail:
+            o_hw.value = 0.0
+            o_hw.fail = True
+            o_xw.value = 0.0
+            o_xw.fail = True
+            return
+
+        windspd = vals[inputs[0]][0]
+        winddir_rad = math.radians(vals[inputs[1]][0])
+        head_rad = math.radians(vals[inputs[2]][0])
+
+        # Angle between wind-from direction and heading
+        # Headwind = wind_from projected onto heading axis
+        # Crosswind = wind_from projected onto 90-deg-right axis
+        relative_rad = winddir_rad - head_rad
+
+        hwind = windspd * math.cos(relative_rad)
+        xwind = windspd * math.sin(relative_rad)
+
+        o_hw.value = hwind
+        o_hw.fail = False
+        o_hw.bad = flag_bad
+        o_hw.old = flag_old
+        o_hw.secfail = flag_secfail
+
+        o_xw.value = xwind
+        o_xw.fail = False
+        o_xw.bad = flag_bad
+        o_xw.old = flag_old
+        o_xw.secfail = flag_secfail
+
+    return func
+
+
 class Plugin(plugin.PluginBase):
     # def __init__(self, name, config):
     #     super(Plugin, self).__init__(name, config)
@@ -884,6 +1038,8 @@ class Plugin(plugin.PluginBase):
             "select": selectFunction,
             "remap": remapFunction,
             "wrap360": wrap360Function,
+            "wind_triangle": windTriangle,
+            "wind_components": windComponents,
         }
 
         for function in self.config["functions"]:

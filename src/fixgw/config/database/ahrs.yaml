@@ -660,4 +660,40 @@ items:
   max: 60000
   initial: 0
   tol: 2000
- 
+
+- key: WINDSPD
+  description: Wind Speed
+  type: float
+  min: 0.0
+  max: 200.0
+  units: knots
+  initial: 0.0
+  tol: 20000
+
+- key: WINDDIR
+  description: Wind Direction (magnetic, from direction)
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 20000
+
+- key: HWIND
+  description: Headwind component (positive = headwind, negative = tailwind)
+  type: float
+  min: -200.0
+  max: 200.0
+  units: knots
+  initial: 0.0
+  tol: 20000
+
+- key: XWIND
+  description: Crosswind component (positive = from right, negative = from left)
+  type: float
+  min: -200.0
+  max: 200.0
+  units: knots
+  initial: 0.0
+  tol: 20000
+
