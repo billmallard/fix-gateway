@@ -757,6 +757,74 @@ def xteFunction(inputs, output, require_leader):
     return func
 
 
+def bearingFunction(inputs, output, require_leader):
+    """Great-circle initial bearing FROM the aircraft TO the active waypoint.
+
+    inputs order: [aircraft_lat, aircraft_lon, waypoint_lat, waypoint_lon]
+    output: a single numeric key, degrees TRUE, wrapped to [0, 360).
+
+    This is the GPS bearing-to-waypoint source for an HSI bearing pointer -- the
+    direction from the aircraft toward the active waypoint. It reuses the same
+    great-circle helper as xteFunction (_initial_bearing_rad), called
+    aircraft -> waypoint so the value points AT the waypoint.
+
+    The value is TRUE. An HSI compass rose is magnetic, so the magnetic pointer
+    source (GPSBRG) is produced downstream by a wrap360 of this true bearing +
+    MAGVAR -- exactly the TRACK -> TRACKM idiom (see connections/compute.yaml).
+    Keeping the trig here true-referenced keeps this function a pure geometric
+    compute and leaves the one magnetic-variation seam in one place.
+    """
+    vals = {}
+    for each in inputs:
+        vals[each] = None
+
+    def func(key, value, parent):
+        if type(value) != tuple:
+            return  # This might be a meta data update
+        if not quorum.leader and require_leader:
+            return  # Only the leader can do calculations
+
+        vals[key] = value
+        flag_old = False
+        flag_bad = False
+        flag_fail = False
+        flag_secfail = False
+        for each in vals:
+            if vals[each] is None:
+                return  # We don't have one of each yet
+            if vals[each][2]:
+                flag_old = True
+            if vals[each][3]:
+                flag_bad = True
+            if vals[each][4]:
+                flag_fail = True
+            if vals[each][5]:
+                flag_secfail = True
+
+        o = parent.db_get_item(output)
+        if flag_fail:
+            o.value = 0.0
+            o.fail = True
+            o.bad = flag_bad
+            o.old = flag_old
+            o.secfail = flag_secfail
+            return
+
+        own_lat = vals[inputs[0]][0]
+        own_lon = vals[inputs[1]][0]
+        wp_lat = vals[inputs[2]][0]
+        wp_lon = vals[inputs[3]][0]
+
+        bearing_rad = _initial_bearing_rad(own_lat, own_lon, wp_lat, wp_lon)
+        o.value = math.degrees(bearing_rad) % 360.0
+        o.fail = False
+        o.bad = flag_bad
+        o.old = flag_old
+        o.secfail = flag_secfail
+
+    return func
+
+
 def selectFunction(inputs, output, require_leader):
     # inputs[0] is the selector key; inputs[1:] are the source options. The
     # selector's (rounded, clamped) value picks which source is copied to the
@@ -1030,6 +1098,7 @@ class Plugin(plugin.PluginBase):
             "min": minFunction,
             "span": spanFunction,
             "xte": xteFunction,
+            "bearing": bearingFunction,
             "aoa": AOAFunction,
             "altp": altPressure,
             "altd": altDensity,

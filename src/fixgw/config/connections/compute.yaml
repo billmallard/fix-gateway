@@ -27,6 +27,35 @@ compute:
     - function: xte
       inputs: ["LAT", "LONG", "WPLAT", "WPLON", "COURSE"]
       output: XTRACK
+    # HSI bearing pointers (P5b.1). GPS bearing-to-active-waypoint: the great-
+    # circle initial bearing from the aircraft (LAT/LONG) to the active waypoint
+    # (WPLAT/WPLON), degrees TRUE. Same inputs the xte block already consumes.
+    - function: bearing
+      inputs: ["LAT", "LONG", "WPLAT", "WPLON"]
+      output: GPSBRGT
+      require_leader: false
+    # Make the GPS bearing magnetic for the magnetic compass rose, exactly like
+    # TRACK -> TRACKM: GPSBRG (mag) = GPSBRGT (true) + MAGVAR, wrapped [0,360).
+    - function: wrap360
+      inputs: ["GPSBRGT", "MAGVAR"]
+      output: GPSBRG
+      require_leader: false
+    # Per-pointer bearing-source selectors, mirroring the NAVSRC/COURSE select.
+    # BRG#SRC (0=VOR1, 1=VOR2, 2=GPS) routes one of the three bearing sources
+    # into the canonical BRG# the HSI needle reads, so one-key-one-writer holds
+    # (each BRG# has exactly one writer, this select). VOR1BRG/VOR2BRG are fed by
+    # the active bench source (X-Plane nav#_bearing_deg_mag, see xplane.yaml);
+    # the on-aircraft CAN-FiX path (VOR radial 1228/1232 = bearing FROM, so
+    # radial + 180 via a wrap360 with a 180 constant) is the follow-on and, being
+    # a separate deployment, is the single writer there instead of X-Plane.
+    - function: select
+      inputs: ["BRG1SRC", "VOR1BRG", "VOR2BRG", "GPSBRG"]
+      output: BRG1
+      require_leader: false
+    - function: select
+      inputs: ["BRG2SRC", "VOR1BRG", "VOR2BRG", "GPSBRG"]
+      output: BRG2
+      require_leader: false
     # Magnetic ground track = true ground track (TRACK) + magnetic variation
     # (MAGVAR), wrapped to [0,360). The HSI compass rose is magnetic (HEAD), so
     # its ground-track diamond must read TRACKM, not TRACK (true) -- otherwise the

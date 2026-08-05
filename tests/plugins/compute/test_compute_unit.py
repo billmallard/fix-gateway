@@ -95,6 +95,7 @@ def test_alt_density_waits_for_inputs_and_computes_value():
         (compute.maxFunction, (["A", "B"], "OUT")),
         (compute.minFunction, (["A", "B"], "OUT")),
         (compute.spanFunction, (["A", "B"], "OUT")),
+        (compute.bearingFunction, (["LAT", "LONG", "WPLAT", "WPLON"], "OUT")),
         (compute.AOAFunction, (["PITCH", "IAS", "ANORM", "HEAD", "VS", 2, 3, 100, 100, 50, 5, 5, 3, 3], "OUT")),
     ],
 )
@@ -564,6 +565,122 @@ def test_xte_propagates_non_fail_quality_flags():
     assert output.old is True
     assert output.bad is True
     assert output.secfail is True
+
+
+@pytest.mark.parametrize(
+    "wp_lat,wp_lon,expected",
+    [
+        (0.0, 10.0, 90.0),    # due east
+        (10.0, 0.0, 0.0),     # due north
+        (0.0, -10.0, 270.0),  # due west (atan2 -> -90, wrapped to [0,360))
+        (-10.0, 0.0, 180.0),  # due south
+    ],
+)
+def test_bearing_computes_cardinal_directions(wp_lat, wp_lon, expected):
+    parent = FakeParent()
+    func = compute.bearingFunction(
+        ["LAT", "LONG", "WPLAT", "WPLON"], "GPSBRGT", require_leader=False)
+
+    func("LAT", value_tuple(0.0), parent)
+    func("LONG", value_tuple(0.0), parent)
+    func("WPLAT", value_tuple(wp_lat), parent)
+    func("WPLON", value_tuple(wp_lon), parent)
+
+    out = parent.db_get_item("GPSBRGT")
+    assert out.value == pytest.approx(expected, abs=1e-6)
+    assert 0.0 <= out.value < 360.0
+    assert out.fail is False
+
+
+def test_bearing_matches_reference_great_circle_and_stays_wrapped():
+    # A non-cardinal case cross-checked against the shared helper, proving the
+    # fn wraps atan2's [-pi, pi] result into [0, 360) rather than leaving a
+    # negative bearing.
+    parent = FakeParent()
+    func = compute.bearingFunction(
+        ["LAT", "LONG", "WPLAT", "WPLON"], "GPSBRGT", require_leader=False)
+
+    # Aircraft in the northern hemisphere, waypoint to the southwest -> a bearing
+    # in the third quadrant (180-270), which comes out of atan2 negative.
+    func("LAT", value_tuple(40.0), parent)
+    func("LONG", value_tuple(-100.0), parent)
+    func("WPLAT", value_tuple(30.0), parent)
+    func("WPLON", value_tuple(-110.0), parent)
+
+    import math as _math
+    expected = _math.degrees(
+        compute._initial_bearing_rad(40.0, -100.0, 30.0, -110.0)) % 360.0
+    out = parent.db_get_item("GPSBRGT")
+    assert out.value == pytest.approx(expected, abs=1e-9)
+    assert 180.0 < out.value < 270.0  # third quadrant, and positively wrapped
+
+
+def test_bearing_waits_for_all_inputs():
+    parent = FakeParent()
+    parent.db_get_item("GPSBRGT").value = -1.0  # sentinel: proves no write
+    func = compute.bearingFunction(
+        ["LAT", "LONG", "WPLAT", "WPLON"], "GPSBRGT", require_leader=False)
+
+    func("LAT.Meta", 1, parent)            # meta ignored
+    func("LAT", value_tuple(0.0), parent)
+    func("LONG", value_tuple(0.0), parent)
+    func("WPLAT", value_tuple(10.0), parent)
+
+    assert parent.db_get_item("GPSBRGT").value == -1.0  # WPLON missing -> no write
+
+
+def test_bearing_propagates_non_fail_quality_flags():
+    parent = FakeParent()
+    func = compute.bearingFunction(
+        ["LAT", "LONG", "WPLAT", "WPLON"], "GPSBRGT", require_leader=False)
+
+    func("LAT", value_tuple(0.0, old=True), parent)
+    func("LONG", value_tuple(0.0, bad=True), parent)
+    func("WPLAT", value_tuple(0.0), parent)
+    func("WPLON", value_tuple(10.0, secfail=True), parent)
+
+    out = parent.db_get_item("GPSBRGT")
+    assert out.value == pytest.approx(90.0)
+    assert out.fail is False
+    assert out.old is True
+    assert out.bad is True
+    assert out.secfail is True
+
+
+def test_bearing_failed_input_zeroes_and_fails_output():
+    parent = FakeParent()
+    func = compute.bearingFunction(
+        ["LAT", "LONG", "WPLAT", "WPLON"], "GPSBRGT", require_leader=False)
+
+    func("LAT", value_tuple(0.0), parent)
+    func("LONG", value_tuple(0.0), parent)
+    func("WPLAT", value_tuple(0.0), parent)
+    func("WPLON", value_tuple(10.0, old=True, fail=True), parent)
+
+    out = parent.db_get_item("GPSBRGT")
+    assert out.value == 0.0
+    assert out.fail is True
+    assert out.old is True
+
+
+def test_bearing_select_arbitrates_pointer_among_three_sources():
+    # End-to-end of the pointer data layer: the per-pointer select routes one of
+    # {VOR1BRG, VOR2BRG, GPSBRG} into the canonical BRG1 the HSI needle reads.
+    # Mirrors the NAVSRC/COURSE select ordering: 0=VOR1, 1=VOR2, 2=GPS.
+    parent = FakeParent()
+    func = compute.selectFunction(
+        ["BRG1SRC", "VOR1BRG", "VOR2BRG", "GPSBRG"], "BRG1", require_leader=False)
+
+    func("VOR1BRG", value_tuple(120.0), parent)
+    func("VOR2BRG", value_tuple(200.0), parent)
+    func("GPSBRG", value_tuple(33.0), parent)
+
+    func("BRG1SRC", value_tuple(2.0), parent)   # GPS
+    assert parent.db_get_item("BRG1").value == 33.0
+    func("BRG1SRC", value_tuple(0.0), parent)   # VOR1
+    assert parent.db_get_item("BRG1").value == 120.0
+    func("BRG1SRC", value_tuple(1.0), parent)   # VOR2
+    assert parent.db_get_item("BRG1").value == 200.0
 
 
 def test_plugin_run_registers_special_functions_and_unknown_function():

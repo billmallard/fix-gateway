@@ -471,6 +471,94 @@ items:
   initial: 2.0
   tol: 2000
 
+# HSI bearing pointers (P5b.1). Two selectable needles (BRG1/BRG2), each a
+# bearing TO a station/waypoint that the HSI draws relative to HEAD. Three
+# sources feed them -- two VOR radios (VOR1BRG/VOR2BRG) and GPS-to-waypoint
+# (GPSBRG) -- and a per-pointer selector (BRG1SRC/BRG2SRC) picks which source
+# each needle follows, via the compute "select" (connections/compute.yaml). All
+# bearings are degrees MAGNETIC so they register on the magnetic compass rose:
+#   - VOR1BRG/VOR2BRG: bearing TO the station. On the sim bench X-Plane's
+#     nav#_bearing_deg_mag supplies this directly; on a real aircraft the CAN-FiX
+#     VOR radial (canid 1228/1232) is bearing FROM the station, so the on-aircraft
+#     path converts radial + 180 (see connections/compute.yaml notes).
+#   - GPSBRG: true bearing-to-waypoint (GPSBRGT, the compute "bearing" fn) made
+#     magnetic by a wrap360 with MAGVAR, mirroring TRACK -> TRACKM.
+# One writer per key: each per-source key has exactly one producer, and each
+# BRG# is written only by its select.
+- key: GPSBRGT
+  description: GPS bearing to active waypoint (true)
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 2000
+
+- key: GPSBRG
+  description: GPS bearing to active waypoint (magnetic)
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 2000
+
+- key: VOR1BRG
+  description: VOR1 bearing to station (magnetic)
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 2000
+
+- key: VOR2BRG
+  description: VOR2 bearing to station (magnetic)
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 2000
+
+# Per-pointer source selectors (0=VOR1, 1=VOR2, 2=GPS). A button/HMI cycles
+# these; max = the cycle modulus (3 sources) so change-value-wrap steps
+# 0 -> 1 -> 2 -> 0. Defaults give two distinct pointers out of the box:
+# pointer 1 = GPS, pointer 2 = VOR1.
+- key: BRG1SRC
+  description: Bearing pointer 1 source (0=VOR1, 1=VOR2, 2=GPS)
+  type: float
+  min: 0.0
+  max: 3.0
+  initial: 2.0
+  tol: 2000
+
+- key: BRG2SRC
+  description: Bearing pointer 2 source (0=VOR1, 1=VOR2, 2=GPS)
+  type: float
+  min: 0.0
+  max: 3.0
+  initial: 0.0
+  tol: 2000
+
+- key: BRG1
+  description: Bearing pointer 1 (selected source, magnetic)
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 2000
+
+- key: BRG2
+  description: Bearing pointer 2 (selected source, magnetic)
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 2000
+
 - key: XTRACK
   description: Signed Cross Track Error (left/right of desired course)
   type: float
