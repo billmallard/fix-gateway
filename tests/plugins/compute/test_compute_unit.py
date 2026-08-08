@@ -1,3 +1,4 @@
+import math
 from unittest.mock import MagicMock
 
 import pytest
@@ -723,4 +724,271 @@ def test_plugin_run_registers_special_functions_and_unknown_function():
     assert pl.db_callback_add.call_args_list[1].args[0] == "SW"
     assert pl.db_callback_add.call_args_list[2].args[0] == "A"
     pl.log.warning.assert_called_once_with("Unknown function - mystery")
+    pl.stop()
+
+
+# ---------------------------------------------------------------------------
+# windTriangle -- WINDSPD / WINDDIR from the GPS wind triangle (GS, TRACK,
+# TAS, HEAD).  WINDDIR is the direction the wind is FROM.
+# ---------------------------------------------------------------------------
+
+
+def _feed_wind_triangle(func, parent, gs, track, tas, head):
+    func("GS", value_tuple(gs), parent)
+    func("TRACK", value_tuple(track), parent)
+    func("TAS", value_tuple(tas), parent)
+    func("HEAD", value_tuple(head), parent)
+
+
+def test_wind_triangle_pure_headwind():
+    parent = FakeParent()
+    func = compute.windTriangle(
+        ["GS", "TRACK", "TAS", "HEAD"], ["WINDSPD", "WINDDIR"], require_leader=False)
+
+    # Flying due north, 100 kt TAS but only 80 kt over the ground -> 20 kt
+    # straight on the nose, wind FROM the north (000).
+    _feed_wind_triangle(func, parent, gs=80.0, track=0.0, tas=100.0, head=0.0)
+
+    assert parent.db_get_item("WINDSPD").value == pytest.approx(20.0)
+    assert parent.db_get_item("WINDDIR").value == pytest.approx(0.0)
+    assert parent.db_get_item("WINDSPD").fail is False
+    assert parent.db_get_item("WINDDIR").fail is False
+
+
+def test_wind_triangle_from_direction_convention():
+    parent = FakeParent()
+    func = compute.windTriangle(
+        ["GS", "TRACK", "TAS", "HEAD"], ["WINDSPD", "WINDDIR"], require_leader=False)
+
+    # Heading due north at 100 kt TAS, tracking 315 at 100*sqrt(2) kt GS: a
+    # 100 kt crosswind pushing the aircraft left -> the wind is FROM the right,
+    # i.e. FROM 090.  Verifies WINDDIR is the FROM direction, not the TO.
+    _feed_wind_triangle(
+        func, parent, gs=math.sqrt(2) * 100.0, track=315.0, tas=100.0, head=0.0)
+
+    assert parent.db_get_item("WINDSPD").value == pytest.approx(100.0)
+    assert parent.db_get_item("WINDDIR").value == pytest.approx(90.0)
+
+
+def test_wind_triangle_waits_for_all_inputs():
+    parent = FakeParent()
+    func = compute.windTriangle(
+        ["GS", "TRACK", "TAS", "HEAD"], ["WINDSPD", "WINDDIR"], require_leader=False)
+
+    func("GS", value_tuple(80.0), parent)
+    func("TRACK", value_tuple(0.0), parent)
+    func("TAS", value_tuple(100.0), parent)
+    # HEAD still missing -> nothing written to either output.
+    assert parent.db_get_item("WINDSPD").value == 0.0
+    assert parent.db_get_item("WINDDIR").value == 0.0
+
+
+def test_wind_triangle_respects_leader_requirement(monkeypatch):
+    parent = FakeParent()
+    func = compute.windTriangle(
+        ["GS", "TRACK", "TAS", "HEAD"], ["WINDSPD", "WINDDIR"], require_leader=True)
+    monkeypatch.setattr(compute.quorum, "leader", False)
+
+    _feed_wind_triangle(func, parent, gs=80.0, track=0.0, tas=100.0, head=0.0)
+
+    assert parent.db_get_item("WINDSPD").value == 0.0
+    assert parent.db_get_item("WINDDIR").value == 0.0
+
+
+def test_wind_triangle_ignores_meta_updates():
+    parent = FakeParent()
+    func = compute.windTriangle(
+        ["GS", "TRACK", "TAS", "HEAD"], ["WINDSPD", "WINDDIR"], require_leader=False)
+
+    func("GS.Min", 0.0, parent)   # non-tuple aux update -> ignored, no crash
+    assert parent.db_get_item("WINDSPD").value == 0.0
+
+
+def test_wind_triangle_propagates_old_bad_secfail_flags():
+    parent = FakeParent()
+    func = compute.windTriangle(
+        ["GS", "TRACK", "TAS", "HEAD"], ["WINDSPD", "WINDDIR"], require_leader=False)
+
+    func("GS", value_tuple(80.0, old=True), parent)
+    func("TRACK", value_tuple(0.0), parent)
+    func("TAS", value_tuple(100.0, bad=True), parent)
+    func("HEAD", value_tuple(0.0, secfail=True), parent)
+
+    for key in ["WINDSPD", "WINDDIR"]:
+        out = parent.db_get_item(key)
+        assert out.old is True
+        assert out.bad is True
+        assert out.secfail is True
+        assert out.fail is False
+    # non-failing inputs still yield the computed value
+    assert parent.db_get_item("WINDSPD").value == pytest.approx(20.0)
+
+
+def test_wind_triangle_failed_input_zeroes_and_fails_both_outputs():
+    parent = FakeParent()
+    func = compute.windTriangle(
+        ["GS", "TRACK", "TAS", "HEAD"], ["WINDSPD", "WINDDIR"], require_leader=False)
+
+    func("GS", value_tuple(80.0), parent)
+    func("TRACK", value_tuple(0.0), parent)
+    func("TAS", value_tuple(100.0), parent)
+    func("HEAD", value_tuple(0.0, fail=True), parent)
+
+    for key in ["WINDSPD", "WINDDIR"]:
+        out = parent.db_get_item(key)
+        assert out.value == 0.0
+        assert out.fail is True
+
+
+# ---------------------------------------------------------------------------
+# windComponents -- HWIND / XWIND from WINDSPD, WINDDIR, HEAD.
+# HWIND positive = headwind; XWIND positive = wind from the right.
+# ---------------------------------------------------------------------------
+
+
+def _feed_wind_components(func, parent, windspd, winddir, head):
+    func("WINDSPD", value_tuple(windspd), parent)
+    func("WINDDIR", value_tuple(winddir), parent)
+    func("HEAD", value_tuple(head), parent)
+
+
+def test_wind_components_pure_headwind():
+    parent = FakeParent()
+    func = compute.windComponents(
+        ["WINDSPD", "WINDDIR", "HEAD"], ["HWIND", "XWIND"], require_leader=False)
+
+    # Wind straight down the nose (FROM the heading) -> full headwind, no cross.
+    _feed_wind_components(func, parent, windspd=20.0, winddir=90.0, head=90.0)
+
+    assert parent.db_get_item("HWIND").value == pytest.approx(20.0)
+    assert parent.db_get_item("XWIND").value == pytest.approx(0.0, abs=1e-9)
+
+
+def test_wind_components_pure_tailwind_is_negative_headwind():
+    parent = FakeParent()
+    func = compute.windComponents(
+        ["WINDSPD", "WINDDIR", "HEAD"], ["HWIND", "XWIND"], require_leader=False)
+
+    # Heading 090, wind FROM 270 -> straight tailwind (negative headwind).
+    _feed_wind_components(func, parent, windspd=20.0, winddir=270.0, head=90.0)
+
+    assert parent.db_get_item("HWIND").value == pytest.approx(-20.0)
+    assert parent.db_get_item("XWIND").value == pytest.approx(0.0, abs=1e-9)
+
+
+def test_wind_components_crosswind_from_right_is_positive():
+    parent = FakeParent()
+    func = compute.windComponents(
+        ["WINDSPD", "WINDDIR", "HEAD"], ["HWIND", "XWIND"], require_leader=False)
+
+    # Heading north, wind FROM the east (090) -> crosswind from the right (+).
+    _feed_wind_components(func, parent, windspd=20.0, winddir=90.0, head=0.0)
+
+    assert parent.db_get_item("HWIND").value == pytest.approx(0.0, abs=1e-9)
+    assert parent.db_get_item("XWIND").value == pytest.approx(20.0)
+
+
+def test_wind_components_crosswind_from_left_is_negative():
+    parent = FakeParent()
+    func = compute.windComponents(
+        ["WINDSPD", "WINDDIR", "HEAD"], ["HWIND", "XWIND"], require_leader=False)
+
+    # Heading north, wind FROM the west (270) -> crosswind from the left (-).
+    _feed_wind_components(func, parent, windspd=20.0, winddir=270.0, head=0.0)
+
+    assert parent.db_get_item("XWIND").value == pytest.approx(-20.0)
+
+
+def test_wind_components_waits_for_all_inputs():
+    parent = FakeParent()
+    func = compute.windComponents(
+        ["WINDSPD", "WINDDIR", "HEAD"], ["HWIND", "XWIND"], require_leader=False)
+
+    func("WINDSPD", value_tuple(20.0), parent)
+    func("WINDDIR", value_tuple(90.0), parent)
+    # HEAD still missing -> nothing written.
+    assert parent.db_get_item("HWIND").value == 0.0
+    assert parent.db_get_item("XWIND").value == 0.0
+
+
+def test_wind_components_respects_leader_requirement(monkeypatch):
+    parent = FakeParent()
+    func = compute.windComponents(
+        ["WINDSPD", "WINDDIR", "HEAD"], ["HWIND", "XWIND"], require_leader=True)
+    monkeypatch.setattr(compute.quorum, "leader", False)
+
+    _feed_wind_components(func, parent, windspd=20.0, winddir=90.0, head=90.0)
+
+    assert parent.db_get_item("HWIND").value == 0.0
+    assert parent.db_get_item("XWIND").value == 0.0
+
+
+def test_wind_components_ignores_meta_updates():
+    parent = FakeParent()
+    func = compute.windComponents(
+        ["WINDSPD", "WINDDIR", "HEAD"], ["HWIND", "XWIND"], require_leader=False)
+
+    func("WINDSPD.Min", 0.0, parent)   # non-tuple aux update -> ignored
+    assert parent.db_get_item("HWIND").value == 0.0
+
+
+def test_wind_components_propagates_old_bad_secfail_flags():
+    parent = FakeParent()
+    func = compute.windComponents(
+        ["WINDSPD", "WINDDIR", "HEAD"], ["HWIND", "XWIND"], require_leader=False)
+
+    func("WINDSPD", value_tuple(20.0, old=True), parent)
+    func("WINDDIR", value_tuple(90.0, bad=True), parent)
+    func("HEAD", value_tuple(90.0, secfail=True), parent)
+
+    for key in ["HWIND", "XWIND"]:
+        out = parent.db_get_item(key)
+        assert out.old is True
+        assert out.bad is True
+        assert out.secfail is True
+        assert out.fail is False
+    assert parent.db_get_item("HWIND").value == pytest.approx(20.0)
+
+
+def test_wind_components_failed_input_zeroes_and_fails_both_outputs():
+    parent = FakeParent()
+    func = compute.windComponents(
+        ["WINDSPD", "WINDDIR", "HEAD"], ["HWIND", "XWIND"], require_leader=False)
+
+    func("WINDSPD", value_tuple(20.0), parent)
+    func("WINDDIR", value_tuple(90.0), parent)
+    func("HEAD", value_tuple(90.0, fail=True), parent)
+
+    for key in ["HWIND", "XWIND"]:
+        out = parent.db_get_item(key)
+        assert out.value == 0.0
+        assert out.fail is True
+
+
+def test_plugin_run_registers_wind_functions_on_generic_path():
+    pl = compute.Plugin.__new__(compute.Plugin)
+    pl.config = {
+        "functions": [
+            {
+                "function": "wind_triangle",
+                "inputs": ["GS", "TRACK", "TAS", "HEAD"],
+                "output": ["WINDSPD", "WINDDIR"],
+                "require_leader": False,
+            },
+            {
+                "function": "wind_components",
+                "inputs": ["WINDSPD", "WINDDIR", "HEAD"],
+                "output": ["HWIND", "XWIND"],
+                "require_leader": False,
+            },
+        ]
+    }
+    pl.db_callback_add = MagicMock()
+    pl.log = MagicMock()
+
+    pl.run()
+
+    registered = [c.args[0] for c in pl.db_callback_add.call_args_list]
+    assert registered == ["GS", "TRACK", "TAS", "HEAD", "WINDSPD", "WINDDIR", "HEAD"]
+    pl.log.warning.assert_not_called()
     pl.stop()
