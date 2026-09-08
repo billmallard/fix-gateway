@@ -1368,3 +1368,18 @@ def test_flight_plan_keys_exist_with_specified_types_and_ranges(database):
     assert wplon.value[0] == pytest.approx(-179.9)
     wplon.value = 179.9
     assert wplon.value[0] == pytest.approx(179.9)
+
+
+# Regression: netfix's "@q" definition report is `;`-joined
+# (fixgw/plugins/netfix/__init__.py __send_report,
+# "{id};{description};{typestring};{min};{max};{units};{tol};{aux}") with no
+# escaping. FPLNAME's description used to embed a literal `;` -- it shifted
+# every field after it, so pyEfis's fix client received a corrupted
+# typestring and raised (unhandled) inside DB_Item.dtype's setter, crashing
+# the client's startup entirely. Caught staging AER-805's bench deploy: the
+# bug was already on `dev` (FP1/#24), unrelated to that PR's own changes.
+def test_no_description_contains_the_netfix_delimiter(database):
+    offenders = [key for key in database.listkeys()
+                 if ";" in database.get_raw_item(key).description]
+    assert not offenders, (
+        f"description contains ';' (breaks netfix's @q report): {offenders}")
