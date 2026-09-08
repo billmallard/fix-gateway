@@ -80,8 +80,13 @@ xplane:
         # canonical COURSE/CDI keys the HSI + autopilot read -- an EFIS
         # nav-source selector. hdef is +/-2.5 dots full scale and the HSI needle
         # is +/-1.0, so scale by 0.4 (use -0.4 to flip the deflection sense).
-        GPSCRS:  sim/cockpit/radios/gps_course_degtm
-        GPSCDI:  [sim/cockpit/radios/gps_hdef_dot, 0.4]
+        #
+        # X-Plane's FMS is the bench's external navigator (FP1, fix-gateway#22):
+        # these rows write EXTCRS/EXTCDI, not GPSCRS/GPSCDI directly, so a
+        # compute GPSSRC select can route between this and the internal flight
+        # plan (FPLCRS/FPLCDI, FP2) into the canonical GPSCRS/GPSCDI.
+        EXTCRS:  sim/cockpit/radios/gps_course_degtm
+        EXTCDI:  [sim/cockpit/radios/gps_hdef_dot, 0.4]
         NAV1CRS: sim/cockpit/radios/nav1_obs_degm
         NAV1CDI: [sim/cockpit/radios/nav1_hdef_dot, 0.4]
         NAV2CRS: sim/cockpit/radios/nav2_obs_degm

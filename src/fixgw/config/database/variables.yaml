@@ -12,3 +12,4 @@ variables:
   s: 40 # Touchscreen buttons
   d: 4  # MGL V16 Radios
   w: 3  # Wheels
+  f: 50 # Flight plan route slots

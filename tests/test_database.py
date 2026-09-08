@@ -1295,3 +1295,76 @@ def test_getters_and_setters_for_quality_flags(database):
     assert item.bad is True
     item.old = True
     assert item.old is True
+
+
+# FP1 (fix-gateway#22): the flight plan FIX key contract. Loads the real
+# database.yaml (via the `database` fixture) and asserts the indexed route
+# block, command channel, engine outputs and GPSSRC/EXT* keys exist with the
+# types/ranges the brief's Appendix A specifies.
+def test_flight_plan_keys_exist_with_specified_types_and_ranges(database):
+    expectations = {
+        "FPL1ID": ("str", None, None),
+        "FPL50ID": ("str", None, None),
+        "FPL1LAT": ("float", -90.0, 90.0),
+        "FPL1LON": ("float", -180.0, 180.0),
+        "FPL50TYPE": ("int", 0, 6),
+        "FPL50ROLE": ("int", 0, 4),
+        "FPLCOUNT": ("int", 0, 50),
+        "FPLNAME": ("str", None, None),
+        "FPLSEQ": ("int", 0, None),
+        "DTOID": ("str", None, None),
+        "DTOLAT": ("float", -90.0, 90.0),
+        "DTOLON": ("float", -180.0, 180.0),
+        "DTOTYPE": ("int", 0, 6),
+        "FPLCMD": ("str", None, None),
+        "FPLCMDACK": ("int", None, None),
+        "FPLMSG": ("str", None, None),
+        "FPLSTATE": ("int", 0, 3),
+        "FPLACTLEG": ("int", 0, 50),
+        "FPLPHASE": ("str", None, None),
+        "FPLAPR": ("int", 0, 3),
+        "FPLINTEG": ("bool", None, None),
+        "CDISCALE": ("float", 0.3, 2.0),
+        "FPLCRS": ("float", 0.0, 359.9),
+        "FPLXTK": ("float", -100.0, 100.0),
+        "FPLCDI": ("float", -1.0, 1.0),
+        "FPLTF": ("int", 0, 2),
+        "FPLFRLAT": ("float", -90.0, 90.0),
+        "FPLFRLON": ("float", -180.0, 180.0),
+        "WPFROM": ("str", None, None),
+        "WPNEXT": ("str", None, None),
+        "WPDIS": ("float", 0.0, None),
+        "WPETE": ("int", 0, None),
+        "FPLREMDIS": ("float", 0.0, None),
+        "FPLREMETE": ("int", 0, None),
+        "FPLALERT": ("bool", None, None),
+        "GPSSRC": ("int", 0, 1),
+        "EXTCRS": ("float", 0.0, 359.9),
+        "EXTCDI": ("float", -1.0, 1.0),
+        "EXTTF": ("int", 0, 2),
+    }
+    for key, (typestring, minval, maxval) in expectations.items():
+        item = database.get_raw_item(key)
+        assert item.typestring == typestring, key
+        if minval is not None:
+            assert item.min == pytest.approx(minval), key
+        if maxval is not None:
+            assert item.max == pytest.approx(maxval), key
+
+    # All 50 route slots expand (not just slot 1 and 50).
+    for i in range(1, 51):
+        database.get_raw_item(f"FPL{i}ID")
+        database.get_raw_item(f"FPL{i}LAT")
+        database.get_raw_item(f"FPL{i}LON")
+        database.get_raw_item(f"FPL{i}TYPE")
+        database.get_raw_item(f"FPL{i}ROLE")
+
+    # WPLON's clamp bug (min/max were +-90) is fixed to +-180: both extremes
+    # must round-trip, not clamp.
+    wplon = database.get_raw_item("WPLON")
+    assert wplon.min == pytest.approx(-180.0)
+    assert wplon.max == pytest.approx(180.0)
+    wplon.value = -179.9
+    assert wplon.value[0] == pytest.approx(-179.9)
+    wplon.value = 179.9
+    assert wplon.value[0] == pytest.approx(179.9)

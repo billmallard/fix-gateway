@@ -684,6 +684,80 @@ def test_bearing_select_arbitrates_pointer_among_three_sources():
     assert parent.db_get_item("BRG1").value == 200.0
 
 
+def test_gpssrc_select_routes_internal_plan_vs_external_navigator():
+    # FP1 (fix-gateway#22): GPSSRC (0=internal plan, 1=external navigator)
+    # routes {FPLCRS, EXTCRS} -> GPSCRS, mirroring the NAVSRC/BRGnSRC pattern.
+    parent = FakeParent()
+    crs = compute.selectFunction(["GPSSRC", "FPLCRS", "EXTCRS"], "GPSCRS", require_leader=False)
+    cdi = compute.selectFunction(["GPSSRC", "FPLCDI", "EXTCDI"], "GPSCDI", require_leader=False)
+    tf = compute.selectFunction(["GPSSRC", "FPLTF", "EXTTF"], "GPSTF", require_leader=False)
+
+    crs("FPLCRS", value_tuple(45.0), parent)
+    crs("EXTCRS", value_tuple(310.0), parent)
+    cdi("FPLCDI", value_tuple(-0.5), parent)
+    cdi("EXTCDI", value_tuple(0.25), parent)
+    tf("FPLTF", value_tuple(1), parent)
+    tf("EXTTF", value_tuple(2), parent)
+
+    crs("GPSSRC", value_tuple(0.0), parent)     # internal plan
+    cdi("GPSSRC", value_tuple(0.0), parent)
+    tf("GPSSRC", value_tuple(0.0), parent)
+    assert parent.db_get_item("GPSCRS").value == 45.0
+    assert parent.db_get_item("GPSCDI").value == -0.5
+    assert parent.db_get_item("GPSTF").value == 1
+
+    crs("GPSSRC", value_tuple(1.0), parent)     # external navigator
+    cdi("GPSSRC", value_tuple(1.0), parent)
+    tf("GPSSRC", value_tuple(1.0), parent)
+    assert parent.db_get_item("GPSCRS").value == 310.0
+    assert parent.db_get_item("GPSCDI").value == 0.25
+    assert parent.db_get_item("GPSTF").value == 2
+
+
+def test_navsrc_select_still_lands_gps_in_course_cdi_tofrom():
+    # The pre-existing NAVSRC select (GPS = index 2) must still route whatever
+    # the GPSSRC select produced on GPSCRS/GPSCDI/GPSTF into COURSE/CDI/TOFROM
+    # unchanged by FP1 -- the two selects chain, they don't replace each other.
+    parent = FakeParent()
+    course = compute.selectFunction(
+        ["NAVSRC", "NAV1CRS", "NAV2CRS", "GPSCRS"], "COURSE", require_leader=False)
+    cdi = compute.selectFunction(
+        ["NAVSRC", "NAV1CDI", "NAV2CDI", "GPSCDI"], "CDI", require_leader=False)
+    tofrom = compute.selectFunction(
+        ["NAVSRC", "NAV1TF", "NAV2TF", "GPSTF"], "TOFROM", require_leader=False)
+
+    course("GPSCRS", value_tuple(88.0), parent)
+    cdi("GPSCDI", value_tuple(0.4), parent)
+    tofrom("GPSTF", value_tuple(1), parent)
+
+    course("NAVSRC", value_tuple(2.0), parent)   # 2 = GPS
+    cdi("NAVSRC", value_tuple(2.0), parent)
+    tofrom("NAVSRC", value_tuple(2.0), parent)
+
+    assert parent.db_get_item("COURSE").value == 88.0
+    assert parent.db_get_item("CDI").value == 0.4
+    assert parent.db_get_item("TOFROM").value == 1
+
+
+def test_xte_is_fed_gpscrs_not_course():
+    # FP1: xte is re-fed GPSCRS (post-GPSSRC-select) instead of COURSE
+    # (post-NAVSRC-select) so XTRACK stays correct against the active plan/
+    # external navigator even while NAVSRC has the HSI showing a VOR.
+    parent = FakeParent()
+    func = compute.xteFunction(["LAT", "LONG", "WPLAT", "WPLON", "GPSCRS"], "XTRACK", require_leader=False)
+
+    func("LAT", value_tuple(34.60), parent)
+    func("LONG", value_tuple(-120.10), parent)
+    func("WPLAT", value_tuple(34.42621), parent)  # KSBA
+    func("WPLON", value_tuple(-119.84037), parent)
+    func("GPSCRS", value_tuple(313.13), parent)   # KSBA -> KSMX bearing
+
+    # Reference fixture from the flight-plan brief section 3.3: P(34.60,
+    # -120.10) is 1.146 nm left of the KSBA->KSMX course.
+    out = parent.db_get_item("XTRACK")
+    assert out.value == pytest.approx(-1.146, abs=0.01)
+
+
 def test_plugin_run_registers_special_functions_and_unknown_function():
     pl = compute.Plugin.__new__(compute.Plugin)
     pl.config = {

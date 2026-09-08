@@ -2,11 +2,14 @@
 # Restores the last value of each listed key at startup and saves it back on
 # change. See fixgw/plugins/state_persist. NAVSRC (the HSI nav-source selector)
 # is the first consumer -- so a chosen GPS/VLOC source survives a reboot instead
-# of resetting to the default every boot.
+# of resetting to the default every boot. GPSSRC (FP1, fix-gateway#22) is the
+# same idiom for the GPS guidance source (internal flight plan vs. external
+# navigator).
 state_persist:
   load: yes
   module: fixgw.plugins.state_persist
   keys:
     - NAVSRC
+    - GPSSRC
   # state_file: "{CONFIG}/persist_state.json"   # optional; default shown
   # restore_delay: 2.0                           # seconds before restoring

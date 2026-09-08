@@ -1,0 +1,327 @@
+# Flight plan FIX key contract (FP1, fix-gateway#22; makerplane/briefs/
+# flight_plan_plan.md section 3.2 + Appendix A/C in the maos-workspace repo).
+#
+# The route crosses the bus as an indexed key block (FPL1..50), the idiom the
+# database already expands (EGTec, BTNb): the editor (pyEfis) writes every
+# slot, then FPLCOUNT, then bumps FPLSEQ last -- consumers act only on FPLSEQ
+# change, so the block is complete when the counter lands (netfix processes
+# one connection's writes in order). The `flightplan` engine plugin (FP2) is
+# the only writer of the engine-output keys below; the editor's boot-time
+# republish after a gateway restart is the one documented exception to
+# one-key-one-writer (mirrors state_persist restoring NAVSRC).
+#
+# GPSSRC lets the internal plan and an external navigator (X-Plane's FMS on
+# the bench; a certified GNX in the aircraft) be interchangeable sources for
+# GPSCRS/GPSCDI/GPSTF via a compute `select` (connections/compute.yaml),
+# exactly like NAVSRC/BRGnSRC already select into COURSE/CDI/TOFROM and
+# BRG1/BRG2.
+#
+# See doc/flightplan_keys.md for every key's writer and sign convention.
+
+items:
+
+# --- Route block (editor writes; tol: 0; persisted by the engine) ----------
+- key: FPLfID
+  description: Flight plan slot %f ident
+  type: str
+  initial: ""
+  tol: 0
+
+- key: FPLfLAT
+  description: Flight plan slot %f latitude
+  type: float
+  min: -90
+  max: 90
+  units: deg
+  initial: 0.0
+  tol: 0
+
+- key: FPLfLON
+  description: Flight plan slot %f longitude
+  type: float
+  min: -180
+  max: 180
+  units: deg
+  initial: 0.0
+  tol: 0
+
+- key: FPLfTYPE
+  description: "Flight plan slot %f type (0 unknown, 1 airport, 2 VOR, 3 NDB, 4 fix, 5 user, 6 map point)"
+  type: int
+  min: 0
+  max: 6
+  initial: 0
+  tol: 0
+
+- key: FPLfROLE
+  description: "Flight plan slot %f approach role (0 none, 1 IAF, 2 FAF, 3 MAP, 4 MAHP)"
+  type: int
+  min: 0
+  max: 4
+  initial: 0
+  tol: 0
+
+- key: FPLCOUNT
+  description: Flight plan slots in use
+  type: int
+  min: 0
+  max: 50
+  initial: 0
+  tol: 0
+
+- key: FPLNAME
+  description: "Flight plan route name (<=32 chars, no ';')"
+  type: str
+  initial: ""
+  tol: 0
+
+- key: FPLSEQ
+  description: Flight plan commit counter, written last after every slot + FPLCOUNT
+  type: int
+  min: 0
+  max: 2147483647
+  initial: 0
+  tol: 0
+
+# --- Direct-To staging (editor writes) --------------------------------------
+- key: DTOID
+  description: Direct-to staged target ident
+  type: str
+  initial: ""
+  tol: 0
+
+- key: DTOLAT
+  description: Direct-to staged target latitude
+  type: float
+  min: -90
+  max: 90
+  units: deg
+  initial: 0.0
+  tol: 0
+
+- key: DTOLON
+  description: Direct-to staged target longitude
+  type: float
+  min: -180
+  max: 180
+  units: deg
+  initial: 0.0
+  tol: 0
+
+- key: DTOTYPE
+  description: "Direct-to staged target type (0 unknown, 1 airport, 2 VOR, 3 NDB, 4 fix, 5 user, 6 map point)"
+  type: int
+  min: 0
+  max: 6
+  initial: 0
+  tol: 0
+
+# --- Command channel (editor writes FPLCMD; engine answers) ----------------
+- key: FPLCMD
+  description: 'Flight plan command "<seq> VERB [arg]" (ACT/DTO/DTOX/SUSP/RESUME/SCALE)'
+  type: str
+  initial: ""
+  tol: 0
+
+- key: FPLCMDACK
+  description: Flight plan command ack (= seq on success, -seq on rejection)
+  type: int
+  min: -2147483648
+  max: 2147483647
+  initial: 0
+  tol: 0
+
+- key: FPLMSG
+  description: "Flight plan last message / rejection reason (<=64 chars)"
+  type: str
+  initial: ""
+  tol: 0
+
+# --- Engine outputs (engine writes; tol: 5000) ------------------------------
+- key: FPLSTATE
+  description: "Flight plan state (0 NONE, 1 LEG, 2 DIRECT, 3 SUSP)"
+  type: int
+  min: 0
+  max: 3
+  initial: 0
+  tol: 5000
+
+- key: FPLACTLEG
+  description: Flight plan active (TO waypoint) slot, 0 = none
+  type: int
+  min: 0
+  max: 50
+  initial: 0
+  tol: 5000
+
+- key: FPLPHASE
+  description: "Flight phase annunciation (ENR/TERM/LNAV/LOI/0.30 NM/1.00 NM/empty)"
+  type: str
+  initial: ""
+  tol: 5000
+
+- key: FPLAPR
+  description: "Approach state (0 none, 1 armed, 2 active, 3 missed)"
+  type: int
+  min: 0
+  max: 3
+  initial: 0
+  tol: 5000
+
+- key: FPLINTEG
+  description: Flight plan integrity gate satisfied for the current phase
+  type: bool
+  initial: true
+  tol: 5000
+
+- key: CDISCALE
+  description: CDI full-scale deflection (ramps 1.0 -> 0.3 nm before the FAF)
+  type: float
+  min: 0.3
+  max: 2.0
+  units: nM
+  initial: 2.0
+  tol: 5000
+
+- key: FPLCRS
+  description: Flight plan desired track (magnetic)
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 5000
+
+- key: FPLXTK
+  description: Flight plan cross-track error, positive = right of track
+  type: float
+  min: -100.0
+  max: 100.0
+  units: nM
+  initial: 0.0
+  tol: 5000
+
+- key: FPLCDI
+  description: "Flight plan course deviation: -FPLXTK / CDISCALE, clamped"
+  type: float
+  min: -1.0
+  max: 1.0
+  initial: 0.0
+  tol: 5000
+
+- key: FPLTF
+  description: "Flight plan TO/FROM (0 off, 1 TO, 2 FROM)"
+  type: int
+  min: 0
+  max: 2
+  initial: 0
+  tol: 5000
+
+- key: FPLFRLAT
+  description: Flight plan active leg FROM point latitude
+  type: float
+  min: -90
+  max: 90
+  units: deg
+  initial: 0.0
+  tol: 5000
+
+- key: FPLFRLON
+  description: Flight plan active leg FROM point longitude
+  type: float
+  min: -180
+  max: 180
+  units: deg
+  initial: 0.0
+  tol: 5000
+
+- key: WPFROM
+  description: "Flight plan FROM waypoint ident (<=6 chars)"
+  type: str
+  initial: ""
+  tol: 5000
+
+- key: WPNEXT
+  description: "Flight plan NEXT waypoint ident (<=6 chars)"
+  type: str
+  initial: ""
+  tol: 5000
+
+- key: WPDIS
+  description: Flight plan distance to the TO waypoint
+  type: float
+  min: 0.0
+  max: 9999.9
+  units: nM
+  initial: 0.0
+  tol: 5000
+
+- key: WPETE
+  description: "Flight plan time to the TO waypoint (bad when GS < 30 kt)"
+  type: int
+  min: 0
+  max: 86400
+  units: s
+  initial: 0
+  tol: 5000
+
+- key: FPLREMDIS
+  description: Flight plan remaining distance to end of plan
+  type: float
+  min: 0.0
+  max: 9999.9
+  units: nM
+  initial: 0.0
+  tol: 5000
+
+- key: FPLREMETE
+  description: Flight plan remaining time to end of plan
+  type: int
+  min: 0
+  max: 86400
+  units: s
+  initial: 0
+  tol: 5000
+
+- key: FPLALERT
+  description: Flight plan waypoint sequencing alert
+  type: bool
+  initial: false
+  tol: 5000
+
+# --- GPS guidance source selection ------------------------------------------
+# 0 = internal plan (FPLCRS/FPLCDI/FPLTF), 1 = external navigator
+# (EXTCRS/EXTCDI/EXTTF). Persisted by state_persist, the BRGnSRC/NAVSRC
+# precedent.
+- key: GPSSRC
+  description: "GPS guidance source (0 = internal plan, 1 = external navigator)"
+  type: int
+  min: 0
+  max: 1
+  initial: 0
+  tol: 0
+
+- key: EXTCRS
+  description: External navigator course (magnetic)
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 5000
+
+- key: EXTCDI
+  description: External navigator course deviation
+  type: float
+  min: -1.0
+  max: 1.0
+  initial: 0.0
+  tol: 5000
+
+- key: EXTTF
+  description: "External navigator TO/FROM (0 off, 1 TO, 2 FROM)"
+  type: int
+  min: 0
+  max: 2
+  initial: 0
+  tol: 5000

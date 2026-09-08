@@ -24,8 +24,12 @@ compute:
     - function: altd
       inputs: ["PALT","TALT","OAT"]
       output: DALT
+    # Fed GPSCRS (the post-GPSSRC-select canonical GPS course) rather than
+    # COURSE (the post-NAVSRC-select canonical course) so XTRACK/GPSBRG stay
+    # correct against the active plan/external navigator even while NAVSRC has
+    # the HSI showing a VOR (FP1, fix-gateway#22).
     - function: xte
-      inputs: ["LAT", "LONG", "WPLAT", "WPLON", "COURSE"]
+      inputs: ["LAT", "LONG", "WPLAT", "WPLON", "GPSCRS"]
       output: XTRACK
     # HSI bearing pointers (P5b.1). GPS bearing-to-active-waypoint: the great-
     # circle initial bearing from the aircraft (LAT/LONG) to the active waypoint
@@ -63,6 +67,26 @@ compute:
     - function: wrap360
       inputs: ["TRACK", "MAGVAR"]
       output: TRACKM
+      require_leader: false
+    # GPS guidance source selector (FP1, fix-gateway#22): GPSSRC (0=internal
+    # flight plan, 1=external navigator) routes the selected source's
+    # course/deviation/TO-FROM into the canonical GPSCRS/GPSCDI/GPSTF that the
+    # NAVSRC select below (and the flightplan engine's own consumers) read.
+    # This makes the internal plan (FPLCRS/FPLCDI/FPLTF, FP2) and an external
+    # navigator (EXTCRS/EXTCDI/EXTTF -- X-Plane's FMS on the bench, a
+    # certified GNX in the aircraft) interchangeable sources, the BRGnSRC
+    # precedent (compute.py selectFunction).
+    - function: select
+      inputs: ["GPSSRC", "FPLCRS", "EXTCRS"]
+      output: GPSCRS
+      require_leader: false
+    - function: select
+      inputs: ["GPSSRC", "FPLCDI", "EXTCDI"]
+      output: GPSCDI
+      require_leader: false
+    - function: select
+      inputs: ["GPSSRC", "FPLTF", "EXTTF"]
+      output: GPSTF
       require_leader: false
     # EFIS nav-source selector: NAVSRC (0=NAV1, 1=NAV2, 2=GPS) routes the
     # selected source's course / lateral / vertical deviation into the canonical

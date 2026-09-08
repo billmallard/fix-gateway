@@ -28,6 +28,8 @@ entries:
 # when the software is updated in the future
 - include: database/custom.yaml
 
+- include: database/flightplan.yaml
+
 # The last.yaml must always be the last one.
 # It contains a key used to detect if all
 # keys are ininitialized
