@@ -121,6 +121,8 @@ def test_wpete_bad_flag_set_below_30kt(database, tmp_path):
     pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
     database.write("GPS_FIX_TYPE", 3)
     write_route(database, [engine.Waypoint("A", 0.0, 0.0), engine.Waypoint("B", 0.0, 1.0)], seq=1)
+    database.write("LAT", 0.0)
+    database.write("LONG", 0.0)
     database.write("FPLCMD", "1 ACT 2")
     database.write("GS", 20.0)
     pl.thread._run_update_cycle()
