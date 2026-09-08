@@ -26,6 +26,16 @@ from fixgw.database import read
 import fixgw.quorum as quorum
 import math
 
+# Great-circle geodesy helpers live in fixgw.geo (FP2, fix-gateway#23) so the
+# flightplan engine plugin can share the exact same implementation. Imported
+# here (not re-defined) so this module's behaviour is unchanged.
+from fixgw.geo import (
+    _radians,
+    _initial_bearing_rad,
+    _great_circle_distance_rad,
+    _normalize_angle_rad,
+)
+
 # Determine pressure altitude
 # inputs: BARO, ALTMSL
 # Pressure Altitude = Elevation  in FT + (145442.2 * ( 1 - ( altimeter setting in inhg/29.92126)^.190261))
@@ -649,42 +659,6 @@ def abs_wrap(x, mean, wrap):
     elif diff < -wrap / 2:
         diff += wrap
     return abs(diff)
-
-
-def _radians(degrees):
-    return math.radians(degrees)
-
-
-def _initial_bearing_rad(lat1_deg, lon1_deg, lat2_deg, lon2_deg):
-    lat1 = _radians(lat1_deg)
-    lon1 = _radians(lon1_deg)
-    lat2 = _radians(lat2_deg)
-    lon2 = _radians(lon2_deg)
-    dlon = lon2 - lon1
-    y = math.sin(dlon) * math.cos(lat2)
-    x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(
-        dlon
-    )
-    return math.atan2(y, x)
-
-
-def _great_circle_distance_rad(lat1_deg, lon1_deg, lat2_deg, lon2_deg):
-    lat1 = _radians(lat1_deg)
-    lon1 = _radians(lon1_deg)
-    lat2 = _radians(lat2_deg)
-    lon2 = _radians(lon2_deg)
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-    a = (
-        math.sin(dlat / 2) ** 2
-        + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-    )
-    return 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-
-def _normalize_angle_rad(angle):
-    # Normalize to [-pi, pi] for stable trig sign behavior.
-    return (angle + math.pi) % (2 * math.pi) - math.pi
 
 
 def xteFunction(inputs, output, require_leader):
