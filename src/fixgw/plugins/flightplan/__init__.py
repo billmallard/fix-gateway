@@ -79,6 +79,16 @@ class MainThread(threading.Thread):
         self._last_update_time = 0.0
         self._restoring = False
         self._last_persisted = None
+        # LAT/LONG default to 0.0 and are not flagged "old" until their tol
+        # elapses -- the same grace window _read_integrity relies on for
+        # GPS_FIX_TYPE/GPS_ACCURACY_HORIZ. For a position input that is
+        # trusted for real geometry (unlike the integrity keys, where "no
+        # data yet" is itself a valid, expected state), that grace window is
+        # dangerous: the periodic 1Hz tick can run guidance -- including
+        # fly-by auto-sequencing -- against (0, 0) before any real LAT/LONG
+        # write has ever landed this process, silently discarding a restored
+        # Direct-To. Gate on an actual write, not just "not old".
+        self._position_seen = False
 
         self.parent.db_callback_add("FPLSEQ", self._on_fplseq)
         self.parent.db_callback_add("FPLCMD", self._on_fplcmd)
@@ -165,7 +175,7 @@ class MainThread(threading.Thread):
     def _position_tuple(self):
         lat_t = self._read_tuple("LAT")
         lon_t = self._read_tuple("LONG")
-        ok = _quality_ok(lat_t) and _quality_ok(lon_t)
+        ok = self._position_seen and _quality_ok(lat_t) and _quality_ok(lon_t)
         return (lat_t[0], lon_t[0], ok)
 
     # ------------------------------------------------------------------
@@ -174,6 +184,7 @@ class MainThread(threading.Thread):
     def _on_position(self, key, value, udata=None):
         if not isinstance(value, tuple):
             return
+        self._position_seen = True
         now = time.time()
         if now - self._last_update_time < self.min_interval:
             return
@@ -198,7 +209,7 @@ class MainThread(threading.Thread):
         now = now if now is not None else time.time()
         lat_t = self._read_tuple("LAT")
         lon_t = self._read_tuple("LONG")
-        position_ok = _quality_ok(lat_t) and _quality_ok(lon_t)
+        position_ok = self._position_seen and _quality_ok(lat_t) and _quality_ok(lon_t)
         gs = self._read("GS")
         magvar = self._read("MAGVAR")
         fix_type_ok, accuracy_nm = self._read_integrity()

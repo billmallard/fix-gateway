@@ -166,6 +166,43 @@ def test_restore_does_not_reset_activation_via_own_fplseq_callback(database, tmp
     assert pl.thread.engine.act_leg == 2  # NOT reset to 0
 
 
+def test_restore_does_not_auto_sequence_a_direct_to_before_a_real_position_arrives(database, tmp_path):
+    # A restored DIRECT-to must survive the plugin's own periodic guidance
+    # tick even before any live LAT/LONG has been written this process. LAT/
+    # LONG default to 0.0 and are not flagged "old" until their tol elapses
+    # (same grace window documented for GPS_FIX_TYPE above), so without this
+    # guard the very first post-restore tick computes guidance against (0, 0)
+    # -- which reads as far past the DTO target -- and silently auto-
+    # sequences the DIRECT-to into a LEG activation on the next route
+    # waypoint. Found live on the bench driving this by hand (AER-802): a
+    # bench/aircraft restart with no position source connected yet discards
+    # the pilot's Direct-To every time.
+    state_file = tmp_path / "flightplan_state.json"
+    e = engine.Engine()
+    route = [
+        engine.Waypoint("KSBA", 34.42621, -119.84037),
+        engine.Waypoint("GVO", 34.53142, -120.09106),
+        engine.Waypoint("KSMX", 34.89892, -120.45758),
+    ]
+    e.load_route(route, "TEST", 1)
+    e.handle_command("1 DTO 1", (34.55, -120.05, True))
+    assert e.mode == "DIRECT" and e.act_leg == 1
+    state_file.write_text(json.dumps(e.to_persisted_dict()))
+
+    pl = flightplan.Plugin("flightplan", make_config(tmp_path, state_file=str(state_file)), {})
+    pl.thread._restore()
+    assert pl.thread.engine.mode == "DIRECT"
+    assert pl.thread.engine.act_leg == 1
+
+    # The periodic 1Hz tick, with LAT/LONG still at their never-written
+    # default (0.0, 0.0) and not yet "old".
+    pl.thread._run_update_cycle()
+
+    assert pl.thread.engine.mode == "DIRECT"  # must not have auto-sequenced
+    assert pl.thread.engine.act_leg == 1
+    assert database.get_raw_item("FPLCRS").fail is True
+
+
 def test_persistence_flush_writes_atomically_on_change(database, tmp_path):
     pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
     write_route(database, [engine.Waypoint("A", 0.0, 0.0), engine.Waypoint("B", 0.0, 1.0)], seq=1)
