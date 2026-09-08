@@ -70,7 +70,7 @@ items:
   tol: 0
 
 - key: FPLNAME
-  description: "Flight plan route name (<=32 chars, no ';')"
+  description: "Flight plan route name (<=32 chars, no semicolons)"
   type: str
   initial: ""
   tol: 0
