@@ -1,0 +1,26 @@
+# The flightplan navigation engine (FP2, fix-gateway#23; makerplane/briefs/
+# flight_plan_plan.md section 3.3). Compute-only: reads the route block
+# (FPL1..50, FPLCOUNT, on FPLSEQ change), DTO*, FPLCMD, LAT/LONG/GS/MAGVAR;
+# writes the engine outputs FP1 defined (doc/flightplan_keys.md). See
+# doc/plugins/flightplan.md for the full behaviour and how to drive it by
+# hand.
+flightplan:
+  load: FLIGHTPLAN
+  module: fixgw.plugins.flightplan
+  # state_file: "{CONFIG}/flightplan_state.json"   # optional; default shown
+  restore_delay: 2.0        # seconds before restoring the persisted plan
+  rate_hz: 5                # LAT/LONG-driven guidance update rate cap
+  turn_rate_deg_s: 3.0      # standard-rate turn, for turn-anticipation d_ta
+  terminal_nm: 30           # ENR/TERM threshold, distance from dep/dest
+  approach_ramp_nm: 2.0     # LNAV ramp starts this far before the FAF
+  alert_s: 10               # FPLALERT lead time (or 1 nm, whichever is longer)
+  # The accuracy/protection key FPLINTEG gates on above the phase's HAL
+  # (database/ahrs.yaml, feet -- converted to nm here). Confirmed writers:
+  # mavlink, gpsd. Not written by xplane -- on the bench FPLINTEG stays true
+  # and FPLMSG reads "NO INTEGRITY DATA" once per plan activation, which is
+  # expected (doc/flightplan_keys.md "Integrity key for FP2").
+  integrity_key: GPS_ACCURACY_HORIZ
+  hal_nm:
+    enr: 2.0
+    term: 1.0
+    lnav: 0.3
