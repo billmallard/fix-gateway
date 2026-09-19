@@ -1,7 +1,8 @@
-# Flight plan FIX key contract (FP1, fix-gateway#22; makerplane/briefs/
-# flight_plan_plan.md section 3.2 + Appendix A/C in the maos-workspace repo).
+# Flight plan FIX key contract (FP1/FP2, fix-gateway#22/#23; PA3 leg model +
+# bus contract, fix-gateway#27; makerplane/briefs/procedures_and_airways_plan.md
+# section 3.2 in the maos-workspace repo -- Bill's decision 1, 2026-09-18).
 #
-# The route crosses the bus as an indexed key block (FPL1..50), the idiom the
+# The route crosses the bus as an indexed key block (FPL1..100), the idiom the
 # database already expands (EGTec, BTNb): the editor (pyEfis) writes every
 # slot, then FPLCOUNT, then bumps FPLSEQ last -- consumers act only on FPLSEQ
 # change, so the block is complete when the counter lands (netfix processes
@@ -9,6 +10,17 @@
 # the only writer of the engine-output keys below; the editor's boot-time
 # republish after a gateway restart is the one documented exception to
 # one-key-one-writer (mirrors state_persist restoring NAVSRC).
+#
+# PA3 replaced the point-only slot (FPLfID/LAT/LON/TYPE/ROLE) with a
+# leg-typed one: a slot now carries a path terminator, course, distance,
+# altitude/speed constraint and a flags bitfield, so a SID/STAR/approach
+# (a sequence of legs) can round-trip through the same block an enroute
+# route uses (a flat list of points is just every slot's FPLfPT = "TF").
+# Provenance for a loaded procedure lives at block level (FPLDPID/
+# FPLSTARID/FPLAPRID/FPLAPRTYPE/FPLDBCYC), not copied onto every slot --
+# see doc/flightplan_keys.md for the reasoning. Per Bill's ruling, this is
+# a breaking change from FP1's key spellings (guardrail 6 struck -- the
+# feature has no consumers outside dev yet).
 #
 # GPSSRC lets the internal plan and an external navigator (X-Plane's FMS on
 # the bench; a certified GNX in the aircraft) be interchangeable sources for
@@ -53,11 +65,56 @@ items:
   initial: 0
   tol: 0
 
-- key: FPLfROLE
-  description: "Flight plan slot %f approach role (0 none, 1 IAF, 2 FAF, 3 MAP, 4 MAHP)"
+- key: FPLfPT
+  description: "Flight plan slot %f path terminator (ARINC 424 2-char code, e.g. TF/IF/CF/DF/CA/RF/AF/HM -- \"TF\" = a great-circle point-to-point leg, the enroute default)"
+  type: str
+  initial: "TF"
+  tol: 0
+
+- key: FPLfCRS
+  description: "Flight plan slot %f leg course (magnetic -- CF/CA/FC/VA/VM/VI course-terminated legs)"
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 0
+
+- key: FPLfDST
+  description: "Flight plan slot %f leg distance (nm -- minutes for a time-terminated leg, HM/HF/HA, Tier 2)"
+  type: float
+  min: 0.0
+  max: 999.9
+  initial: 0.0
+  tol: 0
+
+- key: FPLfALT
+  description: 'Flight plan slot %f altitude constraint, packed (guide notation): "" none, "+3500" at-or-above, "-3500" at-or-below, "B2900,4000" between, "@3500" at'
+  type: str
+  initial: ""
+  tol: 0
+
+- key: FPLfSPD
+  description: "Flight plan slot %f speed constraint, kt (0 = none)"
+  type: int
+  min: 0
+  max: 400
+  initial: 0
+  tol: 0
+
+- key: FPLfSEG
+  description: "Flight plan slot %f procedure segment (0 enroute, 1 departure, 2 arrival, 3 approach, 4 missed)"
   type: int
   min: 0
   max: 4
+  initial: 0
+  tol: 0
+
+- key: FPLfFLAGS
+  description: "Flight plan slot %f flags bitfield (0x01 fly-over, 0x02 IAF, 0x04 FAF, 0x08 MAP, 0x10 MAHP, 0x20 from a coded procedure)"
+  type: int
+  min: 0
+  max: 63
   initial: 0
   tol: 0
 
@@ -65,7 +122,7 @@ items:
   description: Flight plan slots in use
   type: int
   min: 0
-  max: 50
+  max: 100
   initial: 0
   tol: 0
 
@@ -81,6 +138,40 @@ items:
   min: 0
   max: 2147483647
   initial: 0
+  tol: 0
+
+# --- Loaded-procedure provenance (block-level; editor writes) --------------
+# Off the slot on purpose (PA3/Bill 2026-09-18): one fact per procedure, not
+# up to 100 copies of the same string. FPLfSEG says which of these a given
+# slot belongs to.
+- key: FPLDPID
+  description: "Loaded departure (SID) procedure ident, e.g. \"HYDRR6\" (<=8 chars, \"\" = none)"
+  type: str
+  initial: ""
+  tol: 0
+
+- key: FPLSTARID
+  description: "Loaded arrival (STAR) procedure ident (<=8 chars, \"\" = none)"
+  type: str
+  initial: ""
+  tol: 0
+
+- key: FPLAPRID
+  description: "Loaded approach procedure ident, e.g. \"I33L\" (<=8 chars, \"\" = none)"
+  type: str
+  initial: ""
+  tol: 0
+
+- key: FPLAPRTYPE
+  description: "Loaded approach type (ILS/LOC/RNAV/VOR/NDB/GPS..., <=8 chars, \"\" = none)"
+  type: str
+  initial: ""
+  tol: 0
+
+- key: FPLDBCYC
+  description: "Navigation database AIRAC cycle the loaded procedure(s) came from, e.g. \"2609\" (<=8 chars) -- PA9 annunciates when it has expired"
+  type: str
+  initial: ""
   tol: 0
 
 # --- Direct-To staging (editor writes) --------------------------------------
@@ -118,7 +209,7 @@ items:
 
 # --- Command channel (editor writes FPLCMD; engine answers) ----------------
 - key: FPLCMD
-  description: 'Flight plan command "<seq> VERB [arg]" (ACT/DTO/DTOX/SUSP/RESUME/SCALE)'
+  description: 'Flight plan command "<seq> VERB [arg]" (ACT/DTO/DTOX/SUSP/RESUME/SCALE -- PROC/PROCX/AWY reserved for procedure/airway loading, PA3, not yet dispatched by this engine)'
   type: str
   initial: ""
   tol: 0
@@ -150,7 +241,7 @@ items:
   description: Flight plan active (TO waypoint) slot, 0 = none
   type: int
   min: 0
-  max: 50
+  max: 100
   initial: 0
   tol: 5000
 

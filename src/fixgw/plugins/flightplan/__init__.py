@@ -5,12 +5,17 @@
 """The flight-plan navigation engine: fixgw.plugins.flightplan.
 
 A compute-only plugin -- it never needs a nav database, only coordinates.
-It reads the route block (``FPL1..50``, ``FPLCOUNT``, on ``FPLSEQ`` change),
-``DTO*``, ``FPLCMD``, ``LAT``/``LONG``/``GS``/``MAGVAR``, and writes the
-engine output keys defined by FP1 (``doc/flightplan_keys.md``): leg guidance
-(DTK/XTK/CDI/TO-FROM), sequencing, Direct-To, SUSP/RESUME, the full DO-229
-CDI-scaling/flight-phase behaviour including the approach (Bill's ruling of
-2026-09-08 -- there is no VFR-advisory mode), and persistence.
+It reads the route block (``FPL1..100``, ``FPLCOUNT``, the ``FPLDPID``/
+``FPLSTARID``/``FPLAPRID``/``FPLAPRTYPE``/``FPLDBCYC`` provenance, on
+``FPLSEQ`` change), ``DTO*``, ``FPLCMD``, ``LAT``/``LONG``/``GS``/``MAGVAR``,
+and writes the engine output keys defined by FP1 (``doc/flightplan_keys.md``):
+leg guidance (DTK/XTK/CDI/TO-FROM), sequencing, Direct-To, SUSP/RESUME, the
+full DO-229 CDI-scaling/flight-phase behaviour including the approach
+(Bill's ruling of 2026-09-08 -- there is no VFR-advisory mode), and
+persistence. PA3 widened the route slot to a leg (path terminator, course,
+distance, altitude/speed, segment, flags) -- this plugin round-trips those
+fields but the engine still flies every leg as an implicit TF great circle
+(Tier-1 leg types are PA4).
 
 The navigation logic itself lives in :mod:`fixgw.plugins.flightplan.engine`
 (pure Python, no fixgw.database dependency) so it is directly unit testable;
@@ -132,10 +137,23 @@ class MainThread(threading.Thread):
                     lat=self._read(f"FPL{i}LAT"),
                     lon=self._read(f"FPL{i}LON"),
                     type=int(self._read(f"FPL{i}TYPE")),
-                    role=int(self._read(f"FPL{i}ROLE")),
+                    pt=self._read(f"FPL{i}PT"),
+                    crs=self._read(f"FPL{i}CRS"),
+                    dst=self._read(f"FPL{i}DST"),
+                    alt=self._read(f"FPL{i}ALT"),
+                    spd=int(self._read(f"FPL{i}SPD")),
+                    seg=int(self._read(f"FPL{i}SEG")),
+                    flags=int(self._read(f"FPL{i}FLAGS")),
                 )
             )
-        self.engine.load_route(waypoints, name, seq)
+        self.engine.load_route(
+            waypoints, name, seq,
+            dpid=self._read("FPLDPID"),
+            starid=self._read("FPLSTARID"),
+            aprid=self._read("FPLAPRID"),
+            aprtype=self._read("FPLAPRTYPE"),
+            dbcyc=self._read("FPLDBCYC"),
+        )
 
     def _republish_route(self):
         for i, wp in enumerate(self.engine.route, start=1):
@@ -143,9 +161,20 @@ class MainThread(threading.Thread):
             self.parent.db_write(f"FPL{i}LAT", wp.lat)
             self.parent.db_write(f"FPL{i}LON", wp.lon)
             self.parent.db_write(f"FPL{i}TYPE", wp.type)
-            self.parent.db_write(f"FPL{i}ROLE", wp.role)
+            self.parent.db_write(f"FPL{i}PT", wp.pt)
+            self.parent.db_write(f"FPL{i}CRS", wp.crs)
+            self.parent.db_write(f"FPL{i}DST", wp.dst)
+            self.parent.db_write(f"FPL{i}ALT", wp.alt)
+            self.parent.db_write(f"FPL{i}SPD", wp.spd)
+            self.parent.db_write(f"FPL{i}SEG", wp.seg)
+            self.parent.db_write(f"FPL{i}FLAGS", wp.flags)
         self.parent.db_write("FPLCOUNT", len(self.engine.route))
         self.parent.db_write("FPLNAME", self.engine.route_name)
+        self.parent.db_write("FPLDPID", self.engine.dpid)
+        self.parent.db_write("FPLSTARID", self.engine.starid)
+        self.parent.db_write("FPLAPRID", self.engine.aprid)
+        self.parent.db_write("FPLAPRTYPE", self.engine.aprtype)
+        self.parent.db_write("FPLDBCYC", self.engine.dbcyc)
         if self.engine.seq is not None:
             self.parent.db_write("FPLSEQ", self.engine.seq)
 

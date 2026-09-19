@@ -13,8 +13,8 @@ import fixgw.geo as geo
 import fixgw.plugins.flightplan.engine as engine
 
 
-def wp(id, lat, lon, type=engine.TYPE_UNKNOWN, role=engine.ROLE_NONE):
-    return engine.Waypoint(id, lat, lon, type, role)
+def wp(id, lat, lon, type=engine.TYPE_UNKNOWN, flags=0):
+    return engine.Waypoint(id, lat, lon, type, flags=flags)
 
 
 def nm_to_deg_lon(nm):
@@ -244,10 +244,10 @@ def test_no_term_scaling_when_endpoint_not_typed_airport():
 def approach_route():
     # IAF -> FAF -> MAP -> MAHP, 5nm IAF-FAF, 5nm FAF-MAP, 2nm MAP-MAHP.
     return [
-        wp("IAF", 0.0, 0.0, type=engine.TYPE_FIX, role=engine.ROLE_IAF),
-        wp("FAF", 0.0, nm_to_deg_lon(5.0), type=engine.TYPE_FIX, role=engine.ROLE_FAF),
-        wp("MAP", 0.0, nm_to_deg_lon(10.0), type=engine.TYPE_MAPPOINT, role=engine.ROLE_MAP),
-        wp("MAHP", 0.0, nm_to_deg_lon(12.0), type=engine.TYPE_FIX, role=engine.ROLE_MAHP),
+        wp("IAF", 0.0, 0.0, type=engine.TYPE_FIX, flags=engine.FLAG_IAF),
+        wp("FAF", 0.0, nm_to_deg_lon(5.0), type=engine.TYPE_FIX, flags=engine.FLAG_FAF),
+        wp("MAP", 0.0, nm_to_deg_lon(10.0), type=engine.TYPE_MAPPOINT, flags=engine.FLAG_MAP),
+        wp("MAHP", 0.0, nm_to_deg_lon(12.0), type=engine.TYPE_FIX, flags=engine.FLAG_MAHP),
     ]
 
 
@@ -595,21 +595,69 @@ def test_persistence_round_trip_preserves_missed_approach_state():
 
 
 # ---------------------------------------------------------------------------
-# Budget: one cycle with 50 slots
+# Budget: one cycle with 100 slots (PA3 raised the block from 50 to 100)
 # ---------------------------------------------------------------------------
 
 
-def test_update_cycle_budget_with_50_slots():
+def test_update_cycle_budget_with_100_slots():
     import time
 
     e = engine.Engine()
-    route = straight_route(2)
-    route = [wp(f"W{i}", 0.0, nm_to_deg_lon(i * 5)) for i in range(50)]
+    route = [wp(f"W{i}", 0.0, nm_to_deg_lon(i * 5)) for i in range(100)]
     e.load_route(route, "T", 1)
-    e.handle_command("1 ACT 25", (0.0, 0.0, True))
+    e.handle_command("1 ACT 50", (0.0, 0.0, True))
 
     start = time.perf_counter()
     for i in range(50):
-        e.update(0.0, nm_to_deg_lon(24 * 5 + 0.1), 120.0, 0.0, True, None, None, 1000.0 + i)
+        e.update(0.0, nm_to_deg_lon(49 * 5 + 0.1), 120.0, 0.0, True, None, None, 1000.0 + i)
     elapsed_per_cycle = (time.perf_counter() - start) / 50
     assert elapsed_per_cycle < 0.010  # generous 10ms CI ceiling (spec target 2ms)
+
+
+# ---------------------------------------------------------------------------
+# PA3: leg model -- new per-slot fields and block-level provenance
+# ---------------------------------------------------------------------------
+
+
+def test_leg_fields_round_trip_through_waypoint_dict():
+    w = engine.Waypoint(
+        "CFFIX", 1.0, 2.0, type=engine.TYPE_FIX, pt="CF", crs=270.0, dst=4.2,
+        alt="B2900,4000", spd=180, seg=engine.SEG_APPROACH, flags=engine.FLAG_FAF,
+    )
+    w2 = engine.Waypoint.from_dict(w.to_dict())
+    assert w2.pt == "CF" and w2.crs == 270.0 and w2.dst == 4.2
+    assert w2.alt == "B2900,4000" and w2.spd == 180
+    assert w2.seg == engine.SEG_APPROACH and w2.flags == engine.FLAG_FAF
+
+
+def test_waypoint_defaults_to_enroute_tf_point():
+    # A bare point (no procedure data) is still a valid leg -- FPLfPT
+    # defaults to "TF", the pre-PA3 implicit behaviour.
+    w = engine.Waypoint("A", 0.0, 0.0)
+    assert w.pt == "TF"
+    assert w.seg == engine.SEG_ENROUTE
+    assert w.flags == 0
+
+
+def test_load_route_carries_block_level_provenance():
+    e = engine.Engine()
+    e.load_route(
+        [wp("A", 0.0, 0.0)], "T", 1,
+        dpid="HYDRR6", starid="", aprid="I33L", aprtype="ILS", dbcyc="2609",
+    )
+    assert e.dpid == "HYDRR6"
+    assert e.aprid == "I33L"
+    assert e.aprtype == "ILS"
+    assert e.dbcyc == "2609"
+
+
+def test_persistence_round_trip_preserves_leg_fields_and_provenance():
+    e = engine.Engine()
+    route = approach_route()
+    e.load_route(route, "RNAV1", 3, dpid="", starid="", aprid="I33L", aprtype="ILS", dbcyc="2609")
+    snapshot = e.to_persisted_dict()
+
+    e2 = engine.Engine()
+    e2.restore_from_dict(snapshot)
+    assert e2.aprid == "I33L" and e2.aprtype == "ILS" and e2.dbcyc == "2609"
+    assert [w.flags for w in e2.route] == [w.flags for w in route]
