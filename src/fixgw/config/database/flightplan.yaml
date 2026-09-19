@@ -72,7 +72,7 @@ items:
   tol: 0
 
 - key: FPLfPT
-  description: "Flight plan slot %f path terminator (ARINC 424 2-char code). PA4 flies IF/TF/CF/DF and flies VA/VM/FM/VI as a SUSP annunciated VECTORS; every other code (CA/RF/AF/HM/...) rejects the whole route on load (FPLMSG). \"TF\" = a great-circle point-to-point leg, the enroute default"
+  description: "Flight plan slot %f path terminator (ARINC 424 2-char code). PA4 flies IF/TF/CF/DF and flies VA/VM/FM/VI as a SUSP annunciated VECTORS -- every other code (CA/RF/AF/HM/...) rejects the whole route on load (FPLMSG). \"TF\" = a great-circle point-to-point leg, the enroute default"
   type: str
   initial: "TF"
   tol: 0
@@ -229,7 +229,7 @@ items:
   tol: 0
 
 - key: FPLMSG
-  description: "Flight plan last message / rejection reason (<=64 chars). PA4: a route with an unsupported path terminator posts \"UNSUPP <PT> <ident>\" and rejects the whole route (guardrail 1); RESUME off a vector leg posts \"RESUME NAV -> <ident>\" or \"NO NEXT LEG\""
+  description: "Flight plan last message / rejection reason (<=64 chars). PA4: a route with an unsupported path terminator posts \"UNSUPP <PT> <ident>\" and rejects the whole route (guardrail 1) -- RESUME off a vector leg posts \"RESUME NAV -> <ident>\" or \"NO NEXT LEG\""
   type: str
   initial: ""
   tol: 0
@@ -252,7 +252,7 @@ items:
   tol: 5000
 
 - key: FPLPHASE
-  description: "Flight phase annunciation (ENR/TERM/LNAV/LOI/VECTORS/0.30 NM/1.00 NM/empty). VECTORS (PA4, guardrail 4) shows while the active leg is a vector type (VA/VM/FM/VI); FPLSTATE is forced to SUSP and no course/distance is computed for it"
+  description: "Flight phase annunciation (ENR/TERM/LNAV/LOI/VECTORS/0.30 NM/1.00 NM/empty). VECTORS (PA4, guardrail 4) shows while the active leg is a vector type (VA/VM/FM/VI) -- FPLSTATE is forced to SUSP and no course/distance is computed for it"
   type: str
   initial: ""
   tol: 5000
