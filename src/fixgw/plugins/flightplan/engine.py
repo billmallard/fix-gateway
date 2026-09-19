@@ -10,12 +10,20 @@
 #  repo), Appendix A/C; Bill's ruling of 2026-09-08 makes CDI scaling the full
 #  DO-229 lateral behaviour including the approach phase -- there is no
 #  VFR-advisory mode.
+#
+#  PA3 (fix-gateway#27; makerplane/briefs/procedures_and_airways_plan.md
+#  section 3.2) widened the route slot from a bare point to a leg: a path
+#  terminator, course, distance, altitude/speed constraint and a flags
+#  bitfield (FAF/MAP/MAHP/IAF/fly-over/from-procedure) replacing the old
+#  single-value FPLfROLE. This engine still flies every leg as an implicit
+#  TF great circle -- Tier-1 path-terminator geometry (IF/CF/DF/...) and
+#  whole-procedure rejection of unsupported types are PA4, not this item.
 
 import math
 
 from fixgw import geo
 
-# --- FPLfTYPE / FPLfROLE -----------------------------------------------
+# --- FPLfTYPE -------------------------------------------------------------
 TYPE_UNKNOWN = 0
 TYPE_AIRPORT = 1
 TYPE_VOR = 2
@@ -24,11 +32,23 @@ TYPE_FIX = 4
 TYPE_USER = 5
 TYPE_MAPPOINT = 6
 
-ROLE_NONE = 0
-ROLE_IAF = 1
-ROLE_FAF = 2
-ROLE_MAP = 3
-ROLE_MAHP = 4
+# --- FPLfSEG ----------------------------------------------------------------
+SEG_ENROUTE = 0
+SEG_DEPARTURE = 1
+SEG_ARRIVAL = 2
+SEG_APPROACH = 3
+SEG_MISSED = 4
+
+# --- FPLfFLAGS ---------------------------------------------------------
+FLAG_FLYOVER = 0x01
+FLAG_IAF = 0x02
+FLAG_FAF = 0x04
+FLAG_MAP = 0x08
+FLAG_MAHP = 0x10
+FLAG_FROM_PROCEDURE = 0x20
+
+# --- FPLfPT ------------------------------------------------------------
+PT_DEFAULT = "TF"  # the enroute/point-list default: a great-circle leg
 
 # --- FPLSTATE ------------------------------------------------------------
 STATE_NONE = 0
@@ -58,22 +78,41 @@ DIRECT_TO_NEEDS_POSITION_REASON = "NO POSITION"
 
 
 class Waypoint:
-    __slots__ = ("id", "lat", "lon", "type", "role")
+    """A route slot -- a leg (PA3): a point (id/lat/lon/type) plus the leg
+    that terminates on it (path terminator, course, distance, altitude/speed
+    constraint, procedure segment, flags). See doc/flightplan_keys.md for the
+    wire encoding this mirrors 1:1."""
 
-    def __init__(self, id="", lat=0.0, lon=0.0, type=TYPE_UNKNOWN, role=ROLE_NONE):
+    __slots__ = ("id", "lat", "lon", "type", "pt", "crs", "dst", "alt", "spd", "seg", "flags")
+
+    def __init__(self, id="", lat=0.0, lon=0.0, type=TYPE_UNKNOWN, pt=PT_DEFAULT,
+                 crs=0.0, dst=0.0, alt="", spd=0, seg=SEG_ENROUTE, flags=0):
         self.id = id
         self.lat = lat
         self.lon = lon
         self.type = type
-        self.role = role
+        self.pt = pt
+        self.crs = crs
+        self.dst = dst
+        self.alt = alt
+        self.spd = spd
+        self.seg = seg
+        self.flags = flags
 
     def to_dict(self):
-        return {"id": self.id, "lat": self.lat, "lon": self.lon, "type": self.type, "role": self.role}
+        return {
+            "id": self.id, "lat": self.lat, "lon": self.lon, "type": self.type,
+            "pt": self.pt, "crs": self.crs, "dst": self.dst, "alt": self.alt,
+            "spd": self.spd, "seg": self.seg, "flags": self.flags,
+        }
 
     @classmethod
     def from_dict(cls, d):
-        return cls(d.get("id", ""), d.get("lat", 0.0), d.get("lon", 0.0),
-                    d.get("type", TYPE_UNKNOWN), d.get("role", ROLE_NONE))
+        return cls(
+            d.get("id", ""), d.get("lat", 0.0), d.get("lon", 0.0), d.get("type", TYPE_UNKNOWN),
+            d.get("pt", PT_DEFAULT), d.get("crs", 0.0), d.get("dst", 0.0), d.get("alt", ""),
+            d.get("spd", 0), d.get("seg", SEG_ENROUTE), d.get("flags", 0),
+        )
 
 
 class Point:
@@ -131,6 +170,15 @@ class Engine:
         self.route_name = ""
         self.seq = None          # last-applied FPLSEQ
 
+        # Block-level procedure provenance (PA3) -- FPLDPID/FPLSTARID/
+        # FPLAPRID/FPLAPRTYPE/FPLDBCYC. Carried through, not yet acted on
+        # (PA9 annunciates FPLDBCYC's currency; PA7 writes these).
+        self.dpid = ""
+        self.starid = ""
+        self.aprid = ""
+        self.aprtype = ""
+        self.dbcyc = ""
+
         self.mode = "NONE"       # NONE | LEG | DIRECT
         self.suspended = False
         self.act_leg = 0         # 1-based slot of the TO waypoint, 0 = none
@@ -156,14 +204,22 @@ class Engine:
     # ------------------------------------------------------------------
     # Route loading
     # ------------------------------------------------------------------
-    def load_route(self, waypoints, name, seq):
+    def load_route(self, waypoints, name, seq, dpid="", starid="", aprid="", aprtype="", dbcyc=""):
         """waypoints: list[Waypoint]. Any FPLSEQ change is treated as a new
         plan: the previous activation is dropped (mode -> NONE) and the pilot
         re-activates it with ACT/DTO. See doc/plugins/flightplan.md for why
-        edit-preserving activation was not attempted in this first cut."""
+        edit-preserving activation was not attempted in this first cut.
+
+        dpid/starid/aprid/aprtype/dbcyc: block-level procedure provenance
+        (PA3) -- FPLDPID/FPLSTARID/FPLAPRID/FPLAPRTYPE/FPLDBCYC."""
         self.route = list(waypoints)
         self.route_name = name
         self.seq = seq
+        self.dpid = dpid
+        self.starid = starid
+        self.aprid = aprid
+        self.aprtype = aprtype
+        self.dbcyc = dbcyc
         self._reset_activation()
 
     def _reset_activation(self):
@@ -188,6 +244,11 @@ class Engine:
             "route": [wp.to_dict() for wp in self.route],
             "name": self.route_name,
             "seq": self.seq,
+            "dpid": self.dpid,
+            "starid": self.starid,
+            "aprid": self.aprid,
+            "aprtype": self.aprtype,
+            "dbcyc": self.dbcyc,
             "mode": self.mode,
             "suspended": self.suspended,
             "act_leg": self.act_leg,
@@ -205,6 +266,11 @@ class Engine:
         self.route = [Waypoint.from_dict(w) for w in d.get("route", [])]
         self.route_name = d.get("name", "")
         self.seq = d.get("seq")
+        self.dpid = d.get("dpid", "")
+        self.starid = d.get("starid", "")
+        self.aprid = d.get("aprid", "")
+        self.aprtype = d.get("aprtype", "")
+        self.dbcyc = d.get("dbcyc", "")
         self.mode = d.get("mode", "NONE")
         self.suspended = d.get("suspended", False)
         self.act_leg = d.get("act_leg", 0)
@@ -230,9 +296,9 @@ class Engine:
     def _faf_map_idx(self):
         faf_idx = map_idx = None
         for i, wp in enumerate(self.route, start=1):
-            if wp.role == ROLE_FAF and faf_idx is None:
+            if wp.flags & FLAG_FAF and faf_idx is None:
                 faf_idx = i
-            if wp.role == ROLE_MAP and map_idx is None:
+            if wp.flags & FLAG_MAP and map_idx is None:
                 map_idx = i
         if faf_idx is not None and map_idx is not None and faf_idx < map_idx:
             return faf_idx, map_idx
@@ -254,7 +320,7 @@ class Engine:
             return True
         if slot >= self.count:
             return True
-        return self.route[slot - 1].role == ROLE_MAP
+        return bool(self.route[slot - 1].flags & FLAG_MAP)
 
     # ------------------------------------------------------------------
     # Commands
@@ -586,7 +652,7 @@ class Engine:
                 dtk_true = geo.desired_track_true(fr.lat, fr.lon, to.lat, to.lon, ac_lat, ac_lon)
                 final = self._is_final(self.act_leg)
 
-        elif final and self.route and self.act_leg and self.route[self.act_leg - 1].role == ROLE_MAP:
+        elif final and self.route and self.act_leg and self.route[self.act_leg - 1].flags & FLAG_MAP:
             # Auto-suspend the first time the aircraft is found past the MAP.
             # Not edge-triggered off the previous cycle's atd (a restart or a
             # coarse timestep could land the very first post-activation cycle

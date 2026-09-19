@@ -1297,21 +1297,37 @@ def test_getters_and_setters_for_quality_flags(database):
     assert item.old is True
 
 
-# FP1 (fix-gateway#22): the flight plan FIX key contract. Loads the real
-# database.yaml (via the `database` fixture) and asserts the indexed route
-# block, command channel, engine outputs and GPSSRC/EXT* keys exist with the
-# types/ranges the brief's Appendix A specifies.
+# FP1/PA3 (fix-gateway#22, #27): the flight plan FIX key contract. Loads the
+# real database.yaml (via the `database` fixture) and asserts the indexed
+# route block, command channel, engine outputs and GPSSRC/EXT* keys exist
+# with the types/ranges makerplane/briefs/procedures_and_airways_plan.md
+# section 3.2 specifies. PA3 (Bill's ruling, 2026-09-18) replaced the FP1
+# point-only slot (FPLfROLE, 50 slots) with a leg-typed one (FPLfPT/CRS/DST/
+# ALT/SPD/SEG/FLAGS, 100 slots) plus block-level procedure provenance --
+# guardrail 6 (compatibility) was struck, so this is a breaking rewrite of
+# the old assertions below, not an addition to them.
 def test_flight_plan_keys_exist_with_specified_types_and_ranges(database):
     expectations = {
         "FPL1ID": ("str", None, None),
-        "FPL50ID": ("str", None, None),
+        "FPL100ID": ("str", None, None),
         "FPL1LAT": ("float", -90.0, 90.0),
         "FPL1LON": ("float", -180.0, 180.0),
-        "FPL50TYPE": ("int", 0, 6),
-        "FPL50ROLE": ("int", 0, 4),
-        "FPLCOUNT": ("int", 0, 50),
+        "FPL100TYPE": ("int", 0, 6),
+        "FPL100PT": ("str", None, None),
+        "FPL100CRS": ("float", 0.0, 359.9),
+        "FPL100DST": ("float", 0.0, None),
+        "FPL100ALT": ("str", None, None),
+        "FPL100SPD": ("int", 0, 400),
+        "FPL100SEG": ("int", 0, 4),
+        "FPL100FLAGS": ("int", 0, 63),
+        "FPLCOUNT": ("int", 0, 100),
         "FPLNAME": ("str", None, None),
         "FPLSEQ": ("int", 0, None),
+        "FPLDPID": ("str", None, None),
+        "FPLSTARID": ("str", None, None),
+        "FPLAPRID": ("str", None, None),
+        "FPLAPRTYPE": ("str", None, None),
+        "FPLDBCYC": ("str", None, None),
         "DTOID": ("str", None, None),
         "DTOLAT": ("float", -90.0, 90.0),
         "DTOLON": ("float", -180.0, 180.0),
@@ -1320,7 +1336,7 @@ def test_flight_plan_keys_exist_with_specified_types_and_ranges(database):
         "FPLCMDACK": ("int", None, None),
         "FPLMSG": ("str", None, None),
         "FPLSTATE": ("int", 0, 3),
-        "FPLACTLEG": ("int", 0, 50),
+        "FPLACTLEG": ("int", 0, 100),
         "FPLPHASE": ("str", None, None),
         "FPLAPR": ("int", 0, 3),
         "FPLINTEG": ("bool", None, None),
@@ -1351,13 +1367,22 @@ def test_flight_plan_keys_exist_with_specified_types_and_ranges(database):
         if maxval is not None:
             assert item.max == pytest.approx(maxval), key
 
-    # All 50 route slots expand (not just slot 1 and 50).
-    for i in range(1, 51):
+    # All 100 route slots expand (not just slot 1 and 100), and FPLfROLE is
+    # gone -- replaced by FPLfFLAGS (PA3).
+    for i in range(1, 101):
         database.get_raw_item(f"FPL{i}ID")
         database.get_raw_item(f"FPL{i}LAT")
         database.get_raw_item(f"FPL{i}LON")
         database.get_raw_item(f"FPL{i}TYPE")
-        database.get_raw_item(f"FPL{i}ROLE")
+        database.get_raw_item(f"FPL{i}PT")
+        database.get_raw_item(f"FPL{i}CRS")
+        database.get_raw_item(f"FPL{i}DST")
+        database.get_raw_item(f"FPL{i}ALT")
+        database.get_raw_item(f"FPL{i}SPD")
+        database.get_raw_item(f"FPL{i}SEG")
+        database.get_raw_item(f"FPL{i}FLAGS")
+    with pytest.raises(KeyError):
+        database.get_raw_item("FPL1ROLE")
 
     # WPLON's clamp bug (min/max were +-90) is fixed to +-180: both extremes
     # must round-trip, not clamp.

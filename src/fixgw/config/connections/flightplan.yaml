@@ -1,8 +1,10 @@
 # The flightplan navigation engine (FP2, fix-gateway#23; makerplane/briefs/
 # flight_plan_plan.md section 3.3). Compute-only: reads the route block
-# (FPL1..50, FPLCOUNT, on FPLSEQ change), DTO*, FPLCMD, LAT/LONG/GS/MAGVAR;
-# writes the engine outputs FP1 defined (doc/flightplan_keys.md). See
-# doc/plugins/flightplan.md for the full behaviour and how to drive it by
+# (FPL1..100, FPLCOUNT, on FPLSEQ change), DTO*, FPLCMD, LAT/LONG/GS/MAGVAR;
+# writes the engine outputs FP1 defined (doc/flightplan_keys.md). PA3
+# (fix-gateway#27) widened the slot to a leg and raised the block from 50 to
+# 100 -- this engine still flies every leg as an implicit TF great circle.
+# See doc/plugins/flightplan.md for the full behaviour and how to drive it by
 # hand.
 flightplan:
   load: FLIGHTPLAN

@@ -30,15 +30,26 @@ def make_config(tmp_path, **overrides):
     return config
 
 
-def write_route(database, waypoints, name="TEST", seq=1):
+def write_route(database, waypoints, name="TEST", seq=1, **provenance):
     for i, w in enumerate(waypoints, start=1):
         database.write(f"FPL{i}ID", w.id)
         database.write(f"FPL{i}LAT", w.lat)
         database.write(f"FPL{i}LON", w.lon)
         database.write(f"FPL{i}TYPE", w.type)
-        database.write(f"FPL{i}ROLE", w.role)
+        database.write(f"FPL{i}PT", w.pt)
+        database.write(f"FPL{i}CRS", w.crs)
+        database.write(f"FPL{i}DST", w.dst)
+        database.write(f"FPL{i}ALT", w.alt)
+        database.write(f"FPL{i}SPD", w.spd)
+        database.write(f"FPL{i}SEG", w.seg)
+        database.write(f"FPL{i}FLAGS", w.flags)
     database.write("FPLCOUNT", len(waypoints))
     database.write("FPLNAME", name)
+    database.write("FPLDPID", provenance.get("dpid", ""))
+    database.write("FPLSTARID", provenance.get("starid", ""))
+    database.write("FPLAPRID", provenance.get("aprid", ""))
+    database.write("FPLAPRTYPE", provenance.get("aprtype", ""))
+    database.write("FPLDBCYC", provenance.get("dbcyc", ""))
     database.write("FPLSEQ", seq)
 
 
@@ -51,6 +62,26 @@ def test_route_block_committed_on_fplseq_change_loads_engine_route(database, tmp
     assert pl.thread.engine.route_name == "TESTROUTE"
     assert pl.thread.engine.seq == 7
     assert [w.id for w in pl.thread.engine.route] == ["KSBA", "KSMX"]
+
+
+def test_route_block_committed_loads_leg_fields_and_provenance(database, tmp_path):
+    pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
+    waypoints = [
+        engine.Waypoint("IAF", 0.0, 0.0, type=engine.TYPE_FIX, pt="IF", seg=engine.SEG_APPROACH),
+        engine.Waypoint(
+            "FAF", 0.0, 1.0, type=engine.TYPE_FIX, pt="CF", crs=90.0, dst=5.0,
+            alt="+3500", spd=150, seg=engine.SEG_APPROACH, flags=engine.FLAG_FAF,
+        ),
+    ]
+    write_route(database, waypoints, seq=1, aprid="I33L", aprtype="ILS", dbcyc="2609")
+
+    loaded = pl.thread.engine.route[1]
+    assert loaded.pt == "CF" and loaded.crs == 90.0 and loaded.dst == 5.0
+    assert loaded.alt == "+3500" and loaded.spd == 150
+    assert loaded.flags == engine.FLAG_FAF
+    assert pl.thread.engine.aprid == "I33L"
+    assert pl.thread.engine.aprtype == "ILS"
+    assert pl.thread.engine.dbcyc == "2609"
 
 
 def test_command_channel_act_writes_ack_and_engine_state(database, tmp_path):
@@ -134,8 +165,11 @@ def test_wpete_bad_flag_set_below_30kt(database, tmp_path):
 def test_persistence_restore_republishes_route_block_and_fplseq(database, tmp_path):
     state_file = tmp_path / "flightplan_state.json"
     e = engine.Engine()
-    route = [engine.Waypoint("A", 1.0, 2.0), engine.Waypoint("B", 3.0, 4.0)]
-    e.load_route(route, "RESTORED", 42)
+    route = [
+        engine.Waypoint("A", 1.0, 2.0),
+        engine.Waypoint("B", 3.0, 4.0, pt="CF", crs=45.0, flags=engine.FLAG_FAF),
+    ]
+    e.load_route(route, "RESTORED", 42, aprid="I33L", dbcyc="2609")
     e.handle_command("1 ACT 2", (1.0, 2.0, True))
     state_file.write_text(json.dumps(e.to_persisted_dict()))
 
@@ -146,6 +180,11 @@ def test_persistence_restore_republishes_route_block_and_fplseq(database, tmp_pa
     assert database.read("FPLCOUNT")[0] == 2
     assert database.read("FPL1ID")[0] == "A"
     assert database.read("FPL2ID")[0] == "B"
+    assert database.read("FPL2PT")[0] == "CF"
+    assert database.read("FPL2CRS")[0] == pytest.approx(45.0)
+    assert database.read("FPL2FLAGS")[0] == engine.FLAG_FAF
+    assert database.read("FPLAPRID")[0] == "I33L"
+    assert database.read("FPLDBCYC")[0] == "2609"
     assert pl.thread.engine.act_leg == 2
     assert pl.thread.engine.mode == "LEG"
 

@@ -1,9 +1,12 @@
-# Flight plan FIX keys (FP1)
+# Flight plan FIX keys (FP1, PA3)
 
-Spec: [fix-gateway#22](https://github.com/billmallard/fix-gateway/issues/22);
-`makerplane/briefs/flight_plan_plan.md` section 3.2 + Appendix A/C (the
-maos-workspace repo). This item lands the key contract only -- the
-`flightplan` engine plugin that computes the guidance outputs is FP2.
+Spec: [fix-gateway#22](https://github.com/billmallard/fix-gateway/issues/22)
+(FP1), [fix-gateway#27](https://github.com/billmallard/fix-gateway/issues/27)
+(PA3, the leg model); `makerplane/briefs/procedures_and_airways_plan.md`
+section 3.2 (the maos-workspace repo) -- Bill's decision 1, 2026-09-18. This
+item lands the key contract only -- the `flightplan` engine plugin that
+computes the guidance outputs is FP2, and flying anything other than an
+implicit `TF` leg is PA4.
 
 One key, one writer, with a single documented exception: after a gateway
 restart the engine (FP2) republishes the route block and bumps `FPLSEQ`
@@ -11,22 +14,57 @@ itself, mirroring `state_persist` restoring `NAVSRC`.
 
 ## Route block
 
-The route crosses the bus as an indexed key block (`f: 50` in
+The route crosses the bus as an indexed key block (`f: 100` in
 `database/variables.yaml`), the idiom the database already expands (`EGTec`,
 `BTNb`). The editor (pyEfis) writes every slot, then `FPLCOUNT`, then bumps
 `FPLSEQ` last. Consumers act only on `FPLSEQ` change -- netfix processes one
 connection's writes in order, so the block is complete when the counter
 lands. `tol: 0` (no staleness auto-flag; these are edited, not streamed).
 
+**PA3 widened the slot from a point to a leg** (a SID/STAR/approach is a
+sequence of legs, not a flat list of points): `FPLfROLE` is gone, replaced by
+`FPLfFLAGS` plus six new fields. This is a breaking rewrite of FP1's key
+spellings, not an addition to them -- Bill lifted the compatibility
+constraint (decision 1, 2026-09-18; guardrail 6 struck) because the feature
+has no consumers outside dev yet. An ordinary point-to-point route is still
+just every slot's `FPLfPT = "TF"` (the default) with the other leg fields at
+their zero value -- nothing changes for that case.
+
 | Key | Type | Range | Writer | Meaning |
 |---|---|---|---|---|
-| `FPL1..50 ID` | str | <=6 chars, uppercase, `""` = empty | editor | Slot ident |
-| `FPL1..50 LAT` / `LON` | float | +-90 / +-180 deg | editor | Slot position |
-| `FPL1..50 TYPE` | int | 0..6 (0 unknown, 1 airport, 2 VOR, 3 NDB, 4 fix, 5 user, 6 map point) | editor | Slot type |
-| `FPL1..50 ROLE` | int | 0..4 (0 none, 1 IAF, 2 FAF, 3 MAP, 4 MAHP) | editor | Pilot-marked approach role; drives approach scaling |
-| `FPLCOUNT` | int | 0..50 | editor | Slots in use |
+| `FPL1..100 ID` | str | <=6 chars, uppercase, `""` = empty | editor | Slot ident |
+| `FPL1..100 LAT` / `LON` | float | +-90 / +-180 deg | editor | Slot position |
+| `FPL1..100 TYPE` | int | 0..6 (0 unknown, 1 airport, 2 VOR, 3 NDB, 4 fix, 5 user, 6 map point) | editor | Slot type |
+| `FPL1..100 PT` | str | ARINC 424 2-char path terminator (`TF`/`IF`/`CF`/`DF`/`CA`/`RF`/`AF`/`HM`/...); `"TF"` initial | editor | Path terminator -- geometry this leg flies |
+| `FPL1..100 CRS` | float | 0..359.9 deg magnetic | editor | Leg course (`CF`/`CA`/`FC`/`VA`/`VM`/`VI`) |
+| `FPL1..100 DST` | float | 0..999.9 nm (minutes for a time-terminated leg, Tier 2) | editor | Leg distance |
+| `FPL1..100 ALT` | str | packed, guide notation: `""` none, `"+3500"` at-or-above, `"-3500"` at-or-below, `"B2900,4000"` between, `"@3500"` at | editor | Altitude constraint |
+| `FPL1..100 SPD` | int | 0..400 kt, 0 = none | editor | Speed constraint |
+| `FPL1..100 SEG` | int | 0..4 (0 enroute, 1 departure, 2 arrival, 3 approach, 4 missed) | editor | Which procedure segment this slot belongs to |
+| `FPL1..100 FLAGS` | int | bitfield: `0x01` fly-over, `0x02` IAF, `0x04` FAF, `0x08` MAP, `0x10` MAHP, `0x20` from a coded procedure | editor | Leg flags (replaces FP1's `FPLfROLE`) |
+| `FPLCOUNT` | int | 0..100 | editor | Slots in use |
 | `FPLNAME` | str | <=32 chars, no `;` | editor | Route name |
 | `FPLSEQ` | int | >=0 | editor (engine on restore) | Commit counter, written last |
+
+The rare fields a real procedure database carries (`theta`/`rho`/`rnp`/turn
+direction/recommended navaid) are **not** on the wire -- resolved to geometry
+at load time by the editor, which has the procedures database open (PA5),
+rather than shipped down a ~1 KB netfix frame a hundred times over.
+
+## Loaded-procedure provenance (block level)
+
+One fact per procedure, not copied onto every slot (the first draft of this
+design put a provenance string on all 100 slots -- up to 100 copies of the
+same string for one fact). `FPLfSEG` says which of these, if any, a given
+slot belongs to.
+
+| Key | Type | Writer | Meaning |
+|---|---|---|---|
+| `FPLDPID` | str | editor | Loaded departure (SID) ident, e.g. `"HYDRR6"` (`""` = none) |
+| `FPLSTARID` | str | editor | Loaded arrival (STAR) ident (`""` = none) |
+| `FPLAPRID` | str | editor | Loaded approach ident, e.g. `"I33L"` (`""` = none) |
+| `FPLAPRTYPE` | str | editor | Loaded approach type (ILS/LOC/RNAV/VOR/NDB/GPS...) |
+| `FPLDBCYC` | str | editor | Nav database AIRAC cycle the loaded procedure(s) came from, e.g. `"2609"` -- PA9 annunciates when it has expired (guardrail 3: annunciate, never refuse the load) |
 
 ## Direct-To staging
 
@@ -43,7 +81,9 @@ strictly-increasing integer per editor session -- a repeated identical
 command is still a new event, and it gives the editor an ack to wait on.
 Verbs: `ACT <slot>`, `DTO` (no arg: use the staged `DTO*` keys; with a slot
 arg, direct-to that plan waypoint), `DTOX`, `SUSP`, `RESUME`,
-`SCALE <0.3|1.0|2.0|AUTO>`.
+`SCALE <0.3|1.0|2.0|AUTO>`. PA3 reserves `PROC`, `PROCX` and `AWY` for
+procedure/airway loading (section 3.2) -- this engine does not dispatch them
+yet; unknown verbs are rejected (`PARSE`), never ignored.
 
 | Key | Type | Writer | Meaning |
 |---|---|---|---|
@@ -56,7 +96,7 @@ arg, direct-to that plan waypoint), `DTOX`, `SUSP`, `RESUME`,
 | Key | Type | Range | Meaning |
 |---|---|---|---|
 | `FPLSTATE` | int | 0 NONE, 1 LEG, 2 DIRECT, 3 SUSP | Engine state |
-| `FPLACTLEG` | int | 0..50 | Slot of the TO waypoint, 0 = none |
+| `FPLACTLEG` | int | 0..100 | Slot of the TO waypoint, 0 = none |
 | `FPLPHASE` | str | `ENR` / `TERM` / `LNAV` / `LOI` / `0.30 NM` / `1.00 NM` / `""` | Flight-phase annunciation |
 | `FPLAPR` | int | 0 none, 1 armed, 2 active, 3 missed | Approach state |
 | `FPLINTEG` | bool | | Integrity gate satisfied for the current phase |

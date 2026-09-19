@@ -8,6 +8,14 @@ scaling and the full DO-229 lateral flight-phase behaviour, including the
 approach. The editor (pyEfis) writes the route and commands; this plugin
 never needs a nav database, only coordinates.
 
+**PA3** (fix-gateway#27; `makerplane/briefs/procedures_and_airways_plan.md`
+section 3.2) widened the route slot from a point to a leg (path terminator,
+course, distance, altitude/speed, procedure segment, flags) and raised the
+block to 100 slots, so a procedure can round-trip through it — see
+`doc/flightplan_keys.md` for the key contract. This engine still flies every
+leg as an implicit `TF` great circle; interpreting other path terminators and
+rejecting a procedure with an unsupported one (guardrail 1) is PA4.
+
 **Ruling (Bill, 2026-09-08):** CDI scaling is the full DO-229 lateral
 behaviour *including the approach phase*. There is no VFR-advisory mode —
 that framing was rescinded before this was built.
@@ -164,8 +172,8 @@ As X-Plane (or the bench GPS source) moves `LAT`/`LONG`/`GS`, watch
   turn-anticipation table, sequencing (fly-by + fly-over + abeam
   backstop), Direct-To/DTOX/SUSP/RESUME, the full DO-229 approach state
   machine (armed/active/ramp/MAP/missed), the integrity gate, WPETE
-  staleness, command ack/reject, persistence round-trip, and the 50-slot
-  cycle-time budget.
+  staleness, command ack/reject, persistence round-trip (including the PA3
+  leg fields and procedure provenance), and the 100-slot cycle-time budget.
 - `tests/plugins/flightplan/test_plugin.py` — the `fixgw.database` wiring:
   route commit on `FPLSEQ`, the command channel end-to-end, guidance
   writes, the 5 Hz rate limiter, persistence restore/republish, and
