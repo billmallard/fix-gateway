@@ -12,9 +12,16 @@ never needs a nav database, only coordinates.
 section 3.2) widened the route slot from a point to a leg (path terminator,
 course, distance, altitude/speed, procedure segment, flags) and raised the
 block to 100 slots, so a procedure can round-trip through it — see
-`doc/flightplan_keys.md` for the key contract. This engine still flies every
-leg as an implicit `TF` great circle; interpreting other path terminators and
-rejecting a procedure with an unsupported one (guardrail 1) is PA4.
+`doc/flightplan_keys.md` for the key contract.
+
+**PA4** (fix-gateway#28; section 2/9 of the same brief) is the first item
+that actually flies something other than an implicit `TF` leg: Tier-1 path
+terminators (`IF`/`TF`/`CF`/`DF` — 70% of approach legs, 91% of SID/STAR
+legs, all great-circle or course-to-a-point geometry this engine already
+had), vector legs (`VA`/`VM`/`FM`/`VI` — a SUSP annunciated `VECTORS`,
+guardrail 4), and the guardrail-1 safety gate: loading a route with any
+other path terminator rejects the **whole** route, with a reason on
+`FPLMSG`, leaving whatever was previously loaded untouched.
 
 **Ruling (Bill, 2026-09-08):** CDI scaling is the full DO-229 lateral
 behaviour *including the approach phase*. There is no VFR-advisory mode —
@@ -70,6 +77,23 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   MAGVAR)`. Cross-track (`FPLXTK`, positive = right) and the CDI
   (`FPLCDI = clamp(-FPLXTK / CDISCALE, -1, 1)`) use the same sign
   convention as `garmin_gnx375`.
+- **Path terminators (PA4)**: `IF`/`TF`/`DF` fly the prior slot to this one
+  — the same great circle the engine has always flown. `CF` flies the leg's
+  published `FPLfCRS` (magnetic, converted with the current `MAGVAR`)
+  instead of a bearing derived from the previous slot: a synthetic FROM
+  point 50 nm behind the fix, on the reciprocal of that course, feeds the
+  same cross-track/along-track math unchanged. A route containing any other
+  path terminator is **rejected in full** at load — `engine.PT_SUPPORTED`
+  is the complete list — with `FPLMSG = "UNSUPP <PT> <ident>"`; the
+  previously loaded route, if any, is left exactly as it was (guardrail 1).
+  A vector leg (`VA`/`VM`/`FM`/`VI`) is accepted at load but never flown:
+  reaching one (by `ACT`/`DTO` or mid-flight sequencing) forces `FPLSTATE =
+  SUSP` and `FPLPHASE = "VECTORS"`, with `FPLCRS`/`FPLXTK`/`FPLCDI`/`WPDIS`/
+  `WPETE`/`FPLREMDIS`/`FPLREMETE` all reading 0 — the box invents no
+  heading, and no distance to one either (guardrail 4). `RESUME` off a
+  vector leg activates the next slot direct from the aircraft's actual
+  position (like a `DTO`, not a resumed track), or posts `"NO NEXT LEG"`
+  and stays suspended if there is nothing after it.
 - **Sequencing**: fly-by turn anticipation, `d_ta = R_turn * tan(delta/2)`,
   `R_turn = GS_kt / 188.5` nm, `delta` capped at 120 deg, `d_ta` floored at
   0.1 nm and capped at 5 nm — or the abeam backstop (along-track distance
@@ -79,7 +103,8 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
 - **Commands** (`FPLCMD`): `ACT <k>`, `DTO` / `DTO <k>`, `DTOX`, `SUSP`,
   `RESUME`, `SCALE <0.3|1.0|2.0|AUTO>`. See Appendix C of the brief for the
   full grammar. Ack on `FPLCMDACK` (`seq` success, `-seq` rejection),
-  reason on `FPLMSG` (`NO PLAN`, `BAD SLOT`, `NO POSITION`, `PARSE`).
+  reason on `FPLMSG` (`NO PLAN`, `BAD SLOT`, `NO POSITION`, `PARSE`, or —
+  off a vector leg, PA4 — `"RESUME NAV -> <ident>"` / `"NO NEXT LEG"`).
   Unknown verbs are rejected, never ignored.
 - **CDI scaling / flight phase (DO-229, full)**:
   - `ENR` (2.0 nm) beyond 30 nm of both the departure and destination
@@ -173,10 +198,18 @@ As X-Plane (or the bench GPS source) moves `LAT`/`LONG`/`GS`, watch
   backstop), Direct-To/DTOX/SUSP/RESUME, the full DO-229 approach state
   machine (armed/active/ramp/MAP/missed), the integrity gate, WPETE
   staleness, command ack/reject, persistence round-trip (including the PA3
-  leg fields and procedure provenance), and the 100-slot cycle-time budget.
+  leg fields and procedure provenance), the 100-slot cycle-time budget, and
+  (PA4) whole-route rejection of an unsupported path terminator — the most
+  important test in that item, run negative — every supported terminator
+  loading without rejection, `CF`'s published-course geometry (including
+  the magnetic/true conversion), and vector-leg SUSP/VECTORS/RESUME
+  (activation, mid-flight sequencing onto one, resuming off one with and
+  without a next leg, and the position-required rejection).
 - `tests/plugins/flightplan/test_plugin.py` — the `fixgw.database` wiring:
   route commit on `FPLSEQ`, the command channel end-to-end, guidance
-  writes, the 5 Hz rate limiter, persistence restore/republish, and
-  lifecycle (start/stop, `PluginFail` on a stuck thread, `get_status`).
+  writes, the 5 Hz rate limiter, persistence restore/republish, lifecycle
+  (start/stop, `PluginFail` on a stuck thread, `get_status`), and (PA4) an
+  unsupported-leg-type route rejection writing `FPLMSG` and leaving the
+  previous route loaded, and a vector leg annunciating `VECTORS` end to end.
 - `tests/plugins/compute/` — unchanged behaviour after the `geo.py`
   extraction (no numeric change to `xte`/`bearing`).

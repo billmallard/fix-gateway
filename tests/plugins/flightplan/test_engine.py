@@ -661,3 +661,177 @@ def test_persistence_round_trip_preserves_leg_fields_and_provenance():
     e2.restore_from_dict(snapshot)
     assert e2.aprid == "I33L" and e2.aprtype == "ILS" and e2.dbcyc == "2609"
     assert [w.flags for w in e2.route] == [w.flags for w in route]
+
+
+# ---------------------------------------------------------------------------
+# PA4: whole-procedure rejection of unsupported leg types (guardrail 1) --
+# the most important test in this item, per the brief, is negative.
+# ---------------------------------------------------------------------------
+
+
+def test_unsupported_leg_reason_names_terminator_and_ident():
+    route = [wp("A", 0.0, 0.0), engine.Waypoint("ARCFIX", 0.0, nm_to_deg_lon(5.0), pt="RF")]
+    assert engine.unsupported_leg_reason(route) == "UNSUPP RF ARCFIX"
+
+
+def test_unsupported_leg_reason_none_for_an_all_supported_route():
+    route = [wp("A", 0.0, 0.0), engine.Waypoint("B", 0.0, nm_to_deg_lon(5.0), pt="CF")]
+    assert engine.unsupported_leg_reason(route) is None
+
+
+def test_load_route_rejects_whole_route_containing_a_hold():
+    e = engine.Engine()
+    route = [wp("A", 0.0, 0.0), engine.Waypoint("HOLD", 0.0, nm_to_deg_lon(5.0), pt="HM")]
+    with pytest.raises(engine.RouteRejected) as exc:
+        e.load_route(route, "BAD", 2)
+    assert exc.value.reason == "UNSUPP HM HOLD"
+    assert e.count == 0
+    assert e.route_name == ""
+
+
+def test_load_route_rejection_leaves_previously_loaded_route_and_activation_untouched():
+    e = engine.Engine()
+    e.load_route(straight_route(3), "GOOD", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+
+    bad = [wp("A", 0.0, 0.0), engine.Waypoint("ARC", 0.0, nm_to_deg_lon(5.0), pt="RF")]
+    with pytest.raises(engine.RouteRejected):
+        e.load_route(bad, "BAD", 2)
+
+    assert e.route_name == "GOOD"
+    assert e.seq == 1
+    assert e.act_leg == 2
+    assert e.mode == "LEG"
+
+
+@pytest.mark.parametrize("pt", ["IF", "TF", "CF", "DF", "VA", "VM", "FM", "VI"])
+def test_every_supported_leg_type_loads_without_rejection(pt):
+    e = engine.Engine()
+    route = [wp("A", 0.0, 0.0), engine.Waypoint("B", 0.0, nm_to_deg_lon(5.0), pt=pt, crs=90.0)]
+    e.load_route(route, "T", 1)  # must not raise
+    assert e.count == 2
+
+
+# ---------------------------------------------------------------------------
+# PA4: CF (course to fix) -- the one Tier-1 terminator that flies a
+# published course rather than the bearing from the previous fix.
+# ---------------------------------------------------------------------------
+
+
+def test_cf_leg_flies_published_course_not_bearing_from_previous_fix():
+    e = engine.Engine()
+    route = [
+        wp("A", 0.0, -1.0),  # well off the CF leg's north-south course line
+        engine.Waypoint("CFFIX", 0.0, 0.0, type=engine.TYPE_FIX, pt="CF", crs=0.0),  # fly 000 into the fix
+    ]
+    e.load_route(route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, -1.0, True))
+
+    # Aircraft south of the fix, exactly on the published course's line
+    # (lon 0) -- not on the great-circle bearing from A, which runs east.
+    out = e.update(-0.5, 0.0, 120.0, 0.0, True, None, None, 1000.0)
+    assert out["xtk"] == pytest.approx(0.0, abs=1e-6)
+    assert out["crs"] == pytest.approx(0.0, abs=0.1)
+    assert out["tf"] == engine.TF_TO
+
+
+def test_cf_leg_course_is_converted_from_magnetic_with_magvar():
+    e = engine.Engine()
+    route = [
+        wp("A", 0.0, -1.0),
+        engine.Waypoint("CFFIX", 0.0, 0.0, type=engine.TYPE_FIX, pt="CF", crs=10.0),  # 010 magnetic
+    ]
+    e.load_route(route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, -1.0, True))
+    # 10 deg east variation: true course = magnetic - magvar = 0 (due north)
+    out = e.update(-0.5, 0.0, 120.0, 10.0, True, None, None, 1000.0)
+    assert out["xtk"] == pytest.approx(0.0, abs=1e-6)
+    assert out["crs"] == pytest.approx(10.0, abs=0.1)  # displayed back out as magnetic
+
+
+# ---------------------------------------------------------------------------
+# PA4: vector legs (VA/VM/FM/VI) -- SUSP annunciated VECTORS, guardrail 4.
+# ---------------------------------------------------------------------------
+
+
+def vector_route():
+    return [
+        wp("RW33", 0.0, 0.0, type=engine.TYPE_AIRPORT),
+        engine.Waypoint("VEC", 0.0, nm_to_deg_lon(5.0), type=engine.TYPE_MAPPOINT, pt="VA", crs=330.0),
+        wp("ENRTRY", 0.0, nm_to_deg_lon(25.0), type=engine.TYPE_FIX),
+    ]
+
+
+def test_activating_a_vector_leg_suspends_and_annunciates_vectors_no_invented_course():
+    e = engine.Engine()
+    route = vector_route()
+    e.load_route(route, "T", 1)
+    ack, msg = e.handle_command("1 ACT 2", (0.0, 0.0, True))
+    assert ack == 1
+
+    out = e.update(0.0, nm_to_deg_lon(1.0), 120.0, 0.0, True, None, None, 1000.0)
+    assert out["state"] == engine.STATE_SUSP
+    assert out["phase"] == "VECTORS"
+    assert out["crs"] == 0.0 and out["xtk"] == 0.0 and out["tf"] == engine.TF_OFF
+    assert out["wp_name"] == "VEC"
+    assert e.suspended is True
+
+
+def test_sequencing_onto_a_vector_leg_mid_flight_also_suspends():
+    e = engine.Engine()
+    route = straight_route(2)
+    route.append(engine.Waypoint("VEC", 0.0, route[1].lon + nm_to_deg_lon(60.04), pt="VM", crs=270.0))
+    e.load_route(route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+    e.update(0.0, 0.0, 120.0, 0.0, True, None, None, 999.0)
+
+    b_lon = route[1].lon
+    out = e.update(0.0, b_lon - nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1000.0)
+    assert out["act_leg"] == 3
+    assert out["state"] == engine.STATE_SUSP
+    assert out["phase"] == "VECTORS"
+
+
+def test_resume_from_vectors_sequences_onto_next_leg_direct_from_aircraft_position():
+    e = engine.Engine()
+    route = vector_route()
+    e.load_route(route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+    e.update(0.0, nm_to_deg_lon(1.0), 120.0, 0.0, True, None, None, 1000.0)
+    assert e.suspended is True
+
+    ack, msg = e.handle_command("2 RESUME", (1.0, nm_to_deg_lon(6.0), True))
+    assert ack == 2
+    assert msg == "RESUME NAV -> ENRTRY"
+    assert e.act_leg == 3
+    assert e.mode == "LEG"
+    assert e.suspended is False
+    assert e.from_point.lat == 1.0 and e.from_point.lon == pytest.approx(nm_to_deg_lon(6.0))
+    assert e.to_point.id == "ENRTRY"
+
+
+def test_resume_from_vectors_with_no_next_leg_stays_suspended():
+    e = engine.Engine()
+    route = vector_route()[:2]  # nothing after the vector leg
+    e.load_route(route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+    e.update(0.0, nm_to_deg_lon(1.0), 120.0, 0.0, True, None, None, 1000.0)
+
+    ack, msg = e.handle_command("2 RESUME", (0.0, nm_to_deg_lon(1.0), True))
+    assert ack == 2
+    assert msg == "NO NEXT LEG"
+    assert e.act_leg == 2
+    assert e.suspended is True  # nothing safe to fly toward -- stay suspended
+
+
+def test_resume_from_vectors_requires_position():
+    e = engine.Engine()
+    route = vector_route()
+    e.load_route(route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+    e.update(0.0, nm_to_deg_lon(1.0), 120.0, 0.0, True, None, None, 1000.0)
+
+    ack, msg = e.handle_command("2 RESUME", (0.0, 0.0, False))
+    assert ack == -2
+    assert msg == "NO POSITION"
+    assert e.suspended is True

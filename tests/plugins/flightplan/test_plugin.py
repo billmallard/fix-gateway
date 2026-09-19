@@ -84,6 +84,42 @@ def test_route_block_committed_loads_leg_fields_and_provenance(database, tmp_pat
     assert pl.thread.engine.dbcyc == "2609"
 
 
+def test_route_with_unsupported_leg_type_rejected_writes_fplmsg_keeps_previous_route(database, tmp_path):
+    pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
+    good = [engine.Waypoint("A", 0.0, 0.0), engine.Waypoint("B", 0.0, 1.0)]
+    write_route(database, good, name="GOOD", seq=1)
+    assert pl.thread.engine.route_name == "GOOD"
+
+    bad = [engine.Waypoint("A", 0.0, 0.0), engine.Waypoint("ARC", 0.0, 1.0, pt="RF")]
+    write_route(database, bad, name="BAD", seq=2)
+
+    assert pl.thread.engine.route_name == "GOOD"  # guardrail 1 -- no partial load
+    assert pl.thread.engine.seq == 1
+    assert database.read("FPLMSG")[0] == "UNSUPP RF ARC"
+
+
+def test_vector_leg_annunciates_vectors_and_suspends_via_plugin(database, tmp_path):
+    pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
+    database.write("GPS_FIX_TYPE", 3)
+    waypoints = [
+        engine.Waypoint("A", 0.0, 0.0, type=engine.TYPE_AIRPORT),
+        engine.Waypoint("VEC", 0.0, 0.05, type=engine.TYPE_FIX, pt="VA", crs=90.0),
+    ]
+    write_route(database, waypoints, seq=1)
+    database.write("LAT", 0.0)
+    database.write("LONG", 0.0)
+    database.write("GS", 120.0)
+    database.write("MAGVAR", 0.0)
+    database.write("FPLCMD", "1 ACT 2")
+
+    pl.thread._run_update_cycle()
+
+    assert database.read("FPLPHASE")[0] == "VECTORS"
+    assert database.read("FPLSTATE")[0] == engine.STATE_SUSP
+    assert database.read("FPLCRS")[0] == pytest.approx(0.0)
+    assert database.read("FPLXTK")[0] == pytest.approx(0.0)
+
+
 def test_command_channel_act_writes_ack_and_engine_state(database, tmp_path):
     pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
     waypoints = [engine.Waypoint("A", 0.0, 0.0), engine.Waypoint("B", 0.0, 1.0)]
