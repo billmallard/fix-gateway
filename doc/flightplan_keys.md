@@ -1,12 +1,13 @@
-# Flight plan FIX keys (FP1, PA3)
+# Flight plan FIX keys (FP1, PA3, PA4)
 
 Spec: [fix-gateway#22](https://github.com/billmallard/fix-gateway/issues/22)
 (FP1), [fix-gateway#27](https://github.com/billmallard/fix-gateway/issues/27)
-(PA3, the leg model); `makerplane/briefs/procedures_and_airways_plan.md`
-section 3.2 (the maos-workspace repo) -- Bill's decision 1, 2026-09-18. This
-item lands the key contract only -- the `flightplan` engine plugin that
-computes the guidance outputs is FP2, and flying anything other than an
-implicit `TF` leg is PA4.
+(PA3, the leg model), [fix-gateway#28](https://github.com/billmallard/fix-gateway/issues/28)
+(PA4, Tier-1 leg types); `makerplane/briefs/procedures_and_airways_plan.md`
+section 3.2 (the maos-workspace repo) -- Bill's decision 1, 2026-09-18. PA3
+landed the key contract only; PA4 is the first item that actually flies
+anything other than an implicit `TF` leg, and the guardrail-1 rejection gate
+that this key contract enables.
 
 One key, one writer, with a single documented exception: after a gateway
 restart the engine (FP2) republishes the route block and bumps `FPLSEQ`
@@ -51,6 +52,20 @@ direction/recommended navaid) are **not** on the wire -- resolved to geometry
 at load time by the editor, which has the procedures database open (PA5),
 rather than shipped down a ~1 KB netfix frame a hundred times over.
 
+**PA4 flies four path terminators and rejects everything else outright.**
+`IF`/`TF`/`CF`/`DF` (Tier 1 -- 70% of approach legs, 91% of SID/STAR legs)
+and `VA`/`VM`/`FM`/`VI` (vector legs -- a SID/STAR problem, never flown by
+the box, guardrail 4) are the complete supported set
+(`engine.PT_SUPPORTED`). `IF`/`TF`/`DF` fly the prior slot to this one, the
+same great circle the engine has always flown; `CF` flies the leg's
+published `FPLfCRS`, not a bearing derived from the previous slot. Loading a
+route with any other path terminator (`RF`/`AF` arcs, `CA`/`FA`
+altitude-terminated legs, `HM`/`HF`/`HA` holds, `PI` procedure turns -- Tier
+2, PA13) rejects the **whole** route: the engine keeps whatever was
+previously loaded, and `FPLMSG` gets a reason (see the command channel
+section below for the exact format) -- never a silent coercion to `TF`,
+never a partial load (guardrail 1).
+
 ## Loaded-procedure provenance (block level)
 
 One fact per procedure, not copied onto every slot (the first draft of this
@@ -85,11 +100,18 @@ arg, direct-to that plan waypoint), `DTOX`, `SUSP`, `RESUME`,
 procedure/airway loading (section 3.2) -- this engine does not dispatch them
 yet; unknown verbs are rejected (`PARSE`), never ignored.
 
+**`RESUME` off a vector leg (PA4)** is not the MAP's "sequence to the
+MAHP" -- there is no track to rejoin, since the box never flew one. It
+activates the *next* slot direct from wherever the aircraft actually is at
+the moment of the command (like a `DTO`), posting `"RESUME NAV -> <ident>"`.
+With no next slot to join, it posts `"NO NEXT LEG"` and stays suspended --
+unlike the MAP's no-MAHP case, there is no extended course to keep flying.
+
 | Key | Type | Writer | Meaning |
 |---|---|---|---|
 | `FPLCMD` | str | editor | The command string |
 | `FPLCMDACK` | int | engine | `= seq` on success, `-seq` on rejection |
-| `FPLMSG` | str | engine | Last message / rejection reason (`NO PLAN`, `BAD SLOT`, `NO POSITION`, `PARSE`, or a sequence trace like `SEQ GVO -> RZS`) |
+| `FPLMSG` | str | engine | Last message / rejection reason. Commands: `NO PLAN`, `BAD SLOT`, `NO POSITION`, `PARSE`, a sequence trace like `SEQ GVO -> RZS`, or (PA4, off a vector leg) `RESUME NAV -> <ident>` / `NO NEXT LEG`. Route loads (PA4, guardrail 1): `"UNSUPP <PT> <ident>"`, e.g. `"UNSUPP RF ARCFIX"`, when a leg's path terminator is not one this engine can fly -- the whole route is rejected, not just that leg |
 
 ## Engine outputs (FP2 writes; `tol: 5000`)
 
@@ -97,7 +119,7 @@ yet; unknown verbs are rejected (`PARSE`), never ignored.
 |---|---|---|---|
 | `FPLSTATE` | int | 0 NONE, 1 LEG, 2 DIRECT, 3 SUSP | Engine state |
 | `FPLACTLEG` | int | 0..100 | Slot of the TO waypoint, 0 = none |
-| `FPLPHASE` | str | `ENR` / `TERM` / `LNAV` / `LOI` / `0.30 NM` / `1.00 NM` / `""` | Flight-phase annunciation |
+| `FPLPHASE` | str | `ENR` / `TERM` / `LNAV` / `LOI` / `VECTORS` / `0.30 NM` / `1.00 NM` / `""` | Flight-phase annunciation. `VECTORS` (PA4, guardrail 4) wins over everything else while the active leg is `VA`/`VM`/`FM`/`VI` -- `FPLSTATE` is also forced to `SUSP` and `FPLCRS`/`FPLXTK`/`FPLCDI`/`WPDIS`/`WPETE`/`FPLREMDIS`/`FPLREMETE` all read 0 (the box invents no heading, and no distance to one either) |
 | `FPLAPR` | int | 0 none, 1 armed, 2 active, 3 missed | Approach state |
 | `FPLINTEG` | bool | | Integrity gate satisfied for the current phase |
 | `CDISCALE` | float | 0.3..2.0 nm | Full-scale deflection (ramps 1.0 -> 0.3 nm over the 2 nm before the FAF) |

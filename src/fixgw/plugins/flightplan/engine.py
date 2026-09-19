@@ -15,9 +15,20 @@
 #  section 3.2) widened the route slot from a bare point to a leg: a path
 #  terminator, course, distance, altitude/speed constraint and a flags
 #  bitfield (FAF/MAP/MAHP/IAF/fly-over/from-procedure) replacing the old
-#  single-value FPLfROLE. This engine still flies every leg as an implicit
-#  TF great circle -- Tier-1 path-terminator geometry (IF/CF/DF/...) and
-#  whole-procedure rejection of unsupported types are PA4, not this item.
+#  single-value FPLfROLE.
+#
+#  PA4 (fix-gateway#28; section 2/9 of the same brief) adds the Tier-1 leg
+#  types -- IF/TF/CF/DF are 70% of approach legs and 91% of SID/STAR legs,
+#  all great-circle or course-to-a-point geometry this engine already had
+#  (IF/TF/DF fly the prior fix to this fix exactly as the old implicit-TF
+#  engine always did; CF is the one that needs a real published course
+#  rather than a computed bearing, _leg_from_anchor below) -- and the
+#  guardrail-1 safety gate: a leg whose path terminator this engine cannot
+#  fly rejects the WHOLE route, never a silent coercion to TF and never a
+#  partial load (unsupported_leg_reason, raised from load_route as
+#  RouteRejected). Vector legs (VA/VM/FM/VI -- a SID/STAR problem, not an
+#  approach one) cannot be flown by the box at all; guardrail 4 makes
+#  reaching one a SUSP annunciated VECTORS, never an invented heading.
 
 import math
 
@@ -49,6 +60,50 @@ FLAG_FROM_PROCEDURE = 0x20
 
 # --- FPLfPT ------------------------------------------------------------
 PT_DEFAULT = "TF"  # the enroute/point-list default: a great-circle leg
+
+# --- Tier-1 leg-type support (PA4) --------------------------------------
+# Measured over FAACIFP18 (procedures_and_airways_plan.md section 2): IF +
+# TF + CF + DF is 70% of approach legs and 91% of SID/STAR legs, and all
+# four are great-circle or course-to-a-point geometry the engine already
+# has -- IF/TF/DF fly the prior fix to this fix exactly as the old
+# implicit-TF engine always did (no code change), CF needs the leg's
+# published course rather than a computed bearing (_leg_from_anchor).
+PT_TIER1 = frozenset({"IF", "TF", "CF", "DF"})
+
+# Vector legs cannot be flown by the box at all -- they terminate on pilot
+# or ATC action, never on geometry (a SID/STAR problem: VA/VM/FM/VI are
+# 6,705 SID/STAR legs, essentially zero approach legs). Guardrail 4: a
+# vector leg is a SUSP annunciated VECTORS, and the box never invents a
+# heading for it.
+PT_VECTOR = frozenset({"VA", "VM", "FM", "VI"})
+
+# Every path terminator this engine will load. Everything else (RF/AF arcs,
+# CA/FA altitude-terminated legs, HM/HF/HA holds, PI procedure turns, ...)
+# is Tier 2 (PA13) and rejects the whole procedure until then (guardrail 1).
+PT_SUPPORTED = PT_TIER1 | PT_VECTOR
+
+# Distance behind a CF leg's fix, along the reciprocal of its published
+# course, used to synthesize a FROM anchor so the existing great-circle
+# cross-track/along-track math (built for a real fix-to-fix leg) applies
+# unchanged to a course-to-a-fix leg. Comfortably beyond any real
+# interception distance without courting antipodal weirdness.
+CF_VIRTUAL_FROM_NM = 50.0
+
+
+def unsupported_leg_reason(waypoints):
+    """None if every leg's path terminator is one this engine can fly;
+    otherwise a <=64-char FPLMSG reason naming the first offender.
+
+    Guardrail 1: an unsupported leg type rejects the WHOLE procedure, with
+    a reason on FPLMSG -- never a silent coercion to TF, never a partial
+    load. The most important test in PA4 is this one, run negative.
+    """
+    for i, w in enumerate(waypoints, start=1):
+        if w.pt not in PT_SUPPORTED:
+            ident = w.id or f"SLOT{i}"
+            return f"UNSUPP {w.pt or '??'} {ident}"[:64]
+    return None
+
 
 # --- FPLSTATE ------------------------------------------------------------
 STATE_NONE = 0
@@ -139,6 +194,17 @@ class Point:
         return cls(wp.lat, wp.lon, wp.id)
 
 
+class RouteRejected(Exception):
+    """Raised by Engine.load_route (PA4, guardrail 1) when a leg's path
+    terminator is not one this engine can fly. The previously loaded
+    route, activation state and all, is left completely untouched --
+    there is no partial load."""
+
+    def __init__(self, reason):
+        super().__init__(reason)
+        self.reason = reason
+
+
 def turn_anticipation_nm(gs_kt, delta_deg, turn_rate_deg_s=TURN_RATE_DEG_S_DEFAULT):
     """d_ta = R_turn * tan(delta/2), R_turn = GS_kt / (rate-driven constant).
 
@@ -211,7 +277,14 @@ class Engine:
         edit-preserving activation was not attempted in this first cut.
 
         dpid/starid/aprid/aprtype/dbcyc: block-level procedure provenance
-        (PA3) -- FPLDPID/FPLSTARID/FPLAPRID/FPLAPRTYPE/FPLDBCYC."""
+        (PA3) -- FPLDPID/FPLSTARID/FPLAPRID/FPLAPRTYPE/FPLDBCYC.
+
+        Raises RouteRejected (PA4, guardrail 1) -- leaving the previously
+        loaded route and activation state completely untouched -- if any
+        leg's path terminator is not in PT_SUPPORTED."""
+        reason = unsupported_leg_reason(waypoints)
+        if reason is not None:
+            raise RouteRejected(reason)
         self.route = list(waypoints)
         self.route_name = name
         self.seq = seq
@@ -322,6 +395,38 @@ class Engine:
             return True
         return bool(self.route[slot - 1].flags & FLAG_MAP)
 
+    def _on_vector_leg(self):
+        """True when the active (TO) leg is a vector type (PA4, guardrail
+        4) -- derived fresh from route data every call, not a persisted
+        flag, so a pilot RESUME (which moves act_leg off the vector leg,
+        see _resume_from_vectors) is never fought by a stale flag on the
+        next cycle."""
+        if not (1 <= self.act_leg <= self.count):
+            return False
+        return self.route[self.act_leg - 1].pt in PT_VECTOR
+
+    def _leg_from_anchor(self, to_wp, fr, to, magvar_deg):
+        """The FROM anchor used for this leg's course/xtk/atd math: the
+        real previous point for IF/TF/DF (a great circle from the prior
+        fix -- the same geometry this engine has always flown), or a
+        synthetic point on the leg's published magnetic course for CF, the
+        one Tier-1 terminator that is not a fix-to-fix path but a course
+        flown into a fix."""
+        if to_wp.pt == "CF":
+            true_course = geo.wrap360(to_wp.crs - magvar_deg)
+            back_lat, back_lon = geo.destination_point(
+                to.lat, to.lon, geo.wrap360(true_course + 180.0), CF_VIRTUAL_FROM_NM
+            )
+            return Point(back_lat, back_lon)
+        return fr
+
+    def _leg_geometry(self, to_wp, fr, to, ac_lat, ac_lon, magvar_deg):
+        anchor = self._leg_from_anchor(to_wp, fr, to, magvar_deg)
+        atd = geo.along_track_distance_to_waypoint_nm(anchor.lat, anchor.lon, to.lat, to.lon, ac_lat, ac_lon)
+        xtk = geo.cross_track_nm(anchor.lat, anchor.lon, to.lat, to.lon, ac_lat, ac_lon)
+        dtk_true = geo.desired_track_true(anchor.lat, anchor.lon, to.lat, to.lon, ac_lat, ac_lon)
+        return anchor, atd, xtk, dtk_true
+
     # ------------------------------------------------------------------
     # Commands
     # ------------------------------------------------------------------
@@ -368,7 +473,7 @@ class Engine:
         elif verb == "SUSP":
             self._cmd_susp()
         elif verb == "RESUME":
-            self._cmd_resume()
+            self._cmd_resume(position)
         elif verb == "SCALE":
             self._cmd_scale(arg)
         else:
@@ -498,7 +603,7 @@ class Engine:
             raise _Reject("NO PLAN")
         self.suspended = True
 
-    def _cmd_resume(self):
+    def _cmd_resume(self, position):
         if self._map_suspended:
             faf_idx, map_idx = self._faf_map_idx()
             self._missed = True
@@ -514,9 +619,32 @@ class Engine:
                 self._cmd_msg = "NO MISSED APPROACH LEGS"
             self._prev_atd = None
             return
+        if self._on_vector_leg():
+            self._resume_from_vectors(position)
+            return
         if self.mode == "NONE":
             raise _Reject("NO PLAN")
         self.suspended = False
+
+    def _resume_from_vectors(self, position):
+        """RESUME off a vector leg (PA4, guardrail 4): the box never
+        invented a heading while suspended, so there is no track to
+        rejoin -- sequence onto the next leg direct from wherever the
+        aircraft actually is now, exactly like a DTO. With no next leg to
+        join, stay suspended (there is nothing safe to fly toward) and
+        just post the reason -- unlike the MAP case, there is no extended
+        final-approach course to keep flying here."""
+        ac_lat, ac_lon = self._require_position(position)
+        next_idx = self.act_leg + 1
+        if next_idx > self.count:
+            self._cmd_msg = "NO NEXT LEG"
+            return
+        self._begin_activation()
+        self.mode = "LEG"
+        self.act_leg = next_idx
+        self.from_point = Point(ac_lat, ac_lon)
+        self.to_point = Point.from_waypoint(self.route[next_idx - 1])
+        self._cmd_msg = f"RESUME NAV -> {self.route[next_idx - 1].id}"
 
     def _cmd_scale(self, arg):
         mapping = {"0.3": 0.3, "1.0": 1.0, "2.0": 2.0}
@@ -558,6 +686,8 @@ class Engine:
 
         out = self._compute_guidance(ac_lat, ac_lon, gs_kt, magvar_deg)
         self._compute_phase_and_integrity(out, ac_lat, ac_lon, accuracy_nm)
+        if out.pop("vectors", False):
+            out["phase"] = "VECTORS"  # PA4 guardrail 4 -- wins over ENR/TERM/LNAV
         if self._pending_msg is not None:
             out["msg"] = self._pending_msg
         return out
@@ -619,11 +749,14 @@ class Engine:
                 "fail": False,
             }
 
+        if self._on_vector_leg():
+            self.suspended = True
+            return self._vector_guidance()
+
+        to_wp = self.route[self.act_leg - 1]
         fr = self.from_point
         to = self.to_point
-        atd = geo.along_track_distance_to_waypoint_nm(fr.lat, fr.lon, to.lat, to.lon, ac_lat, ac_lon)
-        xtk = geo.cross_track_nm(fr.lat, fr.lon, to.lat, to.lon, ac_lat, ac_lon)
-        dtk_true = geo.desired_track_true(fr.lat, fr.lon, to.lat, to.lon, ac_lat, ac_lon)
+        anchor, atd, xtk, dtk_true = self._leg_geometry(to_wp, fr, to, ac_lat, ac_lon, magvar_deg)
 
         alert = False
         final = self._is_final(self.act_leg)
@@ -633,7 +766,7 @@ class Engine:
             else:
                 next_wp = self.route[self.act_leg] if self.act_leg < self.count else None
                 if next_wp is not None:
-                    cur_course = geo.bearing_deg(fr.lat, fr.lon, to.lat, to.lon)
+                    cur_course = geo.bearing_deg(anchor.lat, anchor.lon, to.lat, to.lon)
                     next_course = geo.bearing_deg(to.lat, to.lon, next_wp.lat, next_wp.lon)
                     delta = _course_change_deg(cur_course, next_course)
                     d_ta = turn_anticipation_nm(gs_kt, delta, self.turn_rate_deg_s)
@@ -645,11 +778,13 @@ class Engine:
 
             if not self.suspended and atd <= d_ta:
                 self._sequence(to)
+                if self._on_vector_leg():
+                    self.suspended = True
+                    return self._vector_guidance()
                 to = self.to_point
                 fr = self.from_point
-                atd = geo.along_track_distance_to_waypoint_nm(fr.lat, fr.lon, to.lat, to.lon, ac_lat, ac_lon)
-                xtk = geo.cross_track_nm(fr.lat, fr.lon, to.lat, to.lon, ac_lat, ac_lon)
-                dtk_true = geo.desired_track_true(fr.lat, fr.lon, to.lat, to.lon, ac_lat, ac_lon)
+                to_wp = self.route[self.act_leg - 1]
+                anchor, atd, xtk, dtk_true = self._leg_geometry(to_wp, fr, to, ac_lat, ac_lon, magvar_deg)
                 final = self._is_final(self.act_leg)
 
         elif final and self.route and self.act_leg and self.route[self.act_leg - 1].flags & FLAG_MAP:
@@ -689,8 +824,8 @@ class Engine:
             "xtk": xtk,
             "cdi": None,  # filled in after CDISCALE is known
             "tf": tf,
-            "fr_lat": fr.lat,
-            "fr_lon": fr.lon,
+            "fr_lat": anchor.lat,  # the geometry anchor -- the synthetic CF point, not necessarily fr
+            "fr_lon": anchor.lon,
             "wp_from": fr.id,
             "wp_next": wp_next,
             "wp_lat": to.lat,
@@ -703,6 +838,37 @@ class Engine:
             "rem_ete": rem_ete,
             "alert": alert,
             "fail": False,
+        }
+
+    def _vector_guidance(self):
+        """Output while the active leg is a vector type (PA4, guardrail
+        4): identification only (state/act_leg/wp_from/wp_name) and no
+        course, cross-track, distance or ETE at all -- the box does not
+        invent a heading, and it does not invent a distance to one either.
+        `update()` promotes FPLPHASE to "VECTORS" for this cycle."""
+        fr = self.from_point
+        to = self.to_point
+        return {
+            "state": self._display_state(),
+            "act_leg": self.act_leg,
+            "crs": 0.0,
+            "xtk": 0.0,
+            "cdi": 0.0,
+            "tf": TF_OFF,
+            "fr_lat": fr.lat if fr else 0.0,
+            "fr_lon": fr.lon if fr else 0.0,
+            "wp_from": fr.id if fr else "",
+            "wp_next": "",
+            "wp_lat": to.lat if to else 0.0,
+            "wp_lon": to.lon if to else 0.0,
+            "wp_name": to.id if to else "",
+            "wp_dis": 0.0,
+            "wp_ete": 0,
+            "rem_dis": 0.0,
+            "rem_ete": 0,
+            "alert": False,
+            "fail": False,
+            "vectors": True,
         }
 
     def _sequence(self, reached_to):

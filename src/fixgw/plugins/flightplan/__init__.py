@@ -13,9 +13,12 @@ leg guidance (DTK/XTK/CDI/TO-FROM), sequencing, Direct-To, SUSP/RESUME, the
 full DO-229 CDI-scaling/flight-phase behaviour including the approach
 (Bill's ruling of 2026-09-08 -- there is no VFR-advisory mode), and
 persistence. PA3 widened the route slot to a leg (path terminator, course,
-distance, altitude/speed, segment, flags) -- this plugin round-trips those
-fields but the engine still flies every leg as an implicit TF great circle
-(Tier-1 leg types are PA4).
+distance, altitude/speed, segment, flags); PA4 (fix-gateway#28) adds Tier-1
+path-terminator geometry (IF/TF/CF/DF), rejects a route containing any other
+terminator outright (guardrail 1 -- this module writes the reason to
+``FPLMSG`` and leaves the previously loaded route untouched) and flies a
+vector leg (VA/VM/FM/VI) as a SUSP annunciated ``FPLPHASE=VECTORS``
+(guardrail 4).
 
 The navigation logic itself lives in :mod:`fixgw.plugins.flightplan.engine`
 (pure Python, no fixgw.database dependency) so it is directly unit testable;
@@ -45,7 +48,7 @@ import threading
 import time
 
 import fixgw.plugin as plugin
-from fixgw.plugins.flightplan.engine import Engine, Waypoint
+from fixgw.plugins.flightplan.engine import Engine, RouteRejected, Waypoint
 
 GPS_ACCURACY_FT_PER_NM = 6076.12
 
@@ -146,14 +149,22 @@ class MainThread(threading.Thread):
                     flags=int(self._read(f"FPL{i}FLAGS")),
                 )
             )
-        self.engine.load_route(
-            waypoints, name, seq,
-            dpid=self._read("FPLDPID"),
-            starid=self._read("FPLSTARID"),
-            aprid=self._read("FPLAPRID"),
-            aprtype=self._read("FPLAPRTYPE"),
-            dbcyc=self._read("FPLDBCYC"),
-        )
+        try:
+            self.engine.load_route(
+                waypoints, name, seq,
+                dpid=self._read("FPLDPID"),
+                starid=self._read("FPLSTARID"),
+                aprid=self._read("FPLAPRID"),
+                aprtype=self._read("FPLAPRTYPE"),
+                dbcyc=self._read("FPLDBCYC"),
+            )
+        except RouteRejected as r:
+            # Guardrail 1 (PA4): never a partial load -- the previously
+            # loaded route (if any) is exactly as engine.load_route left
+            # it. FPLSEQ has already landed on the bus at the rejected
+            # value; a corrected route needs its own new FPLSEQ to retry.
+            self.parent.db_write("FPLMSG", r.reason)
+            self.log.warning(f"flightplan: rejected route '{name}' (FPLSEQ {seq}): {r.reason}")
 
     def _republish_route(self):
         for i, wp in enumerate(self.engine.route, start=1):
