@@ -18,7 +18,9 @@ path-terminator geometry (IF/TF/CF/DF), rejects a route containing any other
 terminator outright (guardrail 1 -- this module writes the reason to
 ``FPLMSG`` and leaves the previously loaded route untouched) and flies a
 vector leg (VA/VM/FM/VI) as a SUSP annunciated ``FPLPHASE=VECTORS``
-(guardrail 4).
+(guardrail 4). PA13 (fix-gateway#29) adds RF/AF arcs, CA/FA
+altitude-terminated legs (reading ``ALT`` by default, ``altitude_key``
+below) and HM/HF/HA/PI holds and procedure turns.
 
 The navigation logic itself lives in :mod:`fixgw.plugins.flightplan.engine`
 (pure Python, no fixgw.database dependency) so it is directly unit testable;
@@ -40,6 +42,7 @@ Config (``connections/flightplan.yaml``)::
       alert_s: 10
       integrity_key: GPS_ACCURACY_HORIZ
       hal_nm: {enr: 2.0, term: 1.0, lnav: 0.3}
+      altitude_key: ALT        # PA13: CA/FA/HA termination input; "" disables it
 """
 
 import json
@@ -82,6 +85,11 @@ class MainThread(threading.Thread):
         self.rate_hz = float(cfg.get("rate_hz", 5.0))
         self.min_interval = 1.0 / self.rate_hz if self.rate_hz > 0 else 0.0
         self.integrity_key = cfg.get("integrity_key", "GPS_ACCURACY_HORIZ") or None
+        # PA13: the termination input for CA/FA and HA holds. "ALT" (Indicated
+        # Altitude, database/ahrs.yaml, ft) is published by mavlink/gpsd and by
+        # the bench's X-Plane source -- unlike integrity_key, this has a real
+        # bench source, so it defaults on rather than off.
+        self.altitude_key = cfg.get("altitude_key", "ALT") or None
 
         self._lock = threading.Lock()
         self._last_update_time = 0.0
@@ -147,6 +155,9 @@ class MainThread(threading.Thread):
                     spd=int(self._read(f"FPL{i}SPD")),
                     seg=int(self._read(f"FPL{i}SEG")),
                     flags=int(self._read(f"FPL{i}FLAGS")),
+                    ctrlat=self._read(f"FPL{i}CTRLAT"),
+                    ctrlon=self._read(f"FPL{i}CTRLON"),
+                    turn=self._read(f"FPL{i}TURN"),
                 )
             )
         try:
@@ -179,6 +190,9 @@ class MainThread(threading.Thread):
             self.parent.db_write(f"FPL{i}SPD", wp.spd)
             self.parent.db_write(f"FPL{i}SEG", wp.seg)
             self.parent.db_write(f"FPL{i}FLAGS", wp.flags)
+            self.parent.db_write(f"FPL{i}CTRLAT", wp.ctrlat)
+            self.parent.db_write(f"FPL{i}CTRLON", wp.ctrlon)
+            self.parent.db_write(f"FPL{i}TURN", wp.turn)
         self.parent.db_write("FPLCOUNT", len(self.engine.route))
         self.parent.db_write("FPLNAME", self.engine.route_name)
         self.parent.db_write("FPLDPID", self.engine.dpid)
@@ -245,6 +259,15 @@ class MainThread(threading.Thread):
                 accuracy_nm = acc_t[0] / GPS_ACCURACY_FT_PER_NM
         return fix_type_ok, accuracy_nm
 
+    def _read_altitude(self):
+        # PA13: None (never terminates a CA/FA/HA leg) when the configured
+        # source is disabled or hasn't actively published yet -- the same
+        # "no data" treatment _read_integrity already gives GPS_ACCURACY_HORIZ.
+        if not self.altitude_key:
+            return None
+        alt_t = self._read_tuple(self.altitude_key)
+        return None if alt_t[2] else alt_t[0]
+
     def _run_update_cycle(self, now=None):
         now = now if now is not None else time.time()
         lat_t = self._read_tuple("LAT")
@@ -253,8 +276,9 @@ class MainThread(threading.Thread):
         gs = self._read("GS")
         magvar = self._read("MAGVAR")
         fix_type_ok, accuracy_nm = self._read_integrity()
+        alt_ft = self._read_altitude()
 
-        out = self.engine.update(lat_t[0], lon_t[0], gs, magvar, position_ok, fix_type_ok, accuracy_nm, now)
+        out = self.engine.update(lat_t[0], lon_t[0], gs, magvar, position_ok, fix_type_ok, accuracy_nm, now, alt_ft)
         self._write_outputs(out)
         self._maybe_persist()
 

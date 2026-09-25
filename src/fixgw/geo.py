@@ -162,6 +162,21 @@ def desired_track_true(from_lat, from_lon, to_lat, to_lon, ac_lat, ac_lon):
     return bearing_deg(proj_lat, proj_lon, to_lat, to_lon)
 
 
+def arc_sweep_deg(from_bearing_deg, to_bearing_deg, clockwise):
+    """The sweep angle in [0, 360) traveled going from from_bearing_deg to
+    to_bearing_deg around a circle, turning clockwise (clockwise=True) or
+    counterclockwise (clockwise=False).
+
+    Used for constant-radius arc legs (RF/AF, PA13): the radial bearing from
+    the arc's center to the aircraft's position sweeps monotonically around
+    the circle in the leg's coded turn direction, so this is the arc-leg
+    analogue of along-track distance -- progress and remaining distance are
+    both read off this sweep rather than a straight-line projection.
+    """
+    diff = (to_bearing_deg - from_bearing_deg) % 360.0
+    return diff if clockwise else (360.0 - diff) % 360.0
+
+
 def along_track_distance_to_waypoint_nm(from_lat, from_lon, to_lat, to_lon, ac_lat, ac_lon):
     """Along-track distance remaining from the aircraft to the TO waypoint,
     on the leg FROM -> TO. Positive while the aircraft has not yet reached the

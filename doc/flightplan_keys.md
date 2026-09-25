@@ -1,13 +1,15 @@
-# Flight plan FIX keys (FP1, PA3, PA4)
+# Flight plan FIX keys (FP1, PA3, PA4, PA13)
 
 Spec: [fix-gateway#22](https://github.com/billmallard/fix-gateway/issues/22)
 (FP1), [fix-gateway#27](https://github.com/billmallard/fix-gateway/issues/27)
 (PA3, the leg model), [fix-gateway#28](https://github.com/billmallard/fix-gateway/issues/28)
-(PA4, Tier-1 leg types); `makerplane/briefs/procedures_and_airways_plan.md`
+(PA4, Tier-1 leg types), [fix-gateway#29](https://github.com/billmallard/fix-gateway/issues/29)
+(PA13, Tier-2 leg types); `makerplane/briefs/procedures_and_airways_plan.md`
 section 3.2 (the maos-workspace repo) -- Bill's decision 1, 2026-09-18. PA3
 landed the key contract only; PA4 is the first item that actually flies
 anything other than an implicit `TF` leg, and the guardrail-1 rejection gate
-that this key contract enables.
+that this key contract enables. PA13 adds the leg types the brief phased
+out of PA4 -- arcs, altitude-terminated legs, holds and procedure turns.
 
 One key, one writer, with a single documented exception: after a gateway
 restart the engine (FP2) republishes the route block and bumps `FPLSEQ`
@@ -37,34 +39,48 @@ their zero value -- nothing changes for that case.
 | `FPL1..100 LAT` / `LON` | float | +-90 / +-180 deg | editor | Slot position |
 | `FPL1..100 TYPE` | int | 0..6 (0 unknown, 1 airport, 2 VOR, 3 NDB, 4 fix, 5 user, 6 map point) | editor | Slot type |
 | `FPL1..100 PT` | str | ARINC 424 2-char path terminator (`TF`/`IF`/`CF`/`DF`/`CA`/`RF`/`AF`/`HM`/...); `"TF"` initial | editor | Path terminator -- geometry this leg flies |
-| `FPL1..100 CRS` | float | 0..359.9 deg magnetic | editor | Leg course (`CF`/`CA`/`FC`/`VA`/`VM`/`VI`) |
-| `FPL1..100 DST` | float | 0..999.9 nm (minutes for a time-terminated leg, Tier 2) | editor | Leg distance |
-| `FPL1..100 ALT` | str | packed, guide notation: `""` none, `"+3500"` at-or-above, `"-3500"` at-or-below, `"B2900,4000"` between, `"@3500"` at | editor | Altitude constraint |
+| `FPL1..100 CRS` | float | 0..359.9 deg magnetic | editor | Leg course (`CF`/`CA`/`FC`/`VA`/`VM`/`VI`, and (PA13) the inbound course to the fix for `HM`/`HF`/`HA`/`PI`) |
+| `FPL1..100 DST` | float | 0..999.9 nm | editor | Leg distance. Tier 1: unused by the great-circle terminators. PA13: an `RF`/`AF` arc's radius, or a hold/procedure-turn's outbound leg length -- both required, never defaulted |
+| `FPL1..100 ALT` | str | packed, guide notation: `""` none, `"+3500"` at-or-above, `"-3500"` at-or-below, `"B2900,4000"` between, `"@3500"` at | editor | Altitude constraint. PA13: also the termination test for `CA`/`FA`/`HA` |
 | `FPL1..100 SPD` | int | 0..400 kt, 0 = none | editor | Speed constraint |
 | `FPL1..100 SEG` | int | 0..4 (0 enroute, 1 departure, 2 arrival, 3 approach, 4 missed) | editor | Which procedure segment this slot belongs to |
 | `FPL1..100 FLAGS` | int | bitfield: `0x01` fly-over, `0x02` IAF, `0x04` FAF, `0x08` MAP, `0x10` MAHP, `0x20` from a coded procedure | editor | Leg flags (replaces FP1's `FPLfROLE`) |
+| `FPL1..100 CTRLAT` / `CTRLON` | float | +-90 / +-180 deg | editor | Arc center point (PA13, `RF`/`AF` only) |
+| `FPL1..100 TURN` | str | `"L"`/`"R"`/`""` | editor | Turn direction (PA13, required for `RF`/`AF`/`HM`/`HF`/`HA`/`PI`) |
 | `FPLCOUNT` | int | 0..100 | editor | Slots in use |
 | `FPLNAME` | str | <=32 chars, no `;` | editor | Route name |
 | `FPLSEQ` | int | >=0 | editor (engine on restore) | Commit counter, written last |
 
-The rare fields a real procedure database carries (`theta`/`rho`/`rnp`/turn
-direction/recommended navaid) are **not** on the wire -- resolved to geometry
-at load time by the editor, which has the procedures database open (PA5),
-rather than shipped down a ~1 KB netfix frame a hundred times over.
+The rare fields a real procedure database carries (`theta`/`rho`/`rnp`/
+recommended navaid) are **not** on the wire -- resolved to geometry at load
+time by the editor, which has the procedures database open (PA5), rather
+than shipped down a ~1 KB netfix frame a hundred times over. PA13 promoted
+the arc center and turn direction off that list once Tier 2 needed real
+geometry for them, not raw theta/rho.
 
-**PA4 flies four path terminators and rejects everything else outright.**
-`IF`/`TF`/`CF`/`DF` (Tier 1 -- 70% of approach legs, 91% of SID/STAR legs)
-and `VA`/`VM`/`FM`/`VI` (vector legs -- a SID/STAR problem, never flown by
-the box, guardrail 4) are the complete supported set
-(`engine.PT_SUPPORTED`). `IF`/`TF`/`DF` fly the prior slot to this one, the
-same great circle the engine has always flown; `CF` flies the leg's
-published `FPLfCRS`, not a bearing derived from the previous slot. Loading a
-route with any other path terminator (`RF`/`AF` arcs, `CA`/`FA`
-altitude-terminated legs, `HM`/`HF`/`HA` holds, `PI` procedure turns -- Tier
-2, PA13) rejects the **whole** route: the engine keeps whatever was
-previously loaded, and `FPLMSG` gets a reason (see the command channel
-section below for the exact format) -- never a silent coercion to `TF`,
-never a partial load (guardrail 1).
+**PA4 flew four path terminators (plus vectors); PA13 adds the rest of the
+recognized set.** `IF`/`TF`/`CF`/`DF` (Tier 1 -- 70% of approach legs, 91% of
+SID/STAR legs), `VA`/`VM`/`FM`/`VI` (vector legs -- a SID/STAR problem, never
+flown by the box, guardrail 4), and now (PA13, `engine.PT_TIER2`) `RF`/`AF`
+arcs, `CA`/`FA` altitude-terminated legs, and `HM`/`HF`/`HA`/`PI` holds and
+procedure turns are the complete supported set (`engine.PT_SUPPORTED`).
+`IF`/`TF`/`DF` fly the prior slot to this one, the same great circle the
+engine has always flown; `CF` and (PA13) `CA` fly the leg's published
+`FPLfCRS`, not a bearing derived from the previous slot. `RF`/`AF` fly a real
+circular arc around `FPLfCTRLAT`/`CTRLON` at radius `FPLfDST`. `HM`/`HF`/`HA`
+and `PI` fly an outbound/inbound pair of straight legs around the fix (the
+inbound leg uses the same course-anchor trick as `CF`); `FA` flies to its fix
+like `DF`, then continues on `FPLfCRS` past it like `CA`. Loading a route
+with any other path terminator (still unsupported after PA13: `FC`, the `V`
+records other than the four vector types, and a handful more) rejects the
+**whole** route: the engine keeps whatever was previously loaded, and
+`FPLMSG` gets a reason (see the command channel section below for the exact
+format) -- never a silent coercion to `TF`, never a partial load
+(guardrail 1). **Guardrail 1 also covers a *recognized* Tier-2 type with
+incomplete data** -- an `RF` with no turn direction, an `HM` with no leg
+length, a `CA` with no altitude constraint -- rejecting the whole route the
+same way (`BADTURN`/`BADRADIUS`/`BADCENTER`/`BADALT`/`BADLEGLEN`) rather than
+inventing a value the coded data never carried.
 
 ## Loaded-procedure provenance (block level)
 
@@ -107,11 +123,19 @@ the moment of the command (like a `DTO`), posting `"RESUME NAV -> <ident>"`.
 With no next slot to join, it posts `"NO NEXT LEG"` and stays suspended --
 unlike the MAP's no-MAHP case, there is no extended course to keep flying.
 
+**`RESUME` on a flying `HM` hold (PA13)** means "exit at the next fix
+passage", not "un-suspend" -- the hold is actively flown, with live
+course/cross-track guidance the whole time (`FPLSTATE` stays `LEG`, not
+`SUSP`), so there is nothing to resume into. It posts `"HOLD EXIT ARMED"`
+and the aircraft completes the current circuit before sequencing onward.
+`HF` and `PI` never need this -- they exit automatically after one
+circuit/turn; `HA` exits automatically once the coded altitude is reached.
+
 | Key | Type | Writer | Meaning |
 |---|---|---|---|
 | `FPLCMD` | str | editor | The command string |
 | `FPLCMDACK` | int | engine | `= seq` on success, `-seq` on rejection |
-| `FPLMSG` | str | engine | Last message / rejection reason. Commands: `NO PLAN`, `BAD SLOT`, `NO POSITION`, `PARSE`, a sequence trace like `SEQ GVO -> RZS`, or (PA4, off a vector leg) `RESUME NAV -> <ident>` / `NO NEXT LEG`. Route loads (PA4, guardrail 1): `"UNSUPP <PT> <ident>"`, e.g. `"UNSUPP RF ARCFIX"`, when a leg's path terminator is not one this engine can fly -- the whole route is rejected, not just that leg |
+| `FPLMSG` | str | engine | Last message / rejection reason. Commands: `NO PLAN`, `BAD SLOT`, `NO POSITION`, `PARSE`, a sequence trace like `SEQ GVO -> RZS` (or, PA13, `SEQ ALT -> <ident>` when a `CA`/`FA` leg terminates on altitude with no fix of its own), or (PA4, off a vector leg) `RESUME NAV -> <ident>` / `NO NEXT LEG`, or (PA13, on a flying `HM` hold) `HOLD EXIT ARMED`. Route loads (PA4/PA13, guardrail 1): `"UNSUPP <PT> <ident>"` for an unrecognized terminator, or `"BADTURN <PT> <ident>"` / `"BADRADIUS <PT> <ident>"` / `"BADCENTER <PT> <ident>"` / `"BADALT <PT> <ident>"` / `"BADLEGLEN <PT> <ident>"` for a recognized Tier-2 type missing the fields its geometry needs -- either way the whole route is rejected, not just that leg |
 
 ## Engine outputs (FP2 writes; `tol: 5000`)
 
@@ -119,7 +143,7 @@ unlike the MAP's no-MAHP case, there is no extended course to keep flying.
 |---|---|---|---|
 | `FPLSTATE` | int | 0 NONE, 1 LEG, 2 DIRECT, 3 SUSP | Engine state |
 | `FPLACTLEG` | int | 0..100 | Slot of the TO waypoint, 0 = none |
-| `FPLPHASE` | str | `ENR` / `TERM` / `LNAV` / `LOI` / `VECTORS` / `0.30 NM` / `1.00 NM` / `""` | Flight-phase annunciation. `VECTORS` (PA4, guardrail 4) wins over everything else while the active leg is `VA`/`VM`/`FM`/`VI` -- `FPLSTATE` is also forced to `SUSP` and `FPLCRS`/`FPLXTK`/`FPLCDI`/`WPDIS`/`WPETE`/`FPLREMDIS`/`FPLREMETE` all read 0 (the box invents no heading, and no distance to one either) |
+| `FPLPHASE` | str | `ENR` / `TERM` / `LNAV` / `LOI` / `VECTORS` / `HOLD` / `PTURN` / `0.30 NM` / `1.00 NM` / `""` | Flight-phase annunciation. `VECTORS` (PA4, guardrail 4) wins over everything else while the active leg is `VA`/`VM`/`FM`/`VI` -- `FPLSTATE` is also forced to `SUSP` and `FPLCRS`/`FPLXTK`/`FPLCDI`/`WPDIS`/`WPETE`/`FPLREMDIS`/`FPLREMETE` all read 0 (the box invents no heading, and no distance to one either). `HOLD` (PA13) shows while flying a published `HM`/`HF`/`HA` circuit, `PTURN` while flying a `PI` procedure turn -- both keep live course/cross-track guidance, unlike `VECTORS` |
 | `FPLAPR` | int | 0 none, 1 armed, 2 active, 3 missed | Approach state |
 | `FPLINTEG` | bool | | Integrity gate satisfied for the current phase |
 | `CDISCALE` | float | 0.3..2.0 nm | Full-scale deflection (ramps 1.0 -> 0.3 nm over the 2 nm before the FAF) |
@@ -185,6 +209,15 @@ FMS publishes neither `GPS_ACCURACY_HORIZ` nor `GPS_FIX_TYPE`, so on the
 bench `FPLINTEG` stays `true` and `FPLMSG` reads `NO INTEGRITY DATA` once per
 plan activation, per the brief's "no-accuracy source" rule -- this is
 expected bench behaviour, not a defect.
+
+**Altitude key for PA13.** `CA`/`FA` legs and `HA` holds terminate on a live
+altitude reading rather than a distance -- never on a guess: with no data,
+they simply never end (the same "no data, no invented output" treatment
+`FPLINTEG` already gives an unpublished accuracy key). The default
+`altitude_key` is **`ALT`** (`database/ahrs.yaml`, Indicated Altitude, feet
+-- no unit conversion needed, unlike `GPS_ACCURACY_HORIZ`). X-Plane's FMS
+publishes `ALT` on the bench, so this one has a real bench source where
+`integrity_key` does not.
 
 **Caveat for FP2, not fixed by this item:** `garmin_gnx375` writes
 `GPS_FIX_TYPE` from its own NMEA GGA `qual` field on a 0/1/2 scale (0=none,

@@ -29,6 +29,22 @@
 #  RouteRejected). Vector legs (VA/VM/FM/VI -- a SID/STAR problem, not an
 #  approach one) cannot be flown by the box at all; guardrail 4 makes
 #  reaching one a SUSP annunciated VECTORS, never an invented heading.
+#
+#  PA13 (fix-gateway#29; section 2/6/9 of the same brief) adds the Tier-2
+#  leg types the brief phased out of PA4: RF/AF constant-radius arcs
+#  (_arc_geometry -- real circular geometry, not a straight-line trick),
+#  CA/FA altitude-terminated legs (course held until a live altitude input
+#  crosses the coded constraint, never a distance guess -- _leg_geometry's
+#  course-anchor branch, extended from CF), and HM/HF/HA holds plus PI
+#  procedure turns, all flown as an outbound/inbound pair of straight legs
+#  around the fix (_advance_hold_or_pt) -- the inbound leg reuses the exact
+#  CF anchor trick, the outbound leg is a synthetic point on the coded
+#  reciprocal (or +-45 deg for PI). VA stays a vector leg (PT_VECTOR,
+#  unchanged): it has no fix to fly to or from, only a heading, and
+#  guardrail 4 ("the box does not invent a heading") already covers it --
+#  moving it to Tier 2 would soften, not shrink, the rejected set. See
+#  doc/plugins/flightplan.md for the full behaviour writeup and the scoping
+#  decisions (direct-entry holds only, no ARINC parallel/teardrop entry).
 
 import math
 
@@ -77,32 +93,119 @@ PT_TIER1 = frozenset({"IF", "TF", "CF", "DF"})
 # heading for it.
 PT_VECTOR = frozenset({"VA", "VM", "FM", "VI"})
 
-# Every path terminator this engine will load. Everything else (RF/AF arcs,
-# CA/FA altitude-terminated legs, HM/HF/HA holds, PI procedure turns, ...)
-# is Tier 2 (PA13) and rejects the whole procedure until then (guardrail 1).
-PT_SUPPORTED = PT_TIER1 | PT_VECTOR
+# --- Tier-2 leg-type support (PA13) --------------------------------------
+# Measured over FAACIFP18 (procedures_and_airways_plan.md section 2): holds
+# are 16,915 approach legs (13%) and arcs 2,603 (2%) -- real, not Tier 1,
+# and now flown rather than blanket-rejected.
+PT_ARC = frozenset({"RF", "AF"})          # constant-radius arc to a fix
+PT_ALT_TERM = frozenset({"CA", "FA"})     # course/fix held until an altitude
+PT_HOLD = frozenset({"HM", "HF", "HA"})   # hold: manual / single-circuit / to-altitude
+PT_PROC_TURN = frozenset({"PI"})          # 45/180 procedure turn
+PT_TIER2 = PT_ARC | PT_ALT_TERM | PT_HOLD | PT_PROC_TURN
+
+# Every path terminator this engine will load.
+PT_SUPPORTED = PT_TIER1 | PT_VECTOR | PT_TIER2
 
 # Distance behind a CF leg's fix, along the reciprocal of its published
 # course, used to synthesize a FROM anchor so the existing great-circle
 # cross-track/along-track math (built for a real fix-to-fix leg) applies
 # unchanged to a course-to-a-fix leg. Comfortably beyond any real
-# interception distance without courting antipodal weirdness.
+# interception distance without courting antipodal weirdness. PA13 reuses
+# this same trick for CA (course-to-altitude) and for the inbound leg of a
+# hold/procedure-turn -- both are, geometrically, "hold course into this
+# fix" exactly like CF.
 CF_VIRTUAL_FROM_NM = 50.0
 
 
 def unsupported_leg_reason(waypoints):
-    """None if every leg's path terminator is one this engine can fly;
+    """None if every leg's path terminator is one this engine can fly, and
+    (PA13) every Tier-2 leg carries the fields its geometry needs;
     otherwise a <=64-char FPLMSG reason naming the first offender.
 
     Guardrail 1: an unsupported leg type rejects the WHOLE procedure, with
     a reason on FPLMSG -- never a silent coercion to TF, never a partial
-    load. The most important test in PA4 is this one, run negative.
+    load. The most important test in PA4 is this one, run negative. PA13
+    extends the same rule to a *supported* Tier-2 type whose coded data is
+    incomplete (e.g. an arc with no center, a hold with no turn direction)
+    -- flying it would mean inventing a center, a radius or a turn
+    direction, which is exactly what guardrail 1 forbids for an
+    unrecognized terminator; incomplete data for a recognized one is no
+    safer a guess.
     """
     for i, w in enumerate(waypoints, start=1):
+        ident = w.id or f"SLOT{i}"
         if w.pt not in PT_SUPPORTED:
-            ident = w.id or f"SLOT{i}"
             return f"UNSUPP {w.pt or '??'} {ident}"[:64]
+        bad = _tier2_data_reason(w)
+        if bad is not None:
+            return f"{bad} {w.pt} {ident}"[:64]
     return None
+
+
+def _tier2_data_reason(w):
+    """None if a Tier-2 leg's type-specific fields are complete enough to
+    fly without inventing anything; otherwise a short FPLMSG reason code."""
+    if w.pt in PT_ARC:
+        if w.turn not in ("L", "R"):
+            return "BADTURN"
+        if w.dst <= 0.0:
+            return "BADRADIUS"
+        if w.ctrlat == 0.0 and w.ctrlon == 0.0:
+            return "BADCENTER"
+    elif w.pt in PT_ALT_TERM:
+        if _parse_alt_constraint(w.alt) is None:
+            return "BADALT"
+    elif w.pt in PT_HOLD:
+        if w.turn not in ("L", "R"):
+            return "BADTURN"
+        if w.dst <= 0.0:
+            return "BADLEGLEN"
+        if w.pt == "HA" and _parse_alt_constraint(w.alt) is None:
+            return "BADALT"
+    elif w.pt in PT_PROC_TURN:
+        if w.turn not in ("L", "R"):
+            return "BADTURN"
+        if w.dst <= 0.0:
+            return "BADLEGLEN"
+    return None
+
+
+def _parse_alt_constraint(alt_desc):
+    """Parse FPLfALT's packed guide notation into (threshold_ft,
+    at_or_above) -- the termination test for an altitude-terminated leg
+    (CA/FA) or an HA hold: "reached" is alt_ft >= threshold if
+    at_or_above else alt_ft <= threshold. None if alt_desc does not carry
+    a form this engine can evaluate (including "" -- a CA/FA/HA leg with
+    no altitude at all has no way to terminate, which unsupported_leg_reason
+    treats as incomplete data, not a free pass). "B lo,hi" (between) uses
+    the lower bound -- the first one reached climbing or descending into
+    it -- since a single-leg altitude termination has no way to express
+    "stop somewhere in this band" more precisely than that.
+    """
+    if not alt_desc:
+        return None
+    sign, rest = alt_desc[0], alt_desc[1:]
+    try:
+        if sign == "+":
+            return float(rest), True
+        if sign == "-":
+            return float(rest), False
+        if sign == "@":
+            return float(rest), True
+        if sign == "B":
+            lo, _hi = rest.split(",")
+            return float(lo), True
+    except ValueError:
+        return None
+    return None
+
+
+def _alt_reached_wp(w, alt_ft):
+    parsed = _parse_alt_constraint(w.alt)
+    if parsed is None:
+        return False
+    threshold, at_or_above = parsed
+    return alt_ft >= threshold if at_or_above else alt_ft <= threshold
 
 
 # --- FPLSTATE ------------------------------------------------------------
@@ -110,6 +213,15 @@ STATE_NONE = 0
 STATE_LEG = 1
 STATE_DIRECT = 2
 STATE_SUSP = 3
+
+# --- Tier-2 internal sub-leg phase (PA13; not on the wire, persisted only
+# for restart continuity) -- HM/HF/HA/PI fly as an outbound/inbound pair of
+# straight legs around the fix; FA flies to the fix, then continues on
+# course past it. None means "flying the initial approach to the fix" for
+# all of these (indistinguishable from a plain DF/TF arrival).
+LEGPHASE_OUTBOUND = "OUTBOUND"
+LEGPHASE_INBOUND = "INBOUND"
+LEGPHASE_FA_COURSE = "FA_COURSE"
 
 # --- FPLAPR ----------------------------------------------------------------
 APR_NONE = 0
@@ -136,12 +248,21 @@ class Waypoint:
     """A route slot -- a leg (PA3): a point (id/lat/lon/type) plus the leg
     that terminates on it (path terminator, course, distance, altitude/speed
     constraint, procedure segment, flags). See doc/flightplan_keys.md for the
-    wire encoding this mirrors 1:1."""
+    wire encoding this mirrors 1:1.
 
-    __slots__ = ("id", "lat", "lon", "type", "pt", "crs", "dst", "alt", "spd", "seg", "flags")
+    PA13 adds ctrlat/ctrlon (an RF/AF arc's center point) and turn (the "L"/
+    "R" turn direction an arc, hold or procedure turn needs and a Tier-1 leg
+    never did) -- the two fields PA3 scoped out of the leg struct as "rare"
+    before Tier 2 existed to need them (procedures_and_airways_plan.md
+    section 3.2).
+    """
+
+    __slots__ = ("id", "lat", "lon", "type", "pt", "crs", "dst", "alt", "spd", "seg", "flags",
+                 "ctrlat", "ctrlon", "turn")
 
     def __init__(self, id="", lat=0.0, lon=0.0, type=TYPE_UNKNOWN, pt=PT_DEFAULT,
-                 crs=0.0, dst=0.0, alt="", spd=0, seg=SEG_ENROUTE, flags=0):
+                 crs=0.0, dst=0.0, alt="", spd=0, seg=SEG_ENROUTE, flags=0,
+                 ctrlat=0.0, ctrlon=0.0, turn=""):
         self.id = id
         self.lat = lat
         self.lon = lon
@@ -153,12 +274,16 @@ class Waypoint:
         self.spd = spd
         self.seg = seg
         self.flags = flags
+        self.ctrlat = ctrlat
+        self.ctrlon = ctrlon
+        self.turn = turn
 
     def to_dict(self):
         return {
             "id": self.id, "lat": self.lat, "lon": self.lon, "type": self.type,
             "pt": self.pt, "crs": self.crs, "dst": self.dst, "alt": self.alt,
             "spd": self.spd, "seg": self.seg, "flags": self.flags,
+            "ctrlat": self.ctrlat, "ctrlon": self.ctrlon, "turn": self.turn,
         }
 
     @classmethod
@@ -167,6 +292,7 @@ class Waypoint:
             d.get("id", ""), d.get("lat", 0.0), d.get("lon", 0.0), d.get("type", TYPE_UNKNOWN),
             d.get("pt", PT_DEFAULT), d.get("crs", 0.0), d.get("dst", 0.0), d.get("alt", ""),
             d.get("spd", 0), d.get("seg", SEG_ENROUTE), d.get("flags", 0),
+            d.get("ctrlat", 0.0), d.get("ctrlon", 0.0), d.get("turn", ""),
         )
 
 
@@ -251,6 +377,10 @@ class Engine:
         self.from_point = None   # Point
         self.to_point = None     # Point
 
+        # Tier-2 sub-leg state (PA13) -- see LEGPHASE_* above.
+        self._leg_phase = None
+        self._hold_exit_requested = False  # RESUME on an HM hold: exit at next fix passage
+
         self.scale_manual = None  # None (AUTO) or 0.3/1.0/2.0
 
         self.apr = APR_NONE
@@ -307,6 +437,8 @@ class Engine:
         self._approach_suppressed = False
         self._integrity_msg_posted = True
         self._prev_atd = None
+        self._leg_phase = None
+        self._hold_exit_requested = False
 
     # ------------------------------------------------------------------
     # Persistence (state_persist discipline: atomic JSON, restored after a
@@ -333,6 +465,8 @@ class Engine:
             "missed": self._missed,
             "approach_suppressed": self._approach_suppressed,
             "integrity_msg_posted": self._integrity_msg_posted,
+            "leg_phase": self._leg_phase,
+            "hold_exit_requested": self._hold_exit_requested,
         }
 
     def restore_from_dict(self, d):
@@ -357,6 +491,8 @@ class Engine:
         self._missed = d.get("missed", False)
         self._approach_suppressed = d.get("approach_suppressed", False)
         self._integrity_msg_posted = d.get("integrity_msg_posted", True)
+        self._leg_phase = d.get("leg_phase")
+        self._hold_exit_requested = d.get("hold_exit_requested", False)
         self._prev_atd = None
 
     # ------------------------------------------------------------------
@@ -405,14 +541,37 @@ class Engine:
             return False
         return self.route[self.act_leg - 1].pt in PT_VECTOR
 
+    def _on_hm_hold(self):
+        """True while the active leg is a published HM hold actually being
+        flown (PA13) -- outbound or inbound, not still on the initial
+        approach to the fix. RESUME's meaning here ("exit at the next fix
+        passage") only makes sense once the aircraft is in the pattern."""
+        if not (1 <= self.act_leg <= self.count):
+            return False
+        wp = self.route[self.act_leg - 1]
+        return wp.pt == "HM" and self._leg_phase in (LEGPHASE_OUTBOUND, LEGPHASE_INBOUND)
+
     def _leg_from_anchor(self, to_wp, fr, to, magvar_deg):
         """The FROM anchor used for this leg's course/xtk/atd math: the
         real previous point for IF/TF/DF (a great circle from the prior
         fix -- the same geometry this engine has always flown), or a
-        synthetic point on the leg's published magnetic course for CF, the
-        one Tier-1 terminator that is not a fix-to-fix path but a course
-        flown into a fix."""
-        if to_wp.pt == "CF":
+        synthetic point on the leg's published magnetic course for a leg
+        that is a course flown into a fix rather than a fix-to-fix path --
+        CF (Tier 1), CA (PA13: course held to an altitude), and the inbound
+        leg of a hold or procedure turn (PA13: turn back and re-intercept
+        the coded inbound course into the fix) are geometrically the same
+        problem, so they share this one synthetic-anchor construction.
+        FA (PA13) only joins this set once it has passed the fix and is
+        holding course past it (LEGPHASE_FA_COURSE) -- on the way to the
+        fix it is flown like any other fix arrival, no special anchor.
+        """
+        uses_course_anchor = (
+            to_wp.pt == "CF"
+            or to_wp.pt == "CA"
+            or (to_wp.pt == "FA" and self._leg_phase == LEGPHASE_FA_COURSE)
+            or (to_wp.pt in (PT_HOLD | PT_PROC_TURN) and self._leg_phase == LEGPHASE_INBOUND)
+        )
+        if uses_course_anchor:
             true_course = geo.wrap360(to_wp.crs - magvar_deg)
             back_lat, back_lon = geo.destination_point(
                 to.lat, to.lon, geo.wrap360(true_course + 180.0), CF_VIRTUAL_FROM_NM
@@ -420,11 +579,71 @@ class Engine:
             return Point(back_lat, back_lon)
         return fr
 
+    @staticmethod
+    def _line_geometry(anchor, target, ac_lat, ac_lon):
+        atd = geo.along_track_distance_to_waypoint_nm(anchor.lat, anchor.lon, target.lat, target.lon, ac_lat, ac_lon)
+        xtk = geo.cross_track_nm(anchor.lat, anchor.lon, target.lat, target.lon, ac_lat, ac_lon)
+        dtk_true = geo.desired_track_true(anchor.lat, anchor.lon, target.lat, target.lon, ac_lat, ac_lon)
+        return atd, xtk, dtk_true
+
+    def _arc_geometry(self, to_wp, ac_lat, ac_lon):
+        """Real constant-radius arc guidance (RF/AF, PA13) -- not a
+        straight-line trick, an actual circle: center ctrlat/ctrlon,
+        radius dst, direction turn ("R" clockwise viewed from above, "L"
+        counterclockwise). XTK is computed by handing the aircraft's
+        position to the existing, already-tested cross_track_nm against
+        the tangent line at the aircraft's own radial (the point on the
+        circle directly abeam it, and one nm further along the direction
+        of travel) -- this reuses the codebase's one cross-track sign
+        convention instead of re-deriving inside/outside-of-turn signs by
+        hand. Progress/remaining distance come from the sweep angle
+        (geo.arc_sweep_deg) between the aircraft's radial and the exit
+        fix's radial, in the coded turn direction, converted to arc length
+        by the radius -- the same role atd plays for a straight leg.
+        """
+        clockwise = to_wp.turn == "R"
+        ac_radial = geo.bearing_deg(to_wp.ctrlat, to_wp.ctrlon, ac_lat, ac_lon)
+        to_radial = geo.bearing_deg(to_wp.ctrlat, to_wp.ctrlon, to_wp.lat, to_wp.lon)
+        tangent_brg = geo.wrap360(ac_radial + (90.0 if clockwise else -90.0))
+
+        on_arc_lat, on_arc_lon = geo.destination_point(to_wp.ctrlat, to_wp.ctrlon, ac_radial, to_wp.dst)
+        ahead_lat, ahead_lon = geo.destination_point(on_arc_lat, on_arc_lon, tangent_brg, 1.0)
+        xtk = geo.cross_track_nm(on_arc_lat, on_arc_lon, ahead_lat, ahead_lon, ac_lat, ac_lon)
+
+        remaining_sweep = geo.arc_sweep_deg(ac_radial, to_radial, clockwise)
+        if remaining_sweep <= 180.0:
+            atd = to_wp.dst * math.radians(remaining_sweep)
+        else:
+            # Past the exit radial -- the short way is backward, not the
+            # long way forward around the rest of the circle.
+            atd = -to_wp.dst * math.radians(360.0 - remaining_sweep)
+
+        return Point(on_arc_lat, on_arc_lon), atd, xtk, tangent_brg
+
+    def _hold_outbound_target(self, to_wp, magvar_deg):
+        """The synthetic endpoint of a hold/procedure-turn's outbound leg
+        (PA13): dst nm from the fix, on the reciprocal of the coded
+        inbound course (holds), offset a further +-45 deg for a PI's
+        standard procedure turn (turn "R" offsets right, matching the
+        published outbound track a 45/180 procedure turn flies before
+        reversing to intercept the same inbound course a hold uses)."""
+        inbound_true = geo.wrap360(to_wp.crs - magvar_deg)
+        outbound_true = geo.wrap360(inbound_true + 180.0)
+        if to_wp.pt in PT_PROC_TURN:
+            outbound_true = geo.wrap360(outbound_true + (45.0 if to_wp.turn == "R" else -45.0))
+        lat, lon = geo.destination_point(to_wp.lat, to_wp.lon, outbound_true, to_wp.dst)
+        return Point(lat, lon)
+
     def _leg_geometry(self, to_wp, fr, to, ac_lat, ac_lon, magvar_deg):
+        if to_wp.pt in PT_ARC:
+            return self._arc_geometry(to_wp, ac_lat, ac_lon)
+        if to_wp.pt in (PT_HOLD | PT_PROC_TURN) and self._leg_phase == LEGPHASE_OUTBOUND:
+            anchor = Point(to_wp.lat, to_wp.lon, to_wp.id)
+            target = self._hold_outbound_target(to_wp, magvar_deg)
+            atd, xtk, dtk_true = self._line_geometry(anchor, target, ac_lat, ac_lon)
+            return anchor, atd, xtk, dtk_true
         anchor = self._leg_from_anchor(to_wp, fr, to, magvar_deg)
-        atd = geo.along_track_distance_to_waypoint_nm(anchor.lat, anchor.lon, to.lat, to.lon, ac_lat, ac_lon)
-        xtk = geo.cross_track_nm(anchor.lat, anchor.lon, to.lat, to.lon, ac_lat, ac_lon)
-        dtk_true = geo.desired_track_true(anchor.lat, anchor.lon, to.lat, to.lon, ac_lat, ac_lon)
+        atd, xtk, dtk_true = self._line_geometry(anchor, to, ac_lat, ac_lon)
         return anchor, atd, xtk, dtk_true
 
     # ------------------------------------------------------------------
@@ -505,6 +724,11 @@ class Engine:
         if was_none:
             self._integrity_msg_posted = False
         self._prev_atd = None
+        # A fresh activation always starts a leg's "approach the fix" phase
+        # (PA13) -- never mid-hold or past-the-fix-on-course from whatever
+        # leg was previously active.
+        self._leg_phase = None
+        self._hold_exit_requested = False
 
     def _cmd_act(self, arg, position):
         k = self._slot_arg(arg)
@@ -618,9 +842,21 @@ class Engine:
             else:
                 self._cmd_msg = "NO MISSED APPROACH LEGS"
             self._prev_atd = None
+            self._leg_phase = None
+            self._hold_exit_requested = False
             return
         if self._on_vector_leg():
             self._resume_from_vectors(position)
+            return
+        if self._on_hm_hold():
+            # RESUME while flying a published HM hold (PA13) means "exit at
+            # completion of the current circuit", not "un-suspend" -- the
+            # hold is actively flown (live CDI, not blanked like a vector
+            # SUSP), so there is nothing to resume into except the plan's
+            # normal suspended flag if the pilot had also frozen it.
+            self._hold_exit_requested = True
+            self.suspended = False
+            self._cmd_msg = "HOLD EXIT ARMED"
             return
         if self.mode == "NONE":
             raise _Reject("NO PLAN")
@@ -658,13 +894,18 @@ class Engine:
     # ------------------------------------------------------------------
     # Per-cycle guidance update
     # ------------------------------------------------------------------
-    def update(self, ac_lat, ac_lon, gs_kt, magvar_deg, position_ok, fix_type_ok, accuracy_nm, now):
+    def update(self, ac_lat, ac_lon, gs_kt, magvar_deg, position_ok, fix_type_ok, accuracy_nm, now, alt_ft=None):
         """Recompute all engine outputs for one position/timer cycle.
 
         fix_type_ok: True/False/None (None = the fix-type key is not
         actively publishing -- skip that gate, matching the bench's X-Plane
         FMS which writes neither GPS_FIX_TYPE nor GPS_ACCURACY_HORIZ).
         accuracy_nm: horizontal accuracy in nm, or None if not published.
+        alt_ft: current indicated altitude in feet, or None if not
+        published (PA13) -- the termination input for CA/FA and HA holds;
+        None never terminates one (guardrail 1's "never invent" extended to
+        altitude the same way position_ok's staleness gate already treats
+        "no data" as "don't guess").
 
         Returns a dict of output values (see OUTPUT_KEYS below) plus an
         optional "msg" key (only present when there is a new FPLMSG to post).
@@ -684,10 +925,14 @@ class Engine:
         if fix_type_ok is False:
             return self._fail_outputs()
 
-        out = self._compute_guidance(ac_lat, ac_lon, gs_kt, magvar_deg)
+        out = self._compute_guidance(ac_lat, ac_lon, gs_kt, magvar_deg, alt_ft)
         self._compute_phase_and_integrity(out, ac_lat, ac_lon, accuracy_nm)
         if out.pop("vectors", False):
             out["phase"] = "VECTORS"  # PA4 guardrail 4 -- wins over ENR/TERM/LNAV
+        elif out.pop("hold", False):
+            out["phase"] = "HOLD"     # PA13 -- flying a published HM/HF/HA circuit
+        elif out.pop("pturn", False):
+            out["phase"] = "PTURN"    # PA13 -- flying a PI procedure turn
         if self._pending_msg is not None:
             out["msg"] = self._pending_msg
         return out
@@ -725,7 +970,93 @@ class Engine:
             return STATE_SUSP
         return {"NONE": STATE_NONE, "LEG": STATE_LEG, "DIRECT": STATE_DIRECT}[self.mode]
 
-    def _compute_guidance(self, ac_lat, ac_lon, gs_kt, magvar_deg):
+    def _turn_anticipation_for(self, to_wp, anchor, to, gs_kt):
+        """d_ta for the active leg, or 0.0 (fly-over: no predictive
+        anticipation) for a FAF/MAP-flagged leg or (PA13) any Tier-2 leg --
+        an arc's exit tangent, a hold/PT's outbound/inbound pair and a
+        CA/FA's open-ended course are not the simple bearing-delta case
+        this anticipation formula was built for, so those transitions are
+        abeam-triggered only, never anticipated early."""
+        if to_wp.pt in PT_TIER2:
+            return 0.0
+        if self._is_flyover_leg(self.act_leg):
+            return 0.0
+        next_wp = self.route[self.act_leg] if self.act_leg < self.count else None
+        if next_wp is None:
+            return 0.0
+        cur_course = geo.bearing_deg(anchor.lat, anchor.lon, to.lat, to.lon)
+        next_course = geo.bearing_deg(to.lat, to.lon, next_wp.lat, next_wp.lon)
+        delta = _course_change_deg(cur_course, next_course)
+        return turn_anticipation_nm(gs_kt, delta, self.turn_rate_deg_s)
+
+    def _sequence(self, reached_to):
+        self.from_point = reached_to
+        self.act_leg += 1
+        new_to = Point.from_waypoint(self.route[self.act_leg - 1])
+        self.to_point = new_to
+        self.mode = "LEG"
+        label = reached_to.id or "ALT"  # PA13: CA/FA-course terminate at the aircraft's position, no ident
+        self._pending_msg = f"SEQ {label} -> {new_to.id}"
+        self._prev_atd = None
+        self._leg_phase = None
+        self._hold_exit_requested = False
+
+    def _advance_hold_or_pt(self, to_wp, to, alt_ft):
+        """Phase transition for HM/HF/HA/PI once the current sub-leg's
+        endpoint is reached (PA13): None -> OUTBOUND on first reaching the
+        fix, OUTBOUND -> INBOUND once the outbound leg is flown, and at
+        INBOUND's end (back at the fix) either exit to the next slot or go
+        around again -- HF and PI always exit (single circuit/turn), HM
+        exits only once RESUME has armed it (_on_hm_hold/_cmd_resume), HA
+        exits once alt_ft has reached the coded altitude."""
+        if self._leg_phase is None:
+            self._leg_phase = LEGPHASE_OUTBOUND
+            self._prev_atd = None
+            return
+        if self._leg_phase == LEGPHASE_OUTBOUND:
+            self._leg_phase = LEGPHASE_INBOUND
+            self._prev_atd = None
+            return
+        exit_now = True
+        if to_wp.pt == "HM":
+            exit_now = self._hold_exit_requested
+        elif to_wp.pt == "HA":
+            exit_now = alt_ft is not None and _alt_reached_wp(to_wp, alt_ft)
+        if exit_now:
+            self._sequence(to)
+        else:
+            self._leg_phase = LEGPHASE_OUTBOUND
+            self._prev_atd = None
+
+    def _advance_leg(self, to_wp, to, alt_ft, ac_lat, ac_lon):
+        """Dispatch for "this leg's termination condition has just been
+        met" (PA13) -- the single place that decides what reaching a leg's
+        endpoint means, since it is no longer always "sequence to the next
+        slot" the way every Tier-1 leg was. An arc sequences like any
+        other leg once its exit radial is reached. CA has no real
+        endpoint fix -- it terminates on altitude wherever the aircraft
+        happens to be, so the new FROM point is the aircraft's own
+        position (guardrail-4-style: no invented ident for a point the
+        data never gave one). FA reaches its real fix first (like DF) and
+        only then starts the same altitude-terminated course CA flies.
+        Holds and procedure turns hand off to _advance_hold_or_pt.
+        """
+        if to_wp.pt in PT_ARC:
+            self._sequence(to)
+        elif to_wp.pt == "CA":
+            self._sequence(Point(ac_lat, ac_lon))
+        elif to_wp.pt == "FA":
+            if self._leg_phase != LEGPHASE_FA_COURSE:
+                self._leg_phase = LEGPHASE_FA_COURSE
+                self._prev_atd = None
+            else:
+                self._sequence(Point(ac_lat, ac_lon))
+        elif to_wp.pt in (PT_HOLD | PT_PROC_TURN):
+            self._advance_hold_or_pt(to_wp, to, alt_ft)
+        else:
+            self._sequence(to)
+
+    def _compute_guidance(self, ac_lat, ac_lon, gs_kt, magvar_deg, alt_ft=None):
         if self.mode == "NONE" or self.to_point is None:
             return {
                 "state": self._display_state(),
@@ -760,24 +1091,21 @@ class Engine:
 
         alert = False
         final = self._is_final(self.act_leg)
+        # PA13: CA always, and FA once it has passed its fix, terminate on
+        # altitude -- never on distance, since neither has a real endpoint
+        # to be "reached". Checked every cycle regardless of atd/d_ta.
+        alt_terminated = to_wp.pt == "CA" or (to_wp.pt == "FA" and self._leg_phase == LEGPHASE_FA_COURSE)
         if not final and not self.suspended:
-            if self._is_flyover_leg(self.act_leg):
-                d_ta = 0.0
+            if alt_terminated:
+                reached = alt_ft is not None and _alt_reached_wp(to_wp, alt_ft)
             else:
-                next_wp = self.route[self.act_leg] if self.act_leg < self.count else None
-                if next_wp is not None:
-                    cur_course = geo.bearing_deg(anchor.lat, anchor.lon, to.lat, to.lon)
-                    next_course = geo.bearing_deg(to.lat, to.lon, next_wp.lat, next_wp.lon)
-                    delta = _course_change_deg(cur_course, next_course)
-                    d_ta = turn_anticipation_nm(gs_kt, delta, self.turn_rate_deg_s)
-                else:
-                    d_ta = 0.0
+                d_ta = self._turn_anticipation_for(to_wp, anchor, to, gs_kt)
+                alert_dist = d_ta + max(gs_kt * self.alert_s / 3600.0, 1.0)
+                alert = 0.0 <= atd <= alert_dist
+                reached = atd <= d_ta
 
-            alert_dist = d_ta + max(gs_kt * self.alert_s / 3600.0, 1.0)
-            alert = 0.0 <= atd <= alert_dist
-
-            if not self.suspended and atd <= d_ta:
-                self._sequence(to)
+            if reached:
+                self._advance_leg(to_wp, to, alt_ft, ac_lat, ac_lon)
                 if self._on_vector_leg():
                     self.suspended = True
                     return self._vector_guidance()
@@ -798,10 +1126,22 @@ class Engine:
                 self.suspended = True
                 self._map_suspended = True
 
+        elif final and to_wp.pt in (PT_HOLD | PT_PROC_TURN) and not self.suspended:
+            # A hold/PT coded as the very last slot has nowhere to
+            # sequence to -- keep flying the pattern (entry -> outbound ->
+            # inbound -> repeat) rather than freezing on arrival, the same
+            # "nothing after it" backstop _resume_from_vectors already has
+            # for a vector leg with no next slot.
+            if atd <= 0.0:
+                self._leg_phase = LEGPHASE_OUTBOUND if self._leg_phase != LEGPHASE_OUTBOUND else LEGPHASE_INBOUND
+                self._prev_atd = None
+
         self._prev_atd = atd
 
         tf = TF_TO if atd >= 0.0 else TF_FROM
         wp_dis = geo.distance_nm(ac_lat, ac_lon, to.lat, to.lon)
+        if to_wp.pt in PT_ARC:
+            wp_dis = abs(atd)  # arc length remaining, not the fix's straight-line chord distance
         wp_ete_bad = gs_kt < 30.0
         wp_ete = int(round(wp_dis / gs_kt * 3600.0)) if gs_kt > 0 else 0
 
@@ -817,7 +1157,7 @@ class Engine:
         if self.act_leg and self.act_leg < self.count:
             wp_next = self.route[self.act_leg].id
 
-        return {
+        result = {
             "state": self._display_state(),
             "act_leg": self.act_leg,
             "crs": geo.wrap360(dtk_true + magvar_deg),
@@ -839,6 +1179,11 @@ class Engine:
             "alert": alert,
             "fail": False,
         }
+        if to_wp.pt in PT_HOLD and self._leg_phase in (LEGPHASE_OUTBOUND, LEGPHASE_INBOUND):
+            result["hold"] = True
+        elif to_wp.pt in PT_PROC_TURN and self._leg_phase in (LEGPHASE_OUTBOUND, LEGPHASE_INBOUND):
+            result["pturn"] = True
+        return result
 
     def _vector_guidance(self):
         """Output while the active leg is a vector type (PA4, guardrail
@@ -870,15 +1215,6 @@ class Engine:
             "fail": False,
             "vectors": True,
         }
-
-    def _sequence(self, reached_to):
-        self.from_point = reached_to
-        self.act_leg += 1
-        new_to = Point.from_waypoint(self.route[self.act_leg - 1])
-        self.to_point = new_to
-        self.mode = "LEG"
-        self._pending_msg = f"SEQ {reached_to.id} -> {new_to.id}"
-        self._prev_atd = None
 
     def _compute_phase_and_integrity(self, out, ac_lat, ac_lon, accuracy_nm):
         faf_idx, map_idx = self._faf_map_idx()
