@@ -26,3 +26,8 @@ flightplan:
     enr: 2.0
     term: 1.0
     lnav: 0.3
+  # PA13: CA/FA (course held until an altitude) and HA holds terminate on
+  # this key (database/ahrs.yaml, feet). None/"" disables Tier-2 altitude
+  # termination entirely (those legs never end -- the same "no data, never
+  # invent" treatment as an unset integrity_key).
+  altitude_key: ALT

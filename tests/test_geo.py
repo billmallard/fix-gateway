@@ -82,6 +82,27 @@ def test_wrap360():
     assert geo.wrap360(0.0) == pytest.approx(0.0)
 
 
+# ---------------------------------------------------------------------------
+# arc_sweep_deg (PA13 -- RF/AF constant-radius arc guidance)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "from_brg,to_brg,clockwise,expected",
+    [
+        (0.0, 90.0, True, 90.0),      # quarter circle, clockwise
+        (90.0, 0.0, True, 270.0),     # the long way around, clockwise
+        (0.0, 90.0, False, 270.0),    # same pair, counterclockwise is the long way
+        (90.0, 0.0, False, 90.0),
+        (350.0, 10.0, True, 20.0),    # sweep across the 0/360 wrap
+        (10.0, 350.0, False, 20.0),
+        (45.0, 45.0, True, 0.0),      # coincident radials -- no sweep
+    ],
+)
+def test_arc_sweep_deg(from_brg, to_brg, clockwise, expected):
+    assert geo.arc_sweep_deg(from_brg, to_brg, clockwise) == pytest.approx(expected)
+
+
 def _destination(lat_deg, lon_deg, bearing_deg_, dist_nm):
     import math
 

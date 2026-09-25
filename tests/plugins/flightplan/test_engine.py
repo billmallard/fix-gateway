@@ -7,6 +7,8 @@ DO-229 lateral behaviour including the approach phase -- there is no
 VFR-advisory mode.
 """
 
+import math
+
 import pytest
 
 import fixgw.geo as geo
@@ -670,8 +672,10 @@ def test_persistence_round_trip_preserves_leg_fields_and_provenance():
 
 
 def test_unsupported_leg_reason_names_terminator_and_ident():
-    route = [wp("A", 0.0, 0.0), engine.Waypoint("ARCFIX", 0.0, nm_to_deg_lon(5.0), pt="RF")]
-    assert engine.unsupported_leg_reason(route) == "UNSUPP RF ARCFIX"
+    # FC (track from a fix, fixed distance) is still outside PT_SUPPORTED
+    # even after PA13 -- unlike RF/HM/etc, nothing phases it in.
+    route = [wp("A", 0.0, 0.0), engine.Waypoint("FCFIX", 0.0, nm_to_deg_lon(5.0), pt="FC")]
+    assert engine.unsupported_leg_reason(route) == "UNSUPP FC FCFIX"
 
 
 def test_unsupported_leg_reason_none_for_an_all_supported_route():
@@ -679,12 +683,26 @@ def test_unsupported_leg_reason_none_for_an_all_supported_route():
     assert engine.unsupported_leg_reason(route) is None
 
 
-def test_load_route_rejects_whole_route_containing_a_hold():
+def test_load_route_rejects_whole_route_containing_an_unsupported_terminator():
     e = engine.Engine()
-    route = [wp("A", 0.0, 0.0), engine.Waypoint("HOLD", 0.0, nm_to_deg_lon(5.0), pt="HM")]
+    route = [wp("A", 0.0, 0.0), engine.Waypoint("FCFIX", 0.0, nm_to_deg_lon(5.0), pt="FC")]
     with pytest.raises(engine.RouteRejected) as exc:
         e.load_route(route, "BAD", 2)
-    assert exc.value.reason == "UNSUPP HM HOLD"
+    assert exc.value.reason == "UNSUPP FC FCFIX"
+    assert e.count == 0
+    assert e.route_name == ""
+
+
+def test_load_route_rejects_hold_with_no_turn_direction_coded():
+    # HM is Tier 2 (PA13) but still needs its type-specific fields --
+    # guardrail 1 extends to "supported type, incomplete data" the same
+    # way it covers a wholly unrecognized terminator (never invent a turn
+    # direction the data didn't carry).
+    e = engine.Engine()
+    route = [wp("A", 0.0, 0.0), engine.Waypoint("HOLD", 0.0, nm_to_deg_lon(5.0), pt="HM", crs=90.0, dst=4.0)]
+    with pytest.raises(engine.RouteRejected) as exc:
+        e.load_route(route, "BAD", 2)
+    assert exc.value.reason == "BADTURN HM HOLD"
     assert e.count == 0
     assert e.route_name == ""
 
@@ -835,3 +853,280 @@ def test_resume_from_vectors_requires_position():
     assert ack == -2
     assert msg == "NO POSITION"
     assert e.suspended is True
+
+
+# ---------------------------------------------------------------------------
+# PA13 -- Tier-2 leg types: RF/AF arcs, CA/FA altitude-terminated legs,
+# HM/HF/HA holds, PI procedure turns.
+# ---------------------------------------------------------------------------
+
+CTR = (34.0, -120.0)  # a real-ish arc center, away from the (0,0) "unset" sentinel
+
+
+def arc_wp(id, lat, lon, radius_nm, turn, ctrlat=CTR[0], ctrlon=CTR[1]):
+    return engine.Waypoint(id, lat, lon, pt="RF", dst=radius_nm, turn=turn, ctrlat=ctrlat, ctrlon=ctrlon)
+
+
+def hold_wp(id, lat, lon, crs, dst, turn, pt="HM", alt=""):
+    return engine.Waypoint(id, lat, lon, pt=pt, crs=crs, dst=dst, turn=turn, alt=alt)
+
+
+# --- Load-time validation: guardrail 1 extends to incomplete Tier-2 data ---
+
+
+def test_tier2_happy_path_routes_all_load_without_rejection():
+    to_lat, to_lon = geo.destination_point(*CTR, 90.0, 10.0)
+    a_lat, a_lon = geo.destination_point(*CTR, 0.0, 10.0)
+    cases = {
+        "RF": [wp("A", a_lat, a_lon), arc_wp("ARC", to_lat, to_lon, 10.0, "R")],
+        "AF": [wp("A", a_lat, a_lon), arc_wp("ARC", to_lat, to_lon, 10.0, "L")],
+        "CA": [wp("A", 0.0, 0.0), engine.Waypoint("LVL", 0.1, 0.1, pt="CA", crs=90.0, alt="+3500")],
+        "FA": [wp("A", 0.0, 0.0), engine.Waypoint("FIX", 0.1, 0.1, pt="FA", crs=90.0, alt="+3500")],
+        "HM": [wp("A", 0.0, 0.0), hold_wp("HOLD", 0.0, 1.0, crs=90.0, dst=5.0, turn="R", pt="HM")],
+        "HF": [wp("A", 0.0, 0.0), hold_wp("HOLD", 0.0, 1.0, crs=90.0, dst=5.0, turn="L", pt="HF")],
+        "HA": [wp("A", 0.0, 0.0), hold_wp("HOLD", 0.0, 1.0, crs=90.0, dst=5.0, turn="R", pt="HA", alt="+3000")],
+        "PI": [wp("A", 0.0, 0.0), hold_wp("PT", 0.0, 1.0, crs=250.0, dst=10.0, turn="R", pt="PI")],
+    }
+    for label, route in cases.items():
+        assert engine.unsupported_leg_reason(route) is None, label
+
+
+@pytest.mark.parametrize(
+    "leg,expected_reason",
+    [
+        (arc_wp("ARC", 0.0, 1.0, 10.0, turn=""), "BADTURN"),
+        (arc_wp("ARC", 0.0, 1.0, 0.0, turn="R"), "BADRADIUS"),
+        (engine.Waypoint("ARC", 0.0, 1.0, pt="RF", dst=10.0, turn="R", ctrlat=0.0, ctrlon=0.0), "BADCENTER"),
+        (engine.Waypoint("LVL", 0.1, 0.1, pt="CA", crs=90.0, alt=""), "BADALT"),
+        (engine.Waypoint("LVL", 0.1, 0.1, pt="CA", crs=90.0, alt="garbage"), "BADALT"),
+        (engine.Waypoint("FIX", 0.1, 0.1, pt="FA", crs=90.0, alt=""), "BADALT"),
+        (hold_wp("HOLD", 0.0, 1.0, crs=90.0, dst=5.0, turn="", pt="HM"), "BADTURN"),
+        (hold_wp("HOLD", 0.0, 1.0, crs=90.0, dst=0.0, turn="R", pt="HF"), "BADLEGLEN"),
+        (hold_wp("HOLD", 0.0, 1.0, crs=90.0, dst=5.0, turn="R", pt="HA", alt=""), "BADALT"),
+        (hold_wp("PT", 0.0, 1.0, crs=250.0, dst=10.0, turn="", pt="PI"), "BADTURN"),
+        (hold_wp("PT", 0.0, 1.0, crs=250.0, dst=0.0, turn="R", pt="PI"), "BADLEGLEN"),
+    ],
+)
+def test_tier2_leg_missing_required_field_rejects_whole_route(leg, expected_reason):
+    route = [wp("A", 0.0, 0.0), leg]
+    reason = engine.unsupported_leg_reason(route)
+    assert reason is not None and reason.startswith(expected_reason)
+
+
+# --- RF/AF arcs: real circular geometry, not a straight-line trick ---------
+
+
+def test_arc_geometry_xtk_sign_matches_turn_direction_atd_independent_of_radial_distance():
+    e = engine.Engine()
+    to_wp_r = arc_wp("ARC", *geo.destination_point(*CTR, 90.0, 10.0), 10.0, "R")
+
+    on_lat, on_lon = geo.destination_point(*CTR, 45.0, 10.0)
+    _, atd_on, xtk_on, dtk_on = e._arc_geometry(to_wp_r, on_lat, on_lon)
+    assert xtk_on == pytest.approx(0.0, abs=1e-9)
+    assert atd_on == pytest.approx(7.854, abs=1e-3)
+    assert dtk_on == pytest.approx(135.0)
+
+    out_lat, out_lon = geo.destination_point(*CTR, 45.0, 11.0)  # 1nm outside the arc
+    _, atd_out, xtk_out, _ = e._arc_geometry(to_wp_r, out_lat, out_lon)
+    assert xtk_out == pytest.approx(-1.0, abs=1e-3)  # outside a right (CW) turn is left of course
+    assert atd_out == pytest.approx(atd_on, abs=1e-6)  # progress is angular, not radial
+
+    in_lat, in_lon = geo.destination_point(*CTR, 45.0, 9.0)  # 1nm inside
+    _, _, xtk_in, _ = e._arc_geometry(to_wp_r, in_lat, in_lon)
+    assert xtk_in == pytest.approx(1.0, abs=1e-3)  # inside a right turn is right of course
+
+    to_wp_l = arc_wp("ARC", *geo.destination_point(*CTR, 90.0, 10.0), 10.0, "L")
+    _, _, xtk_out_l, _ = e._arc_geometry(to_wp_l, out_lat, out_lon)
+    assert xtk_out_l == pytest.approx(1.0, abs=1e-3)  # sign flips for the opposite turn direction
+
+
+def test_arc_sequences_to_next_leg_exactly_at_exit_radial():
+    e = engine.Engine()
+    a_lat, a_lon = geo.destination_point(*CTR, 0.0, 10.0)
+    to_lat, to_lon = geo.destination_point(*CTR, 90.0, 10.0)
+    route = [wp("A", a_lat, a_lon), arc_wp("ARCFIX", to_lat, to_lon, 10.0, "R"), wp("B", *CTR)]
+    e.load_route(route, "T", 1)
+    e.handle_command("1 ACT 2", (a_lat, a_lon, True))
+
+    before_lat, before_lon = geo.destination_point(*CTR, 89.9, 10.0)
+    out = e.update(before_lat, before_lon, 120.0, 0.0, True, None, None, 1000.0)
+    assert out["act_leg"] == 2
+    assert out["wp_dis"] == pytest.approx(10.0 * math.radians(0.1), abs=1e-4)
+
+    after_lat, after_lon = geo.destination_point(*CTR, 90.1, 10.0)
+    out2 = e.update(after_lat, after_lon, 120.0, 0.0, True, None, None, 1001.0)
+    assert out2["act_leg"] == 3
+    assert out2.get("msg") == "SEQ ARCFIX -> B"
+
+
+# --- CA/FA: altitude-terminated, never a distance guess --------------------
+
+
+def test_ca_leg_holds_course_and_terminates_only_on_altitude():
+    e = engine.Engine()
+    lvl_lat, lvl_lon = geo.destination_point(0.0, 0.0, 90.0, 10.0)
+    route = [wp("A", 0.0, 0.0), engine.Waypoint("CALVL", lvl_lat, lvl_lon, pt="CA", crs=90.0, alt="+3000"), wp("B", 0.0, nm_to_deg_lon(30.0))]
+    e.load_route(route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+
+    mid_lat, mid_lon = geo.destination_point(0.0, 0.0, 90.0, 3.0)
+    below = e.update(mid_lat, mid_lon, 120.0, 0.0, True, None, None, 1000.0, alt_ft=2000.0)
+    assert below["act_leg"] == 2
+    assert below["crs"] == pytest.approx(90.0)  # the published course, not a bearing to the level-off estimate
+
+    no_alt_data = e.update(mid_lat, mid_lon, 120.0, 0.0, True, None, None, 1001.0, alt_ft=None)
+    assert no_alt_data["act_leg"] == 2  # no altitude input -- never a guessed termination
+
+    above = e.update(mid_lat, mid_lon, 120.0, 0.0, True, None, None, 1002.0, alt_ft=3200.0)
+    assert above["act_leg"] == 3
+    assert above.get("msg") == "SEQ ALT -> B"  # no ident invented for where it terminated
+
+
+def test_fa_leg_flies_to_fix_then_holds_course_to_altitude():
+    e = engine.Engine()
+    fix_lat, fix_lon = geo.destination_point(0.0, 0.0, 90.0, 10.0)
+    route = [wp("A", 0.0, 0.0), engine.Waypoint("FAFIX", fix_lat, fix_lon, pt="FA", crs=90.0, alt="+3000"), wp("B", 0.0, nm_to_deg_lon(30.0))]
+    e.load_route(route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+
+    before_lat, before_lon = geo.destination_point(fix_lat, fix_lon, 90.0, -0.05)
+    approaching = e.update(before_lat, before_lon, 120.0, 0.0, True, None, None, 1000.0, alt_ft=1000.0)
+    assert approaching["act_leg"] == 2
+    assert e._leg_phase is None  # still a plain fix arrival, not altitude-terminated yet
+
+    past_lat, past_lon = geo.destination_point(fix_lat, fix_lon, 90.0, 0.05)
+    just_past = e.update(past_lat, past_lon, 120.0, 0.0, True, None, None, 1001.0, alt_ft=1000.0)
+    assert just_past["act_leg"] == 2  # not sequenced away -- now holding course past the fix
+    assert e._leg_phase == engine.LEGPHASE_FA_COURSE
+
+    further_lat, further_lon = geo.destination_point(fix_lat, fix_lon, 90.0, 2.0)
+    done = e.update(further_lat, further_lon, 120.0, 0.0, True, None, None, 1002.0, alt_ft=3500.0)
+    assert done["act_leg"] == 3
+    assert done.get("msg") == "SEQ ALT -> B"
+
+
+# --- HM/HF/HA holds and PI procedure turns: outbound/inbound state machine -
+
+
+def _hold_route(pt, turn="R", alt=""):
+    return [
+        wp("A", 0.0, -nm_to_deg_lon(20.0)),
+        hold_wp("HOLD", 0.0, 0.0, crs=90.0, dst=5.0, turn=turn, pt=pt, alt=alt),
+        wp("B", 0.0, nm_to_deg_lon(20.0)),
+    ]
+
+
+def _outbound_target_and_past():
+    target_lat, target_lon = geo.destination_point(0.0, 0.0, 270.0, 5.0)
+    return geo.destination_point(target_lat, target_lon, 270.0, 0.05)
+
+
+def test_hm_hold_repeats_until_resume_arms_exit_at_next_fix_passage():
+    e = engine.Engine()
+    e.load_route(_hold_route("HM"), "T", 1)
+    e.handle_command("1 ACT 2", (0.0, -nm_to_deg_lon(20.0), True))
+
+    entry = e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1000.0)
+    assert e._leg_phase == engine.LEGPHASE_OUTBOUND
+    assert entry["act_leg"] == 2
+    assert entry.get("phase") == "HOLD"
+
+    past_lat, past_lon = _outbound_target_and_past()
+    e.update(past_lat, past_lon, 120.0, 0.0, True, None, None, 1001.0)
+    assert e._leg_phase == engine.LEGPHASE_INBOUND
+
+    no_exit = e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1002.0)
+    assert no_exit["act_leg"] == 2  # HM: no RESUME yet -- go around again
+    assert e._leg_phase == engine.LEGPHASE_OUTBOUND
+
+    ack, msg = e.handle_command("2 RESUME", (0.0, nm_to_deg_lon(0.05), True))
+    assert ack == 2 and msg == "HOLD EXIT ARMED"
+    assert e.suspended is False
+
+    e.update(past_lat, past_lon, 120.0, 0.0, True, None, None, 1003.0)
+    exited = e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1004.0)
+    assert exited["act_leg"] == 3
+    assert exited.get("msg") == "SEQ HOLD -> B"
+    assert e._leg_phase is None
+    assert e._hold_exit_requested is False
+
+
+def test_hf_hold_exits_automatically_after_one_circuit():
+    e = engine.Engine()
+    e.load_route(_hold_route("HF", turn="L"), "T", 1)
+    e.handle_command("1 ACT 2", (0.0, -nm_to_deg_lon(20.0), True))
+    e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1000.0)
+    past_lat, past_lon = _outbound_target_and_past()
+    e.update(past_lat, past_lon, 120.0, 0.0, True, None, None, 1001.0)
+    out = e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1002.0)
+    assert out["act_leg"] == 3
+    assert out.get("msg") == "SEQ HOLD -> B"
+
+
+def test_ha_hold_repeats_until_altitude_then_exits():
+    e = engine.Engine()
+    e.load_route(_hold_route("HA", alt="+3000"), "T", 1)
+    e.handle_command("1 ACT 2", (0.0, -nm_to_deg_lon(20.0), True))
+    e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1000.0, alt_ft=2000.0)
+    past_lat, past_lon = _outbound_target_and_past()
+    e.update(past_lat, past_lon, 120.0, 0.0, True, None, None, 1001.0, alt_ft=2000.0)
+
+    below = e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1002.0, alt_ft=2500.0)
+    assert below["act_leg"] == 2  # below the coded altitude -- go around again
+    assert e._leg_phase == engine.LEGPHASE_OUTBOUND
+
+    e.update(past_lat, past_lon, 120.0, 0.0, True, None, None, 1003.0, alt_ft=3200.0)
+    above = e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1004.0, alt_ft=3200.0)
+    assert above["act_leg"] == 3
+    assert above.get("msg") == "SEQ HOLD -> B"
+
+
+def test_pi_outbound_target_offsets_45_degrees_by_turn_direction():
+    e = engine.Engine()
+    to_wp_r = hold_wp("PT", 0.0, 0.0, crs=90.0, dst=5.0, turn="R", pt="PI")
+    target_r = e._hold_outbound_target(to_wp_r, 0.0)
+    assert geo.bearing_deg(0.0, 0.0, target_r.lat, target_r.lon) == pytest.approx(315.0, abs=1e-6)
+
+    to_wp_l = hold_wp("PT", 0.0, 0.0, crs=90.0, dst=5.0, turn="L", pt="PI")
+    target_l = e._hold_outbound_target(to_wp_l, 0.0)
+    assert geo.bearing_deg(0.0, 0.0, target_l.lat, target_l.lon) == pytest.approx(225.0, abs=1e-6)
+
+
+def test_pi_procedure_turn_exits_automatically_after_one_turn():
+    e = engine.Engine()
+    route = [
+        wp("A", 0.0, -nm_to_deg_lon(20.0)),
+        hold_wp("PT", 0.0, 0.0, crs=90.0, dst=5.0, turn="R", pt="PI"),
+        wp("B", 0.0, nm_to_deg_lon(20.0)),
+    ]
+    e.load_route(route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, -nm_to_deg_lon(20.0), True))
+    entry = e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1000.0)
+    assert entry.get("phase") == "PTURN"
+
+    to_wp = hold_wp("PT", 0.0, 0.0, crs=90.0, dst=5.0, turn="R", pt="PI")
+    target = e._hold_outbound_target(to_wp, 0.0)
+    past_lat, past_lon = geo.destination_point(target.lat, target.lon, geo.bearing_deg(0.0, 0.0, target.lat, target.lon), 0.05)
+    e.update(past_lat, past_lon, 120.0, 0.0, True, None, None, 1001.0)
+    assert e._leg_phase == engine.LEGPHASE_INBOUND
+
+    out = e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1002.0)
+    assert out["act_leg"] == 3
+    assert out.get("msg") == "SEQ PT -> B"
+
+
+# --- Persistence round-trip includes the Tier-2 sub-leg state --------------
+
+
+def test_persistence_round_trips_leg_phase_and_hold_exit_requested():
+    e = engine.Engine()
+    e.load_route(_hold_route("HM"), "T", 1)
+    e.handle_command("1 ACT 2", (0.0, -nm_to_deg_lon(20.0), True))
+    e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1000.0)
+    e._hold_exit_requested = True
+
+    d = e.to_persisted_dict()
+    e2 = engine.Engine()
+    e2.restore_from_dict(d)
+    assert e2._leg_phase == engine.LEGPHASE_OUTBOUND
+    assert e2._hold_exit_requested is True

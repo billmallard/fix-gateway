@@ -28,6 +28,16 @@
 # FPLfPT rejects the whole route on load, with a reason on FPLMSG, leaving
 # whatever was previously loaded untouched (guardrail 1).
 #
+# PA13 (fix-gateway#29) adds the Tier-2 leg types the brief phased out of
+# PA4: RF/AF arcs (FPLfCTRLAT/CTRLON/TURN -- a real circle, not a straight
+# line), CA/FA altitude-terminated legs (held on course until a live
+# altitude input crosses FPLfALT's constraint), and HM/HF/HA holds plus PI
+# procedure turns (FPLfCRS the inbound course, FPLfDST the outbound leg
+# length, FPLfTURN which side). Guardrail 1 extends to these: a *supported*
+# Tier-2 type missing the fields its geometry needs rejects the whole route
+# exactly like an unrecognized one does, never a defaulted turn direction
+# or radius.
+#
 # GPSSRC lets the internal plan and an external navigator (X-Plane's FMS on
 # the bench; a certified GNX in the aircraft) be interchangeable sources for
 # GPSCRS/GPSCDI/GPSTF via a compute `select` (connections/compute.yaml),
@@ -72,13 +82,13 @@ items:
   tol: 0
 
 - key: FPLfPT
-  description: "Flight plan slot %f path terminator (ARINC 424 2-char code). PA4 flies IF/TF/CF/DF and flies VA/VM/FM/VI as a SUSP annunciated VECTORS -- every other code (CA/RF/AF/HM/...) rejects the whole route on load (FPLMSG). \"TF\" = a great-circle point-to-point leg, the enroute default"
+  description: "Flight plan slot %f path terminator (ARINC 424 2-char code). PA4 flies IF/TF/CF/DF and flies VA/VM/FM/VI as a SUSP annunciated VECTORS. PA13 adds RF/AF arcs, CA/FA altitude-terminated legs and HM/HF/HA/PI holds and procedure turns -- every other code (FC/VD/...) still rejects the whole route on load (FPLMSG). \"TF\" = a great-circle point-to-point leg, the enroute default"
   type: str
   initial: "TF"
   tol: 0
 
 - key: FPLfCRS
-  description: "Flight plan slot %f leg course (magnetic -- CF/CA/FC/VA/VM/VI course-terminated legs)"
+  description: "Flight plan slot %f leg course (magnetic -- CF/CA/FC/VA/VM/VI course-terminated legs, and (PA13) the inbound course to the fix for HM/HF/HA/PI)"
   type: float
   min: 0.0
   max: 359.9
@@ -87,7 +97,7 @@ items:
   tol: 0
 
 - key: FPLfDST
-  description: "Flight plan slot %f leg distance (nm -- minutes for a time-terminated leg, HM/HF/HA, Tier 2)"
+  description: "Flight plan slot %f leg distance, nm. Tier 1: leg distance (unused by the great-circle terminators). PA13: an RF/AF arc's radius, or a HM/HF/HA/PI outbound leg's length -- both required, never defaulted (guardrail 1)"
   type: float
   min: 0.0
   max: 999.9
@@ -122,6 +132,34 @@ items:
   min: 0
   max: 63
   initial: 0
+  tol: 0
+
+# --- PA13: RF/AF arc center and the turn direction an arc, hold or
+# procedure turn needs that a Tier-1 leg never did. Scoped out of the leg
+# struct by PA3 as "rare" before Tier 2 existed to need them
+# (procedures_and_airways_plan.md section 3.2).
+- key: FPLfCTRLAT
+  description: "Flight plan slot %f arc center latitude (RF/AF only)"
+  type: float
+  min: -90
+  max: 90
+  units: deg
+  initial: 0.0
+  tol: 0
+
+- key: FPLfCTRLON
+  description: "Flight plan slot %f arc center longitude (RF/AF only)"
+  type: float
+  min: -180
+  max: 180
+  units: deg
+  initial: 0.0
+  tol: 0
+
+- key: FPLfTURN
+  description: 'Flight plan slot %f turn direction, "L" or "R" ("" = none). Required for RF/AF (which way around the center) and HM/HF/HA/PI (which side of the inbound course the pattern is flown) -- never defaulted (guardrail 1)'
+  type: str
+  initial: ""
   tol: 0
 
 - key: FPLCOUNT
@@ -229,7 +267,7 @@ items:
   tol: 0
 
 - key: FPLMSG
-  description: "Flight plan last message / rejection reason (<=64 chars). PA4: a route with an unsupported path terminator posts \"UNSUPP <PT> <ident>\" and rejects the whole route (guardrail 1) -- RESUME off a vector leg posts \"RESUME NAV -> <ident>\" or \"NO NEXT LEG\""
+  description: "Flight plan last message / rejection reason (<=64 chars). PA4: a route with an unsupported path terminator posts \"UNSUPP <PT> <ident>\" and rejects the whole route (guardrail 1) -- RESUME off a vector leg posts \"RESUME NAV -> <ident>\" or \"NO NEXT LEG\". PA13: a recognized Tier-2 leg with incomplete data (no turn direction, no arc center/radius, no altitude constraint) rejects the whole route the same way, posting \"BADTURN\"/\"BADRADIUS\"/\"BADCENTER\"/\"BADALT\"/\"BADLEGLEN <PT> <ident>\" -- and RESUME on a flying HM hold posts \"HOLD EXIT ARMED\""
   type: str
   initial: ""
   tol: 0
@@ -252,7 +290,7 @@ items:
   tol: 5000
 
 - key: FPLPHASE
-  description: "Flight phase annunciation (ENR/TERM/LNAV/LOI/VECTORS/0.30 NM/1.00 NM/empty). VECTORS (PA4, guardrail 4) shows while the active leg is a vector type (VA/VM/FM/VI) -- FPLSTATE is forced to SUSP and no course/distance is computed for it"
+  description: "Flight phase annunciation (ENR/TERM/LNAV/LOI/VECTORS/HOLD/PTURN/0.30 NM/1.00 NM/empty). VECTORS (PA4, guardrail 4) shows while the active leg is a vector type (VA/VM/FM/VI) -- FPLSTATE is forced to SUSP and no course/distance is computed for it. HOLD (PA13) shows while flying a published HM/HF/HA circuit, PTURN while flying a PI procedure turn -- both keep live course/cross-track guidance, unlike VECTORS"
   type: str
   initial: ""
   tol: 5000
