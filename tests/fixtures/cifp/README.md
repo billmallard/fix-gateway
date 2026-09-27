@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: CC0-1.0 -->
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # `FAACIFP18` golden-procedure fixture (AER-1600 / PA1, mirrored for PA13)
 
 This is the exact same 156-record excerpt of the live FAA CIFP cycle **2609**
