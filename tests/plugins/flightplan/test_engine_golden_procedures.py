@@ -26,7 +26,10 @@ Real procedures exercised:
              arcs, same centre CFDXH)
   AF arc  -- 09J VOR-A, TOMDY/WIGID transitions (SSI VOR-centred DME arc)
   CA      -- KSBA ILS RWY 07, missed approach (real climb course + altitude)
-  HM      -- KSBA ILS RWY 07, missed approach hold at GOLET
+  HM      -- KSBA ILS RWY 07, missed approach hold at GOLET (time-coded,
+             "T010"), and KABQ RNAV (GPS) Y RWY 21, missed approach hold at
+             ABQ (distance-coded, "0070") -- ARINC codes holds both ways; see
+             the note by KSBA_GOLET_HM_LEG_LEN_NM below.
   PI      -- 09J VOR-A, SSI transition (a lone procedure turn at the IAF)
 """
 
@@ -89,15 +92,33 @@ KSBA_GOLET_CF_DIST_NM = 10.0
 KSBA_GOLET_HM_COURSE = 307.0
 # The coded hold leg length is "T010" -- ARINC's time-based form (1.0 min),
 # not the nm distance the engine's Tier-2 hold model takes (Waypoint has no
-# time field; see engine.py's PA13 docstring). Every hold in this whole
-# fixture is coded this way (KSBA GOLET, 09J SSI, KABQ ABQ all "T010") -- a
-# real gap between ARINC's time-based holds and this leg-length-only model,
-# not a quirk of this one fixture. Converted here at TERPS/ICAO's default
-# below-14,000ft holding airspeed (200 KIAS) so this test can fly it; the
-# real conversion belongs in whichever layer resolves a leg for the wire
-# (PA5/PA7's procedure lookup and insertion, pyEfis side) -- not asserted
-# correct by this test, only used to exercise the state machine.
+# time field; see engine.py's PA13 docstring). ARINC codes holds BOTH ways:
+# this fixture's three hold records split 2-1 -- KSBA GOLET and 09J SSI are
+# time-coded ("T010"), but KABQ ABQ is distance-coded ("0070", 7.0nm). See
+# test_leg_constants_match_the_committed_golden_fixture_file, which
+# re-decodes and asserts all three. The engine already flies the distance
+# form with no conversion at all (KABQ_ABQ_HM_LEG_LEN_NM below is read
+# straight off the fixture, see
+# test_kabq_h21y_abq_hold_flies_the_real_distance_coded_leg_length_with_no_conversion);
+# the actual gap is only the time form, and only because Waypoint.dst takes
+# nm. Whichever layer resolves a leg for the wire (PA5/PA7's procedure
+# lookup and insertion, pyEfis side) must discriminate on the leading "T":
+# pass a distance-coded leg length through unchanged, and convert only a
+# time-coded one -- converting every coded hold length as though it were
+# time would corrupt the distance-coded third of even this small fixture.
+# Converted here at TERPS/ICAO's default below-14,000ft holding airspeed
+# (200 KIAS) so this test can fly the time-coded case; the conversion
+# itself is not asserted correct by this test, only used to exercise the
+# state machine.
 KSBA_GOLET_HM_LEG_LEN_NM = 200.0 * (1.0 / 60.0)  # ~3.33nm for a 1.0-min leg
+
+# --- KABQ H21-Y H/070 HM hold at ABQ: the distance-coded case --------------
+KABQ_ABQ = (35.04379444, -106.81631111)     # H21-Y H/070 HM fix, ABQ VOR (K2D)
+KABQ_ABQ_HM_COURSE = 79.0
+KABQ_ABQ_HM_TURN = "L"
+# Coded "0070" -- ARINC's distance form (7.0nm), not "T010". Read straight
+# off the fixture and flown with no time conversion; see the note above.
+KABQ_ABQ_HM_LEG_LEN_NM = 7.0
 
 
 @pytest.mark.parametrize("pt", ["RF", "AF", "CA", "HM", "PI"])
@@ -117,6 +138,7 @@ def test_leg_constants_match_the_committed_golden_fixture_file():
     proc_transition, proc_seq, proc_turn = slice(20, 25), slice(26, 29), slice(43, 44)
     proc_path_term, proc_course, proc_alt1 = slice(47, 49), slice(70, 74), slice(84, 89)
     proc_centre_fix = slice(106, 111)
+    proc_hold_leg_len = slice(74, 78)  # route distance/holding time, "Tddd" (min) or "dddd" (tenths nm)
 
     def find_leg(airport, ident, transition, seq):
         with open(_FIXTURE_PATH, encoding="latin-1") as f:
@@ -147,6 +169,21 @@ def test_leg_constants_match_the_committed_golden_fixture_file():
     assert hm[proc_path_term] == "HM"
     assert hm[proc_turn] == "R"
     assert int(hm[proc_course]) / 10.0 == KSBA_GOLET_HM_COURSE
+    assert hm[proc_hold_leg_len] == "T010"  # time-coded, 1.0 min
+
+    # ARINC codes holds both by time and by distance -- this fixture's other
+    # two hold records pin both forms, so a claim that "every hold here is
+    # T010" (or a downstream layer that blanket-converts every coded hold
+    # length as time) fails loudly right here.
+    hm_09j = find_leg("09J", "VOR-A", "", "060")
+    assert hm_09j[proc_path_term] == "HM"
+    assert hm_09j[proc_hold_leg_len] == "T010"  # time-coded, 1.0 min
+
+    hm_kabq = find_leg("KABQ", "H21-Y", "", "070")
+    assert hm_kabq[proc_path_term] == "HM"
+    assert hm_kabq[proc_turn] == KABQ_ABQ_HM_TURN
+    assert int(hm_kabq[proc_course]) / 10.0 == KABQ_ABQ_HM_COURSE
+    assert hm_kabq[proc_hold_leg_len] == "0070"  # distance-coded, 7.0nm -- NOT "T070"
 
     pi = find_leg("09J", "VOR-A", "SSI", "010")
     assert pi[proc_path_term] == "PI"
@@ -317,6 +354,52 @@ def test_ksba_i07_golet_hold_flies_the_real_inbound_course_and_turn_direction():
     exited = e.update(inbound_past_lat, inbound_past_lon, 120.0, 0.0, True, None, None, 1004.0)
     assert exited["act_leg"] == 3
     assert exited.get("msg") == "SEQ GOLET -> NEXT"
+
+
+# --- HM: KABQ H21-Y missed approach hold at ABQ, the distance-coded case ---
+
+
+def test_kabq_h21y_abq_hold_flies_the_real_distance_coded_leg_length_with_no_conversion():
+    # Unlike KSBA GOLET ("T010", time), ABQ is coded "0070" -- ARINC's
+    # distance form, 7.0nm -- so KABQ_ABQ_HM_LEG_LEN_NM is read straight off
+    # the fixture with no time->distance conversion. Free real-data coverage
+    # of the path the engine already supports today (Waypoint.dst is nm).
+    entry_lat, entry_lon = geo.destination_point(*KABQ_ABQ, KABQ_ABQ_HM_COURSE + 180.0, 15.0)
+    route = [
+        wp("PRIOR", entry_lat, entry_lon),
+        engine.Waypoint("ABQ", *KABQ_ABQ, pt="HM", crs=KABQ_ABQ_HM_COURSE,
+                         dst=KABQ_ABQ_HM_LEG_LEN_NM, turn=KABQ_ABQ_HM_TURN, alt="+8000"),
+        wp("NEXT", 35.0, -106.5),
+    ]
+    assert engine.unsupported_leg_reason(route) is None
+
+    e = engine.Engine()
+    e.load_route(route, "H21-Y", 1)
+    e.handle_command("1 ACT 2", (entry_lat, entry_lon, True))
+
+    arrival_lat, arrival_lon = geo.destination_point(*KABQ_ABQ, KABQ_ABQ_HM_COURSE, 0.05)
+    entry = e.update(arrival_lat, arrival_lon, 120.0, 0.0, True, None, None, 1000.0)
+    assert e._leg_phase == engine.LEGPHASE_OUTBOUND
+    assert entry.get("phase") == "HOLD"
+
+    outbound_target = e._hold_outbound_target(e.route[1], 0.0)
+    past_lat, past_lon = geo.destination_point(
+        outbound_target.lat, outbound_target.lon,
+        geo.bearing_deg(*KABQ_ABQ, outbound_target.lat, outbound_target.lon), 0.05)
+    e.update(past_lat, past_lon, 120.0, 0.0, True, None, None, 1001.0)
+    assert e._leg_phase == engine.LEGPHASE_INBOUND
+
+    no_exit = e.update(arrival_lat, arrival_lon, 120.0, 0.0, True, None, None, 1002.0)
+    assert no_exit["act_leg"] == 2  # no RESUME yet -- go around again, exactly as HM is coded
+    assert e._leg_phase == engine.LEGPHASE_OUTBOUND
+
+    ack, msg = e.handle_command("2 RESUME", (arrival_lat, arrival_lon, True))
+    assert ack == 2 and msg == "HOLD EXIT ARMED"
+
+    e.update(past_lat, past_lon, 120.0, 0.0, True, None, None, 1003.0)
+    exited = e.update(arrival_lat, arrival_lon, 120.0, 0.0, True, None, None, 1004.0)
+    assert exited["act_leg"] == 3
+    assert exited.get("msg") == "SEQ ABQ -> NEXT"
 
 
 # --- PI: 09J VOR-A SSI transition, a lone procedure turn at the IAF --------
