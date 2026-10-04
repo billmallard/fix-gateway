@@ -153,13 +153,22 @@ def desired_track_true(from_lat, from_lon, to_lat, to_lon, ac_lat, ac_lon):
     """DTK: the true bearing from the aircraft's along-track projection on
     the leg from_->to_ to the TO waypoint (FP2, fix-gateway#23) -- not the
     constant leg bearing, so the needle stays exactly centered on the great
-    circle even off-course."""
+    circle even off-course.
+
+    Past the TO (the projection lies beyond it -- FROM at the last
+    waypoint, at the MAP, or suspended past a fix) DTK is the leg's course
+    extended through the TO, not the bearing back to it (fix-gateway#35):
+    the reciprocal of the bearing from the projection back to the FROM.
+    The split at mid-leg keeps each bearing well-conditioned -- the
+    projection is never on top of the point it is measured to."""
     if from_lat == to_lat and from_lon == to_lon:
         return 0.0
     initial_brg = bearing_deg(from_lat, from_lon, to_lat, to_lon)
     atd = along_track_nm(from_lat, from_lon, to_lat, to_lon, ac_lat, ac_lon)
     proj_lat, proj_lon = destination_point(from_lat, from_lon, initial_brg, atd)
-    return bearing_deg(proj_lat, proj_lon, to_lat, to_lon)
+    if atd <= distance_nm(from_lat, from_lon, to_lat, to_lon) / 2.0:
+        return bearing_deg(proj_lat, proj_lon, to_lat, to_lon)
+    return wrap360(bearing_deg(proj_lat, proj_lon, from_lat, from_lon) + 180.0)
 
 
 def arc_sweep_deg(from_bearing_deg, to_bearing_deg, clockwise):
