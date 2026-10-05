@@ -1130,3 +1130,119 @@ def test_persistence_round_trips_leg_phase_and_hold_exit_requested():
     e2.restore_from_dict(d)
     assert e2._leg_phase == engine.LEGPHASE_OUTBOUND
     assert e2._hold_exit_requested is True
+
+
+# ---------------------------------------------------------------------------
+# Past the TO: DTK is the leg course extended through the TO, never its
+# reciprocal (fix-gateway#35). A mid-latitude leg on a 304-ish course (the
+# RZS -> KSMX geometry the FP7 HSI check found it on), so meridian
+# convergence is real and the course is not a cardinal one.
+# ---------------------------------------------------------------------------
+
+PAST_TO_LAT, PAST_TO_LON = 34.6, -120.0
+PAST_TO_COURSE = 304.0
+
+
+def diagonal_route(specs):
+    """specs: [(id, nm from the first point, type, flags)] along a great
+    circle leaving (PAST_TO_LAT, PAST_TO_LON) on PAST_TO_COURSE."""
+    out = []
+    for id, nm, type, flags in specs:
+        lat, lon = geo.destination_point(PAST_TO_LAT, PAST_TO_LON, PAST_TO_COURSE, nm)
+        out.append(wp(id, lat, lon, type=type, flags=flags))
+    return out
+
+
+def inbound_course(fr, to):
+    """The leg's true course as it arrives at the TO (final bearing)."""
+    return geo.wrap360(geo.bearing_deg(to.lat, to.lon, fr.lat, fr.lon) + 180.0)
+
+
+def past_to(fr, to, past_nm, right_nm=0.0):
+    """A point past_nm beyond the TO along the extended leg, then right_nm
+    to the right of it (positive = right of the extended track)."""
+    crs = inbound_course(fr, to)
+    lat, lon = geo.destination_point(to.lat, to.lon, crs, past_nm)
+    if right_nm:
+        lat, lon = geo.destination_point(lat, lon, geo.wrap360(crs + 90.0), right_nm)
+    return lat, lon
+
+
+def angle_diff(a, b):
+    return abs((a - b + 180.0) % 360.0 - 180.0)
+
+
+def assert_extended_course(out, fr, to, right):
+    assert out["tf"] == engine.TF_FROM
+    assert angle_diff(out["crs"], inbound_course(fr, to)) < 0.01
+    if right:
+        # Right of the extended track: XTK positive, needle deflects left
+        # (fly left) against a pointer on the inbound course.
+        assert out["xtk"] > 0.0
+        assert out["cdi"] < 0.0
+
+
+@pytest.mark.parametrize("right", [False, True])
+def test_past_last_waypoint_course_continues_through_it(right):
+    route = diagonal_route([
+        ("A", 0.0, engine.TYPE_FIX, 0),
+        ("B", 20.0, engine.TYPE_FIX, 0),
+        ("C", 40.0, engine.TYPE_FIX, 0),
+    ])
+    e = engine.Engine()
+    e.load_route(route, "T", 1)
+    e.handle_command("1 ACT 3", (route[1].lat, route[1].lon, True))
+    lat, lon = past_to(route[1], route[2], 0.5, 0.3 if right else 0.0)
+    out = e.update(lat, lon, 120.0, 0.0, True, None, None, 1000.0)
+    assert out["act_leg"] == 3
+    assert_extended_course(out, route[1], route[2], right)
+
+
+@pytest.mark.parametrize("right", [False, True])
+def test_past_map_auto_susp_course_continues_along_final(right):
+    route = diagonal_route([
+        ("IAF", 0.0, engine.TYPE_FIX, engine.FLAG_IAF),
+        ("FAF", 5.0, engine.TYPE_FIX, engine.FLAG_FAF),
+        ("MAP", 10.0, engine.TYPE_MAPPOINT, engine.FLAG_MAP),
+        ("MAHP", 12.0, engine.TYPE_FIX, engine.FLAG_MAHP),
+    ])
+    route[3] = wp("MAHP", *geo.destination_point(route[2].lat, route[2].lon, 34.0, 2.0),
+                  type=engine.TYPE_FIX, flags=engine.FLAG_MAHP)  # missed turns off final
+    e = engine.Engine()
+    e.load_route(route, "T", 1)
+    e.handle_command("1 ACT 3", (route[1].lat, route[1].lon, True))
+    lat, lon = past_to(route[1], route[2], 0.5, 0.15 if right else 0.0)
+    out = e.update(lat, lon, 120.0, 0.0, True, None, None, 1000.0)
+    assert out["act_leg"] == 3
+    assert out["state"] == engine.STATE_SUSP
+    assert out["cdiscale"] == pytest.approx(0.3)
+    assert_extended_course(out, route[1], route[2], right)
+
+
+@pytest.mark.parametrize("right", [False, True])
+def test_suspended_past_intermediate_waypoint_course_continues_through_it(right):
+    route = diagonal_route([
+        ("A", 0.0, engine.TYPE_FIX, 0),
+        ("B", 20.0, engine.TYPE_FIX, 0),
+        ("C", 40.0, engine.TYPE_FIX, 0),
+    ])
+    e = engine.Engine()
+    e.load_route(route, "T", 1)
+    e.handle_command("1 ACT 2", (route[0].lat, route[0].lon, True))
+    e.handle_command("2 SUSP", (route[0].lat, route[0].lon, True))
+    lat, lon = past_to(route[0], route[1], 0.5, 0.3 if right else 0.0)
+    out = e.update(lat, lon, 120.0, 0.0, True, None, None, 1000.0)
+    assert out["act_leg"] == 2  # suspended: B is not sequenced
+    assert out["state"] == engine.STATE_SUSP
+    assert_extended_course(out, route[0], route[1], right)
+
+
+def test_desired_track_is_continuous_through_the_to_waypoint():
+    # Straddling the TO by a hair either side, DTK must not jump.
+    route = diagonal_route([("A", 0.0, 0, 0), ("B", 20.0, 0, 0)])
+    fr, to = route
+    crs = inbound_course(fr, to)
+    for d in (-0.01, -0.0001, 0.0001, 0.01, 5.0):
+        lat, lon = geo.destination_point(to.lat, to.lon, crs, d)
+        dtk = geo.desired_track_true(fr.lat, fr.lon, to.lat, to.lon, lat, lon)
+        assert angle_diff(dtk, crs) < 0.1, d
