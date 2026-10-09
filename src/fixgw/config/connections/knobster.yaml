@@ -1,0 +1,25 @@
+# Sim Innovations Knobster (USB 16d0:0e8a): dual concentric encoder + push.
+# Needs pyusb (pip install pyusb) and, to run without sudo, the udev rule in
+# extras/udev/70-knobster.rules. Reconnects by itself when unplugged.
+knobster:
+  load: KNOBSTER
+  module: fixgw.plugins.knobster
+  # Each detent writes +step (clockwise) or -step to the key. pyEfis reads
+  # its `encoder` key (hmi/encoder_input.yaml, ENC3 by default) as a delta.
+  inner_key: ENC3
+  inner_step: 1
+  # The outer ring. pyEfis drives one encoder today, so by default the outer
+  # ring gets its own key (ENC4 pairs with ENC3, as in canfix/map.yaml).
+  # Set outer_key: ENC3 and e.g. outer_step: 10 for a coarse step instead,
+  # or leave it empty to ignore the outer ring.
+  outer_key: ENC4
+  outer_step: 1
+  # Push button: True on press, False on release (pyEfis `encoder_button`).
+  button_key: BTN3
+  # Optional long press, timed press to release: pulses the key True then
+  # False on release when held at least long_press_time seconds.
+  # The press itself has already gone to button_key by then.
+  #long_press_key: BTN4
+  long_press_time: 1.0
+  # Seconds between attempts to find the device after unplug or at startup.
+  reconnect_interval: 2.0

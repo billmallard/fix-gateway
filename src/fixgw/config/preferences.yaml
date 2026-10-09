@@ -39,6 +39,7 @@ includes:
   DYNON_CONFIG: connections/dynon.yaml
   DEMO_CONFIG: connections/demo.yaml
   RTL_433_CONFIG: connections/rtl_433.yaml
+  KNOBSTER_CONFIG: connections/knobster.yaml
   STATE_PERSIST_CONFIG: connections/state_persist.yaml
   FLIGHTPLAN_CONFIG: connections/flightplan.yaml
 # This section is used to turn things on or off
@@ -76,3 +77,4 @@ enabled:
   DEMO: true
   RTL_433: false
   FLIGHTPLAN: true
+  KNOBSTER: false

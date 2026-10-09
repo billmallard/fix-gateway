@@ -65,6 +65,9 @@ build = [
 qt = [
     "PyQt6>=6.6.1",
 ]
+knobster = [
+    "pyusb>=1.2.1",
+]
 
 [project.scripts]
 fixgw = "fixgw.server:main"
