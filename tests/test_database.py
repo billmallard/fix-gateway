@@ -1318,14 +1318,21 @@ def test_flight_plan_keys_exist_with_specified_types_and_ranges(database):
         "FPL100DST": ("float", 0.0, None),
         "FPL100ALT": ("str", None, None),
         "FPL100SPD": ("int", 0, 400),
-        "FPL100SEG": ("int", 0, 4),
+        "FPL100SGI": ("int", 0, 30),
         "FPL100FLAGS": ("int", 0, 63),
         "FPLCOUNT": ("int", 0, 100),
         "FPLNAME": ("str", None, None),
         "FPLSEQ": ("int", 0, None),
-        "FPLDPID": ("str", None, None),
-        "FPLSTARID": ("str", None, None),
-        "FPLAPRID": ("str", None, None),
+        "FPLS1KIND": ("int", 0, 5),
+        "FPLS30KIND": ("int", 0, 5),
+        "FPLS30ID": ("str", None, None),
+        "FPLS30ENT": ("str", None, None),
+        "FPLS30EXT": ("str", None, None),
+        "FPLS30FIRST": ("int", 0, 100),
+        "FPLS30LAST": ("int", 0, 100),
+        "FPLSEGCNT": ("int", 0, 30),
+        "FPLACTSEG": ("int", 0, 30),
+        "FPLSEGREM": ("float", 0.0, None),
         "FPLAPRTYPE": ("str", None, None),
         "FPLDBCYC": ("str", None, None),
         "DTOID": ("str", None, None),
@@ -1379,10 +1386,25 @@ def test_flight_plan_keys_exist_with_specified_types_and_ranges(database):
         database.get_raw_item(f"FPL{i}DST")
         database.get_raw_item(f"FPL{i}ALT")
         database.get_raw_item(f"FPL{i}SPD")
-        database.get_raw_item(f"FPL{i}SEG")
+        database.get_raw_item(f"FPL{i}SGI")
         database.get_raw_item(f"FPL{i}FLAGS")
     with pytest.raises(KeyError):
         database.get_raw_item("FPL1ROLE")
+
+    # RS1: all 30 segment rows expand -- on their own index variable, not
+    # `s` (touchscreen buttons, 40) -- and no 31st. FPLfSEG and the
+    # block-level procedure idents it pointed at are retired into the table.
+    for k in range(1, 31):
+        for field in ("KIND", "ID", "ENT", "EXT", "FIRST", "LAST"):
+            database.get_raw_item(f"FPLS{k}{field}")
+    for gone in ("FPLS31KIND", "FPL1SEG", "FPLDPID", "FPLSTARID", "FPLAPRID"):
+        with pytest.raises(KeyError):
+            database.get_raw_item(gone)
+    # Editor-written route keys never auto-flag stale; engine outputs do.
+    for key in ("FPL1SGI", "FPLS1KIND", "FPLS1ID", "FPLS1FIRST", "FPLSEGCNT"):
+        assert database.get_raw_item(key).tol == 0, key
+    for key in ("FPLACTSEG", "FPLSEGREM"):
+        assert database.get_raw_item(key).tol == 5000, key
 
     # WPLON's clamp bug (min/max were +-90) is fixed to +-180: both extremes
     # must round-trip, not clamp.

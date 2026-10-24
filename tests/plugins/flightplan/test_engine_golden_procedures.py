@@ -40,6 +40,8 @@ import pytest
 import fixgw.geo as geo
 import fixgw.plugins.flightplan.engine as engine
 
+from .routes import load
+
 _FIXTURE_PATH = Path(__file__).resolve().parent.parent.parent / "fixtures" / "cifp" / "FAACIFP18"
 
 
@@ -206,7 +208,7 @@ def test_kabq_h21y_foxrr_transition_rf_arcs_load_and_fly_the_real_centre_and_rad
     assert engine.unsupported_leg_reason(route) is None
 
     e = engine.Engine()
-    e.load_route(route, "H21-Y", 1)
+    load(e, route, "H21-Y", 1)
     e.handle_command("1 ACT 2", (*KABQ_BGEYE, True))
 
     keifr_exit_brg = geo.bearing_deg(*KABQ_CFDXH, *KABQ_KEIFR)
@@ -239,7 +241,7 @@ def test_09j_vora_tomdy_transition_af_arc_loads_and_flies_the_real_navaid_centre
     assert engine.unsupported_leg_reason(route) is None
 
     e = engine.Engine()
-    e.load_route(route, "VOR-A", 1)
+    load(e, route, "VOR-A", 1)
     e.handle_command("1 ACT 2", (*NINEJ_TOMDY, True))
 
     exit_brg = geo.bearing_deg(*NINEJ_SSI, *NINEJ_SAUSE)
@@ -285,7 +287,7 @@ def test_ksba_i07_missed_approach_ca_leg_terminates_on_the_real_published_altitu
     assert engine.unsupported_leg_reason(route) is None
 
     e = engine.Engine()
-    e.load_route(route, "I07", 1)
+    load(e, route, "I07", 1)
     e.handle_command("1 ACT 2", (*KSBA_RW07, True))
 
     mid_lat, mid_lon = geo.destination_point(*KSBA_RW07, KSBA_CA_COURSE, 3.0)
@@ -318,7 +320,7 @@ def test_ksba_i07_golet_hold_flies_the_real_inbound_course_and_turn_direction():
     assert engine.unsupported_leg_reason(route) is None
 
     e = engine.Engine()
-    e.load_route(route, "I07", 1)
+    load(e, route, "I07", 1)
     e.handle_command("1 ACT 2", (entry_lat, entry_lon, True))
 
     # First arrival at GOLET is flown on the real CF leg's own course (184.8)
@@ -374,7 +376,7 @@ def test_kabq_h21y_abq_hold_flies_the_real_distance_coded_leg_length_with_no_con
     assert engine.unsupported_leg_reason(route) is None
 
     e = engine.Engine()
-    e.load_route(route, "H21-Y", 1)
+    load(e, route, "H21-Y", 1)
     e.handle_command("1 ACT 2", (entry_lat, entry_lon, True))
 
     arrival_lat, arrival_lon = geo.destination_point(*KABQ_ABQ, KABQ_ABQ_HM_COURSE, 0.05)
@@ -415,7 +417,7 @@ def test_09j_vora_ssi_transition_pi_flies_the_real_outbound_course_and_leg_lengt
     assert engine.unsupported_leg_reason(route) is None
 
     e = engine.Engine()
-    e.load_route(route, "VOR-A", 1)
+    load(e, route, "VOR-A", 1)
     e.handle_command("1 ACT 2", (entry_lat, entry_lon, True))
 
     just_past_lat, just_past_lon = geo.destination_point(*NINEJ_SSI, NINEJ_PI_COURSE, 0.05)

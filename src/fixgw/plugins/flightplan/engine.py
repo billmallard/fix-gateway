@@ -45,6 +45,16 @@
 #  moving it to Tier 2 would soften, not shrink, the rejected set. See
 #  doc/plugins/flightplan.md for the full behaviour writeup and the scoping
 #  decisions (direct-entry holds only, no ARINC parallel/teardrop entry).
+#
+#  RS1 (fix-gateway#39; makerplane/briefs/route_segments_plan.md sections 3
+#  and 5) makes route segments first-class: every slot carries FPLfSGI, a
+#  1-based index into a segment table (FPLS1..30: kind, ident, entry/exit
+#  fix, first/last slot), replacing PA3's kind-only FPLfSEG and the
+#  block-level FPLDPID/FPLSTARID/FPLAPRID. The engine still sequences legs
+#  exactly as before; it validates the table on every commit
+#  (segment_integrity_reason, the same whole-commit rejection as an
+#  unsupported leg), reports the active segment and the distance left in it,
+#  and persists the table with the route.
 
 import math
 
@@ -59,12 +69,17 @@ TYPE_FIX = 4
 TYPE_USER = 5
 TYPE_MAPPOINT = 6
 
-# --- FPLfSEG ----------------------------------------------------------------
-SEG_ENROUTE = 0
-SEG_DEPARTURE = 1
-SEG_ARRIVAL = 2
-SEG_APPROACH = 3
-SEG_MISSED = 4
+# --- FPLSpKIND (RS1) ---------------------------------------------------------
+SEGKIND_DIRECT = 0
+SEGKIND_AIRWAY = 1
+SEGKIND_DEPARTURE = 2
+SEGKIND_ARRIVAL = 3
+SEGKIND_APPROACH = 4
+SEGKIND_MISSED = 5
+SEGKINDS = frozenset(range(SEGKIND_DIRECT, SEGKIND_MISSED + 1))
+
+MAX_SEGMENTS = 30    # FPLS1..30 (variables.yaml `p`)
+SEG_ID_MAX = 24      # FPLSpID length limit
 
 # --- FPLfFLAGS ---------------------------------------------------------
 FLAG_FLYOVER = 0x01
@@ -208,6 +223,99 @@ def _alt_reached_wp(w, alt_ft):
     return alt_ft >= threshold if at_or_above else alt_ft <= threshold
 
 
+def segment_integrity_reason(waypoints, segments):
+    """None if the segment table (RS1) is consistent with the slots;
+    otherwise a <=64-char FPLMSG reason naming the first offender.
+
+    Guardrail 1, applied to route meaning rather than leg geometry: a
+    table that does not describe the slots exactly rejects the WHOLE
+    commit. The rules, in the order they are checked:
+
+    - FPLSEGCNT is 0 for an empty route and 1..30 otherwise (SEGCNT).
+    - Every slot's FPLfSGI is 1..FPLSEGCNT (SEGSGI).
+    - Slots of a segment are contiguous (SEGNONCONTIG), and segments
+      appear in table order with none skipped: slot 1 is in segment 1 and
+      each slot is in the same segment as the one before it or the next
+      (SEGORDER). Together with SEGSGI this is "every slot belongs to
+      exactly one segment, and the table is the route's order".
+    - FPLSpKIND is 0..5 (SEGKIND).
+    - FPLSpFIRST/FPLSpLAST equal the first and last slot whose FPLfSGI
+      is p (SEGRANGE).
+    - FPLSpENT/FPLSpEXT equal the FPLfID of that first/last slot (SEGENT,
+      SEGEXT).
+    - An airway has at least 2 slots, its entry and exit fixes (SEGLEN).
+      A direct segment is any run of 1 or more plain waypoints: one per
+      waypoint would need 100 segments for a 100-waypoint user route, and
+      the table holds 30.
+    - FPLSpID is at most 24 chars, empty for a direct segment and present
+      for an airway (SEGID).
+    """
+    n = len(waypoints)
+    cnt = len(segments)
+    if (n == 0 and cnt != 0) or (n > 0 and not 1 <= cnt <= MAX_SEGMENTS):
+        return f"SEGCNT {cnt}"
+
+    for i, w in enumerate(waypoints, start=1):
+        if not 1 <= w.sgi <= cnt:
+            return f"SEGSGI {i} {w.id or f'SLOT{i}'} {w.sgi}"[:64]
+
+    seen_closed = set()
+    prev = 0
+    for i, w in enumerate(waypoints, start=1):
+        k = w.sgi
+        if k == prev:
+            continue
+        if k in seen_closed:
+            return f"SEGNONCONTIG S{k} {w.id or f'SLOT{i}'}"[:64]
+        if k != prev + 1:
+            return f"SEGORDER S{k} {w.id or f'SLOT{i}'}"[:64]
+        if prev:
+            seen_closed.add(prev)
+        prev = k
+    if n and prev != cnt:
+        return f"SEGORDER S{prev + 1} UNUSED"
+
+    first = {}
+    last = {}
+    for i, w in enumerate(waypoints, start=1):
+        first.setdefault(w.sgi, i)
+        last[w.sgi] = i
+
+    for k, seg in enumerate(segments, start=1):
+        if seg.kind not in SEGKINDS:
+            return f"SEGKIND S{k} {seg.kind}"
+        if seg.first != first[k] or seg.last != last[k]:
+            return f"SEGRANGE S{k} {seg.first}-{seg.last}"[:64]
+        if seg.ent != waypoints[seg.first - 1].id:
+            return f"SEGENT S{k} {seg.ent or '??'}"[:64]
+        if seg.ext != waypoints[seg.last - 1].id:
+            return f"SEGEXT S{k} {seg.ext or '??'}"[:64]
+        legs = seg.last - seg.first + 1
+        if seg.kind == SEGKIND_AIRWAY and legs < 2:
+            return f"SEGLEN S{k} {seg.id} {legs}"[:64]
+        if (
+            len(seg.id) > SEG_ID_MAX
+            or (seg.kind == SEGKIND_DIRECT and seg.id)
+            or (seg.kind == SEGKIND_AIRWAY and not seg.id)
+        ):
+            return f"SEGID S{k} {seg.id or '-'}"[:64]
+    return None
+
+
+def direct_segments(waypoints):
+    """Describe a plain point list as RS1 segments: one direct segment
+    spanning every slot (none for an empty list). Sets each waypoint's sgi
+    to 1 and returns the matching table. Used to migrate a pre-RS1
+    persisted plan, which carried no segment table; a direct segment claims
+    nothing about airways or procedures, so it adds no meaning the old file
+    did not have."""
+    if not waypoints:
+        return []
+    for w in waypoints:
+        w.sgi = 1
+    return [Segment(SEGKIND_DIRECT, "", waypoints[0].id, waypoints[-1].id, 1, len(waypoints))]
+
+
 # --- FPLSTATE ------------------------------------------------------------
 STATE_NONE = 0
 STATE_LEG = 1
@@ -247,8 +355,9 @@ DIRECT_TO_NEEDS_POSITION_REASON = "NO POSITION"
 class Waypoint:
     """A route slot -- a leg (PA3): a point (id/lat/lon/type) plus the leg
     that terminates on it (path terminator, course, distance, altitude/speed
-    constraint, procedure segment, flags). See doc/flightplan_keys.md for the
-    wire encoding this mirrors 1:1.
+    constraint, flags) and, since RS1, the 1-based index of the segment it
+    belongs to (sgi, FPLfSGI). See doc/flightplan_keys.md for the wire
+    encoding this mirrors 1:1.
 
     PA13 adds ctrlat/ctrlon (an RF/AF arc's center point) and turn (the "L"/
     "R" turn direction an arc, hold or procedure turn needs and a Tier-1 leg
@@ -257,11 +366,11 @@ class Waypoint:
     section 3.2).
     """
 
-    __slots__ = ("id", "lat", "lon", "type", "pt", "crs", "dst", "alt", "spd", "seg", "flags",
+    __slots__ = ("id", "lat", "lon", "type", "pt", "crs", "dst", "alt", "spd", "sgi", "flags",
                  "ctrlat", "ctrlon", "turn")
 
     def __init__(self, id="", lat=0.0, lon=0.0, type=TYPE_UNKNOWN, pt=PT_DEFAULT,
-                 crs=0.0, dst=0.0, alt="", spd=0, seg=SEG_ENROUTE, flags=0,
+                 crs=0.0, dst=0.0, alt="", spd=0, sgi=0, flags=0,
                  ctrlat=0.0, ctrlon=0.0, turn=""):
         self.id = id
         self.lat = lat
@@ -272,7 +381,7 @@ class Waypoint:
         self.dst = dst
         self.alt = alt
         self.spd = spd
-        self.seg = seg
+        self.sgi = sgi
         self.flags = flags
         self.ctrlat = ctrlat
         self.ctrlon = ctrlon
@@ -282,7 +391,7 @@ class Waypoint:
         return {
             "id": self.id, "lat": self.lat, "lon": self.lon, "type": self.type,
             "pt": self.pt, "crs": self.crs, "dst": self.dst, "alt": self.alt,
-            "spd": self.spd, "seg": self.seg, "flags": self.flags,
+            "spd": self.spd, "sgi": self.sgi, "flags": self.flags,
             "ctrlat": self.ctrlat, "ctrlon": self.ctrlon, "turn": self.turn,
         }
 
@@ -291,8 +400,38 @@ class Waypoint:
         return cls(
             d.get("id", ""), d.get("lat", 0.0), d.get("lon", 0.0), d.get("type", TYPE_UNKNOWN),
             d.get("pt", PT_DEFAULT), d.get("crs", 0.0), d.get("dst", 0.0), d.get("alt", ""),
-            d.get("spd", 0), d.get("seg", SEG_ENROUTE), d.get("flags", 0),
+            d.get("spd", 0), d.get("sgi", 0), d.get("flags", 0),
             d.get("ctrlat", 0.0), d.get("ctrlon", 0.0), d.get("turn", ""),
+        )
+
+
+class Segment:
+    """A route segment (RS1): one row of the FPLS1..30 table. kind is
+    SEGKIND_*, id the airway or procedure ident ("" for direct), ent/ext the
+    entry and exit fix idents, first/last the 1-based slot range. The legs
+    themselves stay in the slot block; this says where they came from."""
+
+    __slots__ = ("kind", "id", "ent", "ext", "first", "last")
+
+    def __init__(self, kind=SEGKIND_DIRECT, id="", ent="", ext="", first=0, last=0):
+        self.kind = kind
+        self.id = id
+        self.ent = ent
+        self.ext = ext
+        self.first = first
+        self.last = last
+
+    def to_dict(self):
+        return {
+            "kind": self.kind, "id": self.id, "ent": self.ent, "ext": self.ext,
+            "first": self.first, "last": self.last,
+        }
+
+    @classmethod
+    def from_dict(cls, d):
+        return cls(
+            d.get("kind", SEGKIND_DIRECT), d.get("id", ""), d.get("ent", ""), d.get("ext", ""),
+            d.get("first", 0), d.get("last", 0),
         )
 
 
@@ -322,9 +461,10 @@ class Point:
 
 class RouteRejected(Exception):
     """Raised by Engine.load_route (PA4, guardrail 1) when a leg's path
-    terminator is not one this engine can fly. The previously loaded
-    route, activation state and all, is left completely untouched --
-    there is no partial load."""
+    terminator is not one this engine can fly, or (RS1) when the segment
+    table does not describe the slots. The previously loaded route,
+    activation state and all, is left completely untouched -- there is no
+    partial load."""
 
     def __init__(self, reason):
         super().__init__(reason)
@@ -349,6 +489,14 @@ def _course_change_deg(course_a, course_b):
     return abs(diff)
 
 
+def _check_route(waypoints, segments):
+    reason = unsupported_leg_reason(waypoints)
+    if reason is None:
+        reason = segment_integrity_reason(waypoints, segments)
+    if reason is not None:
+        raise RouteRejected(reason)
+
+
 class Engine:
     def __init__(self, config=None):
         config = config or {}
@@ -362,12 +510,14 @@ class Engine:
         self.route_name = ""
         self.seq = None          # last-applied FPLSEQ
 
-        # Block-level procedure provenance (PA3) -- FPLDPID/FPLSTARID/
-        # FPLAPRID/FPLAPRTYPE/FPLDBCYC. Carried through, not yet acted on
-        # (PA9 annunciates FPLDBCYC's currency; PA7 writes these).
-        self.dpid = ""
-        self.starid = ""
-        self.aprid = ""
+        # Route segments (RS1) -- FPLS1..FPLSEGCNT, list[Segment]. Each
+        # waypoint's sgi indexes this list, 1-based.
+        self.segments = []
+
+        # Block-level provenance (PA3) -- FPLAPRTYPE/FPLDBCYC. Carried
+        # through, not yet acted on (PA9 annunciates FPLDBCYC's currency).
+        # The procedure idents PA3 also kept here (FPLDPID/FPLSTARID/
+        # FPLAPRID) moved into the segment table in RS1.
         self.aprtype = ""
         self.dbcyc = ""
 
@@ -400,27 +550,25 @@ class Engine:
     # ------------------------------------------------------------------
     # Route loading
     # ------------------------------------------------------------------
-    def load_route(self, waypoints, name, seq, dpid="", starid="", aprid="", aprtype="", dbcyc=""):
-        """waypoints: list[Waypoint]. Any FPLSEQ change is treated as a new
-        plan: the previous activation is dropped (mode -> NONE) and the pilot
-        re-activates it with ACT/DTO. See doc/plugins/flightplan.md for why
-        edit-preserving activation was not attempted in this first cut.
+    def load_route(self, waypoints, name, seq, segments, aprtype="", dbcyc=""):
+        """waypoints: list[Waypoint]; segments: list[Segment], the RS1
+        segment table the waypoints' sgi index into. Any FPLSEQ change is
+        treated as a new plan: the previous activation is dropped (mode ->
+        NONE) and the pilot re-activates it with ACT/DTO. See
+        doc/plugins/flightplan.md for why edit-preserving activation was
+        not attempted in this first cut.
 
-        dpid/starid/aprid/aprtype/dbcyc: block-level procedure provenance
-        (PA3) -- FPLDPID/FPLSTARID/FPLAPRID/FPLAPRTYPE/FPLDBCYC.
+        aprtype/dbcyc: block-level provenance (PA3) -- FPLAPRTYPE/FPLDBCYC.
 
-        Raises RouteRejected (PA4, guardrail 1) -- leaving the previously
-        loaded route and activation state completely untouched -- if any
-        leg's path terminator is not in PT_SUPPORTED."""
-        reason = unsupported_leg_reason(waypoints)
-        if reason is not None:
-            raise RouteRejected(reason)
+        Raises RouteRejected (guardrail 1) -- leaving the previously loaded
+        route and activation state completely untouched -- if any leg's
+        path terminator is not in PT_SUPPORTED (PA4), or the segment table
+        does not describe the slots (RS1, segment_integrity_reason)."""
+        _check_route(waypoints, segments)
         self.route = list(waypoints)
+        self.segments = list(segments)
         self.route_name = name
         self.seq = seq
-        self.dpid = dpid
-        self.starid = starid
-        self.aprid = aprid
         self.aprtype = aprtype
         self.dbcyc = dbcyc
         self._reset_activation()
@@ -447,11 +595,9 @@ class Engine:
     def to_persisted_dict(self):
         return {
             "route": [wp.to_dict() for wp in self.route],
+            "segments": [seg.to_dict() for seg in self.segments],
             "name": self.route_name,
             "seq": self.seq,
-            "dpid": self.dpid,
-            "starid": self.starid,
-            "aprid": self.aprid,
             "aprtype": self.aprtype,
             "dbcyc": self.dbcyc,
             "mode": self.mode,
@@ -470,12 +616,22 @@ class Engine:
         }
 
     def restore_from_dict(self, d):
-        self.route = [Waypoint.from_dict(w) for w in d.get("route", [])]
+        """Restore a persisted plan. The route and its segment table are
+        checked exactly as a bus commit is, before anything is changed: a
+        state file that would not load from the bus is not flown either
+        (RouteRejected, engine untouched). A pre-RS1 file has no segment
+        table; its slots are migrated to a single direct segment
+        (direct_segments), which is all the old file ever said about them."""
+        route = [Waypoint.from_dict(w) for w in d.get("route", [])]
+        if "segments" in d:
+            segments = [Segment.from_dict(sg) for sg in d["segments"]]
+        else:
+            segments = direct_segments(route)
+        _check_route(route, segments)
+        self.route = route
+        self.segments = segments
         self.route_name = d.get("name", "")
         self.seq = d.get("seq")
-        self.dpid = d.get("dpid", "")
-        self.starid = d.get("starid", "")
-        self.aprid = d.get("aprid", "")
         self.aprtype = d.get("aprtype", "")
         self.dbcyc = d.get("dbcyc", "")
         self.mode = d.get("mode", "NONE")
@@ -501,6 +657,26 @@ class Engine:
     @property
     def count(self):
         return len(self.route)
+
+    def _segment_index(self, slot):
+        """FPLACTSEG for a TO slot (RS1): the segment the slot belongs to,
+        0 for no slot (no plan active, or an off-route direct-to)."""
+        if not 1 <= slot <= self.count:
+            return 0
+        return self.route[slot - 1].sgi
+
+    def _segment_remaining_nm(self, wp_dis):
+        """FPLSEGREM (RS1): distance to the active TO fix plus the legs
+        from it to the active segment's last slot."""
+        k = self._segment_index(self.act_leg)
+        if k == 0:
+            return 0.0
+        rem = wp_dis
+        for i in range(self.act_leg, self.segments[k - 1].last):
+            rem += geo.distance_nm(
+                self.route[i - 1].lat, self.route[i - 1].lon, self.route[i].lat, self.route[i].lon
+            )
+        return rem
 
     def _faf_map_idx(self):
         faf_idx = map_idx = None
@@ -774,6 +950,12 @@ class Engine:
         self.to_point = Point(lat, lon, ident)
 
     def _activate_direct_to_slot(self, k, position):
+        # RS1: a direct-to a fix inside an airway (or procedure) leaves the
+        # segment table alone. Slots k..LAST are still that one segment, so
+        # FPLACTSEG keeps reporting it and FPLSEGREM counts from the
+        # aircraft to k and on to the exit. The table is the editor's to
+        # write (one key, one writer), and an editor re-commit would drop
+        # this activation anyway (load_route).
         ac_lat, ac_lon = self._require_position(position)
         faf_idx, map_idx = self._faf_map_idx()
         self._begin_activation()
@@ -960,6 +1142,8 @@ class Engine:
             "wp_ete": 0,
             "rem_dis": 0.0,
             "rem_ete": 0,
+            "act_seg": self._segment_index(self.act_leg),
+            "seg_rem": 0.0,
             "alert": False,
             "fail": True,
         }
@@ -1076,6 +1260,8 @@ class Engine:
                 "wp_ete": 0,
                 "rem_dis": 0.0,
                 "rem_ete": 0,
+                "act_seg": 0,
+                "seg_rem": 0.0,
                 "alert": False,
                 "fail": False,
             }
@@ -1176,6 +1362,8 @@ class Engine:
             "wp_ete_bad": wp_ete_bad,
             "rem_dis": rem_dis,
             "rem_ete": rem_ete,
+            "act_seg": self._segment_index(self.act_leg),
+            "seg_rem": self._segment_remaining_nm(wp_dis),
             "alert": alert,
             "fail": False,
         }
@@ -1211,6 +1399,8 @@ class Engine:
             "wp_ete": 0,
             "rem_dis": 0.0,
             "rem_ete": 0,
+            "act_seg": self._segment_index(self.act_leg),
+            "seg_rem": 0.0,
             "alert": False,
             "fail": False,
             "vectors": True,

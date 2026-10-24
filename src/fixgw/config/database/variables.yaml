@@ -13,3 +13,4 @@ variables:
   d: 4  # MGL V16 Radios
   w: 3  # Wheels
   f: 100 # Flight plan route slots (PA3: raised from 50, matches the GNX's 100-waypoint limit)
+  p: 30  # Flight plan route segments (RS1, fix-gateway#39). `s` is taken by touchscreen buttons

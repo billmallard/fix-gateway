@@ -5,9 +5,10 @@
 """The flight-plan navigation engine: fixgw.plugins.flightplan.
 
 A compute-only plugin -- it never needs a nav database, only coordinates.
-It reads the route block (``FPL1..100``, ``FPLCOUNT``, the ``FPLDPID``/
-``FPLSTARID``/``FPLAPRID``/``FPLAPRTYPE``/``FPLDBCYC`` provenance, on
-``FPLSEQ`` change), ``DTO*``, ``FPLCMD``, ``LAT``/``LONG``/``GS``/``MAGVAR``,
+It reads the route block (``FPL1..100``, ``FPLCOUNT``, the segment table
+``FPLS1..30``/``FPLSEGCNT`` (RS1), the ``FPLAPRTYPE``/``FPLDBCYC``
+provenance, on ``FPLSEQ`` change), ``DTO*``, ``FPLCMD``,
+``LAT``/``LONG``/``GS``/``MAGVAR``,
 and writes the engine output keys defined by FP1 (``doc/flightplan_keys.md``):
 leg guidance (DTK/XTK/CDI/TO-FROM), sequencing, Direct-To, SUSP/RESUME, the
 full DO-229 CDI-scaling/flight-phase behaviour including the approach
@@ -20,7 +21,9 @@ terminator outright (guardrail 1 -- this module writes the reason to
 vector leg (VA/VM/FM/VI) as a SUSP annunciated ``FPLPHASE=VECTORS``
 (guardrail 4). PA13 (fix-gateway#29) adds RF/AF arcs, CA/FA
 altitude-terminated legs (reading ``ALT`` by default, ``altitude_key``
-below) and HM/HF/HA/PI holds and procedure turns.
+below) and HM/HF/HA/PI holds and procedure turns. RS1 (fix-gateway#39)
+adds the segment table: validated on every commit, persisted with the
+route, and reported as ``FPLACTSEG``/``FPLSEGREM``.
 
 The navigation logic itself lives in :mod:`fixgw.plugins.flightplan.engine`
 (pure Python, no fixgw.database dependency) so it is directly unit testable;
@@ -51,7 +54,7 @@ import threading
 import time
 
 import fixgw.plugin as plugin
-from fixgw.plugins.flightplan.engine import Engine, RouteRejected, Waypoint
+from fixgw.plugins.flightplan.engine import Engine, RouteRejected, Segment, Waypoint
 
 GPS_ACCURACY_FT_PER_NM = 6076.12
 
@@ -153,19 +156,31 @@ class MainThread(threading.Thread):
                     dst=self._read(f"FPL{i}DST"),
                     alt=self._read(f"FPL{i}ALT"),
                     spd=int(self._read(f"FPL{i}SPD")),
-                    seg=int(self._read(f"FPL{i}SEG")),
+                    sgi=int(self._read(f"FPL{i}SGI")),
                     flags=int(self._read(f"FPL{i}FLAGS")),
                     ctrlat=self._read(f"FPL{i}CTRLAT"),
                     ctrlon=self._read(f"FPL{i}CTRLON"),
                     turn=self._read(f"FPL{i}TURN"),
                 )
             )
+        # FPLSEGCNT is range-clamped by the database (0..30), so every
+        # FPLS<k> read here exists; the engine checks the table against the
+        # slots.
+        segments = []
+        for k in range(1, int(self._read("FPLSEGCNT")) + 1):
+            segments.append(
+                Segment(
+                    kind=int(self._read(f"FPLS{k}KIND")),
+                    id=self._read(f"FPLS{k}ID"),
+                    ent=self._read(f"FPLS{k}ENT"),
+                    ext=self._read(f"FPLS{k}EXT"),
+                    first=int(self._read(f"FPLS{k}FIRST")),
+                    last=int(self._read(f"FPLS{k}LAST")),
+                )
+            )
         try:
             self.engine.load_route(
-                waypoints, name, seq,
-                dpid=self._read("FPLDPID"),
-                starid=self._read("FPLSTARID"),
-                aprid=self._read("FPLAPRID"),
+                waypoints, name, seq, segments,
                 aprtype=self._read("FPLAPRTYPE"),
                 dbcyc=self._read("FPLDBCYC"),
             )
@@ -188,16 +203,21 @@ class MainThread(threading.Thread):
             self.parent.db_write(f"FPL{i}DST", wp.dst)
             self.parent.db_write(f"FPL{i}ALT", wp.alt)
             self.parent.db_write(f"FPL{i}SPD", wp.spd)
-            self.parent.db_write(f"FPL{i}SEG", wp.seg)
+            self.parent.db_write(f"FPL{i}SGI", wp.sgi)
             self.parent.db_write(f"FPL{i}FLAGS", wp.flags)
             self.parent.db_write(f"FPL{i}CTRLAT", wp.ctrlat)
             self.parent.db_write(f"FPL{i}CTRLON", wp.ctrlon)
             self.parent.db_write(f"FPL{i}TURN", wp.turn)
         self.parent.db_write("FPLCOUNT", len(self.engine.route))
         self.parent.db_write("FPLNAME", self.engine.route_name)
-        self.parent.db_write("FPLDPID", self.engine.dpid)
-        self.parent.db_write("FPLSTARID", self.engine.starid)
-        self.parent.db_write("FPLAPRID", self.engine.aprid)
+        for k, seg in enumerate(self.engine.segments, start=1):
+            self.parent.db_write(f"FPLS{k}KIND", seg.kind)
+            self.parent.db_write(f"FPLS{k}ID", seg.id)
+            self.parent.db_write(f"FPLS{k}ENT", seg.ent)
+            self.parent.db_write(f"FPLS{k}EXT", seg.ext)
+            self.parent.db_write(f"FPLS{k}FIRST", seg.first)
+            self.parent.db_write(f"FPLS{k}LAST", seg.last)
+        self.parent.db_write("FPLSEGCNT", len(self.engine.segments))
         self.parent.db_write("FPLAPRTYPE", self.engine.aprtype)
         self.parent.db_write("FPLDBCYC", self.engine.dbcyc)
         if self.engine.seq is not None:
@@ -308,6 +328,8 @@ class MainThread(threading.Thread):
         self._setval("WPETE", out["wp_ete"], fail=fail, bad=bad or wp_ete_bad)
         self._setval("FPLREMDIS", out["rem_dis"], fail=fail, bad=bad)
         self._setval("FPLREMETE", out["rem_ete"], fail=fail, bad=bad or wp_ete_bad)
+        self._setval("FPLACTSEG", out["act_seg"])
+        self._setval("FPLSEGREM", out["seg_rem"], fail=fail, bad=bad)
         self._setval("FPLALERT", out["alert"])
         if out.get("msg"):
             self.parent.db_write("FPLMSG", out["msg"])
@@ -329,7 +351,19 @@ class MainThread(threading.Thread):
         data = self._load_persisted()
         if data is None:
             return
-        self.engine.restore_from_dict(data)
+        try:
+            self.engine.restore_from_dict(data)
+        except RouteRejected as r:
+            # The same gate a bus commit goes through: a state file that
+            # would be rejected from the bus is not flown after a restart
+            # either. The engine is untouched (no plan), and the file stays
+            # on disk for inspection until the next accepted commit
+            # replaces it -- _last_persisted is pointed at the empty state
+            # so _maybe_persist does not overwrite it first.
+            self.parent.db_write("FPLMSG", r.reason)
+            self.log.warning(f"flightplan: not restoring {self.state_file}: {r.reason}")
+            self._last_persisted = self.engine.to_persisted_dict()
+            return
         self._restoring = True
         try:
             self._republish_route()

@@ -17,6 +17,8 @@ import fixgw.plugin as plugin_base
 import fixgw.plugins.flightplan as flightplan
 import fixgw.plugins.flightplan.engine as engine
 
+from .routes import load
+
 
 def make_config(tmp_path, **overrides):
     config = {
@@ -30,7 +32,12 @@ def make_config(tmp_path, **overrides):
     return config
 
 
-def write_route(database, waypoints, name="TEST", seq=1, **provenance):
+def write_route(database, waypoints, name="TEST", seq=1, segments=None, **provenance):
+    # The editor's commit order: every slot and the segment table, then
+    # FPLCOUNT, then FPLSEQ last. Without an explicit table the route goes
+    # out as a single direct segment (RS1).
+    if segments is None:
+        segments = engine.direct_segments(waypoints)
     for i, w in enumerate(waypoints, start=1):
         database.write(f"FPL{i}ID", w.id)
         database.write(f"FPL{i}LAT", w.lat)
@@ -41,16 +48,21 @@ def write_route(database, waypoints, name="TEST", seq=1, **provenance):
         database.write(f"FPL{i}DST", w.dst)
         database.write(f"FPL{i}ALT", w.alt)
         database.write(f"FPL{i}SPD", w.spd)
-        database.write(f"FPL{i}SEG", w.seg)
+        database.write(f"FPL{i}SGI", w.sgi)
         database.write(f"FPL{i}FLAGS", w.flags)
         database.write(f"FPL{i}CTRLAT", w.ctrlat)
         database.write(f"FPL{i}CTRLON", w.ctrlon)
         database.write(f"FPL{i}TURN", w.turn)
+    for k, seg in enumerate(segments, start=1):
+        database.write(f"FPLS{k}KIND", seg.kind)
+        database.write(f"FPLS{k}ID", seg.id)
+        database.write(f"FPLS{k}ENT", seg.ent)
+        database.write(f"FPLS{k}EXT", seg.ext)
+        database.write(f"FPLS{k}FIRST", seg.first)
+        database.write(f"FPLS{k}LAST", seg.last)
+    database.write("FPLSEGCNT", len(segments))
     database.write("FPLCOUNT", len(waypoints))
     database.write("FPLNAME", name)
-    database.write("FPLDPID", provenance.get("dpid", ""))
-    database.write("FPLSTARID", provenance.get("starid", ""))
-    database.write("FPLAPRID", provenance.get("aprid", ""))
     database.write("FPLAPRTYPE", provenance.get("aprtype", ""))
     database.write("FPLDBCYC", provenance.get("dbcyc", ""))
     database.write("FPLSEQ", seq)
@@ -70,19 +82,22 @@ def test_route_block_committed_on_fplseq_change_loads_engine_route(database, tmp
 def test_route_block_committed_loads_leg_fields_and_provenance(database, tmp_path):
     pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
     waypoints = [
-        engine.Waypoint("IAF", 0.0, 0.0, type=engine.TYPE_FIX, pt="IF", seg=engine.SEG_APPROACH),
+        engine.Waypoint("IAF", 0.0, 0.0, type=engine.TYPE_FIX, pt="IF", sgi=1),
         engine.Waypoint(
             "FAF", 0.0, 1.0, type=engine.TYPE_FIX, pt="CF", crs=90.0, dst=5.0,
-            alt="+3500", spd=150, seg=engine.SEG_APPROACH, flags=engine.FLAG_FAF,
+            alt="+3500", spd=150, sgi=1, flags=engine.FLAG_FAF,
         ),
     ]
-    write_route(database, waypoints, seq=1, aprid="I33L", aprtype="ILS", dbcyc="2609")
+    segments = [engine.Segment(engine.SEGKIND_APPROACH, "I33L", "IAF", "FAF", 1, 2)]
+    write_route(database, waypoints, seq=1, segments=segments, aprtype="ILS", dbcyc="2609")
 
     loaded = pl.thread.engine.route[1]
     assert loaded.pt == "CF" and loaded.crs == 90.0 and loaded.dst == 5.0
     assert loaded.alt == "+3500" and loaded.spd == 150
     assert loaded.flags == engine.FLAG_FAF
-    assert pl.thread.engine.aprid == "I33L"
+    assert loaded.sgi == 1
+    seg = pl.thread.engine.segments[0]
+    assert (seg.kind, seg.id, seg.ent, seg.ext) == (engine.SEGKIND_APPROACH, "I33L", "IAF", "FAF")
     assert pl.thread.engine.aprtype == "ILS"
     assert pl.thread.engine.dbcyc == "2609"
 
@@ -248,7 +263,7 @@ def test_persistence_restore_republishes_route_block_and_fplseq(database, tmp_pa
         engine.Waypoint("A", 1.0, 2.0),
         engine.Waypoint("B", 3.0, 4.0, pt="CF", crs=45.0, flags=engine.FLAG_FAF),
     ]
-    e.load_route(route, "RESTORED", 42, aprid="I33L", dbcyc="2609")
+    load(e, route, "RESTORED", 42, dbcyc="2609")
     e.handle_command("1 ACT 2", (1.0, 2.0, True))
     state_file.write_text(json.dumps(e.to_persisted_dict()))
 
@@ -262,7 +277,11 @@ def test_persistence_restore_republishes_route_block_and_fplseq(database, tmp_pa
     assert database.read("FPL2PT")[0] == "CF"
     assert database.read("FPL2CRS")[0] == pytest.approx(45.0)
     assert database.read("FPL2FLAGS")[0] == engine.FLAG_FAF
-    assert database.read("FPLAPRID")[0] == "I33L"
+    assert database.read("FPL2SGI")[0] == 1
+    assert database.read("FPLSEGCNT")[0] == 1
+    assert database.read("FPLS1KIND")[0] == engine.SEGKIND_DIRECT
+    assert database.read("FPLS1ENT")[0] == "A" and database.read("FPLS1EXT")[0] == "B"
+    assert database.read("FPLS1FIRST")[0] == 1 and database.read("FPLS1LAST")[0] == 2
     assert database.read("FPLDBCYC")[0] == "2609"
     assert pl.thread.engine.act_leg == 2
     assert pl.thread.engine.mode == "LEG"
@@ -276,7 +295,7 @@ def test_restore_does_not_reset_activation_via_own_fplseq_callback(database, tmp
     state_file = tmp_path / "flightplan_state.json"
     e = engine.Engine()
     route = [engine.Waypoint("A", 1.0, 2.0), engine.Waypoint("B", 3.0, 4.0)]
-    e.load_route(route, "RESTORED", 42)
+    load(e, route, "RESTORED", 42)
     e.handle_command("1 ACT 2", (1.0, 2.0, True))
     state_file.write_text(json.dumps(e.to_persisted_dict()))
 
@@ -304,7 +323,7 @@ def test_restore_does_not_auto_sequence_a_direct_to_before_a_real_position_arriv
         engine.Waypoint("GVO", 34.53142, -120.09106),
         engine.Waypoint("KSMX", 34.89892, -120.45758),
     ]
-    e.load_route(route, "TEST", 1)
+    load(e, route, "TEST", 1)
     e.handle_command("1 DTO 1", (34.55, -120.05, True))
     assert e.mode == "DIRECT" and e.act_leg == 1
     state_file.write_text(json.dumps(e.to_persisted_dict()))
@@ -364,3 +383,76 @@ def test_get_status_reports_route_state_and_active_leg(database, tmp_path):
 
     status = pl.get_status()
     assert status == {"Route": "R1", "State": "LEG", "ActiveLeg": 2}
+
+
+# ---------------------------------------------------------------------------
+# RS1 (fix-gateway#39): the segment table on the real wire
+# ---------------------------------------------------------------------------
+
+
+def _airway_route():
+    route = [
+        engine.Waypoint("DEP", 0.0, 0.0, sgi=1),
+        engine.Waypoint("ENTRY", 0.0, 0.5, sgi=2),
+        engine.Waypoint("MID", 0.0, 1.0, sgi=2),
+        engine.Waypoint("EXIT", 0.0, 1.5, sgi=2),
+        engine.Waypoint("DEST", 0.0, 2.0, sgi=3),
+    ]
+    segments = [
+        engine.Segment(engine.SEGKIND_DIRECT, "", "DEP", "DEP", 1, 1),
+        engine.Segment(engine.SEGKIND_AIRWAY, "V1", "ENTRY", "EXIT", 2, 4),
+        engine.Segment(engine.SEGKIND_DIRECT, "", "DEST", "DEST", 5, 5),
+    ]
+    return route, segments
+
+
+def test_segment_table_committed_on_the_bus_loads_and_drives_actseg_segrem(database, tmp_path):
+    pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
+    route, segments = _airway_route()
+    write_route(database, route, seq=1, segments=segments)
+    assert [s.id for s in pl.thread.engine.segments] == ["", "V1", ""]
+    assert [w.sgi for w in pl.thread.engine.route] == [1, 2, 2, 2, 3]
+
+    database.write("GPS_FIX_TYPE", 3)  # 0 is not yet "old" and would fail guidance
+    database.write("LAT", 0.0)
+    database.write("LONG", 0.75)
+    database.write("GS", 120.0)
+    database.write("MAGVAR", 0.0)
+    database.write("FPLCMD", "1 ACT 3")  # ENTRY -> MID
+    pl.thread._run_update_cycle()
+
+    assert database.read("FPLACTSEG")[0] == 2  # V1
+    one_deg_nm = 60.04
+    assert database.read("FPLSEGREM")[0] == pytest.approx(0.25 * one_deg_nm + 0.5 * one_deg_nm, rel=1e-3)
+
+
+def test_bad_segment_table_on_the_bus_rejects_the_commit_with_its_reason(database, tmp_path):
+    pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
+    route, segments = _airway_route()
+    write_route(database, route, name="GOOD", seq=1, segments=segments)
+
+    route, segments = _airway_route()
+    segments[1].ext = "DEST"  # exit id does not match the last slot
+    write_route(database, route, name="BAD", seq=2, segments=segments)
+
+    assert database.read("FPLMSG")[0] == "SEGEXT S2 DEST"
+    assert pl.thread.engine.route_name == "GOOD"
+    assert pl.thread.engine.seq == 1
+
+
+def test_restore_of_a_bad_state_file_posts_the_reason_and_keeps_the_file(database, tmp_path):
+    state_file = tmp_path / "flightplan_state.json"
+    e = engine.Engine()
+    route, segments = _airway_route()
+    load(e, route, "AWY", 3, segments)
+    snapshot = e.to_persisted_dict()
+    snapshot["segments"][1]["first"] = 3
+    state_file.write_text(json.dumps(snapshot))
+
+    pl = flightplan.Plugin("flightplan", make_config(tmp_path, state_file=str(state_file)), {})
+    pl.thread._restore()
+    assert database.read("FPLMSG")[0] == "SEGRANGE S2 3-4"
+    assert pl.thread.engine.count == 0
+
+    pl.thread._run_update_cycle()  # the persist hook must not overwrite the evidence
+    assert json.loads(state_file.read_text())["segments"][1]["first"] == 3
