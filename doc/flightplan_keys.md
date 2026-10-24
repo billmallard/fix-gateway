@@ -1,15 +1,21 @@
-# Flight plan FIX keys (FP1, PA3, PA4, PA13)
+# Flight plan FIX keys (FP1, PA3, PA4, PA13, RS1)
 
 Spec: [fix-gateway#22](https://github.com/billmallard/fix-gateway/issues/22)
 (FP1), [fix-gateway#27](https://github.com/billmallard/fix-gateway/issues/27)
 (PA3, the leg model), [fix-gateway#28](https://github.com/billmallard/fix-gateway/issues/28)
 (PA4, Tier-1 leg types), [fix-gateway#29](https://github.com/billmallard/fix-gateway/issues/29)
-(PA13, Tier-2 leg types); `makerplane/briefs/procedures_and_airways_plan.md`
-section 3.2 (the maos-workspace repo) -- Bill's decision 1, 2026-09-18. PA3
+(PA13, Tier-2 leg types), [fix-gateway#39](https://github.com/billmallard/fix-gateway/issues/39)
+(RS1, the route segment table); `makerplane/briefs/procedures_and_airways_plan.md`
+section 3.2 (the maos-workspace repo) -- Bill's decision 1, 2026-09-18 --
+and `makerplane/briefs/route_segments_plan.md` sections 3 and 5 -- Bill's
+ruling of 2026-10-24 on AER-2091 that airway and procedure segments are
+first-class on the bus. PA3
 landed the key contract only; PA4 is the first item that actually flies
 anything other than an implicit `TF` leg, and the guardrail-1 rejection gate
 that this key contract enables. PA13 adds the leg types the brief phased
 out of PA4 -- arcs, altitude-terminated legs, holds and procedure turns.
+RS1 adds the segment table: which slots are "V27 from GVO to AVOLS", which
+are the departure, and so on, so no display has to guess.
 
 One key, one writer, with a single documented exception: after a gateway
 restart the engine (FP2) republishes the route block and bumps `FPLSEQ`
@@ -43,13 +49,16 @@ their zero value -- nothing changes for that case.
 | `FPL1..100 DST` | float | 0..999.9 nm | editor | Leg distance. Tier 1: unused by the great-circle terminators. PA13: an `RF`/`AF` arc's radius, or a hold/procedure-turn's outbound leg length -- both required, never defaulted |
 | `FPL1..100 ALT` | str | packed, guide notation: `""` none, `"+3500"` at-or-above, `"-3500"` at-or-below, `"B2900,4000"` between, `"@3500"` at | editor | Altitude constraint. PA13: also the termination test for `CA`/`FA`/`HA` |
 | `FPL1..100 SPD` | int | 0..400 kt, 0 = none | editor | Speed constraint |
-| `FPL1..100 SEG` | int | 0..4 (0 enroute, 1 departure, 2 arrival, 3 approach, 4 missed) | editor | Which procedure segment this slot belongs to |
+| `FPL1..100 SGI` | int | 1..`FPLSEGCNT` for a slot in use (0 only past `FPLCOUNT`); database range 0..30 | editor | Index of the segment this slot belongs to (RS1, replaces PA3's `FPLfSEG`) |
 | `FPL1..100 FLAGS` | int | bitfield: `0x01` fly-over, `0x02` IAF, `0x04` FAF, `0x08` MAP, `0x10` MAHP, `0x20` from a coded procedure | editor | Leg flags (replaces FP1's `FPLfROLE`) |
 | `FPL1..100 CTRLAT` / `CTRLON` | float | +-90 / +-180 deg | editor | Arc center point (PA13, `RF`/`AF` only) |
 | `FPL1..100 TURN` | str | `"L"`/`"R"`/`""` | editor | Turn direction (PA13, required for `RF`/`AF`/`HM`/`HF`/`HA`/`PI`) |
 | `FPLCOUNT` | int | 0..100 | editor | Slots in use |
 | `FPLNAME` | str | <=32 chars, no `;` | editor | Route name |
 | `FPLSEQ` | int | >=0 | editor (engine on restore) | Commit counter, written last |
+
+All of the above, and the segment table below, are `tol: 0`, written by the
+editor, and republished by the engine on restore.
 
 The rare fields a real procedure database carries (`theta`/`rho`/`rnp`/
 recommended navaid) are **not** on the wire -- resolved to geometry at load
@@ -82,18 +91,95 @@ length, a `CA` with no altitude constraint -- rejecting the whole route the
 same way (`BADTURN`/`BADRADIUS`/`BADCENTER`/`BADALT`/`BADLEGLEN`) rather than
 inventing a value the coded data never carried.
 
+## Route segment table (RS1)
+
+A route is an ordered list of segments, and each segment owns a contiguous
+run of slots. The legs stay what the engine flies: one leg block, one
+sequencer. The segment says where the legs came from and what they are
+called. PA3's `FPLfSEG` said a slot belonged to *a* departure but not
+*which* segment or where it started and ended, so the FPL page had to keep
+airway membership in a display-only tag and re-attach it after every sync
+by guessing. That tag was lost on restart, on a second display and on
+invert, and the map never had it at all. With the table on the bus, every
+reader sees the same segments.
+
+| Key | Type | Range | Tol | Writer | Meaning |
+|---|---|---|---|---|---|
+| `FPLS1..30 KIND` | int | 0 direct, 1 airway, 2 departure, 3 arrival, 4 approach, 5 missed | 0 | editor (engine on restore) | What the segment is |
+| `FPLS1..30 ID` | str | <=24 chars, no `;`. `""` for direct, required for an airway | 0 | editor (engine on restore) | `V27`, `HYDRR6.RW33L`, `RNAV33L.HENER` |
+| `FPLS1..30 ENT` | str | equals `FPLfID` of slot `FIRST` | 0 | editor (engine on restore) | Entry fix ident |
+| `FPLS1..30 EXT` | str | equals `FPLfID` of slot `LAST` | 0 | editor (engine on restore) | Exit fix ident |
+| `FPLS1..30 FIRST` / `LAST` | int | 1..100, `FIRST <= LAST` | 0 | editor (engine on restore) | First and last slot of the segment. Redundant with `FPLfSGI`, so a reader never scans 100 slots, and checked against it |
+| `FPLSEGCNT` | int | 0 for an empty route, else 1..30 | 0 | editor (engine on restore) | Segments in use |
+
+The index variable is `p` (`database/variables.yaml`, `p: 30`). `s` is
+taken by the touchscreen buttons.
+
+**A direct segment is a run of one or more plain waypoints**, not one row
+per waypoint. A 100-waypoint user route would otherwise need 100 rows, and
+30 rows only covers a 100-slot plan "with room for airways and the four
+procedure kinds" if plain waypoints group. An editor may still write each
+waypoint as its own direct segment while the route stays under 30.
+
+**Writer order.** The editor writes the slots and the table (any order),
+then `FPLSEGCNT` and `FPLCOUNT`, then `FPLSEQ` last, as before. Rows past
+`FPLSEGCNT` and slots past `FPLCOUNT` are ignored and may hold stale
+values. The database clamps an out-of-range write (31 becomes 30) rather
+than refusing it, so a writer that overruns the table produces a clamped
+table, which then fails `SEGRANGE` or `SEGSGI` below instead of loading.
+
+**Integrity, checked by the engine on every `FPLSEQ` commit** (and on
+restore from its state file), after the leg checks pass. Any failure
+rejects the whole commit: the previously loaded plan stays loaded and
+active, and `FPLMSG` gets the first failure, in this order:
+
+| `FPLMSG` | Rule |
+|---|---|
+| `SEGCNT <n>` | `FPLSEGCNT` is 0 for an empty route and 1..30 otherwise |
+| `SEGSGI <slot> <ident> <sgi>` | Every slot's `FPLfSGI` is 1..`FPLSEGCNT` |
+| `SEGNONCONTIG S<p> <ident>` | A segment's slots are one contiguous run (named at the first slot of its second run) |
+| `SEGORDER S<p> <ident>` / `SEGORDER S<p> UNUSED` | Segments appear in table order with none skipped: slot 1 is in segment 1, each slot is in the same segment as the one before it or the next one, and the last slot is in segment `FPLSEGCNT` |
+| `SEGKIND S<p> <kind>` | `KIND` is 0..5 |
+| `SEGRANGE S<p> <first>-<last>` | `FIRST`/`LAST` are exactly the first and last slot whose `FPLfSGI` is p |
+| `SEGENT S<p> <ent>` / `SEGEXT S<p> <ext>` | `ENT`/`EXT` equal the `FPLfID` of slot `FIRST`/`LAST` |
+| `SEGLEN S<p> <id> <n>` | An airway spans at least 2 slots, its entry and exit fixes |
+| `SEGID S<p> <id>` | `ID` is at most 24 chars, empty for direct, present for an airway |
+
+The entry and exit rule applies to every kind, so a segment's `ENT` is its
+own first slot's ident. For a missed approach that is the first missed leg,
+not the MAP: the MAP is the last slot of the approach segment, and every
+slot belongs to exactly one segment. A slot with an empty ident (a `CA` leg
+with no fix) makes a matching `""` entry or exit.
+
+**Example**, the bench route `KSBA GVO V27 AVOLS KSMX` with V27 expanded
+to five fixes (`GVO`, three en-route fixes, `AVOLS`):
+
+| Slots | `FPLfSGI` | Segment row |
+|---|---|---|
+| 1 `KSBA` | 1 | `FPLS1`: KIND 0, ID `""`, ENT/EXT `KSBA`, FIRST/LAST 1 |
+| 2..6 `GVO` .. `AVOLS` | 2 | `FPLS2`: KIND 1, ID `V27`, ENT `GVO`, EXT `AVOLS`, FIRST 2, LAST 6 |
+| 7 `KSMX` | 3 | `FPLS3`: KIND 0, ID `""`, ENT/EXT `KSMX`, FIRST/LAST 7 |
+
+`FPLSEGCNT = 3`. The airway's entry fix is its first slot, so the leg
+*into* `GVO` belongs to the airway segment. That is what `FPLACTSEG`
+reports while flying it (below).
+
+**Frame budget.** Every key is still one scalar per netfix line. The
+largest legal commit (100 slots, 30 segments, every string at its limit) is
+1,586 lines and 36.5 KB, of which the segment table is 180 lines and
+4.1 KB. The longest line is 46 bytes, against the 1024-byte receive buffer
+both netfix ends use. `tests/plugins/flightplan/test_full_commit_netfix.py`
+sends exactly that commit through a real netfix server and checks that the
+engine loads all of it.
+
 ## Loaded-procedure provenance (block level)
 
-One fact per procedure, not copied onto every slot (the first draft of this
-design put a provenance string on all 100 slots -- up to 100 copies of the
-same string for one fact). `FPLfSEG` says which of these, if any, a given
-slot belongs to.
+One fact per plan, not copied onto every slot. The procedure idents PA3
+also kept here (`FPLDPID`, `FPLSTARID`, `FPLAPRID`) moved into the segment
+table in RS1, where each one sits on the segment it names.
 
 | Key | Type | Writer | Meaning |
 |---|---|---|---|
-| `FPLDPID` | str | editor | Loaded departure (SID) ident, e.g. `"HYDRR6"` (`""` = none) |
-| `FPLSTARID` | str | editor | Loaded arrival (STAR) ident (`""` = none) |
-| `FPLAPRID` | str | editor | Loaded approach ident, e.g. `"I33L"` (`""` = none) |
 | `FPLAPRTYPE` | str | editor | Loaded approach type (ILS/LOC/RNAV/VOR/NDB/GPS...) |
 | `FPLDBCYC` | str | editor | Nav database AIRAC cycle the loaded procedure(s) came from, e.g. `"2609"` -- PA9 annunciates when it has expired (guardrail 3: annunciate, never refuse the load) |
 
@@ -135,7 +221,7 @@ circuit/turn; `HA` exits automatically once the coded altitude is reached.
 |---|---|---|---|
 | `FPLCMD` | str | editor | The command string |
 | `FPLCMDACK` | int | engine | `= seq` on success, `-seq` on rejection |
-| `FPLMSG` | str | engine | Last message / rejection reason. Commands: `NO PLAN`, `BAD SLOT`, `NO POSITION`, `PARSE`, a sequence trace like `SEQ GVO -> RZS` (or, PA13, `SEQ ALT -> <ident>` when a `CA`/`FA` leg terminates on altitude with no fix of its own), or (PA4, off a vector leg) `RESUME NAV -> <ident>` / `NO NEXT LEG`, or (PA13, on a flying `HM` hold) `HOLD EXIT ARMED`. Route loads (PA4/PA13, guardrail 1): `"UNSUPP <PT> <ident>"` for an unrecognized terminator, or `"BADTURN <PT> <ident>"` / `"BADRADIUS <PT> <ident>"` / `"BADCENTER <PT> <ident>"` / `"BADALT <PT> <ident>"` / `"BADLEGLEN <PT> <ident>"` for a recognized Tier-2 type missing the fields its geometry needs -- either way the whole route is rejected, not just that leg |
+| `FPLMSG` | str | engine | Last message / rejection reason. Commands: `NO PLAN`, `BAD SLOT`, `NO POSITION`, `PARSE`, a sequence trace like `SEQ GVO -> RZS` (or, PA13, `SEQ ALT -> <ident>` when a `CA`/`FA` leg terminates on altitude with no fix of its own), or (PA4, off a vector leg) `RESUME NAV -> <ident>` / `NO NEXT LEG`, or (PA13, on a flying `HM` hold) `HOLD EXIT ARMED`. Route loads (PA4/PA13, guardrail 1): `"UNSUPP <PT> <ident>"` for an unrecognized terminator, or `"BADTURN <PT> <ident>"` / `"BADRADIUS <PT> <ident>"` / `"BADCENTER <PT> <ident>"` / `"BADALT <PT> <ident>"` / `"BADLEGLEN <PT> <ident>"` for a recognized Tier-2 type missing the fields its geometry needs, or (RS1) one of the `SEG...` reasons in the segment table section -- either way the whole route is rejected, not just that leg |
 
 ## Engine outputs (FP2 writes; `tol: 5000`)
 
@@ -156,6 +242,8 @@ circuit/turn; `HA` exits automatically once the coded altitude is reached.
 | `WPDIS` | float | nm | Distance to the TO waypoint |
 | `WPETE` | int | s, `bad` when GS < 30 kt | Time to the TO waypoint |
 | `FPLREMDIS` / `FPLREMETE` | float / int | nm / s | Remaining distance/time to the end of the plan |
+| `FPLACTSEG` | int | 0..30 | Active segment (RS1): `FPLfSGI` of the active TO slot `FPLACTLEG`. 0 with no plan active or on an off-route direct-to. Kept during failed guidance (it is identification, like `FPLACTLEG`). A `DTO` to a fix inside an airway keeps the airway: the engine never rewrites the table, and the remaining slots are still that segment |
+| `FPLSEGREM` | float | 0..9999.9 nm | Distance remaining in the active segment (RS1): to the TO fix, then along the plan to the segment's `LAST` slot. 0 with no active segment, on a vector leg, and during failed guidance (flagged `fail`/`bad` with the other distance outputs) |
 | `FPLALERT` | bool | | Waypoint sequencing alert (10 s or 1 nm before sequencing, whichever is longer) |
 
 `WPLAT`/`WPLON`/`WPNAME` (`database/mavlink.yaml`) are pre-existing keys; the
@@ -228,6 +316,31 @@ pass against a real GNX on this plugin as it stands today; FP2 should account
 for this (either a remap in the garmin_gnx375 connection, or a gate written
 against what the plugin actually emits) rather than assume the two scales
 agree.
+
+## Divergence from upstream
+
+This fork leads the flight-plan contract (ORG-011, Bill, 2026-10-24:
+upstream MakerPlane / CAN-FIX coordination is not a gate). Upstream
+`makerplane/FIX-Gateway` has no flight-plan block at all: no
+`database/flightplan.yaml`, no `FPL*`/`DTO*`/`GPSSRC`/`EXT*` keys, and no
+`f` or `p` index variable. Everything in this document is fork-only. The
+`WPLAT`/`WPLON`/`WPNAME` keys exist upstream (`database/mavlink.yaml`); the
+fork widens `WPLON` to +-180 (above) and makes the engine their writer when
+the plugin is enabled.
+
+The specific points a merge with upstream would have to reconcile:
+
+- The `f: 100` and `p: 30` index variables in `database/variables.yaml`.
+  Upstream could define either letter for something else.
+- The route block and segment table: `FPLf*` (14 fields), `FPLS1..30` (6
+  fields), `FPLSEGCNT`, `FPLCOUNT`, `FPLNAME`, `FPLSEQ`.
+- PA3 and RS1 were both breaking changes inside the fork (Bill lifted the
+  compatibility constraint, procedures brief section 3.2 and route
+  segments brief section 3). There is no upstream version to stay
+  compatible with.
+
+Nothing here is relicensed or closed. It is public in the fork under the
+existing license and documented in this file.
 
 ## Roadmap design record
 
