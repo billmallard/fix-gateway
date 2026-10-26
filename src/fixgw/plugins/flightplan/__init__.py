@@ -6,7 +6,7 @@
 
 A compute-only plugin -- it never needs a nav database, only coordinates.
 It reads the route block (``FPL1..100``, ``FPLCOUNT``, the segment table
-``FPLS1..30``/``FPLSEGCNT`` (RS1), the ``FPLAPRTYPE``/``FPLDBCYC``
+``FPLS1..100``/``FPLSEGCNT`` (RS1), the ``FPLAPRTYPE``/``FPLDBCYC``
 provenance, on ``FPLSEQ`` change), ``DTO*``, ``FPLCMD``,
 ``LAT``/``LONG``/``GS``/``MAGVAR``,
 and writes the engine output keys defined by FP1 (``doc/flightplan_keys.md``):
@@ -163,9 +163,9 @@ class MainThread(threading.Thread):
                     turn=self._read(f"FPL{i}TURN"),
                 )
             )
-        # FPLSEGCNT is range-clamped by the database (0..30), so every
-        # FPLS<k> read here exists; the engine checks the table against the
-        # slots.
+        # FPLSEGCNT is range-clamped by the database to the slot count, and
+        # the table has one row per slot, so every FPLS<k> read here
+        # exists; the engine checks the table against the slots.
         segments = []
         for k in range(1, int(self._read("FPLSEGCNT")) + 1):
             segments.append(

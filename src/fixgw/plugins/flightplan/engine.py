@@ -48,8 +48,8 @@
 #
 #  RS1 (fix-gateway#39; makerplane/briefs/route_segments_plan.md sections 3
 #  and 5) makes route segments first-class: every slot carries FPLfSGI, a
-#  1-based index into a segment table (FPLS1..30: kind, ident, entry/exit
-#  fix, first/last slot), replacing PA3's kind-only FPLfSEG and the
+#  1-based index into a segment table (FPLS1..100: kind, ident, entry/exit
+#  fix, first/last slot -- as many rows as there are slots), replacing PA3's kind-only FPLfSEG and the
 #  block-level FPLDPID/FPLSTARID/FPLAPRID. The engine still sequences legs
 #  exactly as before; it validates the table on every commit
 #  (segment_integrity_reason, the same whole-commit rejection as an
@@ -69,17 +69,16 @@ TYPE_FIX = 4
 TYPE_USER = 5
 TYPE_MAPPOINT = 6
 
-# --- FPLSpKIND (RS1) ---------------------------------------------------------
-SEGKIND_DIRECT = 0
+# --- FPLSfKIND (RS1) ---------------------------------------------------------
+SEGKIND_WAYPOINT = 0   # one waypoint the pilot entered -- not a Direct-To
 SEGKIND_AIRWAY = 1
 SEGKIND_DEPARTURE = 2
 SEGKIND_ARRIVAL = 3
 SEGKIND_APPROACH = 4
 SEGKIND_MISSED = 5
-SEGKINDS = frozenset(range(SEGKIND_DIRECT, SEGKIND_MISSED + 1))
+SEGKINDS = frozenset(range(SEGKIND_WAYPOINT, SEGKIND_MISSED + 1))
 
-MAX_SEGMENTS = 30    # FPLS1..30 (variables.yaml `p`)
-SEG_ID_MAX = 24      # FPLSpID length limit
+SEG_ID_MAX = 24      # FPLSfID length limit
 
 # --- FPLfFLAGS ---------------------------------------------------------
 FLAG_FLYOVER = 0x01
@@ -231,28 +230,29 @@ def segment_integrity_reason(waypoints, segments):
     table that does not describe the slots exactly rejects the WHOLE
     commit. The rules, in the order they are checked:
 
-    - FPLSEGCNT is 0 for an empty route and 1..30 otherwise (SEGCNT).
+    - FPLSEGCNT is 0 for an empty route and 1..FPLCOUNT otherwise
+      (SEGCNT). The table has as many rows as the slot block (both are
+      indexed by `f`), so it can never be the limit; only the slot count is.
     - Every slot's FPLfSGI is 1..FPLSEGCNT (SEGSGI).
     - Slots of a segment are contiguous (SEGNONCONTIG), and segments
       appear in table order with none skipped: slot 1 is in segment 1 and
       each slot is in the same segment as the one before it or the next
       (SEGORDER). Together with SEGSGI this is "every slot belongs to
       exactly one segment, and the table is the route's order".
-    - FPLSpKIND is 0..5 (SEGKIND).
-    - FPLSpFIRST/FPLSpLAST equal the first and last slot whose FPLfSGI
-      is p (SEGRANGE).
-    - FPLSpENT/FPLSpEXT equal the FPLfID of that first/last slot (SEGENT,
+    - FPLSkKIND is 0..5 (SEGKIND).
+    - FPLSkFIRST/FPLSkLAST equal the first and last slot whose FPLfSGI
+      is k (SEGRANGE).
+    - FPLSkENT/FPLSkEXT equal the FPLfID of that first/last slot (SEGENT,
       SEGEXT).
-    - An airway has at least 2 slots, its entry and exit fixes (SEGLEN).
-      A direct segment is any run of 1 or more plain waypoints: one per
-      waypoint would need 100 segments for a 100-waypoint user route, and
-      the table holds 30.
-    - FPLSpID is at most 24 chars, empty for a direct segment and present
+    - A waypoint row holds exactly one slot -- one row per entered
+      waypoint (Bill, 2026-10-26) -- and an airway at least 2, its entry
+      and exit fixes (SEGLEN).
+    - FPLSkID is at most 24 chars, empty for a waypoint row and present
       for an airway (SEGID).
     """
     n = len(waypoints)
     cnt = len(segments)
-    if (n == 0 and cnt != 0) or (n > 0 and not 1 <= cnt <= MAX_SEGMENTS):
+    if (n == 0 and cnt != 0) or (n > 0 and not 1 <= cnt <= n):
         return f"SEGCNT {cnt}"
 
     for i, w in enumerate(waypoints, start=1):
@@ -291,29 +291,28 @@ def segment_integrity_reason(waypoints, segments):
         if seg.ext != waypoints[seg.last - 1].id:
             return f"SEGEXT S{k} {seg.ext or '??'}"[:64]
         legs = seg.last - seg.first + 1
-        if seg.kind == SEGKIND_AIRWAY and legs < 2:
-            return f"SEGLEN S{k} {seg.id} {legs}"[:64]
+        if (seg.kind == SEGKIND_AIRWAY and legs < 2) or (seg.kind == SEGKIND_WAYPOINT and legs != 1):
+            return f"SEGLEN S{k} {seg.id or '-'} {legs}"[:64]
         if (
             len(seg.id) > SEG_ID_MAX
-            or (seg.kind == SEGKIND_DIRECT and seg.id)
+            or (seg.kind == SEGKIND_WAYPOINT and seg.id)
             or (seg.kind == SEGKIND_AIRWAY and not seg.id)
         ):
             return f"SEGID S{k} {seg.id or '-'}"[:64]
     return None
 
 
-def direct_segments(waypoints):
-    """Describe a plain point list as RS1 segments: one direct segment
-    spanning every slot (none for an empty list). Sets each waypoint's sgi
-    to 1 and returns the matching table. Used to migrate a pre-RS1
-    persisted plan, which carried no segment table; a direct segment claims
-    nothing about airways or procedures, so it adds no meaning the old file
-    did not have."""
-    if not waypoints:
-        return []
-    for w in waypoints:
-        w.sgi = 1
-    return [Segment(SEGKIND_DIRECT, "", waypoints[0].id, waypoints[-1].id, 1, len(waypoints))]
+def waypoint_segments(waypoints):
+    """Describe a plain point list as RS1 segments: one waypoint row per
+    slot. Sets each waypoint's sgi to its own slot number and returns the
+    matching table. Used to migrate a pre-RS1 persisted plan, which carried
+    no segment table; a waypoint row claims nothing about airways or
+    procedures, so it adds no meaning the old file did not have."""
+    segments = []
+    for i, w in enumerate(waypoints, start=1):
+        w.sgi = i
+        segments.append(Segment(SEGKIND_WAYPOINT, "", w.id, w.id, i, i))
+    return segments
 
 
 # --- FPLSTATE ------------------------------------------------------------
@@ -406,14 +405,14 @@ class Waypoint:
 
 
 class Segment:
-    """A route segment (RS1): one row of the FPLS1..30 table. kind is
-    SEGKIND_*, id the airway or procedure ident ("" for direct), ent/ext the
+    """A route segment (RS1): one row of the FPLS1..100 table. kind is
+    SEGKIND_*, id the airway or procedure ident ("" for a waypoint), ent/ext the
     entry and exit fix idents, first/last the 1-based slot range. The legs
     themselves stay in the slot block; this says where they came from."""
 
     __slots__ = ("kind", "id", "ent", "ext", "first", "last")
 
-    def __init__(self, kind=SEGKIND_DIRECT, id="", ent="", ext="", first=0, last=0):
+    def __init__(self, kind=SEGKIND_WAYPOINT, id="", ent="", ext="", first=0, last=0):
         self.kind = kind
         self.id = id
         self.ent = ent
@@ -430,7 +429,7 @@ class Segment:
     @classmethod
     def from_dict(cls, d):
         return cls(
-            d.get("kind", SEGKIND_DIRECT), d.get("id", ""), d.get("ent", ""), d.get("ext", ""),
+            d.get("kind", SEGKIND_WAYPOINT), d.get("id", ""), d.get("ent", ""), d.get("ext", ""),
             d.get("first", 0), d.get("last", 0),
         )
 
@@ -620,13 +619,13 @@ class Engine:
         checked exactly as a bus commit is, before anything is changed: a
         state file that would not load from the bus is not flown either
         (RouteRejected, engine untouched). A pre-RS1 file has no segment
-        table; its slots are migrated to a single direct segment
-        (direct_segments), which is all the old file ever said about them."""
+        table; each slot is migrated to its own waypoint row
+        (waypoint_segments), which is all the old file ever said about it."""
         route = [Waypoint.from_dict(w) for w in d.get("route", [])]
         if "segments" in d:
             segments = [Segment.from_dict(sg) for sg in d["segments"]]
         else:
-            segments = direct_segments(route)
+            segments = waypoint_segments(route)
         _check_route(route, segments)
         self.route = route
         self.segments = segments

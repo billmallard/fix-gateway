@@ -46,10 +46,10 @@
 #
 # RS1 (fix-gateway#39; makerplane/briefs/route_segments_plan.md section 3 --
 # Bill's ruling of 2026-10-24 on AER-2091) makes route segments first-class.
-# A route is an ordered list of segments (direct, airway, departure,
+# A route is an ordered list of segments (waypoint, airway, departure,
 # arrival, approach, missed) and each segment owns a contiguous run of
 # slots. Each slot names its segment (FPLfSGI, replacing PA3's kind-only
-# FPLfSEG) and the segment table FPLS1..30 says what the segment is and
+# FPLfSEG) and the segment table FPLS1..100 says what the segment is and
 # where it starts and ends. FPLDPID/FPLSTARID/FPLAPRID are retired into the
 # table. The engine checks the table on every FPLSEQ commit and rejects the
 # whole commit with a reason on FPLMSG if it does not describe the slots
@@ -134,7 +134,7 @@ items:
   description: "Flight plan slot %f segment index, 1..FPLSEGCNT into the FPLS table (RS1). 0 only for an unused slot past FPLCOUNT"
   type: int
   min: 0
-  max: 30
+  max: 100
   initial: 0
   tol: 0
 
@@ -197,45 +197,49 @@ items:
   tol: 0
 
 # --- Route segment table (RS1; editor writes, engine on restore; tol: 0) ---
-# Written with the slots, before FPLSEQ. Segment p owns slots
-# FPLSpFIRST..FPLSpLAST, and every one of those slots has FPLfSGI = p.
-# Segments are in route order and cover every slot exactly once.
-- key: FPLSpKIND
-  description: "Flight plan segment %p kind (0 direct, 1 airway, 2 departure, 3 arrival, 4 approach, 5 missed)"
+# Written with the slots, before FPLSEQ. Segment k owns slots
+# FPLSkFIRST..FPLSkLAST, and every one of those slots has FPLfSGI = k.
+# Segments are in route order and cover every slot exactly once. Each
+# entered waypoint is its own row, so a route never needs more rows than
+# slots -- and the table is indexed by the slot block's own variable `f`,
+# so it always has exactly as many rows as there are slots (Bill,
+# 2026-10-26: the table must never be the limit, only the slot count).
+- key: FPLSfKIND
+  description: "Flight plan segment %f kind (0 waypoint -- one pilot-entered waypoint, not a Direct-To -- 1 airway, 2 departure, 3 arrival, 4 approach, 5 missed)"
   type: int
   min: 0
   max: 5
   initial: 0
   tol: 0
 
-- key: FPLSpID
-  description: 'Flight plan segment %p ident, <=24 chars: airway "V27", departure "HYDRR6.RW33L", approach "RNAV33L.HENER". Empty for a direct segment, required for an airway'
+- key: FPLSfID
+  description: 'Flight plan segment %f ident, <=24 chars: airway "V27", departure "HYDRR6.RW33L", approach "RNAV33L.HENER". Empty for a waypoint row, required for an airway'
   type: str
   initial: ""
   tol: 0
 
-- key: FPLSpENT
-  description: "Flight plan segment %p entry fix ident -- equals FPLfID of slot FPLSpFIRST"
+- key: FPLSfENT
+  description: "Flight plan segment %f entry fix ident -- equals the ident of its FIRST slot"
   type: str
   initial: ""
   tol: 0
 
-- key: FPLSpEXT
-  description: "Flight plan segment %p exit fix ident -- equals FPLfID of slot FPLSpLAST"
+- key: FPLSfEXT
+  description: "Flight plan segment %f exit fix ident -- equals the ident of its LAST slot"
   type: str
   initial: ""
   tol: 0
 
-- key: FPLSpFIRST
-  description: "Flight plan segment %p first slot (1..100). Redundant with FPLfSGI so a reader never scans 100 slots -- and checked against it"
+- key: FPLSfFIRST
+  description: "Flight plan segment %f first slot (1..100). Redundant with FPLfSGI so a reader never scans 100 slots -- and checked against it"
   type: int
   min: 0
   max: 100
   initial: 0
   tol: 0
 
-- key: FPLSpLAST
-  description: "Flight plan segment %p last slot (1..100). An airway spans at least 2 slots (entry and exit). A direct segment is a run of 1 or more plain waypoints"
+- key: FPLSfLAST
+  description: "Flight plan segment %f last slot (1..100). A waypoint row is exactly 1 slot. An airway spans at least 2 (entry and exit)"
   type: int
   min: 0
   max: 100
@@ -243,10 +247,10 @@ items:
   tol: 0
 
 - key: FPLSEGCNT
-  description: "Flight plan segments in use (0 for an empty route, else 1..30)"
+  description: "Flight plan segments in use (0 for an empty route, else 1..FPLCOUNT)"
   type: int
   min: 0
-  max: 30
+  max: 100
   initial: 0
   tol: 0
 
@@ -470,12 +474,12 @@ items:
   description: "Flight plan active segment (RS1) -- FPLfSGI of the active TO slot FPLACTLEG, 0 = none (no plan active, or an off-route direct-to)"
   type: int
   min: 0
-  max: 30
+  max: 100
   initial: 0
   tol: 5000
 
 - key: FPLSEGREM
-  description: "Flight plan distance remaining in the active segment (RS1) -- to the TO fix, then along the plan to the segment exit FPLSpEXT"
+  description: "Flight plan distance remaining in the active segment (RS1) -- to the TO fix, then along the plan to the segment's exit fix"
   type: float
   min: 0.0
   max: 9999.9

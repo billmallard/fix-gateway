@@ -16,7 +16,7 @@ import fixgw.plugins.flightplan.engine as engine
 
 from .routes import load
 
-D = engine.SEGKIND_DIRECT
+WPT = engine.SEGKIND_WAYPOINT
 AWY = engine.SEGKIND_AIRWAY
 
 
@@ -26,8 +26,8 @@ def nm_to_deg_lon(nm):
 
 def airway_route():
     """DEP, then airway V1 entered at ENTRY and left at EXIT, then DEST.
-    Slots 30 nm apart. Segments: 1 direct (DEP), 2 airway (slots 2..5),
-    3 direct (DEST)."""
+    Slots 30 nm apart. Segments: 1 waypoint (DEP), 2 airway (slots 2..5),
+    3 waypoint (DEST)."""
     ids = ["DEP", "ENTRY", "MID1", "MID2", "EXIT", "DEST"]
     sgi = [1, 2, 2, 2, 2, 3]
     route = [
@@ -35,9 +35,9 @@ def airway_route():
         for n, (i, k) in enumerate(zip(ids, sgi))
     ]
     segments = [
-        engine.Segment(D, "", "DEP", "DEP", 1, 1),
+        engine.Segment(WPT, "", "DEP", "DEP", 1, 1),
         engine.Segment(AWY, "V1", "ENTRY", "EXIT", 2, 5),
-        engine.Segment(D, "", "DEST", "DEST", 6, 6),
+        engine.Segment(WPT, "", "DEST", "DEST", 6, 6),
     ]
     return route, segments
 
@@ -55,15 +55,15 @@ def leg_nm(route, a, b):
 # ---------------------------------------------------------------------------
 
 
-def test_direct_airway_direct_route_loads_with_its_segment_table():
+def test_waypoint_airway_waypoint_route_loads_with_its_segment_table():
     e = engine.Engine()
     route, segments = airway_route()
     load(e, route, "AWY", 1, segments)
     assert e.count == 6
     assert [(s.kind, s.id, s.ent, s.ext, s.first, s.last) for s in e.segments] == [
-        (D, "", "DEP", "DEP", 1, 1),
+        (WPT, "", "DEP", "DEP", 1, 1),
         (AWY, "V1", "ENTRY", "EXIT", 2, 5),
-        (D, "", "DEST", "DEST", 6, 6),
+        (WPT, "", "DEST", "DEST", 6, 6),
     ]
 
 
@@ -86,14 +86,26 @@ def test_every_segment_kind_loads():
     assert [s.kind for s in e.segments] == [2, 1, 3, 4, 5]
 
 
-def test_a_direct_segment_may_span_a_run_of_plain_waypoints():
-    # 100 plain waypoints must fit a 30-row table, so a direct segment is a
-    # run, not one row per waypoint.
+def test_a_full_route_of_entered_waypoints_is_one_row_each():
+    # Bill, 2026-10-26: one row per entered waypoint, and the table is as
+    # long as the slot block, so 100 entered waypoints take 100 rows and
+    # load -- the table is never the limit.
     route = [engine.Waypoint(f"W{i}", 0.0, nm_to_deg_lon(i)) for i in range(100)]
     e = engine.Engine()
     load(e, route, "LONG", 1)
-    assert len(e.segments) == 1
-    assert (e.segments[0].first, e.segments[0].last) == (1, 100)
+    assert len(e.segments) == 100
+    assert all(s.kind == WPT and s.first == s.last == i for i, s in enumerate(e.segments, start=1))
+
+
+def test_a_waypoint_row_spanning_two_slots_is_rejected():
+    route = [
+        engine.Waypoint("A", 0.0, 0.0, sgi=1),
+        engine.Waypoint("B", 0.0, nm_to_deg_lon(30.0), sgi=1),
+    ]
+    segments = [engine.Segment(WPT, "", "A", "B", 1, 2)]
+    with pytest.raises(engine.RouteRejected) as exc:
+        load(engine.Engine(), route, "BAD", 1, segments)
+    assert exc.value.reason == "SEGLEN S1 - 2"
 
 
 def test_empty_route_loads_with_an_empty_table():
@@ -132,21 +144,21 @@ def _sgi(slot, value):
 @pytest.mark.parametrize(
     "mutate,reason",
     [
-        # SEGCNT: a route with no table, and a table past the 30-row cap.
+        # SEGCNT: a route with no table, and more rows than slots.
         (lambda r, s: s.clear(), "SEGCNT 0"),
         (lambda r, s: s.extend([engine.Segment()] * 28), "SEGCNT 31"),
         # SEGSGI: a slot pointing at no segment, or past FPLSEGCNT.
         (_sgi(3, 0), "SEGSGI 3 MID1 0"),
         (_sgi(6, 4), "SEGSGI 6 DEST 4"),
-        # SEGNONCONTIG: the airway's slots in two runs (V1, direct, V1) --
+        # SEGNONCONTIG: the airway's slots in two runs (V1, waypoint, V1) --
         # named at the first slot of the second run.
         (lambda r, s: (setattr(r[3], "sgi", 3), setattr(r[5], "sgi", 2)), "SEGNONCONTIG S2 EXIT"),
         # SEGORDER: slot 1 not in segment 1; a segment skipped; a trailing
         # segment no slot uses.
         (_sgi(1, 2), "SEGORDER S2 DEP"),
-        (lambda r, s: (setattr(r[5], "sgi", 4), s.append(engine.Segment(D, "", "DEST", "DEST", 6, 6))),
+        (lambda r, s: (setattr(r[5], "sgi", 4), s.append(engine.Segment(WPT, "", "DEST", "DEST", 6, 6))),
          "SEGORDER S4 DEST"),
-        (lambda r, s: s.append(engine.Segment(D, "", "X", "X", 7, 7)), "SEGORDER S4 UNUSED"),
+        (lambda r, s: s.append(engine.Segment(WPT, "", "X", "X", 7, 7)), "SEGORDER S4 UNUSED"),
         # SEGKIND: past missed (5).
         (_seg(kind=6), "SEGKIND S2 6"),
         # SEGRANGE: LAST, then FIRST, disagreeing with FPLfSGI.
@@ -156,7 +168,7 @@ def _sgi(slot, value):
         # last slot's.
         (_seg(ent="MID1"), "SEGENT S2 MID1"),
         (_seg(ext="DEST"), "SEGEXT S2 DEST"),
-        # SEGID: an airway without an ident, a direct with one, and an
+        # SEGID: an airway without an ident, a waypoint row with one, and an
         # ident past 24 chars.
         (_seg(id=""), "SEGID S2 -"),
         (lambda r, s: setattr(s[0], "id", "V1"), "SEGID S1 V1"),
@@ -178,7 +190,7 @@ def test_airway_needs_at_least_two_legs():
         engine.Waypoint("DEP", 0.0, 0.0, sgi=1),
         engine.Waypoint("ONLY", 0.0, nm_to_deg_lon(30.0), sgi=2),
     ]
-    segments = [engine.Segment(D, "", "DEP", "DEP", 1, 1), engine.Segment(AWY, "V1", "ONLY", "ONLY", 2, 2)]
+    segments = [engine.Segment(WPT, "", "DEP", "DEP", 1, 1), engine.Segment(AWY, "V1", "ONLY", "ONLY", 2, 2)]
     with pytest.raises(engine.RouteRejected) as exc:
         load(engine.Engine(), route, "BAD", 1, segments)
     assert exc.value.reason == "SEGLEN S2 V1 1"
@@ -186,7 +198,7 @@ def test_airway_needs_at_least_two_legs():
 
 def test_empty_route_with_a_table_is_rejected():
     with pytest.raises(engine.RouteRejected) as exc:
-        load(engine.Engine(), [], "BAD", 1, [engine.Segment(D, "", "", "", 1, 1)])
+        load(engine.Engine(), [], "BAD", 1, [engine.Segment(WPT, "", "", "", 1, 1)])
     assert exc.value.reason == "SEGCNT 1"
 
 
@@ -350,7 +362,7 @@ def test_restore_rejects_a_state_file_whose_table_does_not_describe_its_slots():
     assert e2.count == 0 and e2.mode == "NONE"
 
 
-def test_restore_migrates_a_pre_rs1_state_file_to_one_direct_segment():
+def test_restore_migrates_a_pre_rs1_state_file_to_one_waypoint_row_per_slot():
     # A state file written before RS1: per-slot "seg" (PA3's kind) and the
     # block-level procedure idents, no segment table.
     legacy = {
@@ -367,8 +379,9 @@ def test_restore_migrates_a_pre_rs1_state_file_to_one_direct_segment():
     e = engine.Engine()
     e.restore_from_dict(legacy)
     assert e.route_name == "OLD" and e.act_leg == 2
-    assert [w.sgi for w in e.route] == [1, 1, 1]
+    assert [w.sgi for w in e.route] == [1, 2, 3]
     assert [s.to_dict() for s in e.segments] == [
-        {"kind": D, "id": "", "ent": "KSBA", "ext": "KSMX", "first": 1, "last": 3}
+        {"kind": WPT, "id": "", "ent": ident, "ext": ident, "first": i, "last": i}
+        for i, ident in enumerate(["KSBA", "GVO", "KSMX"], start=1)
     ]
     assert "segments" in e.to_persisted_dict()

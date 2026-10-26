@@ -35,9 +35,9 @@ def make_config(tmp_path, **overrides):
 def write_route(database, waypoints, name="TEST", seq=1, segments=None, **provenance):
     # The editor's commit order: every slot and the segment table, then
     # FPLCOUNT, then FPLSEQ last. Without an explicit table the route goes
-    # out as a single direct segment (RS1).
+    # out as one waypoint row per slot (RS1).
     if segments is None:
-        segments = engine.direct_segments(waypoints)
+        segments = engine.waypoint_segments(waypoints)
     for i, w in enumerate(waypoints, start=1):
         database.write(f"FPL{i}ID", w.id)
         database.write(f"FPL{i}LAT", w.lat)
@@ -277,11 +277,11 @@ def test_persistence_restore_republishes_route_block_and_fplseq(database, tmp_pa
     assert database.read("FPL2PT")[0] == "CF"
     assert database.read("FPL2CRS")[0] == pytest.approx(45.0)
     assert database.read("FPL2FLAGS")[0] == engine.FLAG_FAF
-    assert database.read("FPL2SGI")[0] == 1
-    assert database.read("FPLSEGCNT")[0] == 1
-    assert database.read("FPLS1KIND")[0] == engine.SEGKIND_DIRECT
-    assert database.read("FPLS1ENT")[0] == "A" and database.read("FPLS1EXT")[0] == "B"
-    assert database.read("FPLS1FIRST")[0] == 1 and database.read("FPLS1LAST")[0] == 2
+    assert database.read("FPL2SGI")[0] == 2
+    assert database.read("FPLSEGCNT")[0] == 2
+    assert database.read("FPLS2KIND")[0] == engine.SEGKIND_WAYPOINT
+    assert database.read("FPLS2ENT")[0] == "B" and database.read("FPLS2EXT")[0] == "B"
+    assert database.read("FPLS2FIRST")[0] == 2 and database.read("FPLS2LAST")[0] == 2
     assert database.read("FPLDBCYC")[0] == "2609"
     assert pl.thread.engine.act_leg == 2
     assert pl.thread.engine.mode == "LEG"
@@ -399,9 +399,9 @@ def _airway_route():
         engine.Waypoint("DEST", 0.0, 2.0, sgi=3),
     ]
     segments = [
-        engine.Segment(engine.SEGKIND_DIRECT, "", "DEP", "DEP", 1, 1),
+        engine.Segment(engine.SEGKIND_WAYPOINT, "", "DEP", "DEP", 1, 1),
         engine.Segment(engine.SEGKIND_AIRWAY, "V1", "ENTRY", "EXIT", 2, 4),
-        engine.Segment(engine.SEGKIND_DIRECT, "", "DEST", "DEST", 5, 5),
+        engine.Segment(engine.SEGKIND_WAYPOINT, "", "DEST", "DEST", 5, 5),
     ]
     return route, segments
 
