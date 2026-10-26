@@ -39,8 +39,9 @@ an unrecognized terminator does, never a defaulted value.
 
 **RS1** (fix-gateway#39; `makerplane/briefs/route_segments_plan.md`
 sections 3 and 5) makes route segments first-class on the bus: each slot
-names its segment (`FPLfSGI`) in a 30-row table (`FPLS1..30`) that says
-what the segment is (direct, airway, departure, arrival, approach, missed),
+names its segment (`FPLfSGI`) in a table as long as the slot block
+(`FPLS1..100`) that says what the segment is (an entered waypoint, airway,
+departure, arrival, approach or missed approach),
 its ident, and its entry/exit fixes and slots. The engine flies legs exactly
 as before. It checks the table on every commit, reports the active segment
 (`FPLACTSEG`) and the distance left in it (`FPLSEGREM`), and persists the
@@ -237,8 +238,7 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   table. A restored file goes through the same leg and segment checks as a
   bus commit: if it fails, nothing is restored, `FPLMSG` gets the reason,
   and the file is left on disk until the next accepted commit replaces it.
-  A pre-RS1 file (no table) is migrated to one direct segment covering
-  every slot. Restored `restore_delay` (2 s)
+  A pre-RS1 file (no table) is migrated to one waypoint row per slot. Restored `restore_delay` (2 s)
   after start, at which point the engine re-publishes the route block and
   `FPLSEQ` itself — the one documented exception to "the editor writes the
   block" (mirrors `state_persist` restoring `NAVSRC`). The plugin's own
@@ -259,13 +259,13 @@ c.connect()
 c.write("FPL1ID", "KSBA"); c.write("FPL1LAT", 34.42621); c.write("FPL1LON", -119.84037); c.write("FPL1TYPE", 1)
 c.write("FPL2ID", "GVO");  c.write("FPL2LAT", 34.53142); c.write("FPL2LON", -120.09106); c.write("FPL2TYPE", 2)
 c.write("FPL3ID", "KSMX"); c.write("FPL3LAT", 34.89892); c.write("FPL3LON", -120.45758); c.write("FPL3TYPE", 1)
-# RS1: one direct segment over all three slots (no airway, no procedure).
-for i in (1, 2, 3):
-    c.write(f"FPL{i}SGI", 1)
-c.write("FPLS1KIND", 0); c.write("FPLS1ID", "")
-c.write("FPLS1ENT", "KSBA"); c.write("FPLS1EXT", "KSMX")
-c.write("FPLS1FIRST", 1); c.write("FPLS1LAST", 3)
-c.write("FPLSEGCNT", 1)
+# RS1: one waypoint row per slot (no airway, no procedure).
+for i, ident in ((1, "KSBA"), (2, "GVO"), (3, "KSMX")):
+    c.write(f"FPL{i}SGI", i)
+    c.write(f"FPLS{i}KIND", 0); c.write(f"FPLS{i}ID", "")
+    c.write(f"FPLS{i}ENT", ident); c.write(f"FPLS{i}EXT", ident)
+    c.write(f"FPLS{i}FIRST", i); c.write(f"FPLS{i}LAST", i)
+c.write("FPLSEGCNT", 3)
 c.write("FPLCOUNT", 3)
 c.write("FPLNAME", "KSBA-KSMX")
 c.write("FPLSEQ", 1)          # commit -- consumers (incl. this engine) act now
@@ -279,7 +279,7 @@ print(c.read("FPLCRS"), c.read("FPLCDI"), c.read("WPDIS"))
 As X-Plane (or the bench GPS source) moves `LAT`/`LONG`/`GS`, watch
 `FPLCRS`/`FPLXTK`/`FPLCDI`/`WPDIS`/`FPLTF` track the leg, and `FPLSTATE`/
 `FPLACTLEG`/`FPLMSG` advance as it sequences. If the commit is rejected,
-`FPLMSG` says why (for example `SEGEXT S1 GVO` if `FPLS1EXT` does not
+`FPLMSG` says why (for example `SEGEXT S3 GVO` if `FPLS3EXT` does not
 name slot 3).
 
 ## Tests
@@ -310,11 +310,12 @@ name slot 3).
   single-circuit auto-exit, `HA`'s repeat-until-altitude, `PI`'s ±45°
   outbound offset and single-turn auto-exit, and persistence round-trip of
   the Tier-2 sub-leg phase and hold-exit flag. Every test loads its route
-  through `tests/plugins/flightplan/routes.py`, which supplies an all-direct
+  through `tests/plugins/flightplan/routes.py`, which supplies an all-waypoint
   segment table unless the test gives one (RS1).
 - `tests/plugins/flightplan/test_engine_segments.py` (RS1) — a valid
-  direct/airway/direct table and every segment kind loading, a 100-slot
-  route as one direct run, one negative test per integrity rule (each a
+  waypoint/airway/waypoint table and every segment kind loading, a full
+  100-slot route as 100 waypoint rows, a waypoint row spanning two slots
+  rejected, one negative test per integrity rule (each a
   whole-commit rejection with its exact reason, previous route and
   activation untouched), `FPLACTSEG`/`FPLSEGREM` inside an airway, on the
   leg into its entry fix, through sequencing out of it, with no plan and
@@ -322,7 +323,7 @@ name slot 3).
   persistence: the table round-trips, a bad state file is refused, and a
   pre-RS1 file is migrated.
 - `tests/plugins/flightplan/test_full_commit_netfix.py` (RS1) — the netfix
-  frame-size check: the largest legal commit (100 slots, 30 segments, every
+  frame-size check: the largest legal commit (100 slots, 100 waypoint rows, every
   string at its limit) sent through a real netfix server socket in the
   pyavtools client's format, every line well inside the 1024-byte buffer,
   and the engine loading all of it on the final `FPLSEQ`.

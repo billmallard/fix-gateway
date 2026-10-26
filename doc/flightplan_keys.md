@@ -49,7 +49,7 @@ their zero value -- nothing changes for that case.
 | `FPL1..100 DST` | float | 0..999.9 nm | editor | Leg distance. Tier 1: unused by the great-circle terminators. PA13: an `RF`/`AF` arc's radius, or a hold/procedure-turn's outbound leg length -- both required, never defaulted |
 | `FPL1..100 ALT` | str | packed, guide notation: `""` none, `"+3500"` at-or-above, `"-3500"` at-or-below, `"B2900,4000"` between, `"@3500"` at | editor | Altitude constraint. PA13: also the termination test for `CA`/`FA`/`HA` |
 | `FPL1..100 SPD` | int | 0..400 kt, 0 = none | editor | Speed constraint |
-| `FPL1..100 SGI` | int | 1..`FPLSEGCNT` for a slot in use (0 only past `FPLCOUNT`); database range 0..30 | editor | Index of the segment this slot belongs to (RS1, replaces PA3's `FPLfSEG`) |
+| `FPL1..100 SGI` | int | 1..`FPLSEGCNT` for a slot in use (0 only past `FPLCOUNT`); database range 0..100 | editor | Index of the segment this slot belongs to (RS1, replaces PA3's `FPLfSEG`) |
 | `FPL1..100 FLAGS` | int | bitfield: `0x01` fly-over, `0x02` IAF, `0x04` FAF, `0x08` MAP, `0x10` MAHP, `0x20` from a coded procedure | editor | Leg flags (replaces FP1's `FPLfROLE`) |
 | `FPL1..100 CTRLAT` / `CTRLON` | float | +-90 / +-180 deg | editor | Arc center point (PA13, `RF`/`AF` only) |
 | `FPL1..100 TURN` | str | `"L"`/`"R"`/`""` | editor | Turn direction (PA13, required for `RF`/`AF`/`HM`/`HF`/`HA`/`PI`) |
@@ -105,28 +105,39 @@ reader sees the same segments.
 
 | Key | Type | Range | Tol | Writer | Meaning |
 |---|---|---|---|---|---|
-| `FPLS1..30 KIND` | int | 0 direct, 1 airway, 2 departure, 3 arrival, 4 approach, 5 missed | 0 | editor (engine on restore) | What the segment is |
-| `FPLS1..30 ID` | str | <=24 chars, no `;`. `""` for direct, required for an airway | 0 | editor (engine on restore) | `V27`, `HYDRR6.RW33L`, `RNAV33L.HENER` |
-| `FPLS1..30 ENT` | str | equals `FPLfID` of slot `FIRST` | 0 | editor (engine on restore) | Entry fix ident |
-| `FPLS1..30 EXT` | str | equals `FPLfID` of slot `LAST` | 0 | editor (engine on restore) | Exit fix ident |
-| `FPLS1..30 FIRST` / `LAST` | int | 1..100, `FIRST <= LAST` | 0 | editor (engine on restore) | First and last slot of the segment. Redundant with `FPLfSGI`, so a reader never scans 100 slots, and checked against it |
-| `FPLSEGCNT` | int | 0 for an empty route, else 1..30 | 0 | editor (engine on restore) | Segments in use |
+| `FPLS1..100 KIND` | int | 0 waypoint, 1 airway, 2 departure, 3 arrival, 4 approach, 5 missed | 0 | editor (engine on restore) | What the segment is |
+| `FPLS1..100 ID` | str | <=24 chars, no `;`. `""` for a waypoint row, required for an airway | 0 | editor (engine on restore) | `V27`, `HYDRR6.RW33L`, `RNAV33L.HENER` |
+| `FPLS1..100 ENT` | str | equals `FPLfID` of slot `FIRST` | 0 | editor (engine on restore) | Entry fix ident |
+| `FPLS1..100 EXT` | str | equals `FPLfID` of slot `LAST` | 0 | editor (engine on restore) | Exit fix ident |
+| `FPLS1..100 FIRST` / `LAST` | int | 1..100, `FIRST <= LAST`; `FIRST == LAST` for a waypoint row | 0 | editor (engine on restore) | First and last slot of the segment. Redundant with `FPLfSGI`, so a reader never scans 100 slots, and checked against it |
+| `FPLSEGCNT` | int | 0 for an empty route, else 1..`FPLCOUNT` | 0 | editor (engine on restore) | Segments in use |
 
-The index variable is `p` (`database/variables.yaml`, `p: 30`). `s` is
-taken by the touchscreen buttons.
+**Kind 0 is "waypoint", not Direct-To.** It is one waypoint the pilot
+entered, flown as a straight leg from the slot before it, exactly as every
+slot always has been. A Direct-To is the `DTO` command (below) and never
+touches this table. The brief called kind 0 "direct". It was renamed so
+nobody reads it as Direct-To; the wire value is unchanged.
 
-**A direct segment is a run of one or more plain waypoints**, not one row
-per waypoint. A 100-waypoint user route would otherwise need 100 rows, and
-30 rows only covers a 100-slot plan "with room for airways and the four
-procedure kinds" if plain waypoints group. An editor may still write each
-waypoint as its own direct segment while the route stays under 30.
+**One row per entered waypoint, and the table is as long as the slot block**
+(Bill, 2026-10-26). A waypoint row holds exactly one slot. Airways and
+procedures are one row per run. A route therefore never needs more rows
+than it has slots, so the table is indexed by the slot block's own variable
+`f` (`FPLSfKIND` and so on, `database/variables.yaml` `f: 100`). The two
+always have the same length by construction: the segment table can never be
+the limit, only the slot count can. `tests/test_database.py`
+(`test_segment_table_is_exactly_as_long_as_the_slot_block`) fails if the
+row counts, or any range that counts slots or segments (`FPLCOUNT`,
+`FPLSEGCNT`, `FPLACTLEG`, `FPLACTSEG`, `FPLfSGI`, `FIRST`/`LAST`), stop
+agreeing. The slot limit itself stays at 100, the GNX's limit. Raising it is
+a separate decision, because a longer route could not be sent to a
+certified GNX.
 
 **Writer order.** The editor writes the slots and the table (any order),
 then `FPLSEGCNT` and `FPLCOUNT`, then `FPLSEQ` last, as before. Rows past
 `FPLSEGCNT` and slots past `FPLCOUNT` are ignored and may hold stale
-values. The database clamps an out-of-range write (31 becomes 30) rather
-than refusing it, so a writer that overruns the table produces a clamped
-table, which then fails `SEGRANGE` or `SEGSGI` below instead of loading.
+values. The database clamps an out-of-range write (101 becomes 100) rather
+than refusing it, so an out-of-range write produces a clamped value, which
+then fails the checks below instead of loading.
 
 **Integrity, checked by the engine on every `FPLSEQ` commit** (and on
 restore from its state file), after the leg checks pass. Any failure
@@ -135,15 +146,15 @@ active, and `FPLMSG` gets the first failure, in this order:
 
 | `FPLMSG` | Rule |
 |---|---|
-| `SEGCNT <n>` | `FPLSEGCNT` is 0 for an empty route and 1..30 otherwise |
+| `SEGCNT <n>` | `FPLSEGCNT` is 0 for an empty route and 1..`FPLCOUNT` otherwise |
 | `SEGSGI <slot> <ident> <sgi>` | Every slot's `FPLfSGI` is 1..`FPLSEGCNT` |
-| `SEGNONCONTIG S<p> <ident>` | A segment's slots are one contiguous run (named at the first slot of its second run) |
-| `SEGORDER S<p> <ident>` / `SEGORDER S<p> UNUSED` | Segments appear in table order with none skipped: slot 1 is in segment 1, each slot is in the same segment as the one before it or the next one, and the last slot is in segment `FPLSEGCNT` |
-| `SEGKIND S<p> <kind>` | `KIND` is 0..5 |
-| `SEGRANGE S<p> <first>-<last>` | `FIRST`/`LAST` are exactly the first and last slot whose `FPLfSGI` is p |
-| `SEGENT S<p> <ent>` / `SEGEXT S<p> <ext>` | `ENT`/`EXT` equal the `FPLfID` of slot `FIRST`/`LAST` |
-| `SEGLEN S<p> <id> <n>` | An airway spans at least 2 slots, its entry and exit fixes |
-| `SEGID S<p> <id>` | `ID` is at most 24 chars, empty for direct, present for an airway |
+| `SEGNONCONTIG S<k> <ident>` | A segment's slots are one contiguous run (named at the first slot of its second run) |
+| `SEGORDER S<k> <ident>` / `SEGORDER S<k> UNUSED` | Segments appear in table order with none skipped: slot 1 is in segment 1, each slot is in the same segment as the one before it or the next one, and the last slot is in segment `FPLSEGCNT` |
+| `SEGKIND S<k> <kind>` | `KIND` is 0..5 |
+| `SEGRANGE S<k> <first>-<last>` | `FIRST`/`LAST` are exactly the first and last slot whose `FPLfSGI` is k |
+| `SEGENT S<k> <ent>` / `SEGEXT S<k> <ext>` | `ENT`/`EXT` equal the `FPLfID` of slot `FIRST`/`LAST` |
+| `SEGLEN S<k> <id> <n>` | A waypoint row is exactly 1 slot (`<id>` reads `-`). An airway spans at least 2 slots, its entry and exit fixes |
+| `SEGID S<k> <id>` | `ID` is at most 24 chars, empty for a waypoint row, present for an airway |
 
 The entry and exit rule applies to every kind, so a segment's `ENT` is its
 own first slot's ident. For a missed approach that is the first missed leg,
@@ -151,24 +162,32 @@ not the MAP: the MAP is the last slot of the approach segment, and every
 slot belongs to exactly one segment. A slot with an empty ident (a `CA` leg
 with no fix) makes a matching `""` entry or exit.
 
-**Example**, the bench route `KSBA GVO V27 AVOLS KSMX` with V27 expanded
-to five fixes (`GVO`, three en-route fixes, `AVOLS`):
+**Example**, the route `KSBA RZS GVO V27 AVOLS KSMX`, where RZS is a
+waypoint the pilot entered and V27 is expanded to five fixes (`GVO`, three
+en-route fixes, `AVOLS`):
 
 | Slots | `FPLfSGI` | Segment row |
 |---|---|---|
 | 1 `KSBA` | 1 | `FPLS1`: KIND 0, ID `""`, ENT/EXT `KSBA`, FIRST/LAST 1 |
-| 2..6 `GVO` .. `AVOLS` | 2 | `FPLS2`: KIND 1, ID `V27`, ENT `GVO`, EXT `AVOLS`, FIRST 2, LAST 6 |
-| 7 `KSMX` | 3 | `FPLS3`: KIND 0, ID `""`, ENT/EXT `KSMX`, FIRST/LAST 7 |
+| 2 `RZS` | 2 | `FPLS2`: KIND 0, ID `""`, ENT/EXT `RZS`, FIRST/LAST 2 |
+| 3..7 `GVO` .. `AVOLS` | 3 | `FPLS3`: KIND 1, ID `V27`, ENT `GVO`, EXT `AVOLS`, FIRST 3, LAST 7 |
+| 8 `KSMX` | 4 | `FPLS4`: KIND 0, ID `""`, ENT/EXT `KSMX`, FIRST/LAST 8 |
 
-`FPLSEGCNT = 3`. The airway's entry fix is its first slot, so the leg
+`FPLSEGCNT = 4`. The airway's entry fix is its first slot, so the leg
 *into* `GVO` belongs to the airway segment. That is what `FPLACTSEG`
 reports while flying it (below).
 
 **Frame budget.** Every key is still one scalar per netfix line. The
-largest legal commit (100 slots, 30 segments, every string at its limit) is
-1,586 lines and 36.5 KB, of which the segment table is 180 lines and
-4.1 KB. The longest line is 46 bytes, against the 1024-byte receive buffer
-both netfix ends use. `tests/plugins/flightplan/test_full_commit_netfix.py`
+largest legal commit (100 slots, each its own waypoint row, every slot
+string at its limit) is 2,006 lines and 43.9 KB, of which the segment table
+is 600 lines and 11.5 KB. The longest line is 46 bytes, against the
+1024-byte receive buffer both netfix ends use. Bill measured the cost of the
+100-row table on an x86 workstation with this branch's `database.py` and
+netfix server: about 2,000 keys and 1.1 MB, with a full commit over netfix
+taking 12 ms. That compares with 1,580 keys, 0.9 MB and 9 ms for a 30-row
+table. The Pi 5 is expected to be a few times slower; it hasn't been
+measured. FPL keys are not mapped to CAN-FIX, so CAN identifier space is
+not a constraint. `tests/plugins/flightplan/test_full_commit_netfix.py`
 sends exactly that commit through a real netfix server and checks that the
 engine loads all of it.
 
@@ -242,7 +261,7 @@ circuit/turn; `HA` exits automatically once the coded altitude is reached.
 | `WPDIS` | float | nm | Distance to the TO waypoint |
 | `WPETE` | int | s, `bad` when GS < 30 kt | Time to the TO waypoint |
 | `FPLREMDIS` / `FPLREMETE` | float / int | nm / s | Remaining distance/time to the end of the plan |
-| `FPLACTSEG` | int | 0..30 | Active segment (RS1): `FPLfSGI` of the active TO slot `FPLACTLEG`. 0 with no plan active or on an off-route direct-to. Kept during failed guidance (it is identification, like `FPLACTLEG`). A `DTO` to a fix inside an airway keeps the airway: the engine never rewrites the table, and the remaining slots are still that segment |
+| `FPLACTSEG` | int | 0..100 | Active segment (RS1): `FPLfSGI` of the active TO slot `FPLACTLEG`. 0 with no plan active or on an off-route direct-to. Kept during failed guidance (it is identification, like `FPLACTLEG`). A `DTO` to a fix inside an airway keeps the airway: the engine never rewrites the table, and the remaining slots are still that segment |
 | `FPLSEGREM` | float | 0..9999.9 nm | Distance remaining in the active segment (RS1): to the TO fix, then along the plan to the segment's `LAST` slot. 0 with no active segment, on a vector leg, and during failed guidance (flagged `fail`/`bad` with the other distance outputs) |
 | `FPLALERT` | bool | | Waypoint sequencing alert (10 s or 1 nm before sequencing, whichever is longer) |
 
@@ -323,16 +342,17 @@ This fork leads the flight-plan contract (ORG-011, Bill, 2026-10-24:
 upstream MakerPlane / CAN-FIX coordination is not a gate). Upstream
 `makerplane/FIX-Gateway` has no flight-plan block at all: no
 `database/flightplan.yaml`, no `FPL*`/`DTO*`/`GPSSRC`/`EXT*` keys, and no
-`f` or `p` index variable. Everything in this document is fork-only. The
+`f` index variable. Everything in this document is fork-only. The
 `WPLAT`/`WPLON`/`WPNAME` keys exist upstream (`database/mavlink.yaml`); the
 fork widens `WPLON` to +-180 (above) and makes the engine their writer when
 the plugin is enabled.
 
 The specific points a merge with upstream would have to reconcile:
 
-- The `f: 100` and `p: 30` index variables in `database/variables.yaml`.
-  Upstream could define either letter for something else.
-- The route block and segment table: `FPLf*` (14 fields), `FPLS1..30` (6
+- The `f: 100` index variable in `database/variables.yaml`, which now
+  indexes both the slots and the segment table. Upstream could define `f`
+  for something else.
+- The route block and segment table: `FPLf*` (14 fields), `FPLS1..100` (6
   fields), `FPLSEGCNT`, `FPLCOUNT`, `FPLNAME`, `FPLSEQ`.
 - PA3 and RS1 were both breaking changes inside the fork (Bill lifted the
   compatibility constraint, procedures brief section 3.2 and route
