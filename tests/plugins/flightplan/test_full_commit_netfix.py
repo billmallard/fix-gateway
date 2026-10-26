@@ -2,9 +2,10 @@
 
 The flight-plan block was designed for netfix's ~1 KB frames (PA3,
 procedures_and_airways_plan.md section 3.2): scalar keys, one per line, no
-JSON. RS1 adds 30 segment rows of six keys each. This drives the largest
-commit the contract allows -- 100 slots, 30 segments, every string at its
-length limit -- through a real netfix server socket in the pyavtools
+JSON. RS1 adds a segment table of six keys per row, one row per slot
+(Bill, 2026-10-26: one row per entered waypoint, table as long as the slot
+block). This drives the largest commit the contract allows -- 100 slots,
+100 one-slot waypoint rows, every slot string at its length limit -- through a real netfix server socket in the pyavtools
 client's write format (``KEY;value;flags\\n``, ``fix/__init__.py``
 ``output_value``), sent as one burst, and checks two things:
 
@@ -39,28 +40,17 @@ timeout: 1.0
 
 def worst_case_commit(seq):
     """(lines, slots, segments) for the largest legal commit: 100 slots,
-    30 airway segments (29 of 3 slots, one of 13), 24-char segment idents,
-    6-char fix idents, 32-char route name, long float reprs."""
-    sizes = [3] * 29 + [13]
-    assert sum(sizes) == 100
-    slots = []
-    segments = []
-    slot = 1
-    for k, size in enumerate(sizes, start=1):
-        first = slot
-        for _ in range(size):
-            slots.append(
-                engine.Waypoint(
-                    id=f"F{slot:05d}"[:6], lat=-33.123456789012 - slot * 1e-9, lon=-119.84037000000001 - slot * 1e-9,
-                    type=6, pt="RF", crs=359.9, dst=999.9, alt="B12000,14000", spd=400, sgi=k, flags=63,
-                    ctrlat=-33.987654321098, ctrlon=-118.123456789012, turn="R",
-                )
-            )
-            slot += 1
-        segments.append(
-            engine.Segment(engine.SEGKIND_AIRWAY, f"{k:02d}".ljust(24, "Z"), slots[first - 1].id, slots[slot - 2].id,
-                           first, slot - 1)
+    each its own waypoint row (the most rows a route can need), 6-char fix
+    idents, 32-char route name, long float reprs."""
+    slots = [
+        engine.Waypoint(
+            id=f"F{i:05d}", lat=-33.123456789012 - i * 1e-9, lon=-119.84037000000001 - i * 1e-9,
+            type=6, pt="RF", crs=359.9, dst=999.9, alt="B12000,14000", spd=400, sgi=i, flags=63,
+            ctrlat=-33.987654321098, ctrlon=-118.123456789012, turn="R",
         )
+        for i in range(1, 101)
+    ]
+    segments = [engine.Segment(engine.SEGKIND_WAYPOINT, "", w.id, w.id, i, i) for i, w in enumerate(slots, start=1)]
 
     def line(key, value):
         return f"{key};{value};0000\n"
@@ -116,8 +106,11 @@ def test_full_commit_fits_netfix_frames_and_loads_whole(netfix_and_engine, datab
         f"segment table {len(seg_lines)} lines, {sum(len(x) for x in seg_lines)} bytes; "
         f"longest line {longest} bytes (buffer {BUFFER})"
     )
-    assert len(lines) == 100 * 14 + 30 * 6 + 6
+    assert len(lines) == 100 * 14 + 100 * 6 + 6
     assert longest < BUFFER // 8  # one line is a small fraction of a frame
+    # The longest segment line any commit can carry is a 24-char airway or
+    # procedure ident in row 100; waypoint rows have none, so check it too.
+    assert len(f"FPLS100ID;{'Z' * 24};0000\n") < BUFFER // 8
 
     sock.sendall(payload)
     deadline = time.time() + 10.0
@@ -126,7 +119,7 @@ def test_full_commit_fits_netfix_frames_and_loads_whole(netfix_and_engine, datab
 
     e = fp.thread.engine
     assert e.seq == 4242, f"commit not loaded; FPLMSG={database.read('FPLMSG')[0]!r}"
-    assert e.count == 100 and len(e.segments) == 30
+    assert e.count == 100 and len(e.segments) == 100
     assert [w.sgi for w in e.route] == [w.sgi for w in slots]
     assert [w.id for w in e.route] == [w.id for w in slots]
     assert [s.to_dict() for s in e.segments] == [s.to_dict() for s in segments]
