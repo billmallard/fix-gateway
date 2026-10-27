@@ -1318,14 +1318,21 @@ def test_flight_plan_keys_exist_with_specified_types_and_ranges(database):
         "FPL100DST": ("float", 0.0, None),
         "FPL100ALT": ("str", None, None),
         "FPL100SPD": ("int", 0, 400),
-        "FPL100SEG": ("int", 0, 4),
+        "FPL100SGI": ("int", 0, 100),
         "FPL100FLAGS": ("int", 0, 63),
         "FPLCOUNT": ("int", 0, 100),
         "FPLNAME": ("str", None, None),
         "FPLSEQ": ("int", 0, None),
-        "FPLDPID": ("str", None, None),
-        "FPLSTARID": ("str", None, None),
-        "FPLAPRID": ("str", None, None),
+        "FPLS1KIND": ("int", 0, 5),
+        "FPLS100KIND": ("int", 0, 5),
+        "FPLS100ID": ("str", None, None),
+        "FPLS100ENT": ("str", None, None),
+        "FPLS100EXT": ("str", None, None),
+        "FPLS100FIRST": ("int", 0, 100),
+        "FPLS100LAST": ("int", 0, 100),
+        "FPLSEGCNT": ("int", 0, 100),
+        "FPLACTSEG": ("int", 0, 100),
+        "FPLSEGREM": ("float", 0.0, None),
         "FPLAPRTYPE": ("str", None, None),
         "FPLDBCYC": ("str", None, None),
         "DTOID": ("str", None, None),
@@ -1379,10 +1386,45 @@ def test_flight_plan_keys_exist_with_specified_types_and_ranges(database):
         database.get_raw_item(f"FPL{i}DST")
         database.get_raw_item(f"FPL{i}ALT")
         database.get_raw_item(f"FPL{i}SPD")
-        database.get_raw_item(f"FPL{i}SEG")
+        database.get_raw_item(f"FPL{i}SGI")
         database.get_raw_item(f"FPL{i}FLAGS")
     with pytest.raises(KeyError):
         database.get_raw_item("FPL1ROLE")
+
+    # RS1: all 100 segment rows expand, and no 101st. FPLfSEG and the
+    # block-level procedure idents it pointed at are retired into the table.
+    for k in range(1, 101):
+        for field in ("KIND", "ID", "ENT", "EXT", "FIRST", "LAST"):
+            database.get_raw_item(f"FPLS{k}{field}")
+    for gone in ("FPLS101KIND", "FPL1SEG", "FPLDPID", "FPLSTARID", "FPLAPRID"):
+        with pytest.raises(KeyError):
+            database.get_raw_item(gone)
+    # Editor-written route keys never auto-flag stale; engine outputs do.
+    for key in ("FPL1SGI", "FPLS1KIND", "FPLS1ID", "FPLS1FIRST", "FPLSEGCNT"):
+        assert database.get_raw_item(key).tol == 0, key
+    for key in ("FPLACTSEG", "FPLSEGREM"):
+        assert database.get_raw_item(key).tol == 5000, key
+
+
+# RS1, Bill's ruling of 2026-10-26: one segment row per entered waypoint, so
+# a route can need as many rows as it has slots, and the segment table must
+# never be the limit -- only the slot count can. The table is indexed by the
+# slot block's own variable (`f`), so the row counts agree by construction;
+# this pins that, and pins every range that counts slots or segments to the
+# same number, so raising or lowering `f` cannot leave one of them behind.
+def test_segment_table_is_exactly_as_long_as_the_slot_block(database):
+    import re
+
+    keys = database.listkeys()
+    slot_rows = {int(m.group(1)) for k in keys if (m := re.fullmatch(r"FPL(\d+)ID", k))}
+    seg_rows = {int(m.group(1)) for k in keys if (m := re.fullmatch(r"FPLS(\d+)KIND", k))}
+    assert slot_rows == set(range(1, len(slot_rows) + 1))
+    assert seg_rows == slot_rows
+
+    n = len(slot_rows)
+    for key in ("FPLCOUNT", "FPLSEGCNT", "FPLACTLEG", "FPLACTSEG", "FPL1SGI", f"FPL{n}SGI",
+                "FPLS1FIRST", f"FPLS{n}LAST"):
+        assert database.get_raw_item(key).max == n, key
 
     # WPLON's clamp bug (min/max were +-90) is fixed to +-180: both extremes
     # must round-trip, not clamp.

@@ -16,11 +16,11 @@
 # altitude/speed constraint and a flags bitfield, so a SID/STAR/approach
 # (a sequence of legs) can round-trip through the same block an enroute
 # route uses (a flat list of points is just every slot's FPLfPT = "TF").
-# Provenance for a loaded procedure lives at block level (FPLDPID/
-# FPLSTARID/FPLAPRID/FPLAPRTYPE/FPLDBCYC), not copied onto every slot --
-# see doc/flightplan_keys.md for the reasoning. Per Bill's ruling, this is
-# a breaking change from FP1's key spellings (guardrail 6 struck -- the
-# feature has no consumers outside dev yet).
+# Provenance for a loaded procedure lives at block level (FPLAPRTYPE/
+# FPLDBCYC), not copied onto every slot -- see doc/flightplan_keys.md for
+# the reasoning. Per Bill's ruling, this is a breaking change from FP1's
+# key spellings (guardrail 6 struck -- the feature has no consumers outside
+# dev yet).
 #
 # PA4 (fix-gateway#28) is the first item to actually fly a leg other than
 # an implicit TF: IF/TF/CF/DF (Tier 1) and VA/VM/FM/VI (vector legs -- a
@@ -43,6 +43,18 @@
 # GPSCRS/GPSCDI/GPSTF via a compute `select` (connections/compute.yaml),
 # exactly like NAVSRC/BRGnSRC already select into COURSE/CDI/TOFROM and
 # BRG1/BRG2.
+#
+# RS1 (fix-gateway#39; makerplane/briefs/route_segments_plan.md section 3 --
+# Bill's ruling of 2026-10-24 on AER-2091) makes route segments first-class.
+# A route is an ordered list of segments (waypoint, airway, departure,
+# arrival, approach, missed) and each segment owns a contiguous run of
+# slots. Each slot names its segment (FPLfSGI, replacing PA3's kind-only
+# FPLfSEG) and the segment table FPLS1..100 says what the segment is and
+# where it starts and ends. FPLDPID/FPLSTARID/FPLAPRID are retired into the
+# table. The engine checks the table on every FPLSEQ commit and rejects the
+# whole commit with a reason on FPLMSG if it does not describe the slots
+# exactly. This fork leads the contract (ORG-011); upstream MakerPlane has
+# no segment table -- see "Divergence from upstream" in the doc.
 #
 # See doc/flightplan_keys.md for every key's writer and sign convention.
 
@@ -118,11 +130,11 @@ items:
   initial: 0
   tol: 0
 
-- key: FPLfSEG
-  description: "Flight plan slot %f procedure segment (0 enroute, 1 departure, 2 arrival, 3 approach, 4 missed)"
+- key: FPLfSGI
+  description: "Flight plan slot %f segment index, 1..FPLSEGCNT into the FPLS table (RS1). 0 only for an unused slot past FPLCOUNT"
   type: int
   min: 0
-  max: 4
+  max: 100
   initial: 0
   tol: 0
 
@@ -184,28 +196,68 @@ items:
   initial: 0
   tol: 0
 
+# --- Route segment table (RS1; editor writes, engine on restore; tol: 0) ---
+# Written with the slots, before FPLSEQ. Segment k owns slots
+# FPLSkFIRST..FPLSkLAST, and every one of those slots has FPLfSGI = k.
+# Segments are in route order and cover every slot exactly once. Each
+# entered waypoint is its own row, so a route never needs more rows than
+# slots -- and the table is indexed by the slot block's own variable `f`,
+# so it always has exactly as many rows as there are slots (Bill,
+# 2026-10-26: the table must never be the limit, only the slot count).
+- key: FPLSfKIND
+  description: "Flight plan segment %f kind (0 waypoint -- one pilot-entered waypoint, not a Direct-To -- 1 airway, 2 departure, 3 arrival, 4 approach, 5 missed)"
+  type: int
+  min: 0
+  max: 5
+  initial: 0
+  tol: 0
+
+- key: FPLSfID
+  description: 'Flight plan segment %f ident, <=24 chars: airway "V27", departure "HYDRR6.RW33L", approach "RNAV33L.HENER". Empty for a waypoint row, required for an airway'
+  type: str
+  initial: ""
+  tol: 0
+
+- key: FPLSfENT
+  description: "Flight plan segment %f entry fix ident -- equals the ident of its FIRST slot"
+  type: str
+  initial: ""
+  tol: 0
+
+- key: FPLSfEXT
+  description: "Flight plan segment %f exit fix ident -- equals the ident of its LAST slot"
+  type: str
+  initial: ""
+  tol: 0
+
+- key: FPLSfFIRST
+  description: "Flight plan segment %f first slot (1..100). Redundant with FPLfSGI so a reader never scans 100 slots -- and checked against it"
+  type: int
+  min: 0
+  max: 100
+  initial: 0
+  tol: 0
+
+- key: FPLSfLAST
+  description: "Flight plan segment %f last slot (1..100). A waypoint row is exactly 1 slot. An airway spans at least 2 (entry and exit)"
+  type: int
+  min: 0
+  max: 100
+  initial: 0
+  tol: 0
+
+- key: FPLSEGCNT
+  description: "Flight plan segments in use (0 for an empty route, else 1..FPLCOUNT)"
+  type: int
+  min: 0
+  max: 100
+  initial: 0
+  tol: 0
+
 # --- Loaded-procedure provenance (block-level; editor writes) --------------
-# Off the slot on purpose (PA3/Bill 2026-09-18): one fact per procedure, not
-# up to 100 copies of the same string. FPLfSEG says which of these a given
-# slot belongs to.
-- key: FPLDPID
-  description: "Loaded departure (SID) procedure ident, e.g. \"HYDRR6\" (<=8 chars, \"\" = none)"
-  type: str
-  initial: ""
-  tol: 0
-
-- key: FPLSTARID
-  description: "Loaded arrival (STAR) procedure ident (<=8 chars, \"\" = none)"
-  type: str
-  initial: ""
-  tol: 0
-
-- key: FPLAPRID
-  description: "Loaded approach procedure ident, e.g. \"I33L\" (<=8 chars, \"\" = none)"
-  type: str
-  initial: ""
-  tol: 0
-
+# Off the slot on purpose (PA3/Bill 2026-09-18): one fact per plan, not up
+# to 100 copies of the same string. The procedure idents themselves
+# (FPLDPID/FPLSTARID/FPLAPRID) moved into the segment table in RS1.
 - key: FPLAPRTYPE
   description: "Loaded approach type (ILS/LOC/RNAV/VOR/NDB/GPS..., <=8 chars, \"\" = none)"
   type: str
@@ -267,7 +319,7 @@ items:
   tol: 0
 
 - key: FPLMSG
-  description: "Flight plan last message / rejection reason (<=64 chars). PA4: a route with an unsupported path terminator posts \"UNSUPP <PT> <ident>\" and rejects the whole route (guardrail 1) -- RESUME off a vector leg posts \"RESUME NAV -> <ident>\" or \"NO NEXT LEG\". PA13: a recognized Tier-2 leg with incomplete data (no turn direction, no arc center/radius, no altitude constraint) rejects the whole route the same way, posting \"BADTURN\"/\"BADRADIUS\"/\"BADCENTER\"/\"BADALT\"/\"BADLEGLEN <PT> <ident>\" -- and RESUME on a flying HM hold posts \"HOLD EXIT ARMED\""
+  description: "Flight plan last message / rejection reason (<=64 chars). PA4: a route with an unsupported path terminator posts \"UNSUPP <PT> <ident>\" and rejects the whole route (guardrail 1) -- RESUME off a vector leg posts \"RESUME NAV -> <ident>\" or \"NO NEXT LEG\". PA13: a recognized Tier-2 leg with incomplete data (no turn direction, no arc center/radius, no altitude constraint) rejects the whole route the same way, posting \"BADTURN\"/\"BADRADIUS\"/\"BADCENTER\"/\"BADALT\"/\"BADLEGLEN <PT> <ident>\" -- and RESUME on a flying HM hold posts \"HOLD EXIT ARMED\". RS1: a segment table that does not describe the slots rejects the whole commit the same way, posting SEGCNT/SEGSGI/SEGNONCONTIG/SEGORDER/SEGKIND/SEGRANGE/SEGENT/SEGEXT/SEGLEN/SEGID with the segment (S<p>) or slot it names"
   type: str
   initial: ""
   tol: 0
@@ -416,6 +468,23 @@ items:
   max: 86400
   units: s
   initial: 0
+  tol: 5000
+
+- key: FPLACTSEG
+  description: "Flight plan active segment (RS1) -- FPLfSGI of the active TO slot FPLACTLEG, 0 = none (no plan active, or an off-route direct-to)"
+  type: int
+  min: 0
+  max: 100
+  initial: 0
+  tol: 5000
+
+- key: FPLSEGREM
+  description: "Flight plan distance remaining in the active segment (RS1) -- to the TO fix, then along the plan to the segment's exit fix"
+  type: float
+  min: 0.0
+  max: 9999.9
+  units: nM
+  initial: 0.0
   tol: 5000
 
 - key: FPLALERT

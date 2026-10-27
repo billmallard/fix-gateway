@@ -14,6 +14,8 @@ import pytest
 import fixgw.geo as geo
 import fixgw.plugins.flightplan.engine as engine
 
+from .routes import load
+
 
 def wp(id, lat, lon, type=engine.TYPE_UNKNOWN, flags=0):
     return engine.Waypoint(id, lat, lon, type, flags=flags)
@@ -66,7 +68,7 @@ def straight_route(n=4, spacing_nm=60.04):
 def test_sequencing_within_turn_anticipation_distance_advances_leg():
     e = engine.Engine()
     route = straight_route(3)
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     ack, msg = e.handle_command("1 ACT 2", (0.0, 0.0, True))
     assert ack == 1
     assert e.mode == "LEG" and e.act_leg == 2
@@ -98,7 +100,7 @@ def test_sequencing_abeam_backstop_when_atd_goes_negative():
     # distance goes negative" backstop.
     e = engine.Engine()
     route = [wp("A", 0.0, 0.0), wp("B", 0.0, nm_to_deg_lon(60.04)), wp("C", 5.0, nm_to_deg_lon(60.04))]
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
     # Fly straight past B without ever entering the (small) d_ta window from
     # the previous cycle's position -- simulate a coarse timestep landing
@@ -111,7 +113,7 @@ def test_sequencing_abeam_backstop_when_atd_goes_negative():
 def test_last_waypoint_never_sequences_flips_to_from():
     e = engine.Engine()
     route = straight_route(3)
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 3", (0.0, 0.0, True))
     c_lon = route[2].lon
 
@@ -127,7 +129,7 @@ def test_last_waypoint_never_sequences_flips_to_from():
 def test_direct_to_slot_resumes_normal_sequencing_on_arrival():
     e = engine.Engine()
     route = straight_route(3)
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     ack, msg = e.handle_command("1 DTO 2", (0.0, -nm_to_deg_lon(5), True))
     assert ack == 1
     assert e.mode == "DIRECT" and e.act_leg == 2
@@ -141,7 +143,7 @@ def test_direct_to_slot_resumes_normal_sequencing_on_arrival():
 def test_off_route_direct_to_leaves_actleg_zero_plan_stays_loaded():
     e = engine.Engine()
     route = straight_route(3)
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     ack, msg = e.handle_command("1 DTO", (0.0, 0.0, True), dto_staged=("XYZ", 9.0, 9.0, engine.TYPE_FIX))
     assert ack == 1
     assert e.mode == "DIRECT"
@@ -152,7 +154,7 @@ def test_off_route_direct_to_leaves_actleg_zero_plan_stays_loaded():
 def test_dto_bare_matching_staged_slot_behaves_as_dto_k():
     e = engine.Engine()
     route = straight_route(3)
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     c = route[2]
     ack, msg = e.handle_command(
         "1 DTO", (0.0, 0.0, True), dto_staged=(c.id, c.lat + 0.00001, c.lon - 0.00002, engine.TYPE_UNKNOWN)
@@ -165,7 +167,7 @@ def test_dto_bare_matching_staged_slot_behaves_as_dto_k():
 def test_dtox_reactivates_nearest_leg_by_cross_track():
     e = engine.Engine()
     route = straight_route(4)  # A B C D
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     # Aircraft abeam the B-C leg (slightly north of it).
     mid_lon = (route[1].lon + route[2].lon) / 2.0
     ack, msg = e.handle_command("1 DTOX", (0.01, mid_lon, True))
@@ -178,7 +180,7 @@ def test_dtox_reactivates_nearest_leg_by_cross_track():
 def test_dtox_falls_back_to_nearest_waypoint_when_no_leg_window_contains_aircraft():
     e = engine.Engine()
     route = straight_route(3)
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     # Aircraft far behind A, off every leg's along-track window.
     ack, msg = e.handle_command("1 DTOX", (0.0, -nm_to_deg_lon(50), True))
     assert ack == 1
@@ -189,7 +191,7 @@ def test_dtox_falls_back_to_nearest_waypoint_when_no_leg_window_contains_aircraf
 def test_susp_freezes_sequencing_and_dtk():
     e = engine.Engine()
     route = straight_route(3)
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
     e.handle_command("2 SUSP", (0.0, 0.0, True))
     assert e.suspended is True
@@ -216,7 +218,7 @@ def test_enr_term_transition_at_30nm_from_airport_departure_or_destination():
         wp("KSBA", 34.42621, -119.84037, type=engine.TYPE_AIRPORT),
         wp("KSMX", 34.89892, -120.45758, type=engine.TYPE_AIRPORT),
     ]
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
 
     # Far from both -- ENR/2.0.
@@ -232,7 +234,7 @@ def test_enr_term_transition_at_30nm_from_airport_departure_or_destination():
 def test_no_term_scaling_when_endpoint_not_typed_airport():
     e = engine.Engine()
     route = [wp("A", 0.0, 0.0), wp("B", 0.0, nm_to_deg_lon(5))]  # neither typed airport
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
     out = e.update(0.0, nm_to_deg_lon(4.9), 120.0, 0.0, True, None, None, 1000.0)
     assert out["phase"] == "ENR"
@@ -256,7 +258,7 @@ def approach_route():
 def test_approach_armed_within_30nm_of_map_with_active_leg_at_or_before_faf():
     e = engine.Engine()
     route = approach_route()
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))  # TO = FAF, before it
     out = e.update(0.0, -nm_to_deg_lon(15), 120.0, 0.0, True, None, None, 1000.0)  # 25nm from MAP
     assert out["apr"] == engine.APR_ARMED
@@ -267,7 +269,7 @@ def test_approach_armed_within_30nm_of_map_with_active_leg_at_or_before_faf():
 def test_approach_not_armed_beyond_30nm_of_map():
     e = engine.Engine()
     route = approach_route()
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
     out = e.update(0.0, -nm_to_deg_lon(40), 120.0, 0.0, True, None, None, 1000.0)  # 45nm from MAP
     assert out["apr"] == engine.APR_NONE
@@ -276,7 +278,7 @@ def test_approach_not_armed_beyond_30nm_of_map():
 def test_approach_ramp_linear_1_0_to_0_3_over_2nm_before_faf():
     e = engine.Engine()
     route = approach_route()
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
     faf_lon = route[1].lon
 
@@ -298,7 +300,7 @@ def test_approach_ramp_linear_1_0_to_0_3_over_2nm_before_faf():
 def test_scale_holds_0_3_from_faf_to_map_fly_over_no_turn_anticipation():
     e = engine.Engine()
     route = approach_route()
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
     faf_lon = route[1].lon
 
@@ -315,7 +317,7 @@ def test_scale_holds_0_3_from_faf_to_map_fly_over_no_turn_anticipation():
 def test_map_no_auto_sequence_auto_suspend_to_from_scale_stays_0_3():
     e = engine.Engine()
     route = approach_route()
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 3", (0.0, 0.0, True))  # already on the FAF->MAP leg
     map_lon = route[2].lon
 
@@ -334,7 +336,7 @@ def test_map_no_auto_sequence_auto_suspend_to_from_scale_stays_0_3():
 def test_resume_at_map_sets_missed_term_scale_and_sequences_to_mahp():
     e = engine.Engine()
     route = approach_route()
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 3", (0.0, 0.0, True))
     map_lon = route[2].lon
     e.update(0.0, map_lon + nm_to_deg_lon(0.01), 120.0, 0.0, True, None, None, 1000.0)
@@ -356,7 +358,7 @@ def test_resume_at_map_sets_missed_term_scale_and_sequences_to_mahp():
 def test_resume_at_map_with_no_mahp_posts_no_missed_approach_message():
     e = engine.Engine()
     route = approach_route()[:3]  # no MAHP slot after the MAP
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 3", (0.0, 0.0, True))
     map_lon = route[2].lon
     e.update(0.0, map_lon + nm_to_deg_lon(0.01), 120.0, 0.0, True, None, None, 1000.0)
@@ -379,7 +381,7 @@ def test_resume_at_map_with_no_mahp_posts_no_missed_approach_message():
 def test_off_route_direct_to_drops_approach_back_to_armed_or_none():
     e = engine.Engine()
     route = approach_route()
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
     faf_lon = route[1].lon
     out = e.update(0.0, faf_lon - nm_to_deg_lon(1.0), 120.0, 0.0, True, None, None, 1000.0)
@@ -394,7 +396,7 @@ def test_off_route_direct_to_drops_approach_back_to_armed_or_none():
 def test_act_before_faf_drops_approach_back_to_armed():
     e = engine.Engine()
     route = approach_route()
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
     faf_lon = route[1].lon
     e.update(0.0, faf_lon - nm_to_deg_lon(1.0), 120.0, 0.0, True, None, None, 1000.0)
@@ -408,12 +410,12 @@ def test_act_before_faf_drops_approach_back_to_armed():
 def test_direct_to_between_faf_and_map_does_not_activate_approach_scaling():
     e = engine.Engine()
     route = approach_route()
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     faf_lon, map_lon = route[1].lon, route[2].lon
     # Direct-to a synthetic fix between the FAF and the MAP.
     mid = wp("MID", 0.0, (faf_lon + map_lon) / 2.0, type=engine.TYPE_FIX)
     route.insert(2, mid)
-    e.load_route(route, "T", 2)  # re-load with MID inserted at slot 3
+    load(e, route, "T", 2)  # re-load with MID inserted at slot 3
 
     ack, msg = e.handle_command("1 DTO 3", (0.0, 0.0, True))  # DTO to MID (slot 3)
     assert ack == 1
@@ -424,7 +426,7 @@ def test_direct_to_between_faf_and_map_does_not_activate_approach_scaling():
 def test_scale_manual_ceiling_is_minimum_of_phase_and_manual():
     e = engine.Engine()
     route = [wp("A", 0.0, 0.0), wp("B", 0.0, nm_to_deg_lon(200))]
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
     e.handle_command("2 SCALE 0.3", (0.0, 0.0, True))
 
@@ -441,7 +443,7 @@ def test_scale_manual_ceiling_is_minimum_of_phase_and_manual():
 def test_scale_manual_ceiling_does_not_widen_a_tighter_phase_scale():
     e = engine.Engine()
     route = approach_route()
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 3", (0.0, 0.0, True))  # on the fly-over FAF->MAP leg, 0.3nm
     e.handle_command("2 SCALE 2.0", (0.0, 0.0, True))
     out = e.update(0.0, route[1].lon + nm_to_deg_lon(0.5), 120.0, 0.0, True, None, None, 1000.0)
@@ -456,7 +458,7 @@ def test_scale_manual_ceiling_does_not_widen_a_tighter_phase_scale():
 def test_fix_type_below_3d_fails_guidance():
     e = engine.Engine()
     route = [wp("A", 0.0, 0.0), wp("B", 0.0, nm_to_deg_lon(5))]
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
     out = e.update(0.0, nm_to_deg_lon(1), 120.0, 0.0, True, False, None, 1000.0)
     assert out["fail"] is True
@@ -465,7 +467,7 @@ def test_fix_type_below_3d_fails_guidance():
 def test_accuracy_above_hal_sets_integ_false_bad_loi_and_reverts_approach():
     e = engine.Engine()
     route = approach_route()
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
     faf_lon = route[1].lon
     out = e.update(0.0, faf_lon - nm_to_deg_lon(1.0), 120.0, 0.0, True, True, 0.05, 1000.0)
@@ -483,7 +485,7 @@ def test_accuracy_above_hal_sets_integ_false_bad_loi_and_reverts_approach():
 def test_no_accuracy_source_posts_no_integrity_data_once_per_activation():
     e = engine.Engine()
     route = [wp("A", 0.0, 0.0), wp("B", 0.0, nm_to_deg_lon(5))]
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
 
     out = e.update(0.0, nm_to_deg_lon(1), 120.0, 0.0, True, None, None, 1000.0)
@@ -502,7 +504,7 @@ def test_no_accuracy_source_posts_no_integrity_data_once_per_activation():
 def test_wpete_bad_under_30kt():
     e = engine.Engine()
     route = [wp("A", 0.0, 0.0), wp("B", 0.0, nm_to_deg_lon(5))]
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
     out = e.update(0.0, 0.0, 20.0, 0.0, True, None, None, 1000.0)
     assert out["wp_ete_bad"] is True
@@ -514,7 +516,7 @@ def test_wpete_bad_under_30kt():
 def test_outputs_fail_after_5s_of_bad_position():
     e = engine.Engine()
     route = [wp("A", 0.0, 0.0), wp("B", 0.0, nm_to_deg_lon(5))]
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
 
     out = e.update(0.0, 0.0, 120.0, 0.0, True, None, None, 1000.0)
@@ -536,7 +538,7 @@ def test_command_ack_and_reject_reasons():
     e = engine.Engine()
     assert e.handle_command("1 ACT 1", (0.0, 0.0, True)) == (-1, "NO PLAN")
 
-    e.load_route([wp("A", 0, 0), wp("B", 0, 1)], "T", 1)
+    load(e, [wp("A", 0, 0), wp("B", 0, 1)], "T", 1)
     assert e.handle_command("2 ACT 9", (0.0, 0.0, True)) == (-2, "BAD SLOT")
     assert e.handle_command("3 DTO 2", (0.0, 0.0, False)) == (-3, "NO POSITION")
     assert e.handle_command("x ACT 1", (0.0, 0.0, True)) == (-1, "PARSE")
@@ -549,7 +551,7 @@ def test_command_ack_and_reject_reasons():
 
 def test_unknown_verb_rejected_never_ignored():
     e = engine.Engine()
-    e.load_route([wp("A", 0, 0)], "T", 1)
+    load(e, [wp("A", 0, 0)], "T", 1)
     ack, msg = e.handle_command("1 BOGUS arg", (0.0, 0.0, True))
     assert ack == -1
     assert msg == "PARSE"
@@ -563,7 +565,7 @@ def test_unknown_verb_rejected_never_ignored():
 def test_persistence_round_trip_including_approach_state():
     e = engine.Engine()
     route = approach_route()
-    e.load_route(route, "RNAV1", 3)
+    load(e, route, "RNAV1", 3)
     e.handle_command("1 ACT 3", (0.0, 0.0, True))
     e.handle_command("2 SCALE 1.0", (0.0, 0.0, True))
     snapshot = e.to_persisted_dict()
@@ -583,7 +585,7 @@ def test_persistence_round_trip_including_approach_state():
 def test_persistence_round_trip_preserves_missed_approach_state():
     e = engine.Engine()
     route = approach_route()
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 3", (0.0, 0.0, True))
     map_lon = route[2].lon
     e.update(0.0, map_lon + nm_to_deg_lon(0.01), 120.0, 0.0, True, None, None, 1000.0)
@@ -606,7 +608,7 @@ def test_update_cycle_budget_with_100_slots():
 
     e = engine.Engine()
     route = [wp(f"W{i}", 0.0, nm_to_deg_lon(i * 5)) for i in range(100)]
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 50", (0.0, 0.0, True))
 
     start = time.perf_counter()
@@ -624,12 +626,12 @@ def test_update_cycle_budget_with_100_slots():
 def test_leg_fields_round_trip_through_waypoint_dict():
     w = engine.Waypoint(
         "CFFIX", 1.0, 2.0, type=engine.TYPE_FIX, pt="CF", crs=270.0, dst=4.2,
-        alt="B2900,4000", spd=180, seg=engine.SEG_APPROACH, flags=engine.FLAG_FAF,
+        alt="B2900,4000", spd=180, sgi=3, flags=engine.FLAG_FAF,
     )
     w2 = engine.Waypoint.from_dict(w.to_dict())
     assert w2.pt == "CF" and w2.crs == 270.0 and w2.dst == 4.2
     assert w2.alt == "B2900,4000" and w2.spd == 180
-    assert w2.seg == engine.SEG_APPROACH and w2.flags == engine.FLAG_FAF
+    assert w2.sgi == 3 and w2.flags == engine.FLAG_FAF
 
 
 def test_waypoint_defaults_to_enroute_tf_point():
@@ -637,18 +639,13 @@ def test_waypoint_defaults_to_enroute_tf_point():
     # defaults to "TF", the pre-PA3 implicit behaviour.
     w = engine.Waypoint("A", 0.0, 0.0)
     assert w.pt == "TF"
-    assert w.seg == engine.SEG_ENROUTE
+    assert w.sgi == 0  # unassigned until the route's segment table says otherwise (RS1)
     assert w.flags == 0
 
 
 def test_load_route_carries_block_level_provenance():
     e = engine.Engine()
-    e.load_route(
-        [wp("A", 0.0, 0.0)], "T", 1,
-        dpid="HYDRR6", starid="", aprid="I33L", aprtype="ILS", dbcyc="2609",
-    )
-    assert e.dpid == "HYDRR6"
-    assert e.aprid == "I33L"
+    load(e, [wp("A", 0.0, 0.0)], "T", 1, aprtype="ILS", dbcyc="2609")
     assert e.aprtype == "ILS"
     assert e.dbcyc == "2609"
 
@@ -656,12 +653,12 @@ def test_load_route_carries_block_level_provenance():
 def test_persistence_round_trip_preserves_leg_fields_and_provenance():
     e = engine.Engine()
     route = approach_route()
-    e.load_route(route, "RNAV1", 3, dpid="", starid="", aprid="I33L", aprtype="ILS", dbcyc="2609")
+    load(e, route, "RNAV1", 3, aprtype="ILS", dbcyc="2609")
     snapshot = e.to_persisted_dict()
 
     e2 = engine.Engine()
     e2.restore_from_dict(snapshot)
-    assert e2.aprid == "I33L" and e2.aprtype == "ILS" and e2.dbcyc == "2609"
+    assert e2.aprtype == "ILS" and e2.dbcyc == "2609"
     assert [w.flags for w in e2.route] == [w.flags for w in route]
 
 
@@ -687,7 +684,7 @@ def test_load_route_rejects_whole_route_containing_an_unsupported_terminator():
     e = engine.Engine()
     route = [wp("A", 0.0, 0.0), engine.Waypoint("FCFIX", 0.0, nm_to_deg_lon(5.0), pt="FC")]
     with pytest.raises(engine.RouteRejected) as exc:
-        e.load_route(route, "BAD", 2)
+        load(e, route, "BAD", 2)
     assert exc.value.reason == "UNSUPP FC FCFIX"
     assert e.count == 0
     assert e.route_name == ""
@@ -701,7 +698,7 @@ def test_load_route_rejects_hold_with_no_turn_direction_coded():
     e = engine.Engine()
     route = [wp("A", 0.0, 0.0), engine.Waypoint("HOLD", 0.0, nm_to_deg_lon(5.0), pt="HM", crs=90.0, dst=4.0)]
     with pytest.raises(engine.RouteRejected) as exc:
-        e.load_route(route, "BAD", 2)
+        load(e, route, "BAD", 2)
     assert exc.value.reason == "BADTURN HM HOLD"
     assert e.count == 0
     assert e.route_name == ""
@@ -709,12 +706,12 @@ def test_load_route_rejects_hold_with_no_turn_direction_coded():
 
 def test_load_route_rejection_leaves_previously_loaded_route_and_activation_untouched():
     e = engine.Engine()
-    e.load_route(straight_route(3), "GOOD", 1)
+    load(e, straight_route(3), "GOOD", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
 
     bad = [wp("A", 0.0, 0.0), engine.Waypoint("ARC", 0.0, nm_to_deg_lon(5.0), pt="RF")]
     with pytest.raises(engine.RouteRejected):
-        e.load_route(bad, "BAD", 2)
+        load(e, bad, "BAD", 2)
 
     assert e.route_name == "GOOD"
     assert e.seq == 1
@@ -726,7 +723,7 @@ def test_load_route_rejection_leaves_previously_loaded_route_and_activation_unto
 def test_every_supported_leg_type_loads_without_rejection(pt):
     e = engine.Engine()
     route = [wp("A", 0.0, 0.0), engine.Waypoint("B", 0.0, nm_to_deg_lon(5.0), pt=pt, crs=90.0)]
-    e.load_route(route, "T", 1)  # must not raise
+    load(e, route, "T", 1)  # must not raise
     assert e.count == 2
 
 
@@ -742,7 +739,7 @@ def test_cf_leg_flies_published_course_not_bearing_from_previous_fix():
         wp("A", 0.0, -1.0),  # well off the CF leg's north-south course line
         engine.Waypoint("CFFIX", 0.0, 0.0, type=engine.TYPE_FIX, pt="CF", crs=0.0),  # fly 000 into the fix
     ]
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, -1.0, True))
 
     # Aircraft south of the fix, exactly on the published course's line
@@ -759,7 +756,7 @@ def test_cf_leg_course_is_converted_from_magnetic_with_magvar():
         wp("A", 0.0, -1.0),
         engine.Waypoint("CFFIX", 0.0, 0.0, type=engine.TYPE_FIX, pt="CF", crs=10.0),  # 010 magnetic
     ]
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, -1.0, True))
     # 10 deg east variation: true course = magnetic - magvar = 0 (due north)
     out = e.update(-0.5, 0.0, 120.0, 10.0, True, None, None, 1000.0)
@@ -783,7 +780,7 @@ def vector_route():
 def test_activating_a_vector_leg_suspends_and_annunciates_vectors_no_invented_course():
     e = engine.Engine()
     route = vector_route()
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     ack, msg = e.handle_command("1 ACT 2", (0.0, 0.0, True))
     assert ack == 1
 
@@ -799,7 +796,7 @@ def test_sequencing_onto_a_vector_leg_mid_flight_also_suspends():
     e = engine.Engine()
     route = straight_route(2)
     route.append(engine.Waypoint("VEC", 0.0, route[1].lon + nm_to_deg_lon(60.04), pt="VM", crs=270.0))
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
     e.update(0.0, 0.0, 120.0, 0.0, True, None, None, 999.0)
 
@@ -813,7 +810,7 @@ def test_sequencing_onto_a_vector_leg_mid_flight_also_suspends():
 def test_resume_from_vectors_sequences_onto_next_leg_direct_from_aircraft_position():
     e = engine.Engine()
     route = vector_route()
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
     e.update(0.0, nm_to_deg_lon(1.0), 120.0, 0.0, True, None, None, 1000.0)
     assert e.suspended is True
@@ -831,7 +828,7 @@ def test_resume_from_vectors_sequences_onto_next_leg_direct_from_aircraft_positi
 def test_resume_from_vectors_with_no_next_leg_stays_suspended():
     e = engine.Engine()
     route = vector_route()[:2]  # nothing after the vector leg
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
     e.update(0.0, nm_to_deg_lon(1.0), 120.0, 0.0, True, None, None, 1000.0)
 
@@ -845,7 +842,7 @@ def test_resume_from_vectors_with_no_next_leg_stays_suspended():
 def test_resume_from_vectors_requires_position():
     e = engine.Engine()
     route = vector_route()
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
     e.update(0.0, nm_to_deg_lon(1.0), 120.0, 0.0, True, None, None, 1000.0)
 
@@ -945,7 +942,7 @@ def test_arc_sequences_to_next_leg_exactly_at_exit_radial():
     a_lat, a_lon = geo.destination_point(*CTR, 0.0, 10.0)
     to_lat, to_lon = geo.destination_point(*CTR, 90.0, 10.0)
     route = [wp("A", a_lat, a_lon), arc_wp("ARCFIX", to_lat, to_lon, 10.0, "R"), wp("B", *CTR)]
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (a_lat, a_lon, True))
 
     before_lat, before_lon = geo.destination_point(*CTR, 89.9, 10.0)
@@ -966,7 +963,7 @@ def test_ca_leg_holds_course_and_terminates_only_on_altitude():
     e = engine.Engine()
     lvl_lat, lvl_lon = geo.destination_point(0.0, 0.0, 90.0, 10.0)
     route = [wp("A", 0.0, 0.0), engine.Waypoint("CALVL", lvl_lat, lvl_lon, pt="CA", crs=90.0, alt="+3000"), wp("B", 0.0, nm_to_deg_lon(30.0))]
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
 
     mid_lat, mid_lon = geo.destination_point(0.0, 0.0, 90.0, 3.0)
@@ -986,7 +983,7 @@ def test_fa_leg_flies_to_fix_then_holds_course_to_altitude():
     e = engine.Engine()
     fix_lat, fix_lon = geo.destination_point(0.0, 0.0, 90.0, 10.0)
     route = [wp("A", 0.0, 0.0), engine.Waypoint("FAFIX", fix_lat, fix_lon, pt="FA", crs=90.0, alt="+3000"), wp("B", 0.0, nm_to_deg_lon(30.0))]
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
 
     before_lat, before_lon = geo.destination_point(fix_lat, fix_lon, 90.0, -0.05)
@@ -1023,7 +1020,7 @@ def _outbound_target_and_past():
 
 def test_hm_hold_repeats_until_resume_arms_exit_at_next_fix_passage():
     e = engine.Engine()
-    e.load_route(_hold_route("HM"), "T", 1)
+    load(e, _hold_route("HM"), "T", 1)
     e.handle_command("1 ACT 2", (0.0, -nm_to_deg_lon(20.0), True))
 
     entry = e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1000.0)
@@ -1053,7 +1050,7 @@ def test_hm_hold_repeats_until_resume_arms_exit_at_next_fix_passage():
 
 def test_hf_hold_exits_automatically_after_one_circuit():
     e = engine.Engine()
-    e.load_route(_hold_route("HF", turn="L"), "T", 1)
+    load(e, _hold_route("HF", turn="L"), "T", 1)
     e.handle_command("1 ACT 2", (0.0, -nm_to_deg_lon(20.0), True))
     e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1000.0)
     past_lat, past_lon = _outbound_target_and_past()
@@ -1065,7 +1062,7 @@ def test_hf_hold_exits_automatically_after_one_circuit():
 
 def test_ha_hold_repeats_until_altitude_then_exits():
     e = engine.Engine()
-    e.load_route(_hold_route("HA", alt="+3000"), "T", 1)
+    load(e, _hold_route("HA", alt="+3000"), "T", 1)
     e.handle_command("1 ACT 2", (0.0, -nm_to_deg_lon(20.0), True))
     e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1000.0, alt_ft=2000.0)
     past_lat, past_lon = _outbound_target_and_past()
@@ -1099,7 +1096,7 @@ def test_pi_procedure_turn_exits_automatically_after_one_turn():
         hold_wp("PT", 0.0, 0.0, crs=90.0, dst=5.0, turn="R", pt="PI"),
         wp("B", 0.0, nm_to_deg_lon(20.0)),
     ]
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, -nm_to_deg_lon(20.0), True))
     entry = e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1000.0)
     assert entry.get("phase") == "PTURN"
@@ -1120,7 +1117,7 @@ def test_pi_procedure_turn_exits_automatically_after_one_turn():
 
 def test_persistence_round_trips_leg_phase_and_hold_exit_requested():
     e = engine.Engine()
-    e.load_route(_hold_route("HM"), "T", 1)
+    load(e, _hold_route("HM"), "T", 1)
     e.handle_command("1 ACT 2", (0.0, -nm_to_deg_lon(20.0), True))
     e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1000.0)
     e._hold_exit_requested = True
@@ -1190,7 +1187,7 @@ def test_past_last_waypoint_course_continues_through_it(right):
         ("C", 40.0, engine.TYPE_FIX, 0),
     ])
     e = engine.Engine()
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 3", (route[1].lat, route[1].lon, True))
     lat, lon = past_to(route[1], route[2], 0.5, 0.3 if right else 0.0)
     out = e.update(lat, lon, 120.0, 0.0, True, None, None, 1000.0)
@@ -1209,7 +1206,7 @@ def test_past_map_auto_susp_course_continues_along_final(right):
     route[3] = wp("MAHP", *geo.destination_point(route[2].lat, route[2].lon, 34.0, 2.0),
                   type=engine.TYPE_FIX, flags=engine.FLAG_MAHP)  # missed turns off final
     e = engine.Engine()
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 3", (route[1].lat, route[1].lon, True))
     lat, lon = past_to(route[1], route[2], 0.5, 0.15 if right else 0.0)
     out = e.update(lat, lon, 120.0, 0.0, True, None, None, 1000.0)
@@ -1227,7 +1224,7 @@ def test_suspended_past_intermediate_waypoint_course_continues_through_it(right)
         ("C", 40.0, engine.TYPE_FIX, 0),
     ])
     e = engine.Engine()
-    e.load_route(route, "T", 1)
+    load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (route[0].lat, route[0].lon, True))
     e.handle_command("2 SUSP", (route[0].lat, route[0].lon, True))
     lat, lon = past_to(route[0], route[1], 0.5, 0.3 if right else 0.0)

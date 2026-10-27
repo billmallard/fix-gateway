@@ -10,7 +10,7 @@ never needs a nav database, only coordinates.
 
 **PA3** (fix-gateway#27; `makerplane/briefs/procedures_and_airways_plan.md`
 section 3.2) widened the route slot from a point to a leg (path terminator,
-course, distance, altitude/speed, procedure segment, flags) and raised the
+course, distance, altitude/speed, flags) and raised the
 block to 100 slots, so a procedure can round-trip through it — see
 `doc/flightplan_keys.md` for the key contract.
 
@@ -36,6 +36,16 @@ guardrail 4 rather than shrink the rejected set. Guardrail 1 extends to a
 *recognized* Tier-2 type with incomplete data (no turn direction, no arc
 center, no altitude constraint): that rejects the whole route exactly like
 an unrecognized terminator does, never a defaulted value.
+
+**RS1** (fix-gateway#39; `makerplane/briefs/route_segments_plan.md`
+sections 3 and 5) makes route segments first-class on the bus: each slot
+names its segment (`FPLfSGI`) in a table as long as the slot block
+(`FPLS1..100`) that says what the segment is (an entered waypoint, airway,
+departure, arrival, approach or missed approach),
+its ident, and its entry/exit fixes and slots. The engine flies legs exactly
+as before. It checks the table on every commit, reports the active segment
+(`FPLACTSEG`) and the distance left in it (`FPLSEGREM`), and persists the
+table with the route.
 
 **Ruling (Bill, 2026-09-08):** CDI scaling is the full DO-229 lateral
 behaviour *including the approach phase*. There is no VFR-advisory mode —
@@ -106,6 +116,11 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   `"BADCENTER"`/`"BADALT"`/`"BADLEGLEN" <PT> <ident>` when a *recognized*
   Tier-2 type is missing the fields its geometry needs; either way the
   previously loaded route, if any, is left exactly as it was (guardrail 1).
+  RS1 puts the segment table through the same gate, after the legs pass:
+  a table that does not describe the slots exactly rejects the whole
+  commit with `SEGCNT`/`SEGSGI`/`SEGNONCONTIG`/`SEGORDER`/`SEGKIND`/
+  `SEGRANGE`/`SEGENT`/`SEGEXT`/`SEGLEN`/`SEGID` (rules and formats in
+  `doc/flightplan_keys.md`).
   A vector leg (`VA`/`VM`/`FM`/`VI`) is accepted at load but never flown:
   reaching one (by `ACT`/`DTO` or mid-flight sequencing) forces `FPLSTATE =
   SUSP` and `FPLPHASE = "VECTORS"`, with `FPLCRS`/`FPLXTK`/`FPLCDI`/`WPDIS`/
@@ -152,6 +167,17 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   hold/PT's outbound/inbound pair and a `CA`/`FA`'s open-ended course are
   not the simple bearing-delta case the anticipation formula was built for,
   so those transitions are abeam-triggered only, never anticipated early.
+- **Segments (RS1)**: `FPLACTSEG` is the segment of the active TO slot
+  (`FPLfSGI` of `FPLACTLEG`), so the leg *into* an airway's entry fix
+  already reads the airway; 0 with no plan active or on an off-route
+  direct-to. `FPLSEGREM` is the distance to the TO fix plus the plan legs
+  from it to the segment's last slot; 0 when there is no active segment or
+  guidance has failed. A `DTO` to a fix inside an airway does not touch the
+  table: the remaining slots are still that airway segment, so `FPLACTSEG`
+  keeps naming it and `FPLSEGREM` counts from the aircraft to the fix and
+  on to the exit. The table belongs to the editor. The engine never
+  rewrites it in flight, and an editor re-commit would drop the activation
+  anyway (any `FPLSEQ` change is a new plan).
 - **Commands** (`FPLCMD`): `ACT <k>`, `DTO` / `DTO <k>`, `DTOX`, `SUSP`,
   `RESUME`, `SCALE <0.3|1.0|2.0|AUTO>`. See Appendix C of the brief for the
   full grammar. Ack on `FPLCMDACK` (`seq` success, `-seq` rejection),
@@ -208,7 +234,11 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   (mode, active leg, FROM/TO points), the missed-approach/DTO-suppression
   flags, the manual scale selection, and (PA13) the Tier-2 sub-leg phase
   (which leg of an outbound/inbound pair, or the FA past-the-fix course
-  phase) and whether an `HM` hold's exit is armed. Restored `restore_delay` (2 s)
+  phase) and whether an `HM` hold's exit is armed, and (RS1) the segment
+  table. A restored file goes through the same leg and segment checks as a
+  bus commit: if it fails, nothing is restored, `FPLMSG` gets the reason,
+  and the file is left on disk until the next accepted commit replaces it.
+  A pre-RS1 file (no table) is migrated to one waypoint row per slot. Restored `restore_delay` (2 s)
   after start, at which point the engine re-publishes the route block and
   `FPLSEQ` itself — the one documented exception to "the editor writes the
   block" (mirrors `state_persist` restoring `NAVSRC`). The plugin's own
@@ -229,6 +259,13 @@ c.connect()
 c.write("FPL1ID", "KSBA"); c.write("FPL1LAT", 34.42621); c.write("FPL1LON", -119.84037); c.write("FPL1TYPE", 1)
 c.write("FPL2ID", "GVO");  c.write("FPL2LAT", 34.53142); c.write("FPL2LON", -120.09106); c.write("FPL2TYPE", 2)
 c.write("FPL3ID", "KSMX"); c.write("FPL3LAT", 34.89892); c.write("FPL3LON", -120.45758); c.write("FPL3TYPE", 1)
+# RS1: one waypoint row per slot (no airway, no procedure).
+for i, ident in ((1, "KSBA"), (2, "GVO"), (3, "KSMX")):
+    c.write(f"FPL{i}SGI", i)
+    c.write(f"FPLS{i}KIND", 0); c.write(f"FPLS{i}ID", "")
+    c.write(f"FPLS{i}ENT", ident); c.write(f"FPLS{i}EXT", ident)
+    c.write(f"FPLS{i}FIRST", i); c.write(f"FPLS{i}LAST", i)
+c.write("FPLSEGCNT", 3)
 c.write("FPLCOUNT", 3)
 c.write("FPLNAME", "KSBA-KSMX")
 c.write("FPLSEQ", 1)          # commit -- consumers (incl. this engine) act now
@@ -241,7 +278,9 @@ print(c.read("FPLCRS"), c.read("FPLCDI"), c.read("WPDIS"))
 
 As X-Plane (or the bench GPS source) moves `LAT`/`LONG`/`GS`, watch
 `FPLCRS`/`FPLXTK`/`FPLCDI`/`WPDIS`/`FPLTF` track the leg, and `FPLSTATE`/
-`FPLACTLEG`/`FPLMSG` advance as it sequences.
+`FPLACTLEG`/`FPLMSG` advance as it sequences. If the commit is rejected,
+`FPLMSG` says why (for example `SEGEXT S3 GVO` if `FPLS3EXT` does not
+name slot 3).
 
 ## Tests
 
@@ -254,7 +293,7 @@ As X-Plane (or the bench GPS source) moves `LAT`/`LONG`/`GS`, watch
   backstop), Direct-To/DTOX/SUSP/RESUME, the full DO-229 approach state
   machine (armed/active/ramp/MAP/missed), the integrity gate, WPETE
   staleness, command ack/reject, persistence round-trip (including the PA3
-  leg fields and procedure provenance), the 100-slot cycle-time budget, and
+  leg fields and block-level provenance), the 100-slot cycle-time budget, and
   (PA4) whole-route rejection of an unsupported path terminator — the most
   important test in that item, run negative — every supported terminator
   loading without rejection, `CF`'s published-course geometry (including
@@ -270,7 +309,24 @@ As X-Plane (or the bench GPS source) moves `LAT`/`LONG`/`GS`, watch
   `HM` outbound/inbound/repeat/RESUME-exit state machine, `HF`'s
   single-circuit auto-exit, `HA`'s repeat-until-altitude, `PI`'s ±45°
   outbound offset and single-turn auto-exit, and persistence round-trip of
-  the Tier-2 sub-leg phase and hold-exit flag.
+  the Tier-2 sub-leg phase and hold-exit flag. Every test loads its route
+  through `tests/plugins/flightplan/routes.py`, which supplies an all-waypoint
+  segment table unless the test gives one (RS1).
+- `tests/plugins/flightplan/test_engine_segments.py` (RS1) — a valid
+  waypoint/airway/waypoint table and every segment kind loading, a full
+  100-slot route as 100 waypoint rows, a waypoint row spanning two slots
+  rejected, one negative test per integrity rule (each a
+  whole-commit rejection with its exact reason, previous route and
+  activation untouched), `FPLACTSEG`/`FPLSEGREM` inside an airway, on the
+  leg into its entry fix, through sequencing out of it, with no plan and
+  off-route, a `DTO` into the middle of an airway keeping the segment, and
+  persistence: the table round-trips, a bad state file is refused, and a
+  pre-RS1 file is migrated.
+- `tests/plugins/flightplan/test_full_commit_netfix.py` (RS1) — the netfix
+  frame-size check: the largest legal commit (100 slots, 100 waypoint rows, every
+  string at its limit) sent through a real netfix server socket in the
+  pyavtools client's format, every line well inside the 1024-byte buffer,
+  and the engine loading all of it on the final `FPLSEQ`.
 - `tests/plugins/flightplan/test_plugin.py` — the `fixgw.database` wiring:
   route commit on `FPLSEQ`, the command channel end-to-end, guidance
   writes, the 5 Hz rate limiter, persistence restore/republish, lifecycle
@@ -278,6 +334,9 @@ As X-Plane (or the bench GPS source) moves `LAT`/`LONG`/`GS`, watch
   unsupported-leg-type route rejection writing `FPLMSG` and leaving the
   previous route loaded, and a vector leg annunciating `VECTORS` end to end.
   PA13 adds: the arc center/turn fields round-tripping through the real
-  wire, and a `CA` leg terminating on the real `ALT` key end to end.
+  wire, and a `CA` leg terminating on the real `ALT` key end to end. RS1
+  adds: a segment table committed on the bus driving `FPLACTSEG`/
+  `FPLSEGREM`, a bad table rejected with its reason on `FPLMSG`, and a bad
+  state file refused on restore without being overwritten.
 - `tests/plugins/compute/` — unchanged behaviour after the `geo.py`
   extraction (no numeric change to `xte`/`bearing`).
