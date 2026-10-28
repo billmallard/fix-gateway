@@ -156,6 +156,40 @@ def test_leg_into_a_hold_at_its_to_fix_is_not_turn_anticipated():
     assert out.get("msg") == "SEQ B -> B"
 
 
+def test_hold_coded_at_the_fix_just_sequenced_starts_on_its_outbound_leg():
+    # fix-gateway#44, exposed once the leg into it stopped sequencing early:
+    # TF B then HM B means B is already reached when the HM goes active. It
+    # used to start on a zero-length leg from B to B, whose bearing is
+    # meaningless (the FP8 replay showed FPLCRS 348.1 with outbound 301.4).
+    e = engine.Engine()
+    b_lon = nm_to_deg_lon(20.0)
+    route = [
+        wp("A", 0.0, 0.0),
+        wp("B", 0.0, b_lon),
+        hold_wp("B", 0.0, b_lon, crs=270.0, dst=4.0, turn="L"),
+    ]
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+    for i, nm_past in enumerate((0.01, 0.2, 1.0)):
+        out = e.update(0.0, b_lon + nm_to_deg_lon(nm_past), 120.0, 0.0, True, None, None, 1000.0 + i)
+        assert out["act_leg"] == 3
+        assert e._leg_phase == engine.LEGPHASE_OUTBOUND
+        assert out["crs"] == pytest.approx(90.0, abs=0.01)
+        assert out["xtk"] == pytest.approx(0.0, abs=1e-6)
+        assert out.get("phase") == "HOLD"
+
+
+def test_hold_with_its_own_inbound_leg_still_flies_to_the_fix_first():
+    # The coincident-fix start above must not apply when the hold slot is
+    # the leg to its fix (A -> HM HOLD): there the fix is not yet reached.
+    e = engine.Engine()
+    load(e, _hold_route("HM"), "T", 1)
+    e.handle_command("1 ACT 2", (0.0, -nm_to_deg_lon(20.0), True))
+    out = e.update(0.0, -nm_to_deg_lon(1.0), 120.0, 0.0, True, None, None, 1000.0)
+    assert out["act_leg"] == 2
+    assert e._leg_phase is None
+
+
 def test_last_waypoint_never_sequences_flips_to_from():
     e = engine.Engine()
     route = straight_route(3)

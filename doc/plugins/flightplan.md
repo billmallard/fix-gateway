@@ -141,8 +141,11 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   fix like any other leg, then an outbound leg (`FPLfDST` nm on the
   reciprocal of `FPLfCRS`, or reciprocal ±45° for `PI`) followed by an
   inbound leg back into the fix (the same course-anchor trick `CF`/`CA`
-  use). `FPLPHASE` shows `HOLD` (`HM`/`HF`/`HA`) or `PTURN` (`PI`) for as
-  long as the aircraft is in the pattern — live guidance throughout, unlike
+  use). When the slot before it ends at the same fix (`TF X` then `HM X`,
+  the usual missed-approach coding), the fix is already reached as the hold
+  goes active, so the pattern starts on its outbound leg. `FPLPHASE` shows
+  `HOLD` (`HM`/`HF`/`HA`) or `PTURN` (`PI`) for as long as the aircraft is
+  in the pattern — live guidance throughout, unlike
   `VECTORS`. `HF` and `PI` exit automatically after one circuit/turn; `HA`
   exits once a live altitude input crosses `FPLfALT`'s constraint (checked
   each time the inbound leg reaches the fix, never mid-circuit); `HM` repeats

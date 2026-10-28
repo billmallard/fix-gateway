@@ -130,6 +130,12 @@ PT_SUPPORTED = PT_TIER1 | PT_VECTOR | PT_TIER2
 # fix" exactly like CF.
 CF_VIRTUAL_FROM_NM = 50.0
 
+# A hold/PT slot whose fix is within this of the point just sequenced past
+# is coded at that same fix (TF X, HM X): its fix has already been reached,
+# so it starts on its outbound leg rather than on a zero-length leg to the
+# fix (fix-gateway#44). Well under any real distance between two fixes.
+COINCIDENT_FIX_NM = 0.01
+
 
 def unsupported_leg_reason(waypoints):
     """None if every leg's path terminator is one this engine can fly, and
@@ -1188,6 +1194,12 @@ class Engine:
         self._prev_atd = None
         self._leg_phase = None
         self._hold_exit_requested = False
+        new_wp = self.route[self.act_leg - 1]
+        if (
+            new_wp.pt in (PT_HOLD | PT_PROC_TURN)
+            and geo.distance_nm(reached_to.lat, reached_to.lon, new_to.lat, new_to.lon) < COINCIDENT_FIX_NM
+        ):
+            self._leg_phase = LEGPHASE_OUTBOUND
 
     def _advance_hold_or_pt(self, to_wp, to, alt_ft):
         """Phase transition for HM/HF/HA/PI once the current sub-leg's
