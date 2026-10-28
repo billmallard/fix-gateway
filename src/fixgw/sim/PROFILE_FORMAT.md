@@ -188,7 +188,8 @@ python -m fixgw.sim check src/fixgw/sim/profiles/fp8-ksmx-rnav30-missed.yaml <re
 header, then one row per tick), which `data_playback` replays unchanged.
 To run it through a gateway, enable `data_playback` with `files:` naming
 the output, `flightplan`, and `data_recorder` (the engine's and the `REF*`
-keys), then `check` the recorded files. `generate`'s Python interface
+keys), then `check` the recorded files. `gateway-replay.yaml` beside this
+file is the exact config the first bench replay used, with the commands. `generate`'s Python interface
 (`fixgw.sim.generator.generate` returning rows in write order) is what a
 live netfix writer would iterate (SYN2).
 

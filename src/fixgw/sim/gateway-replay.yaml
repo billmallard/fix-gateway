@@ -1,0 +1,41 @@
+# Replay a synthetic flight through a private gateway (SYN1, AER-4073).
+#
+# Copy src/fixgw/config to a scratch directory, put this file and the
+# generated run.json in it, and run:
+#
+#   python -m fixgw.sim generate <profile> -o <dir>/run.json
+#   PYTHONPATH=<tree>/src python -c "import sys; sys.argv=['fixgw','--config-file','<dir>/gateway-replay.yaml']; \
+#       from fixgw.server import main; main()"
+#   python -m fixgw.sim check <profile> <dir>/fdr/YYYY/MM/DD/*.json
+#
+# No netfix and no sources, so it cannot collide with a gateway already
+# running on the box: data_playback is the only writer of the inputs, at
+# real time, and start_time makes it quit after one pass. Do not use
+# `fixgw --playback-start-time` for this; it starts netfix on 3490.
+database file: "{CONFIG}/database.yaml"
+auto start: true
+initialization files: []
+connections:
+  data_playback:
+    load: yes
+    module: fixgw.plugins.data_playback
+    files: ["{CONFIG}/run.json"]
+    start_time: 2026-01-01 00:00:00
+  flightplan:
+    load: yes
+    module: fixgw.plugins.flightplan
+    restore_delay: 2.0
+    rate_hz: 5
+    turn_rate_deg_s: 3.0
+    terminal_nm: 30
+    approach_ramp_nm: 2.0
+    alert_s: 10
+    integrity_key: GPS_ACCURACY_HORIZ
+    hal_nm: {enr: 2.0, term: 1.0, lnav: 0.3}
+    altitude_key: ALT
+  data_recorder:
+    load: yes
+    module: fixgw.plugins.data_recorder
+    key_prefixes: [FPLC, FPLX, FPLM, FPLA, FPLP, FPLSTATE, FPLSEQ, FPLTF, WP, REF, CDISCALE, LAT, LONG, ALT, GS, TRACK]
+    frequency: 200
+    filepath: "{CONFIG}/fdr"
