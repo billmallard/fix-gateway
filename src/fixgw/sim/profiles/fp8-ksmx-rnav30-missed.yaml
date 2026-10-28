@@ -1,0 +1,64 @@
+# FP8 session 2 (AER-809): the RNAV (GPS) RWY 30 at KSMX via the GVO
+# transition, picked up 2 nm before PAMJI at 2,500 ft, through the MAP and
+# the missed approach to WINCH, with a 1 nm offset each side on HANNU-WINCH
+# and five minutes in the WINCH hold. Format: ../PROFILE_FORMAT.md
+name: fp8-ksmx-rnav30-missed
+description: >
+  KSMX RNAV (GPS) RWY 30 via GVO from 2 nm before PAMJI at 2500 ft, missed
+  approach to WINCH, +1 nm then -1 nm offset on HANNU-WINCH, 5 min in the
+  WINCH hold.
+
+cifp:
+  cycle: "2611"                    # pinned; KSMX R30 records are identical in 2610
+  file: cifp/FAACIFP18-2611-KSMX-R30
+
+aircraft: {tas_kt: 110, climb_fpm: 700, descent_fpm: 600, bank_max_deg: 25}
+
+environment:
+  magvar_deg: -11.9                # FIX MAGVAR, positive west: CIFP E011.9 at the KSMX terminal fixes
+  wind: {from_deg: 0, kt: 0}
+
+start: {fix: PAMJI, before_nm: 2.0, alt_ft: 2500, heading: on_course}
+
+route:
+  - procedure: {airport: KSMX, approach: R30, transition: GVO, missed: true}
+
+pilot:
+  missed_after_map_s: 5            # RESUME this long after crossing the MAP
+
+events:
+  - id: right
+    at: {leg: HANNU-WINCH, after_s: 5}
+    do: {offset_nm: 1.0, hold_s: 30}
+  - id: left
+    at: {after: right}
+    do: {offset_nm: -1.0, hold_s: 30}
+  - id: rejoin
+    at: {after: left}
+    do: {offset_nm: 0.0}
+  - id: hold
+    at: {hold_at: WINCH}
+    do: {hold_min: 5}
+
+end: {after_event: hold, max_s: 3600}
+
+checks:
+  - key_pair: [FPLCRS, REFCRS]
+    tol_deg: 0.5
+    except_s_around_sequence: 5
+  - key_pair: [FPLXTK, REFXTK]
+    tol: 0.02
+    except_s_around_sequence: 5
+  - key_pair: [FPLCDI, REFCDI]
+    tol: 0.05
+    same_sign: true
+    except_s_around_sequence: 5
+  - key_pair: [WPDIS, REFDIS]
+    tol: 0.01
+    tol_rel: 0.005
+    skip_when: {REFWPT: ""}
+    except_s_around_sequence: 5
+  - key_pair: [WPNAME, REFWPT]
+    except_s_around_sequence: 5
+  - sequence: [PAMJI, CIMSO, ANIBY, RW30, HANNU, WINCH]
+    keys: [WPNAME, REFWPT]

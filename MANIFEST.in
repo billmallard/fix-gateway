@@ -1,1 +1,3 @@
 recursive-include src/fixgw/config *
+recursive-include src/fixgw/sim/profiles *
+include src/fixgw/sim/PROFILE_FORMAT.md
