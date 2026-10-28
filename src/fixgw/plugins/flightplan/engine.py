@@ -130,6 +130,12 @@ PT_SUPPORTED = PT_TIER1 | PT_VECTOR | PT_TIER2
 # fix" exactly like CF.
 CF_VIRTUAL_FROM_NM = 50.0
 
+# A hold/PT slot whose fix is within this of the point just sequenced past
+# is coded at that same fix (TF X, HM X): its fix has already been reached,
+# so it starts on its outbound leg rather than on a zero-length leg to the
+# fix (fix-gateway#44). Well under any real distance between two fixes.
+COINCIDENT_FIX_NM = 0.01
+
 
 def unsupported_leg_reason(waypoints):
     """None if every leg's path terminator is one this engine can fly, and
@@ -1155,17 +1161,22 @@ class Engine:
 
     def _turn_anticipation_for(self, to_wp, anchor, to, gs_kt):
         """d_ta for the active leg, or 0.0 (fly-over: no predictive
-        anticipation) for a FAF/MAP-flagged leg or (PA13) any Tier-2 leg --
-        an arc's exit tangent, a hold/PT's outbound/inbound pair and a
+        anticipation) for a TO fix coded fly-over (FLAG_FLYOVER), a
+        FAF/MAP-flagged leg or (PA13) a transition into or out of any Tier-2
+        leg -- an arc's exit tangent, a hold/PT's outbound/inbound pair and a
         CA/FA's open-ended course are not the simple bearing-delta case
         this anticipation formula was built for, so those transitions are
-        abeam-triggered only, never anticipated early."""
+        abeam-triggered only, never anticipated early (fix-gateway#44: a
+        hold coded at the TO fix also makes the next leg zero-length, so
+        its bearing is meaningless as a turn)."""
         if to_wp.pt in PT_TIER2:
+            return 0.0
+        if to_wp.flags & FLAG_FLYOVER:
             return 0.0
         if self._is_flyover_leg(self.act_leg):
             return 0.0
         next_wp = self.route[self.act_leg] if self.act_leg < self.count else None
-        if next_wp is None:
+        if next_wp is None or next_wp.pt in PT_TIER2:
             return 0.0
         cur_course = geo.bearing_deg(anchor.lat, anchor.lon, to.lat, to.lon)
         next_course = geo.bearing_deg(to.lat, to.lon, next_wp.lat, next_wp.lon)
@@ -1183,6 +1194,12 @@ class Engine:
         self._prev_atd = None
         self._leg_phase = None
         self._hold_exit_requested = False
+        new_wp = self.route[self.act_leg - 1]
+        if (
+            new_wp.pt in (PT_HOLD | PT_PROC_TURN)
+            and geo.distance_nm(reached_to.lat, reached_to.lon, new_to.lat, new_to.lon) < COINCIDENT_FIX_NM
+        ):
+            self._leg_phase = LEGPHASE_OUTBOUND
 
     def _advance_hold_or_pt(self, to_wp, to, alt_ft):
         """Phase transition for HM/HF/HA/PI once the current sub-leg's

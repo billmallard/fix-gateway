@@ -141,8 +141,11 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   fix like any other leg, then an outbound leg (`FPLfDST` nm on the
   reciprocal of `FPLfCRS`, or reciprocal ±45° for `PI`) followed by an
   inbound leg back into the fix (the same course-anchor trick `CF`/`CA`
-  use). `FPLPHASE` shows `HOLD` (`HM`/`HF`/`HA`) or `PTURN` (`PI`) for as
-  long as the aircraft is in the pattern — live guidance throughout, unlike
+  use). When the slot before it ends at the same fix (`TF X` then `HM X`,
+  the usual missed-approach coding), the fix is already reached as the hold
+  goes active, so the pattern starts on its outbound leg. `FPLPHASE` shows
+  `HOLD` (`HM`/`HF`/`HA`) or `PTURN` (`PI`) for as long as the aircraft is
+  in the pattern — live guidance throughout, unlike
   `VECTORS`. `HF` and `PI` exit automatically after one circuit/turn; `HA`
   exits once a live altitude input crosses `FPLfALT`'s constraint (checked
   each time the inbound leg reaches the fix, never mid-circuit); `HM` repeats
@@ -161,7 +164,8 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   `R_turn = GS_kt / 188.5` nm, `delta` capped at 120 deg, `d_ta` floored at
   0.1 nm and capped at 5 nm — or the abeam backstop (along-track distance
   goes negative). The last waypoint, and any waypoint marked MAP, never
-  auto-sequences. The FAF and every fix between the FAF and the MAP are
+  auto-sequences. A fix coded fly-over (`FPLfFLAGS` `0x01`), the FAF and
+  every fix between the FAF and the MAP are
   fly-over: abeam-only, no turn anticipation (`d_ta = 0`) — and (PA13) so is
   every Tier-2 leg type, in both directions: an arc's exit tangent, a
   hold/PT's outbound/inbound pair and a `CA`/`FA`'s open-ended course are

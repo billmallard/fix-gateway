@@ -110,6 +110,86 @@ def test_sequencing_abeam_backstop_when_atd_goes_negative():
     assert out.get("msg") == "SEQ B -> C"
 
 
+def _turn_route(b_flags=0):
+    # A -> B east, then a 90 degree left turn to C: 0.637 nm of anticipation
+    # at 120 kt if B is flown fly-by.
+    b_lon = nm_to_deg_lon(60.04)
+    return [wp("A", 0.0, 0.0), wp("B", 0.0, b_lon, flags=b_flags), wp("C", 1.0, b_lon)]
+
+
+@pytest.mark.parametrize("b_flags,seq_early", [(0, True), (engine.FLAG_FLYOVER, False)])
+def test_coded_flyover_fix_is_not_turn_anticipated(b_flags, seq_early):
+    # fix-gateway#44: FPLfFLAGS 0x01 outside the FAF..MAP run is fly-over --
+    # abeam-only, like the FAF. The fly-by row is the control: same route,
+    # same position, inside its 0.637 nm d_ta.
+    e = engine.Engine()
+    route = _turn_route(b_flags)
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+    out = e.update(0.0, route[1].lon - nm_to_deg_lon(0.3), 120.0, 0.0, True, None, None, 1000.0)
+    assert out["act_leg"] == (3 if seq_early else 2)
+
+    out = e.update(0.0, route[1].lon + nm_to_deg_lon(0.01), 120.0, 0.0, True, None, None, 1001.0)
+    assert out["act_leg"] == 3
+
+
+def test_leg_into_a_hold_at_its_to_fix_is_not_turn_anticipated():
+    # fix-gateway#44: TF WINCH then HM WINCH (KSMX RNAV 30 missed). The HM
+    # sits on the TO fix, so the bearing to it is a zero-length leg's, not a
+    # turn -- the engine used to enter the hold ~0.25 nm early from it.
+    # Abeam-only, in both directions, like every other Tier-2 transition.
+    e = engine.Engine()
+    b_lon = nm_to_deg_lon(20.0)
+    route = [
+        wp("A", 0.0, 0.0),
+        wp("B", 0.0, b_lon),
+        hold_wp("B", 0.0, b_lon, crs=270.0, dst=4.0, turn="L"),
+    ]
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+    for i, nm_before in enumerate((0.6, 0.3, 0.1, 0.02)):
+        out = e.update(0.0, b_lon - nm_to_deg_lon(nm_before), 120.0, 0.0, True, None, None, 1000.0 + i)
+        assert out["act_leg"] == 2, nm_before
+
+    out = e.update(0.0, b_lon + nm_to_deg_lon(0.01), 120.0, 0.0, True, None, None, 1010.0)
+    assert out["act_leg"] == 3
+    assert out.get("msg") == "SEQ B -> B"
+
+
+def test_hold_coded_at_the_fix_just_sequenced_starts_on_its_outbound_leg():
+    # fix-gateway#44, exposed once the leg into it stopped sequencing early:
+    # TF B then HM B means B is already reached when the HM goes active. It
+    # used to start on a zero-length leg from B to B, whose bearing is
+    # meaningless (the FP8 replay showed FPLCRS 348.1 with outbound 301.4).
+    e = engine.Engine()
+    b_lon = nm_to_deg_lon(20.0)
+    route = [
+        wp("A", 0.0, 0.0),
+        wp("B", 0.0, b_lon),
+        hold_wp("B", 0.0, b_lon, crs=270.0, dst=4.0, turn="L"),
+    ]
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+    for i, nm_past in enumerate((0.01, 0.2, 1.0)):
+        out = e.update(0.0, b_lon + nm_to_deg_lon(nm_past), 120.0, 0.0, True, None, None, 1000.0 + i)
+        assert out["act_leg"] == 3
+        assert e._leg_phase == engine.LEGPHASE_OUTBOUND
+        assert out["crs"] == pytest.approx(90.0, abs=0.01)
+        assert out["xtk"] == pytest.approx(0.0, abs=1e-6)
+        assert out.get("phase") == "HOLD"
+
+
+def test_hold_with_its_own_inbound_leg_still_flies_to_the_fix_first():
+    # The coincident-fix start above must not apply when the hold slot is
+    # the leg to its fix (A -> HM HOLD): there the fix is not yet reached.
+    e = engine.Engine()
+    load(e, _hold_route("HM"), "T", 1)
+    e.handle_command("1 ACT 2", (0.0, -nm_to_deg_lon(20.0), True))
+    out = e.update(0.0, -nm_to_deg_lon(1.0), 120.0, 0.0, True, None, None, 1000.0)
+    assert out["act_leg"] == 2
+    assert e._leg_phase is None
+
+
 def test_last_waypoint_never_sequences_flips_to_from():
     e = engine.Engine()
     route = straight_route(3)
