@@ -80,6 +80,10 @@ class CheckResult:
     by_leg: dict = field(default_factory=dict)   # leg label -> (compared, failed, max_err)
 
 
+def _fmt(v):
+    return f"{v:.4f}" if isinstance(v, float) else repr(v)
+
+
 def _wrap180(a):
     return (a + 180.0) % 360.0 - 180.0
 
@@ -195,7 +199,7 @@ def _eval_one(c, log, seq_times, legs, start_s):
             f += 1
             if res.first_fail_t is None:
                 res.first_fail_t = t
-                res.detail = f"t={t:.1f}s {a_key}={a!r} {b_key}={b!r}"
+                res.detail = f"t={t:.1f}s {a_key}={_fmt(a)} {b_key}={_fmt(b)}"
         res.by_leg[leg] = (n + 1, f, m)
     res.passed = res.failed == 0 and res.compared > 0
     if res.compared == 0:
