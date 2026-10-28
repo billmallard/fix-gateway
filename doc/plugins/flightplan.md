@@ -161,7 +161,8 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   `R_turn = GS_kt / 188.5` nm, `delta` capped at 120 deg, `d_ta` floored at
   0.1 nm and capped at 5 nm — or the abeam backstop (along-track distance
   goes negative). The last waypoint, and any waypoint marked MAP, never
-  auto-sequences. The FAF and every fix between the FAF and the MAP are
+  auto-sequences. A fix coded fly-over (`FPLfFLAGS` `0x01`), the FAF and
+  every fix between the FAF and the MAP are
   fly-over: abeam-only, no turn anticipation (`d_ta = 0`) — and (PA13) so is
   every Tier-2 leg type, in both directions: an arc's exit tangent, a
   hold/PT's outbound/inbound pair and a `CA`/`FA`'s open-ended course are

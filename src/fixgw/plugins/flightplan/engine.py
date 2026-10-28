@@ -1155,17 +1155,22 @@ class Engine:
 
     def _turn_anticipation_for(self, to_wp, anchor, to, gs_kt):
         """d_ta for the active leg, or 0.0 (fly-over: no predictive
-        anticipation) for a FAF/MAP-flagged leg or (PA13) any Tier-2 leg --
-        an arc's exit tangent, a hold/PT's outbound/inbound pair and a
+        anticipation) for a TO fix coded fly-over (FLAG_FLYOVER), a
+        FAF/MAP-flagged leg or (PA13) a transition into or out of any Tier-2
+        leg -- an arc's exit tangent, a hold/PT's outbound/inbound pair and a
         CA/FA's open-ended course are not the simple bearing-delta case
         this anticipation formula was built for, so those transitions are
-        abeam-triggered only, never anticipated early."""
+        abeam-triggered only, never anticipated early (fix-gateway#44: a
+        hold coded at the TO fix also makes the next leg zero-length, so
+        its bearing is meaningless as a turn)."""
         if to_wp.pt in PT_TIER2:
+            return 0.0
+        if to_wp.flags & FLAG_FLYOVER:
             return 0.0
         if self._is_flyover_leg(self.act_leg):
             return 0.0
         next_wp = self.route[self.act_leg] if self.act_leg < self.count else None
-        if next_wp is None:
+        if next_wp is None or next_wp.pt in PT_TIER2:
             return 0.0
         cur_course = geo.bearing_deg(anchor.lat, anchor.lon, to.lat, to.lon)
         next_course = geo.bearing_deg(to.lat, to.lon, next_wp.lat, next_wp.lon)
