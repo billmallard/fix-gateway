@@ -1,0 +1,56 @@
+# Reference navigator keys for the synthetic flight tier (SYN1,
+# src/fixgw/sim/). Written only by a synthetic run (the generator's file
+# replayed by data_playback, or a live writer): the truth a profile's
+# checks compare the navigation engine against. The reference is written
+# independently of the engine and imports nothing from it
+# (src/fixgw/sim/refnav.py). Same sign conventions as the engine outputs
+# (doc/flightplan_keys.md); tol as the engine outputs.
+
+items:
+
+- key: REFCRS
+  description: Reference navigator desired track (magnetic)
+  type: float
+  min: 0.0
+  max: 359.999
+  units: deg
+  initial: 0.0
+  tol: 5000
+
+- key: REFXTK
+  description: Reference navigator cross-track error, positive right of track
+  type: float
+  min: -100.0
+  max: 100.0
+  units: nM
+  initial: 0.0
+  tol: 5000
+
+- key: REFCDI
+  description: Reference navigator course deviation (-REFXTK / full scale, clamped)
+  type: float
+  min: -1.0
+  max: 1.0
+  initial: 0.0
+  tol: 5000
+
+- key: REFDIS
+  description: Reference navigator distance to the TO waypoint
+  type: float
+  min: 0.0
+  max: 9999.9
+  units: nM
+  initial: 0.0
+  tol: 5000
+
+- key: REFWPT
+  description: Reference navigator TO waypoint ident ("" on a leg with no fix)
+  type: str
+  initial: ""
+  tol: 5000
+
+- key: REFPT
+  description: Reference navigator active leg path terminator (TF, CA, HM ...)
+  type: str
+  initial: ""
+  tol: 5000

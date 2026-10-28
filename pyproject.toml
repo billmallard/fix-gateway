@@ -68,6 +68,9 @@ qt = [
 knobster = [
     "pyusb>=1.2.1",
 ]
+sim = [
+    "geographiclib>=2.0",
+]
 
 [project.scripts]
 fixgw = "fixgw.server:main"

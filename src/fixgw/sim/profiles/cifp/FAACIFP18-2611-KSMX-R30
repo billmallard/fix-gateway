@@ -1,0 +1,24 @@
+HDR01FAACIFP18      001P013203973042611  07-OCT-202615:55:03  U.S.A. DOT FAA                                                9D60747B
+SUSAD        GVO   K2011380VTLW N34315275W120052792    N34315275W120052792E0160026161     NARGAVIOTA                       253071605
+SUSAEAENRT   WINCH K20    C     N35042453W120394608                       E0120     NAR           WINCH                    537502605
+SUSAP KSMXK2ASMX     0     080YHN34535980W120272910E014000261         1800018000C    MNAR    SANTA MARIA PUB/CAPT G ALLAN H206031808
+SUSAP KSMXK2CANIBY K20    W     N34500954W120242388                       E0119     NAR           ANIBY                    206042605
+SUSAP KSMXK2CCIMSO K20    W     N34491203W120234434                       E0119     NAR           CIMSO                    206062605
+SUSAP KSMXK2CELZUS K20    W     N34431645W120194022                       E0119     NAR           ELZUS                    206082605
+SUSAP KSMXK2CHANNU K20    W     N34575477W120294423                       E0120     NAR           HANNU                    206102605
+SUSAP KSMXK2CNIRLE K20    W     N34372754W120122464                       E0119     NAR           NIRLE                    206122504
+SUSAP KSMXK2CPAMJI K20    W     N34464825W120220555                       E0119     NAR           PAMJI                    206132605
+SUSAP KSMXK2FR30   AGVO   010GVO  K2D 0V  A    IF                                             18000                 B PS   206752202
+SUSAP KSMXK2FR30   AGVO   020NIRLEK2PC0E    010TF                                 + 04400                           B PS   206762202
+SUSAP KSMXK2FR30   AGVO   030ELZUSK2PC0EE B 010TF                                 + 03500                           B PS   206772202
+SUSAP KSMXK2FR30   R      010ELZUSK2PC0E  I    IF                                 + 03500     18000                 B PS   206782202
+SUSAP KSMXK2FR30   R      011PAMJIK2PC0E    010TF                                 + 02500                           B PS   206792202
+SUSAP KSMXK2FR30   R      020CIMSOK2PC1E  F 010TF                                 + 02200                 RW30  K2PGB PS   206802202
+SUSAP KSMXK2FR30   R      020CIMSOK2PC2WN          N          ALNAV                                                   PS   206812202
+SUSAP KSMXK2FR30   R      021ANIBYK2PC0E S  031TF                                 + 01780                           B PS   206822202
+SUSAP KSMXK2FR30   R      030RW30 K2PG0GY M 031TF                                   00318              000          B PS   206832501
+SUSAP KSMXK2FR30   R      040         0  M     CA                     3165        + 00661                           B PS   206842202
+SUSAP KSMXK2FR30   R      050HANNUK2PC0E    010DF                                                                   B PS   206852202
+SUSAP KSMXK2FR30   R      060WINCHK2EA0EY   010TF                                 + 04000                           B PS   206862202
+SUSAP KSMXK2FR30   R      070WINCHK2EA0EE  L   HM                     12140040    + 04000                           B PS   206872202
+SUSAP KSMXK2GRW30    0080043010 N34533343W120264423         +0043900261000057150R                                          207022501
