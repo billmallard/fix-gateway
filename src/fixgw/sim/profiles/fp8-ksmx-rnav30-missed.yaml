@@ -54,7 +54,10 @@ checks:
     same_sign: true
     except_s_around_sequence: 5
   - key_pair: [WPDIS, REFDIS]
-    tol: 0.01
+    # 0.5%: sphere vs WGS-84 distance. 0.015 nm: through a gateway the
+    # engine's value can be two 0.2 s updates older than the reference in
+    # the same recorder row, 0.012 nm at 110 kt.
+    tol: 0.015
     tol_rel: 0.005
     skip_when: {REFWPT: ""}
     except_s_around_sequence: 5

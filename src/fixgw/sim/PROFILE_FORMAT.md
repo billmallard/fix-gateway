@@ -79,7 +79,7 @@ end: {after_event: hold, max_s: 3600}
 checks:
   - {key_pair: [FPLCRS, REFCRS], tol_deg: 0.5, except_s_around_sequence: 5}
   - {key_pair: [FPLCDI, REFCDI], tol: 0.05, same_sign: true, except_s_around_sequence: 5}
-  - {key_pair: [WPDIS, REFDIS], tol: 0.01, tol_rel: 0.005, skip_when: {REFWPT: ""}}
+  - {key_pair: [WPDIS, REFDIS], tol: 0.015, tol_rel: 0.005, skip_when: {REFWPT: ""}}
   - {sequence: [PAMJI, CIMSO, ANIBY, RW30, HANNU, WINCH], keys: [WPNAME, REFWPT]}
 ```
 
