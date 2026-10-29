@@ -51,7 +51,14 @@ class Connection(object):
             else 1024
         )
         self.subscriptions = set()
-        self.output_inhibit = False
+        # The key this connection is writing right now, or None. Its own
+        # write must not echo back to it, but only that key: a plugin can
+        # answer synchronously inside the same db_write (the flightplan
+        # engine writes FPLCMDACK from its FPLCMD callback), and a boolean
+        # here was consumed by that answer instead of the echo, so the
+        # writer never saw its own ack (AER-812). Held only for the
+        # duration of the synchronous write -- see _write_inhibited.
+        self.output_inhibit = None
 
     # This sends a standard Net-FIX value update message to the queue.
     def __send_value(self, id, value):
@@ -150,10 +157,9 @@ class Connection(object):
             self.queue.put("@w{0}!003\n".format(a[0]).encode())
             return
         try:
-            self.output_inhibit = True
             # Track inputs so we do not send back to same client
             client_block[self.addr[0]].add(a[0])
-            self.parent.db_write(a[0], a[1])
+            self._write_inhibited(a[0], a[1])
         except KeyError:
             self.queue.put("@w{0}!001\n".format(a[0]).encode())
             return
@@ -266,20 +272,30 @@ class Connection(object):
                     elif s and s == "0":
                         # self.output_inhibit = True
                         item.secfail = False
-                self.output_inhibit = True
                 # Track inputs so we do not send back to same client
                 client_block[self.addr[0]].add(x[0])
-                self.parent.db_write(x[0], x[1])
+                self._write_inhibited(x[0], x[1])
             except Exception as e:
                 # We pretty much ignore this stuff for now
                 self.log.debug("Problem with input {0}: {1}".format(d.strip(), e))
 
+    def _write_inhibited(self, key, value):
+        """Write *key* for this client without echoing it back. Database
+        callbacks run synchronously inside db_write, so the echo -- if the
+        write produces one at all -- happens before this returns; clearing
+        afterwards means a write that fires no callback cannot leave the
+        inhibit armed to swallow a later, unrelated update."""
+        self.output_inhibit = key
+        try:
+            self.parent.db_write(key, value)
+        finally:
+            self.output_inhibit = None
+
     # Callback function used for subscriptions
     def subscription_handler(self, id, value, udata):
-        if self.output_inhibit:
-            self.output_inhibit = False
-        else:
-            self.__send_value(id, value)
+        if id == self.output_inhibit:
+            return
+        self.__send_value(id, value)
 
 
 # Two threads are started for each connection.  This one is for receiving the data
