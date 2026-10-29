@@ -40,7 +40,7 @@ import pytest
 import fixgw.geo as geo
 import fixgw.plugins.flightplan.engine as engine
 
-from .routes import load
+from .routes import hold_circuit_points, load
 
 _FIXTURE_PATH = Path(__file__).resolve().parent.parent.parent / "fixtures" / "cifp" / "FAACIFP18"
 
@@ -323,37 +323,35 @@ def test_ksba_i07_golet_hold_flies_the_real_inbound_course_and_turn_direction():
     load(e, route, "I07", 1)
     e.handle_command("1 ACT 2", (entry_lat, entry_lon, True))
 
-    # First arrival at GOLET is flown on the real CF leg's own course (184.8)
-    # -- the plain from/to line the engine uses before leg_phase exists.
+    # First arrival at GOLET is on the real CF leg's own course (184.8),
+    # 57.8 deg right of the hold's outbound course (127) for a right hold:
+    # the AIM 5-3-8 parallel sector. One minute outbound (2.0 nm at 120 kt),
+    # then back to the fix on the hold's own inbound course.
     arrival_past_lat, arrival_past_lon = geo.destination_point(*KSBA_GOLET, KSBA_GOLET_CF_COURSE, 0.05)
     entry = e.update(arrival_past_lat, arrival_past_lon, 120.0, 0.0, True, None, None, 1000.0)
-    assert e._leg_phase == engine.LEGPHASE_OUTBOUND
+    assert (e._leg_phase, e._hold_entry) == (engine.LEGPHASE_ENTRY, engine.HOLD_ENTRY_PARALLEL)
     assert entry.get("phase") == "HOLD"
+    assert entry["crs"] == pytest.approx(KSBA_GOLET_HM_COURSE - 180.0, abs=0.05)
 
-    outbound_target = e._hold_outbound_target(e.route[1], 0.0)
-    past_lat, past_lon = geo.destination_point(
-        outbound_target.lat, outbound_target.lon,
-        geo.bearing_deg(*KSBA_GOLET, outbound_target.lat, outbound_target.lon), 0.05)
-    e.update(past_lat, past_lon, 120.0, 0.0, True, None, None, 1001.0)
+    e.update(*geo.destination_point(*KSBA_GOLET, KSBA_GOLET_HM_COURSE - 180.0, 2.05),
+             120.0, 0.0, True, None, None, 1001.0)
     assert e._leg_phase == engine.LEGPHASE_INBOUND
 
-    # Every re-arrival at GOLET from here on is on the hold's own real
-    # coded inbound course (307), not the CF leg's arrival course (184.8) --
-    # a real published hold entry is flown on a different course than
-    # whatever course happened to bring the aircraft to the fix the first
-    # time, and the engine must key off the leg's own crs, not the arrival
-    # heading, once the hold's course-anchor geometry takes over.
-    inbound_past_lat, inbound_past_lon = geo.destination_point(*KSBA_GOLET, KSBA_GOLET_HM_COURSE, 0.05)
-
-    no_exit = e.update(inbound_past_lat, inbound_past_lon, 120.0, 0.0, True, None, None, 1002.0)
+    # Every arrival at GOLET from here on is on the hold's own real coded
+    # inbound course (307), not the CF leg's arrival course (184.8).
+    past_turn_out, past_outbound, past_turn_in, past_fix = hold_circuit_points(
+        *KSBA_GOLET, KSBA_GOLET_HM_COURSE, KSBA_GOLET_HM_LEG_LEN_NM, "R", 120.0)
+    no_exit = e.update(*past_fix, 120.0, 0.0, True, None, None, 1002.0)
     assert no_exit["act_leg"] == 2  # no RESUME yet -- go around again, exactly as HM is coded
-    assert e._leg_phase == engine.LEGPHASE_OUTBOUND
+    assert e._leg_phase == engine.LEGPHASE_TURN_OUT
 
-    ack, msg = e.handle_command("2 RESUME", (inbound_past_lat, inbound_past_lon, True))
+    ack, msg = e.handle_command("2 RESUME", (*past_fix, True))
     assert ack == 2 and msg == "HOLD EXIT ARMED"
 
-    e.update(past_lat, past_lon, 120.0, 0.0, True, None, None, 1003.0)
-    exited = e.update(inbound_past_lat, inbound_past_lon, 120.0, 0.0, True, None, None, 1004.0)
+    for t, pos in enumerate((past_turn_out, past_outbound, past_turn_in), start=1003):
+        e.update(*pos, 120.0, 0.0, True, None, None, float(t))
+    assert e._leg_phase == engine.LEGPHASE_INBOUND
+    exited = e.update(*past_fix, 120.0, 0.0, True, None, None, 1006.0)
     assert exited["act_leg"] == 3
     assert exited.get("msg") == "SEQ GOLET -> NEXT"
 
@@ -379,27 +377,35 @@ def test_kabq_h21y_abq_hold_flies_the_real_distance_coded_leg_length_with_no_con
     load(e, route, "H21-Y", 1)
     e.handle_command("1 ACT 2", (entry_lat, entry_lon, True))
 
+    # Arriving on the hold's own inbound course: a direct entry.
     arrival_lat, arrival_lon = geo.destination_point(*KABQ_ABQ, KABQ_ABQ_HM_COURSE, 0.05)
     entry = e.update(arrival_lat, arrival_lon, 120.0, 0.0, True, None, None, 1000.0)
-    assert e._leg_phase == engine.LEGPHASE_OUTBOUND
+    assert (e._leg_phase, e._hold_entry) == (engine.LEGPHASE_TURN_OUT, engine.HOLD_ENTRY_DIRECT)
     assert entry.get("phase") == "HOLD"
 
-    outbound_target = e._hold_outbound_target(e.route[1], 0.0)
-    past_lat, past_lon = geo.destination_point(
-        outbound_target.lat, outbound_target.lon,
-        geo.bearing_deg(*KABQ_ABQ, outbound_target.lat, outbound_target.lon), 0.05)
-    e.update(past_lat, past_lon, 120.0, 0.0, True, None, None, 1001.0)
-    assert e._leg_phase == engine.LEGPHASE_INBOUND
-
-    no_exit = e.update(arrival_lat, arrival_lon, 120.0, 0.0, True, None, None, 1002.0)
-    assert no_exit["act_leg"] == 2  # no RESUME yet -- go around again, exactly as HM is coded
+    # The outbound leg ends at 7.0 nm along track from ABQ, read straight
+    # off the fixture: still outbound at 6.9, the turn inbound at 7.05.
+    past_turn_out, past_outbound, past_turn_in, past_fix = hold_circuit_points(
+        *KABQ_ABQ, KABQ_ABQ_HM_COURSE, KABQ_ABQ_HM_LEG_LEN_NM, KABQ_ABQ_HM_TURN, 120.0)
+    e.update(*past_turn_out, 120.0, 0.0, True, None, None, 1001.0)
+    short_lat, short_lon = hold_circuit_points(
+        *KABQ_ABQ, KABQ_ABQ_HM_COURSE, KABQ_ABQ_HM_LEG_LEN_NM, KABQ_ABQ_HM_TURN, 120.0, past_nm=-0.1)[1]
+    e.update(short_lat, short_lon, 120.0, 0.0, True, None, None, 1002.0)
     assert e._leg_phase == engine.LEGPHASE_OUTBOUND
+    e.update(*past_outbound, 120.0, 0.0, True, None, None, 1003.0)
+    assert e._leg_phase == engine.LEGPHASE_TURN_IN
+    e.update(*past_turn_in, 120.0, 0.0, True, None, None, 1004.0)
 
-    ack, msg = e.handle_command("2 RESUME", (arrival_lat, arrival_lon, True))
+    no_exit = e.update(*past_fix, 120.0, 0.0, True, None, None, 1005.0)
+    assert no_exit["act_leg"] == 2  # no RESUME yet -- go around again, exactly as HM is coded
+    assert e._leg_phase == engine.LEGPHASE_TURN_OUT
+
+    ack, msg = e.handle_command("2 RESUME", (*past_fix, True))
     assert ack == 2 and msg == "HOLD EXIT ARMED"
 
-    e.update(past_lat, past_lon, 120.0, 0.0, True, None, None, 1003.0)
-    exited = e.update(arrival_lat, arrival_lon, 120.0, 0.0, True, None, None, 1004.0)
+    for t, pos in enumerate((past_turn_out, past_outbound, past_turn_in), start=1006):
+        e.update(*pos, 120.0, 0.0, True, None, None, float(t))
+    exited = e.update(*past_fix, 120.0, 0.0, True, None, None, 1009.0)
     assert exited["act_leg"] == 3
     assert exited.get("msg") == "SEQ ABQ -> NEXT"
 

@@ -14,7 +14,7 @@ import pytest
 import fixgw.geo as geo
 import fixgw.plugins.flightplan.engine as engine
 
-from .routes import load
+from .routes import hold_circuit_points, load
 
 
 def wp(id, lat, lon, type=engine.TYPE_UNKNOWN, flags=0):
@@ -156,11 +156,14 @@ def test_leg_into_a_hold_at_its_to_fix_is_not_turn_anticipated():
     assert out.get("msg") == "SEQ B -> B"
 
 
-def test_hold_coded_at_the_fix_just_sequenced_starts_on_its_outbound_leg():
+def test_hold_coded_at_the_fix_just_sequenced_starts_its_entry_at_once():
     # fix-gateway#44, exposed once the leg into it stopped sequencing early:
     # TF B then HM B means B is already reached when the HM goes active. It
     # used to start on a zero-length leg from B to B, whose bearing is
     # meaningless (the FP8 replay showed FPLCRS 348.1 with outbound 301.4).
+    # The entry is picked from the TF leg's own track into B: 090, the
+    # outbound course of a 270 left hold, is a teardrop (fix-gateway#45),
+    # 30 deg off the outbound course toward the holding side (south).
     e = engine.Engine()
     b_lon = nm_to_deg_lon(20.0)
     route = [
@@ -170,13 +173,12 @@ def test_hold_coded_at_the_fix_just_sequenced_starts_on_its_outbound_leg():
     ]
     load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
-    for i, nm_past in enumerate((0.01, 0.2, 1.0)):
-        out = e.update(0.0, b_lon + nm_to_deg_lon(nm_past), 120.0, 0.0, True, None, None, 1000.0 + i)
-        assert out["act_leg"] == 3
-        assert e._leg_phase == engine.LEGPHASE_OUTBOUND
-        assert out["crs"] == pytest.approx(90.0, abs=0.01)
-        assert out["xtk"] == pytest.approx(0.0, abs=1e-6)
-        assert out.get("phase") == "HOLD"
+    out = e.update(0.0, b_lon + nm_to_deg_lon(0.01), 120.0, 0.0, True, None, None, 1000.0)
+    assert out["act_leg"] == 3
+    assert (e._leg_phase, e._hold_entry) == (engine.LEGPHASE_ENTRY, engine.HOLD_ENTRY_TEARDROP)
+    assert out["crs"] == pytest.approx(120.0, abs=0.01)
+    assert out["xtk"] == pytest.approx(-0.01 * math.sin(math.radians(30.0)), abs=1e-4)
+    assert out.get("phase") == "HOLD"
 
 
 def test_hold_with_its_own_inbound_leg_still_flies_to_the_fix_first():
@@ -1093,9 +1095,20 @@ def _hold_route(pt, turn="R", alt=""):
     ]
 
 
-def _outbound_target_and_past():
-    target_lat, target_lon = geo.destination_point(0.0, 0.0, 270.0, 5.0)
-    return geo.destination_point(target_lat, target_lon, 270.0, 0.05)
+def _circuit(gs=120.0, turn="R"):
+    # The _hold_route hold: fix (0, 0), inbound 090, 5 nm legs.
+    return hold_circuit_points(0.0, 0.0, 90.0, 5.0, turn, gs)
+
+
+def _fly_circuit(e, t0, alt_ft=None, turn="R"):
+    """TURN_OUT -> OUTBOUND -> TURN_IN -> INBOUND, then the fix passage."""
+    past_turn_out, past_outbound, past_turn_in, past_fix = _circuit(turn=turn)
+    for i, (phase, pos) in enumerate(((engine.LEGPHASE_OUTBOUND, past_turn_out),
+                                      (engine.LEGPHASE_TURN_IN, past_outbound),
+                                      (engine.LEGPHASE_INBOUND, past_turn_in))):
+        e.update(*pos, 120.0, 0.0, True, None, None, t0 + i, alt_ft=alt_ft)
+        assert e._leg_phase == phase
+    return e.update(*past_fix, 120.0, 0.0, True, None, None, t0 + 3, alt_ft=alt_ft)
 
 
 def test_hm_hold_repeats_until_resume_arms_exit_at_next_fix_passage():
@@ -1103,25 +1116,22 @@ def test_hm_hold_repeats_until_resume_arms_exit_at_next_fix_passage():
     load(e, _hold_route("HM"), "T", 1)
     e.handle_command("1 ACT 2", (0.0, -nm_to_deg_lon(20.0), True))
 
+    # Arriving on the inbound course itself: a direct entry, straight into
+    # the turn outbound.
     entry = e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1000.0)
-    assert e._leg_phase == engine.LEGPHASE_OUTBOUND
+    assert (e._leg_phase, e._hold_entry) == (engine.LEGPHASE_TURN_OUT, engine.HOLD_ENTRY_DIRECT)
     assert entry["act_leg"] == 2
     assert entry.get("phase") == "HOLD"
 
-    past_lat, past_lon = _outbound_target_and_past()
-    e.update(past_lat, past_lon, 120.0, 0.0, True, None, None, 1001.0)
-    assert e._leg_phase == engine.LEGPHASE_INBOUND
-
-    no_exit = e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1002.0)
+    no_exit = _fly_circuit(e, 1001.0)
     assert no_exit["act_leg"] == 2  # HM: no RESUME yet -- go around again
-    assert e._leg_phase == engine.LEGPHASE_OUTBOUND
+    assert e._leg_phase == engine.LEGPHASE_TURN_OUT
 
     ack, msg = e.handle_command("2 RESUME", (0.0, nm_to_deg_lon(0.05), True))
     assert ack == 2 and msg == "HOLD EXIT ARMED"
     assert e.suspended is False
 
-    e.update(past_lat, past_lon, 120.0, 0.0, True, None, None, 1003.0)
-    exited = e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1004.0)
+    exited = _fly_circuit(e, 1010.0)
     assert exited["act_leg"] == 3
     assert exited.get("msg") == "SEQ HOLD -> B"
     assert e._leg_phase is None
@@ -1133,9 +1143,7 @@ def test_hf_hold_exits_automatically_after_one_circuit():
     load(e, _hold_route("HF", turn="L"), "T", 1)
     e.handle_command("1 ACT 2", (0.0, -nm_to_deg_lon(20.0), True))
     e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1000.0)
-    past_lat, past_lon = _outbound_target_and_past()
-    e.update(past_lat, past_lon, 120.0, 0.0, True, None, None, 1001.0)
-    out = e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1002.0)
+    out = _fly_circuit(e, 1001.0, turn="L")
     assert out["act_leg"] == 3
     assert out.get("msg") == "SEQ HOLD -> B"
 
@@ -1145,17 +1153,186 @@ def test_ha_hold_repeats_until_altitude_then_exits():
     load(e, _hold_route("HA", alt="+3000"), "T", 1)
     e.handle_command("1 ACT 2", (0.0, -nm_to_deg_lon(20.0), True))
     e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1000.0, alt_ft=2000.0)
-    past_lat, past_lon = _outbound_target_and_past()
-    e.update(past_lat, past_lon, 120.0, 0.0, True, None, None, 1001.0, alt_ft=2000.0)
 
-    below = e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1002.0, alt_ft=2500.0)
+    below = _fly_circuit(e, 1001.0, alt_ft=2500.0)
     assert below["act_leg"] == 2  # below the coded altitude -- go around again
-    assert e._leg_phase == engine.LEGPHASE_OUTBOUND
+    assert e._leg_phase == engine.LEGPHASE_TURN_OUT
 
-    e.update(past_lat, past_lon, 120.0, 0.0, True, None, None, 1003.0, alt_ft=3200.0)
-    above = e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1004.0, alt_ft=3200.0)
+    above = _fly_circuit(e, 1010.0, alt_ft=3200.0)
     assert above["act_leg"] == 3
     assert above.get("msg") == "SEQ HOLD -> B"
+
+
+# --- Hold entries and the racetrack (fix-gateway#45) -----------------------
+
+
+@pytest.mark.parametrize(
+    "turn,arrival,expected",
+    [
+        # Right hold, inbound 090: the holding side is south, the outbound
+        # course 270. Turning from 270 toward the south (200..270) is the
+        # teardrop's 70 deg; toward the north up to 110 deg (270..020) the
+        # parallel's; the other 180 deg (020..200, around through 090) direct.
+        ("R", 90.0, "DIRECT"),
+        ("R", 270.0, "TEARDROP"),
+        ("R", 240.0, "TEARDROP"),
+        ("R", 200.0, "TEARDROP"),
+        ("R", 199.0, "DIRECT"),
+        ("R", 300.0, "PARALLEL"),
+        ("R", 20.0, "PARALLEL"),
+        ("R", 21.0, "DIRECT"),
+        # Left hold, inbound 090: the mirror image, holding side north.
+        ("L", 90.0, "DIRECT"),
+        ("L", 270.0, "TEARDROP"),
+        ("L", 300.0, "TEARDROP"),
+        ("L", 340.0, "TEARDROP"),
+        ("L", 341.0, "DIRECT"),
+        ("L", 240.0, "PARALLEL"),
+        ("L", 160.0, "PARALLEL"),
+        ("L", 159.0, "DIRECT"),
+    ],
+)
+def test_hold_entry_sectors_follow_aim_5_3_8(turn, arrival, expected):
+    assert engine.hold_entry(90.0, turn, arrival) == expected
+
+
+def _hold_from(arrival_true, pt="HM", turn="R"):
+    """_hold_route's hold, reached from 20 nm out on arrival_true."""
+    a_lat, a_lon = geo.destination_point(0.0, 0.0, arrival_true + 180.0, 20.0)
+    return [
+        wp("A", a_lat, a_lon),
+        hold_wp("HOLD", 0.0, 0.0, crs=90.0, dst=5.0, turn=turn, pt=pt),
+        wp("B", 0.0, nm_to_deg_lon(20.0)),
+    ], (a_lat, a_lon)
+
+
+def test_parallel_entry_flies_the_outbound_course_one_minute_then_returns_inbound():
+    # Right hold inbound 090, arriving on 300: the parallel sector. AIM
+    # 5-3-8: parallel the holding course outbound on the non-holding side
+    # for one minute (2.0 nm at 120 kt), turn back and return to the fix.
+    e = engine.Engine()
+    route, a = _hold_from(300.0)
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 2", (*a, True))
+
+    at_fix = geo.destination_point(0.0, 0.0, 300.0, 0.01)
+    out = e.update(*at_fix, 120.0, 0.0, True, None, None, 1000.0)
+    assert (e._leg_phase, e._hold_entry) == (engine.LEGPHASE_ENTRY, engine.HOLD_ENTRY_PARALLEL)
+    assert out["crs"] == pytest.approx(270.0, abs=0.01)
+    assert out.get("phase") == "HOLD"
+
+    e.update(*geo.destination_point(0.0, 0.0, 270.0, 1.9), 120.0, 0.0, True, None, None, 1001.0)
+    assert e._leg_phase == engine.LEGPHASE_ENTRY
+    back = e.update(*geo.destination_point(0.0, 0.0, 270.0, 2.05), 120.0, 0.0, True, None, None, 1002.0)
+    assert e._leg_phase == engine.LEGPHASE_INBOUND
+    assert back["crs"] == pytest.approx(90.0, abs=0.01)
+    assert back["xtk"] == pytest.approx(0.0, abs=1e-6)  # still on the inbound course line
+
+    # The return reaches the fix like any inbound leg, then the racetrack.
+    e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1003.0)
+    assert e._leg_phase == engine.LEGPHASE_TURN_OUT
+    assert e._hold_entry == engine.HOLD_ENTRY_PARALLEL
+
+
+def test_teardrop_entry_flies_30_degrees_toward_the_holding_side():
+    # Right hold inbound 090 (holding side south), arriving on 240.
+    e = engine.Engine()
+    route, a = _hold_from(240.0)
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 2", (*a, True))
+    out = e.update(*geo.destination_point(0.0, 0.0, 240.0, 0.01), 120.0, 0.0, True, None, None, 1000.0)
+    assert (e._leg_phase, e._hold_entry) == (engine.LEGPHASE_ENTRY, engine.HOLD_ENTRY_TEARDROP)
+    assert out["crs"] == pytest.approx(240.0, abs=0.01)
+    e.update(*geo.destination_point(0.0, 0.0, 240.0, 2.05), 120.0, 0.0, True, None, None, 1001.0)
+    assert e._leg_phase == engine.LEGPHASE_INBOUND
+
+
+def test_hf_hold_after_a_parallel_entry_exits_at_the_return_to_the_fix():
+    # The entry is the course reversal: established inbound at the fix,
+    # an HF (hold in lieu of a procedure turn) has nothing left to fly.
+    e = engine.Engine()
+    route, a = _hold_from(300.0, pt="HF")
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 2", (*a, True))
+    e.update(*geo.destination_point(0.0, 0.0, 300.0, 0.01), 120.0, 0.0, True, None, None, 1000.0)
+    e.update(*geo.destination_point(0.0, 0.0, 270.0, 2.05), 120.0, 0.0, True, None, None, 1001.0)
+    out = e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1002.0)
+    assert out["act_leg"] == 3
+    assert out.get("msg") == "SEQ HOLD -> B"
+
+
+def _on_turn_out(e):
+    e.handle_command("1 ACT 2", (0.0, -nm_to_deg_lon(20.0), True))
+    e.update(0.0, nm_to_deg_lon(0.001), 120.0, 0.0, True, None, None, 1000.0)
+    assert e._leg_phase == engine.LEGPHASE_TURN_OUT
+
+
+def test_turn_outbound_is_guided_round_a_standard_rate_half_circle():
+    # Right hold inbound 090 at 120 kt: R = 120 / 188.5 nm, centred R south
+    # of the fix. A quarter of the way round the aircraft heads south.
+    e = engine.Engine()
+    load(e, _hold_route("HM"), "T", 1)
+    _on_turn_out(e)
+    r = 120.0 / 188.5
+    c_lat, c_lon = geo.destination_point(0.0, 0.0, 180.0, r)
+    on_lat, on_lon = geo.destination_point(c_lat, c_lon, 90.0, r)
+    out = e.update(on_lat, on_lon, 120.0, 0.0, True, None, None, 1001.0)
+    assert e._leg_phase == engine.LEGPHASE_TURN_OUT
+    assert out["crs"] == pytest.approx(180.0, abs=0.01)
+    assert out["xtk"] == pytest.approx(0.0, abs=1e-6)
+    wide = e.update(*geo.destination_point(c_lat, c_lon, 90.0, r + 0.1), 120.0, 0.0, True, None, None, 1002.0)
+    assert wide["xtk"] == pytest.approx(-0.1, abs=1e-4)  # outside a right turn is left of track
+
+
+def test_outbound_leg_is_the_reciprocal_course_on_the_racetrack_side():
+    # The outbound leg is flown on the reciprocal course two turn radii
+    # off the inbound course line: a pilot flying the reciprocal heading
+    # from the end of the turn sees the needle centred, and the inbound
+    # course extended reads two radii right of track (south of a westbound
+    # leg is left, so the inbound line to the north is right).
+    e = engine.Engine()
+    load(e, _hold_route("HM"), "T", 1)
+    _on_turn_out(e)
+    past_turn_out, _, _, _ = _circuit()
+    e.update(*past_turn_out, 120.0, 0.0, True, None, None, 1001.0)
+    assert e._leg_phase == engine.LEGPHASE_OUTBOUND
+    r = 120.0 / 188.5
+    on_track = e.update(*geo.destination_point(0.0, 0.0, 180.0, 2.0 * r), 120.0, 0.0, True, None, None, 1002.0)
+    assert on_track["crs"] == pytest.approx(270.0, abs=0.01)
+    assert on_track["xtk"] == pytest.approx(0.0, abs=1e-4)
+    on_inbound_line = e.update(*geo.destination_point(0.0, 0.0, 270.0, 1.0), 120.0, 0.0, True, None, None, 1003.0)
+    assert on_inbound_line["xtk"] == pytest.approx(2.0 * r, abs=1e-3)
+
+
+def test_outbound_leg_ends_at_the_coded_along_track_distance_from_the_fix():
+    # FAA-H-8083-16B ch. 3: for a GPS hold "the end of the outbound leg is
+    # determined by the ATD". 5.0 nm coded: still outbound at 4.95 nm along
+    # track, the turn inbound at 5.05 nm -- wherever the aircraft is across
+    # track, so a pilot flying a heading gets the same cue.
+    e = engine.Engine()
+    load(e, _hold_route("HM"), "T", 1)
+    _on_turn_out(e)
+    past_turn_out, _, _, _ = _circuit()
+    e.update(*past_turn_out, 120.0, 0.0, True, None, None, 1001.0)
+    for across_nm in (0.0, 1.27, 2.5):
+        e._leg_phase = engine.LEGPHASE_OUTBOUND
+        lat, lon = geo.destination_point(*geo.destination_point(0.0, 0.0, 270.0, 4.95), 180.0, across_nm)
+        e.update(lat, lon, 120.0, 0.0, True, None, None, 1002.0)
+        assert e._leg_phase == engine.LEGPHASE_OUTBOUND, across_nm
+        lat, lon = geo.destination_point(*geo.destination_point(0.0, 0.0, 270.0, 5.05), 180.0, across_nm)
+        e.update(lat, lon, 120.0, 0.0, True, None, None, 1003.0)
+        assert e._leg_phase == engine.LEGPHASE_TURN_IN, across_nm
+
+
+def test_hold_as_the_last_slot_keeps_flying_the_racetrack():
+    e = engine.Engine()
+    load(e, _hold_route("HF")[:2], "T", 1)
+    e.handle_command("1 ACT 2", (0.0, -nm_to_deg_lon(20.0), True))
+    e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1000.0)
+    assert e._leg_phase == engine.LEGPHASE_TURN_OUT
+    out = _fly_circuit(e, 1001.0)
+    assert out["act_leg"] == 2  # nothing to exit to, even for an HF
+    assert e._leg_phase == engine.LEGPHASE_TURN_OUT
 
 
 def test_pi_outbound_target_offsets_45_degrees_by_turn_direction():
@@ -1205,8 +1382,30 @@ def test_persistence_round_trips_leg_phase_and_hold_exit_requested():
     d = e.to_persisted_dict()
     e2 = engine.Engine()
     e2.restore_from_dict(d)
-    assert e2._leg_phase == engine.LEGPHASE_OUTBOUND
+    assert e2._leg_phase == engine.LEGPHASE_TURN_OUT
     assert e2._hold_exit_requested is True
+    assert e2._hold_entry == engine.HOLD_ENTRY_DIRECT
+    assert e2._hold_r_nm == pytest.approx(120.0 / 188.5)
+    assert e2._hold_entry_nm == pytest.approx(2.0)
+
+
+def test_state_file_from_before_hold_entries_resumes_the_hold():
+    # A pre-#45 file has leg_phase OUTBOUND and none of the hold fields: the
+    # radius is re-derived from the GS of the first cycle after restore.
+    e = engine.Engine()
+    load(e, _hold_route("HM"), "T", 1)
+    e.handle_command("1 ACT 2", (0.0, -nm_to_deg_lon(20.0), True))
+    d = e.to_persisted_dict()
+    d["leg_phase"] = engine.LEGPHASE_OUTBOUND
+    for k in ("hold_entry", "hold_r_nm", "hold_entry_nm"):
+        del d[k]
+    e2 = engine.Engine()
+    e2.restore_from_dict(d)
+    r = 120.0 / 188.5
+    out = e2.update(*geo.destination_point(0.0, 0.0, 180.0, 2.0 * r), 120.0, 0.0, True, None, None, 1000.0)
+    assert e2._leg_phase == engine.LEGPHASE_OUTBOUND
+    assert out["crs"] == pytest.approx(270.0, abs=0.01)
+    assert out["xtk"] == pytest.approx(0.0, abs=1e-4)
 
 
 # ---------------------------------------------------------------------------

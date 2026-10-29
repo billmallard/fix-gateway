@@ -28,9 +28,10 @@ leg types the brief phased out of PA4: `RF`/`AF` constant-radius arcs (real
 circular geometry — `engine.Engine._arc_geometry`, not a straight-line
 approximation), `CA`/`FA` altitude-terminated legs (course held until a
 live altitude input crosses the coded constraint, never a distance guess),
-and `HM`/`HF`/`HA` holds plus `PI` procedure turns (flown as an
-outbound/inbound pair of straight legs around the fix — the inbound leg
-reuses `CF`'s course-anchor trick). `VA` stays a vector leg, unchanged —
+and `HM`/`HF`/`HA` holds plus `PI` procedure turns (a hold flies its AIM
+entry and then the racetrack, fix-gateway#45; a `PI` an outbound/inbound
+pair of straight legs around the fix — the inbound leg of both reuses
+`CF`'s course-anchor trick). `VA` stays a vector leg, unchanged —
 see engine.py's module docstring for why moving it to Tier 2 would soften
 guardrail 4 rather than shrink the rejected set. Guardrail 1 extends to a
 *recognized* Tier-2 type with incomplete data (no turn direction, no arc
@@ -138,12 +139,36 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   direction, converted to arc length by the radius — the same role
   along-track distance plays for a straight leg.
 - **Holds and procedure turns (PA13)**: `HM`/`HF`/`HA` and `PI` fly to the
-  fix like any other leg, then an outbound leg (`FPLfDST` nm on the
-  reciprocal of `FPLfCRS`, or reciprocal ±45° for `PI`) followed by an
-  inbound leg back into the fix (the same course-anchor trick `CF`/`CA`
-  use). When the slot before it ends at the same fix (`TF X` then `HM X`,
-  the usual missed-approach coding), the fix is already reached as the hold
-  goes active, so the pattern starts on its outbound leg. `FPLPHASE` shows
+  fix like any other leg. A `PI` then flies an outbound leg (`FPLfDST` nm
+  on the reciprocal of `FPLfCRS` ±45°) and an inbound leg back into the fix
+  (the same course-anchor trick `CF`/`CA` use). When the slot before it
+  ends at the same fix (`TF X` then `HM X`, the usual missed-approach
+  coding), the fix is already reached as the hold goes active, so the
+  pattern starts at once.
+- **Hold entries and the racetrack (fix-gateway#45)**: on reaching the fix
+  a hold picks its entry from the track of the leg into it (AIM 5-3-8: a
+  line at 70° to the holding course through the fix). Within 70° of the
+  outbound course toward the holding side it is a **teardrop**: one minute
+  at 30° off the outbound course toward the holding side. Up to 110° the
+  other way it is a **parallel**: one minute on the outbound course. Both
+  then turn back onto the inbound course to the fix. Every other arrival
+  is a **direct** entry. The racetrack is then fixed to the ground at the
+  fix: a 180° standard-rate turn (radius `GS / 188.5` nm at the GS the fix
+  was reached at) to two radii abeam the fix on the holding side, the
+  outbound leg on the reciprocal course, a 180° turn back onto the inbound
+  course, and the inbound leg into the fix. `FPLCRS`/`FPLXTK` follow the
+  turns as they do an `RF` arc. The outbound leg ends when the along-track
+  distance from the fix reaches `FPLfDST` (FAA-H-8083-16B ch. 3: for a GPS
+  hold "the end of the outbound leg is determined by the ATD"), wherever
+  the aircraft is across track, so a pilot flying the reciprocal heading
+  gets the turn inbound at the same point. On the outbound leg the needle
+  is centred on the racetrack's outbound side, not on the inbound course
+  extended: a pilot flying the reciprocal heading sees it centred, and an
+  autopilot coupled to it flies the racetrack rather than steering back to
+  the inbound course line. The return from a parallel or teardrop entry is
+  an inbound leg like any other, so an `HF` (a hold in lieu of a procedure
+  turn) exits there. A time-coded hold (`T010`) still reaches the engine
+  as a distance: the editor converts it, the bus carries no leg time. `FPLPHASE` shows
   `HOLD` (`HM`/`HF`/`HA`) or `PTURN` (`PI`) for as long as the aircraft is
   in the pattern — live guidance throughout, unlike
   `VECTORS`. `HF` and `PI` exit automatically after one circuit/turn; `HA`
@@ -168,7 +193,7 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   every fix between the FAF and the MAP are
   fly-over: abeam-only, no turn anticipation (`d_ta = 0`) — and (PA13) so is
   every Tier-2 leg type, in both directions: an arc's exit tangent, a
-  hold/PT's outbound/inbound pair and a `CA`/`FA`'s open-ended course are
+  hold/PT's entry, turns and legs and a `CA`/`FA`'s open-ended course are
   not the simple bearing-delta case the anticipation formula was built for,
   so those transitions are abeam-triggered only, never anticipated early.
 - **Segments (RS1)**: `FPLACTSEG` is the segment of the active TO slot
@@ -237,8 +262,9 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   `os.replace`), holding the route, `FPLSEQ`, name, activation state
   (mode, active leg, FROM/TO points), the missed-approach/DTO-suppression
   flags, the manual scale selection, and (PA13) the Tier-2 sub-leg phase
-  (which leg of an outbound/inbound pair, or the FA past-the-fix course
-  phase) and whether an `HM` hold's exit is armed, and (RS1) the segment
+  (which part of a hold or procedure turn, or the FA past-the-fix course
+  phase), whether an `HM` hold's exit is armed and (fix-gateway#45) the
+  hold's entry, turn radius and entry-leg length, and (RS1) the segment
   table. A restored file goes through the same leg and segment checks as a
   bus commit: if it fails, nothing is restored, `FPLMSG` gets the reason,
   and the file is left on disk until the next accepted commit replaces it.

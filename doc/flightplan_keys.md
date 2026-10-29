@@ -77,8 +77,12 @@ procedure turns are the complete supported set (`engine.PT_SUPPORTED`).
 engine has always flown; `CF` and (PA13) `CA` fly the leg's published
 `FPLfCRS`, not a bearing derived from the previous slot. `RF`/`AF` fly a real
 circular arc around `FPLfCTRLAT`/`CTRLON` at radius `FPLfDST`. `HM`/`HF`/`HA`
-and `PI` fly an outbound/inbound pair of straight legs around the fix (the
-inbound leg uses the same course-anchor trick as `CF`); `FA` flies to its fix
+fly an AIM entry (direct, teardrop or parallel) and then the racetrack:
+two standard-rate half circles and the outbound and inbound legs, the
+outbound leg ending at `FPLfDST` along-track from the fix
+(fix-gateway#45); `PI` flies an outbound/inbound pair of straight legs
+around the fix (both inbound legs use the same course-anchor trick as
+`CF`); `FA` flies to its fix
 like `DF`, then continues on `FPLfCRS` past it like `CA`. Loading a route
 with any other path terminator (still unsupported after PA13: `FC`, the `V`
 records other than the four vector types, and a handful more) rejects the
