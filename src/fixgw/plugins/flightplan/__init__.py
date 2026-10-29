@@ -235,9 +235,11 @@ class MainThread(threading.Thread):
         position = self._position_tuple()
         dto = self._read_dto_staging()
         ack, msg = self.engine.handle_command(cmd_str, position, dto)
-        self.parent.db_write("FPLCMDACK", ack)
+        # FPLMSG first: a consumer acts on the FPLCMDACK change (Appendix C)
+        # and reads the reason then, so it must already be on the bus.
         if msg:
             self.parent.db_write("FPLMSG", msg)
+        self.parent.db_write("FPLCMDACK", ack)
         self._run_update_cycle()
 
     def _read_dto_staging(self):
