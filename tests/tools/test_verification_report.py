@@ -28,7 +28,7 @@ TEST_SRC = textwrap.dedent('''
     def test_untraced():
         """No requirement here."""
 
-    @pytest.mark.xfail(strict=True, reason="XX-LIM-001 data-blocked: no AOA key at 10.1.2.3")
+    @pytest.mark.xfail(strict=True, reason="XX-LIM-001 data-blocked: no AOA key at 203.0.113.5")
     def test_limit():
         """XX-LIM-001 | pitch limit marker."""
 
@@ -54,7 +54,7 @@ JUNIT = textwrap.dedent('''<?xml version="1.0" encoding="utf-8"?>
 <testsuites><testsuite name="pytest">
  <testcase classname="tests.test_demo" name="test_bank" file="tests/test_demo.py" line="3" time="0.01"/>
  <testcase classname="tests.test_demo" name="test_untraced" file="tests/test_demo.py" line="6" time="0.01">
-  <failure message="bad /home/runner/work/pyEfis/x.py ssh pi@10.110.10.199 C:\\pylib\\foo.py bench.local">trace</failure>
+  <failure message="bad /home/runner/work/pyEfis/x.py ssh pi@192.0.2.10 C:\\pylib\\foo.py bench.local">trace</failure>
  </testcase>
  <testcase classname="tests.test_demo" name="test_limit" file="tests/test_demo.py" line="10" time="0.01">
   <skipped type="pytest.xfail" message="XX-LIM-001 data-blocked"/>
@@ -111,7 +111,7 @@ def test_outcomes_include_strict_xfail_states(record):
 def test_run_text_is_sanitized_at_collect(record):
     msg = _by_name(record, "test_untraced")["message"]
     reason = _by_name(record, "test_limit")["xfail_reason"]
-    for leaked in ("/home/runner", "10.110.10.199", "pi@", "C:\\pylib", "bench.local", "10.1.2.3"):
+    for leaked in ("/home/runner", "192.0.2.10", "pi@", "C:\\pylib", "bench.local", "203.0.113.5"):
         assert leaked not in msg + reason
     assert "<user-at-host>" in msg and "<ip>" in reason
 
@@ -194,19 +194,19 @@ def test_page_never_uses_banned_words_outside_the_standing_text(record, tmp_path
 def test_page_refuses_to_publish_a_leak(record, tmp_path):
     rec_path = tmp_path / "out" / "rec.json"
     rec = json.loads(rec_path.read_text())
-    rec["tests"][0]["summary"] = "ran on 192.168.1.20"   # bypasses collect's sanitizer
+    rec["tests"][0]["summary"] = "ran on 192.0.2.20"   # bypasses collect's sanitizer
     rec_path.write_text(json.dumps(rec))
     assert vr.main(["page", str(rec_path), "--out", str(tmp_path / "site")]) == 2
     assert not (tmp_path / "site" / "index.html").exists()
 
 
 @pytest.mark.parametrize("raw, gone", [
-    ("see /home/wpballard/x/y.py", "/home/wpballard"),
-    ("D:\\Users\\wpballard\\Documents\\github\\x.py", "wpballard"),
-    ("ssh wpballard@pyefis", "wpballard@"),
-    ("http://10.110.10.241:8080/bench", "10.110.10.241"),
-    ("http://paperclip.internal/issues/AER-1", "paperclip.internal"),
-])
+    ("see /home/someuser/x/y.py", "/home/someuser"),
+    ("D:\\Users\\someuser\\Documents\\x.py", "someuser"),
+    ("ssh someuser@benchbox", "someuser@"),
+    ("http://198.51.100.7:8080/bench", "198.51.100.7"),
+    ("http://tracker.internal/issues/AER-1", "tracker.internal"),
+], ids=["posix-path", "windows-path", "user-at-host", "ip-url", "private-host"])
 def test_sanitize_strips_paths_addresses_and_hosts(raw, gone):
     out = vr.sanitize(raw)
     assert gone not in out

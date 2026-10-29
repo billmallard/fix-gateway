@@ -240,7 +240,7 @@ def collect(args):
         if line is None and case.get("line") is not None:
             line = int(case.get("line")) + 1
         tests.append({
-            "nodeid": f"{file_attr}::{cls + '::' if cls else ''}{name}",
+            "nodeid": sanitize(f"{file_attr}::{cls + '::' if cls else ''}{name}", roots),
             "file": file_attr,
             "line": line,
             "summary": sanitize(src.get("summary", ""), roots),
