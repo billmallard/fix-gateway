@@ -330,6 +330,8 @@ def deviation_rows(record):
             state = "open (fails as expected)"
         elif t["outcome"] == "xpassed_strict":
             state = "closing: the feature now passes; remove the tracker"
+        elif t["outcome"] == "skipped":
+            state = "not run in this CI (skipped)"
         else:
             state = RESULT_WORDS.get(t["outcome"], t["outcome"])
         rows.append({"test": t, "state": state,
