@@ -227,14 +227,54 @@ def test_value_update_sets_false_flags_and_logs_bad_frames():
     assert parent.log.debug_messages
 
 
-def test_subscription_handler_suppresses_one_inhibited_update_then_sends_values():
+def test_subscription_handler_suppresses_only_the_key_being_written():
     connection = make_connection()
-    connection.output_inhibit = True
+    connection.output_inhibit = "ALT"
 
     connection.subscription_handler("ALT", (1.0, True, False, True, False, True), None)
     connection.subscription_handler("IAS", 99.0, None)
 
     assert drain_queue(connection) == [b"IAS;99.0\n"]
+
+
+class AnsweringParent(FakeParent):
+    """A plugin that answers synchronously inside the client's write -- the
+    flightplan engine writing FPLCMDACK from its FPLCMD callback -- before
+    the write's own echo reaches this connection."""
+
+    def __init__(self):
+        super().__init__()
+        self.connection = None
+        self.reads["FPLCMD"] = ("7 ACT 9", False, False, False, False, False)
+
+    def db_write(self, key, value):
+        super().db_write(key, value)
+        if key == "FPLCMD":
+            self.connection.subscription_handler("FPLCMDACK", -7, None)
+        self.connection.subscription_handler(key, value, None)
+
+
+@pytest.mark.parametrize("frame", ["FPLCMD;7 ACT 9;0000", "@wFPLCMD;7 ACT 9"])
+def test_a_synchronous_answer_reaches_the_writer_and_the_echo_does_not(frame):
+    parent = AnsweringParent()
+    connection = make_connection(parent)
+    parent.connection = connection
+
+    connection.handle_request(frame)
+
+    sent = drain_queue(connection)
+    assert b"FPLCMDACK;-7\n" in sent
+    assert not any(x.startswith(b"FPLCMD;") for x in sent)
+    assert connection.output_inhibit is None
+
+
+def test_a_write_with_no_callback_leaves_no_inhibit_behind():
+    connection = make_connection()
+
+    connection.handle_request("ALT;321;0000")      # FakeParent fires no callback
+    connection.subscription_handler("ALT", 400.0, None)
+
+    assert drain_queue(connection) == [b"ALT;400.0\n"]
 
 
 def test_receive_thread_handles_recv_exception_and_cleans_up():
