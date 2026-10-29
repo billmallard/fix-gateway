@@ -5,7 +5,7 @@ name: CI
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "master", "dev", "qa" ]
   pull_request:
 
 
@@ -43,8 +43,32 @@ jobs:
         # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
         flake8 src tests --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
     - name: Test with pytest
+      id: pytest
       run: |
-        pytest
+        # JUnit (xunit1 keeps each case's file and line) is the record the job summary
+        # and pyEfis's test-evidence page are built from (TV11).
+        pytest --junitxml=reports/junit.xml -o junit_family=xunit1
+
+    - name: Test evidence record and job summary
+      if: always() && steps.pytest.outcome != 'skipped'
+      env:
+        REF: ${{ github.head_ref || github.ref_name }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        python tools/verification_report.py collect --junit reports/junit.xml --tests tests \
+          --repo "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA" --ref "$REF" \
+          --run-url "$RUN_URL" --out reports/verification.json
+        python tools/verification_report.py summary reports/verification.json >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Keep the test results
+      if: always() && steps.pytest.outcome != 'skipped'
+      uses: actions/upload-artifact@v6
+      with:
+        name: test-results
+        path: |
+          reports/junit.xml
+          reports/verification.json
+        retention-days: 90
 
     - name: Coverage comment
       id: coverage_comment
