@@ -36,15 +36,15 @@
 #  CA/FA altitude-terminated legs (course held until a live altitude input
 #  crosses the coded constraint, never a distance guess -- _leg_geometry's
 #  course-anchor branch, extended from CF), and HM/HF/HA holds plus PI
-#  procedure turns, all flown as an outbound/inbound pair of straight legs
-#  around the fix (_advance_hold_or_pt) -- the inbound leg reuses the exact
-#  CF anchor trick, the outbound leg is a synthetic point on the coded
-#  reciprocal (or +-45 deg for PI). VA stays a vector leg (PT_VECTOR,
+#  procedure turns (_advance_hold_or_pt) -- the inbound leg reuses the exact
+#  CF anchor trick. A PI's outbound leg is a synthetic point on the coded
+#  reciprocal +-45 deg. A hold (fix-gateway#45) flies its AIM 5-3-8 entry
+#  and then the racetrack, turns included (_hold_geometry). VA stays a vector leg (PT_VECTOR,
 #  unchanged): it has no fix to fly to or from, only a heading, and
 #  guardrail 4 ("the box does not invent a heading") already covers it --
 #  moving it to Tier 2 would soften, not shrink, the rejected set. See
 #  doc/plugins/flightplan.md for the full behaviour writeup and the scoping
-#  decisions (direct-entry holds only, no ARINC parallel/teardrop entry).
+#  decisions.
 #
 #  RS1 (fix-gateway#39; makerplane/briefs/route_segments_plan.md sections 3
 #  and 5) makes route segments first-class: every slot carries FPLfSGI, a
@@ -135,6 +135,46 @@ CF_VIRTUAL_FROM_NM = 50.0
 # so it starts on its outbound leg rather than on a zero-length leg to the
 # fix (fix-gateway#44). Well under any real distance between two fixes.
 COINCIDENT_FIX_NM = 0.01
+
+# --- Hold entries and racetrack (fix-gateway#45) ----------------------------
+# AIM 5-3-8 (the Instrument Flying Handbook, FAA-H-8083-15B ch. 10, still
+# cites it as 5-3-7): a line through the fix at 70 deg to the holding course
+# splits the arrivals into a parallel sector (110 deg), a teardrop sector
+# (70 deg) and a direct sector (180 deg). Parallel and teardrop fly an
+# entry leg for one minute -- the teardrop 30 deg off the outbound course
+# toward the holding side -- then turn back to the inbound course.
+HOLD_ENTRY_DIRECT = "DIRECT"
+HOLD_ENTRY_TEARDROP = "TEARDROP"
+HOLD_ENTRY_PARALLEL = "PARALLEL"
+HOLD_TEARDROP_SECTOR_DEG = 70.0
+HOLD_PARALLEL_SECTOR_DEG = 110.0
+HOLD_TEARDROP_OFFSET_DEG = 30.0
+HOLD_ENTRY_LEG_S = 60.0
+# A hold turn sweeps 180 deg. Its start can be read a little short of the
+# start radial (an entry that reaches the fix at an angle), so only a
+# remaining sweep beyond this is "past the end of the turn".
+HOLD_TURN_AHEAD_MAX_DEG = 270.0
+HOLD_MIN_NM = 0.1   # floor for the turn radius and entry leg at a near-zero GS
+
+
+def hold_entry(inbound_true, turn, arrival_true):
+    """The AIM 5-3-8 entry for a hold with this inbound course (true) and
+    turn direction, reached on arrival_true (the track into the fix, true).
+
+    Measured from the outbound course, an arrival that turns up to 70 deg
+    toward the holding side is a teardrop, one that turns up to 110 deg
+    away from it a parallel, and every other arrival a direct entry. The
+    holding side is right of the inbound course for a right-turn hold, so
+    seen along the outbound course it is on the left; a left-turn hold is
+    the mirror image."""
+    outbound_true = geo.wrap360(inbound_true + 180.0)
+    rel = (arrival_true - outbound_true + 180.0) % 360.0 - 180.0   # + is right of outbound
+    toward_holding_side = rel if turn == "L" else -rel
+    if 0.0 <= toward_holding_side <= HOLD_TEARDROP_SECTOR_DEG:
+        return HOLD_ENTRY_TEARDROP
+    if -HOLD_PARALLEL_SECTOR_DEG <= toward_holding_side < 0.0:
+        return HOLD_ENTRY_PARALLEL
+    return HOLD_ENTRY_DIRECT
 
 
 def unsupported_leg_reason(waypoints):
@@ -328,13 +368,22 @@ STATE_DIRECT = 2
 STATE_SUSP = 3
 
 # --- Tier-2 internal sub-leg phase (PA13; not on the wire, persisted only
-# for restart continuity) -- HM/HF/HA/PI fly as an outbound/inbound pair of
-# straight legs around the fix; FA flies to the fix, then continues on
+# for restart continuity) -- HM/HF/HA/PI fly the sub-legs below around the
+# fix; FA flies to the fix, then continues on
 # course past it. None means "flying the initial approach to the fix" for
 # all of these (indistinguishable from a plain DF/TF arrival).
 LEGPHASE_OUTBOUND = "OUTBOUND"
 LEGPHASE_INBOUND = "INBOUND"
 LEGPHASE_FA_COURSE = "FA_COURSE"
+# A hold (fix-gateway#45) also has a parallel/teardrop entry leg and the
+# two 180 deg turns of its racetrack: fix -> [ENTRY -> INBOUND -> fix] ->
+# TURN_OUT -> OUTBOUND -> TURN_IN -> INBOUND -> fix -> TURN_OUT ... A PI
+# procedure turn still flies only OUTBOUND -> INBOUND.
+LEGPHASE_ENTRY = "ENTRY"
+LEGPHASE_TURN_OUT = "TURN_OUT"
+LEGPHASE_TURN_IN = "TURN_IN"
+LEGPHASES_PATTERN = frozenset({LEGPHASE_ENTRY, LEGPHASE_TURN_OUT, LEGPHASE_OUTBOUND,
+                               LEGPHASE_TURN_IN, LEGPHASE_INBOUND})
 
 # --- FPLAPR ----------------------------------------------------------------
 APR_NONE = 0
@@ -489,6 +538,12 @@ def turn_anticipation_nm(gs_kt, delta_deg, turn_rate_deg_s=TURN_RATE_DEG_S_DEFAU
     return max(0.1, min(5.0, d_ta))
 
 
+def hold_turn_radius_nm(gs_kt, turn_rate_deg_s=TURN_RATE_DEG_S_DEFAULT):
+    """Radius of a hold's turns at this ground speed and turn rate -- the
+    same R_turn turn_anticipation_nm uses (188.5 = a standard-rate turn)."""
+    return max(HOLD_MIN_NM, (gs_kt / 188.5) * (TURN_RATE_DEG_S_DEFAULT / turn_rate_deg_s))
+
+
 def _course_change_deg(course_a, course_b):
     diff = (course_b - course_a + 180.0) % 360.0 - 180.0
     return abs(diff)
@@ -535,6 +590,14 @@ class Engine:
         # Tier-2 sub-leg state (PA13) -- see LEGPHASE_* above.
         self._leg_phase = None
         self._hold_exit_requested = False  # RESUME on an HM hold: exit at next fix passage
+        # The hold being flown (fix-gateway#45): its entry, and the turn
+        # radius and entry-leg length fixed from the GS on reaching the fix.
+        self._hold_entry = None
+        self._hold_r_nm = None
+        self._hold_entry_nm = None
+        # This cycle's GS and MAGVAR, for a hold started mid-cycle.
+        self._cycle_gs_kt = 0.0
+        self._cycle_magvar_deg = 0.0
 
         self.scale_manual = None  # None (AUTO) or 0.3/1.0/2.0
 
@@ -590,8 +653,7 @@ class Engine:
         self._approach_suppressed = False
         self._integrity_msg_posted = True
         self._prev_atd = None
-        self._leg_phase = None
-        self._hold_exit_requested = False
+        self._clear_leg_phase()
 
     # ------------------------------------------------------------------
     # Persistence (state_persist discipline: atomic JSON, restored after a
@@ -618,6 +680,9 @@ class Engine:
             "integrity_msg_posted": self._integrity_msg_posted,
             "leg_phase": self._leg_phase,
             "hold_exit_requested": self._hold_exit_requested,
+            "hold_entry": self._hold_entry,
+            "hold_r_nm": self._hold_r_nm,
+            "hold_entry_nm": self._hold_entry_nm,
         }
 
     def restore_from_dict(self, d):
@@ -654,6 +719,11 @@ class Engine:
         self._integrity_msg_posted = d.get("integrity_msg_posted", True)
         self._leg_phase = d.get("leg_phase")
         self._hold_exit_requested = d.get("hold_exit_requested", False)
+        # A pre-#45 file has none of these; the radius and entry leg are
+        # then re-derived from the GS on the next cycle.
+        self._hold_entry = d.get("hold_entry")
+        self._hold_r_nm = d.get("hold_r_nm")
+        self._hold_entry_nm = d.get("hold_entry_nm")
         self._prev_atd = None
 
     # ------------------------------------------------------------------
@@ -730,7 +800,14 @@ class Engine:
         if not (1 <= self.act_leg <= self.count):
             return False
         wp = self.route[self.act_leg - 1]
-        return wp.pt == "HM" and self._leg_phase in (LEGPHASE_OUTBOUND, LEGPHASE_INBOUND)
+        return wp.pt == "HM" and self._leg_phase in LEGPHASES_PATTERN
+
+    def _clear_leg_phase(self):
+        self._leg_phase = None
+        self._hold_exit_requested = False
+        self._hold_entry = None
+        self._hold_r_nm = None
+        self._hold_entry_nm = None
 
     def _leg_from_anchor(self, to_wp, fr, to, magvar_deg):
         """The FROM anchor used for this leg's course/xtk/atd math: the
@@ -782,32 +859,92 @@ class Engine:
         fix's radial, in the coded turn direction, converted to arc length
         by the radius -- the same role atd plays for a straight leg.
         """
-        clockwise = to_wp.turn == "R"
-        ac_radial = geo.bearing_deg(to_wp.ctrlat, to_wp.ctrlon, ac_lat, ac_lon)
-        to_radial = geo.bearing_deg(to_wp.ctrlat, to_wp.ctrlon, to_wp.lat, to_wp.lon)
+        return self._circle_geometry(Point(to_wp.ctrlat, to_wp.ctrlon), to_wp.dst, to_wp.turn == "R",
+                                     Point(to_wp.lat, to_wp.lon), ac_lat, ac_lon)
+
+    @staticmethod
+    def _circle_geometry(center, radius_nm, clockwise, exit_pt, ac_lat, ac_lon, ahead_max_deg=180.0):
+        """Guidance on a circle around center, flown clockwise or not, up to
+        the radial through exit_pt: the RF/AF arc above, and (fix-gateway#45)
+        the two turns of a hold's racetrack. A remaining sweep past
+        ahead_max_deg reads as already past the exit radial."""
+        ac_radial = geo.bearing_deg(center.lat, center.lon, ac_lat, ac_lon)
+        to_radial = geo.bearing_deg(center.lat, center.lon, exit_pt.lat, exit_pt.lon)
         tangent_brg = geo.wrap360(ac_radial + (90.0 if clockwise else -90.0))
 
-        on_arc_lat, on_arc_lon = geo.destination_point(to_wp.ctrlat, to_wp.ctrlon, ac_radial, to_wp.dst)
+        on_arc_lat, on_arc_lon = geo.destination_point(center.lat, center.lon, ac_radial, radius_nm)
         ahead_lat, ahead_lon = geo.destination_point(on_arc_lat, on_arc_lon, tangent_brg, 1.0)
         xtk = geo.cross_track_nm(on_arc_lat, on_arc_lon, ahead_lat, ahead_lon, ac_lat, ac_lon)
 
         remaining_sweep = geo.arc_sweep_deg(ac_radial, to_radial, clockwise)
-        if remaining_sweep <= 180.0:
-            atd = to_wp.dst * math.radians(remaining_sweep)
+        if remaining_sweep <= ahead_max_deg:
+            atd = radius_nm * math.radians(remaining_sweep)
         else:
             # Past the exit radial -- the short way is backward, not the
             # long way forward around the rest of the circle.
-            atd = -to_wp.dst * math.radians(360.0 - remaining_sweep)
+            atd = -radius_nm * math.radians(360.0 - remaining_sweep)
 
         return Point(on_arc_lat, on_arc_lon), atd, xtk, tangent_brg
 
+    def _hold_geometry(self, to_wp, ac_lat, ac_lon, magvar_deg):
+        """Anchor, atd, xtk and true DTK on a hold's entry leg, turns and
+        outbound leg (fix-gateway#45; the inbound leg is the CF course
+        anchor, _leg_from_anchor). All are fixed to the ground at the fix:
+
+        - ENTRY: from the fix for one minute at the GS it was reached at,
+          on the outbound course (parallel) or 30 deg off it toward the
+          holding side (teardrop).
+        - TURN_OUT: a half circle of the hold's turn radius from the fix to
+          two radii abeam it on the holding side.
+        - OUTBOUND: the reciprocal course from there, ending when the
+          along-track distance from the fix reaches the coded leg length
+          (FAA-H-8083-16B ch. 3: for a GPS hold "the end of the outbound
+          leg is determined by the ATD").
+        - TURN_IN: the half circle back onto the inbound course, that far
+          out from the fix.
+
+        So the outbound needle is centred on the racetrack's outbound side,
+        two turn radii from the inbound course, not on the inbound course
+        extended. A pilot flying the reciprocal heading sees it centred;
+        an autopilot coupled to the needle flies the same racetrack instead
+        of steering back to the inbound course line."""
+        fix = Point(to_wp.lat, to_wp.lon, to_wp.id)
+        inbound_true = geo.wrap360(to_wp.crs - magvar_deg)
+        outbound_true = geo.wrap360(inbound_true + 180.0)
+        clockwise = to_wp.turn == "R"
+        side_true = geo.wrap360(inbound_true + (90.0 if clockwise else -90.0))
+        r = self._hold_r_nm
+
+        def at(p, brg, nm):
+            return Point(*geo.destination_point(p.lat, p.lon, brg, nm))
+
+        if self._leg_phase == LEGPHASE_ENTRY:
+            course = outbound_true
+            if self._hold_entry == HOLD_ENTRY_TEARDROP:
+                course = geo.wrap360(outbound_true + (-HOLD_TEARDROP_OFFSET_DEG if clockwise
+                                                      else HOLD_TEARDROP_OFFSET_DEG))
+            target = at(fix, course, self._hold_entry_nm)
+            atd, xtk, dtk_true = self._line_geometry(fix, target, ac_lat, ac_lon)
+            return fix, atd, xtk, dtk_true
+        if self._leg_phase == LEGPHASE_TURN_OUT:
+            return self._circle_geometry(at(fix, side_true, r), r, clockwise, at(fix, side_true, 2.0 * r),
+                                         ac_lat, ac_lon, HOLD_TURN_AHEAD_MAX_DEG)
+        if self._leg_phase == LEGPHASE_OUTBOUND:
+            start = at(fix, side_true, 2.0 * r)
+            atd, xtk, dtk_true = self._line_geometry(start, at(start, outbound_true, to_wp.dst), ac_lat, ac_lon)
+            return start, atd, xtk, dtk_true
+        # TURN_IN
+        turn_end = at(fix, outbound_true, to_wp.dst)
+        return self._circle_geometry(at(turn_end, side_true, r), r, clockwise, turn_end,
+                                     ac_lat, ac_lon, HOLD_TURN_AHEAD_MAX_DEG)
+
     def _hold_outbound_target(self, to_wp, magvar_deg):
-        """The synthetic endpoint of a hold/procedure-turn's outbound leg
-        (PA13): dst nm from the fix, on the reciprocal of the coded
-        inbound course (holds), offset a further +-45 deg for a PI's
-        standard procedure turn (turn "R" offsets right, matching the
-        published outbound track a 45/180 procedure turn flies before
-        reversing to intercept the same inbound course a hold uses)."""
+        """The synthetic endpoint of a PI procedure turn's outbound leg
+        (PA13): dst nm from the fix, on the reciprocal of the coded inbound
+        course offset a further +-45 deg (turn "R" offsets right, matching
+        the published outbound track a 45/180 procedure turn flies before
+        reversing to intercept the inbound course). A hold's outbound leg
+        is _hold_geometry's."""
         inbound_true = geo.wrap360(to_wp.crs - magvar_deg)
         outbound_true = geo.wrap360(inbound_true + 180.0)
         if to_wp.pt in PT_PROC_TURN:
@@ -818,7 +955,9 @@ class Engine:
     def _leg_geometry(self, to_wp, fr, to, ac_lat, ac_lon, magvar_deg):
         if to_wp.pt in PT_ARC:
             return self._arc_geometry(to_wp, ac_lat, ac_lon)
-        if to_wp.pt in (PT_HOLD | PT_PROC_TURN) and self._leg_phase == LEGPHASE_OUTBOUND:
+        if to_wp.pt in PT_HOLD and self._leg_phase in (LEGPHASES_PATTERN - {LEGPHASE_INBOUND}):
+            return self._hold_geometry(to_wp, ac_lat, ac_lon, magvar_deg)
+        if to_wp.pt in PT_PROC_TURN and self._leg_phase == LEGPHASE_OUTBOUND:
             anchor = Point(to_wp.lat, to_wp.lon, to_wp.id)
             target = self._hold_outbound_target(to_wp, magvar_deg)
             atd, xtk, dtk_true = self._line_geometry(anchor, target, ac_lat, ac_lon)
@@ -908,8 +1047,7 @@ class Engine:
         # A fresh activation always starts a leg's "approach the fix" phase
         # (PA13) -- never mid-hold or past-the-fix-on-course from whatever
         # leg was previously active.
-        self._leg_phase = None
-        self._hold_exit_requested = False
+        self._clear_leg_phase()
 
     def _cmd_act(self, arg, position):
         k = self._slot_arg(arg)
@@ -1029,8 +1167,7 @@ class Engine:
             else:
                 self._cmd_msg = "NO MISSED APPROACH LEGS"
             self._prev_atd = None
-            self._leg_phase = None
-            self._hold_exit_requested = False
+            self._clear_leg_phase()
             return
         if self._on_vector_leg():
             self._resume_from_vectors(position)
@@ -1184,6 +1321,7 @@ class Engine:
         return turn_anticipation_nm(gs_kt, delta, self.turn_rate_deg_s)
 
     def _sequence(self, reached_to):
+        prev_from = self.from_point
         self.from_point = reached_to
         self.act_leg += 1
         new_to = Point.from_waypoint(self.route[self.act_leg - 1])
@@ -1192,40 +1330,85 @@ class Engine:
         label = reached_to.id or "ALT"  # PA13: CA/FA-course terminate at the aircraft's position, no ident
         self._pending_msg = f"SEQ {label} -> {new_to.id}"
         self._prev_atd = None
-        self._leg_phase = None
-        self._hold_exit_requested = False
+        self._clear_leg_phase()
         new_wp = self.route[self.act_leg - 1]
         if (
             new_wp.pt in (PT_HOLD | PT_PROC_TURN)
             and geo.distance_nm(reached_to.lat, reached_to.lon, new_to.lat, new_to.lon) < COINCIDENT_FIX_NM
         ):
-            self._leg_phase = LEGPHASE_OUTBOUND
+            self._start_pattern(new_wp, self._arrival_track_true(prev_from, reached_to))
 
-    def _advance_hold_or_pt(self, to_wp, to, alt_ft):
-        """Phase transition for HM/HF/HA/PI once the current sub-leg's
-        endpoint is reached (PA13): None -> OUTBOUND on first reaching the
-        fix, OUTBOUND -> INBOUND once the outbound leg is flown, and at
-        INBOUND's end (back at the fix) either exit to the next slot or go
-        around again -- HF and PI always exit (single circuit/turn), HM
-        exits only once RESUME has armed it (_on_hm_hold/_cmd_resume), HA
-        exits once alt_ft has reached the coded altitude."""
-        if self._leg_phase is None:
+    @staticmethod
+    def _arrival_track_true(fr, fix):
+        """The track at fix of the great circle from fr, or None if there is
+        no distinct FROM point to have come from."""
+        if fr is None or geo.distance_nm(fr.lat, fr.lon, fix.lat, fix.lon) < COINCIDENT_FIX_NM:
+            return None
+        return geo.wrap360(geo.bearing_deg(fix.lat, fix.lon, fr.lat, fr.lon) + 180.0)
+
+    def _start_pattern(self, to_wp, arrival_true):
+        """The hold/PT fix has just been reached on arrival_true (true, None
+        if unknown). A PI turns outbound. A hold picks its AIM 5-3-8 entry
+        (direct when the arrival track is unknown) and fixes its turn
+        radius and entry leg from this cycle's GS."""
+        self._prev_atd = None
+        if to_wp.pt not in PT_HOLD:
             self._leg_phase = LEGPHASE_OUTBOUND
+            return
+        inbound_true = geo.wrap360(to_wp.crs - self._cycle_magvar_deg)
+        if arrival_true is None:
+            self._hold_entry = HOLD_ENTRY_DIRECT
+        else:
+            self._hold_entry = hold_entry(inbound_true, to_wp.turn, arrival_true)
+        self._ensure_hold_dims(self._cycle_gs_kt)
+        self._leg_phase = LEGPHASE_TURN_OUT if self._hold_entry == HOLD_ENTRY_DIRECT else LEGPHASE_ENTRY
+
+    def _ensure_hold_dims(self, gs_kt):
+        if self._hold_r_nm is None:
+            self._hold_r_nm = hold_turn_radius_nm(gs_kt, self.turn_rate_deg_s)
+        if self._hold_entry_nm is None:
+            self._hold_entry_nm = max(HOLD_MIN_NM, gs_kt * HOLD_ENTRY_LEG_S / 3600.0)
+
+    def _advance_hold_or_pt(self, to_wp, to, alt_ft, can_exit=True):
+        """Phase transition for HM/HF/HA/PI once the current sub-leg's
+        endpoint is reached (PA13).
+
+        A PI: None -> OUTBOUND on first reaching the fix, OUTBOUND ->
+        INBOUND once the outbound leg is flown, then exit at the fix.
+
+        A hold (fix-gateway#45): on first reaching the fix, the entry
+        (_start_pattern) -- direct goes straight into TURN_OUT, parallel and
+        teardrop fly ENTRY and then INBOUND back to the fix. Then TURN_OUT
+        -> OUTBOUND -> TURN_IN -> INBOUND around the racetrack.
+
+        Every arrival at the fix on INBOUND (including the return from a
+        parallel or teardrop entry) either exits to the next slot or goes
+        around again -- HF and PI always exit, HM exits only once RESUME has
+        armed it (_on_hm_hold/_cmd_resume), HA exits once alt_ft has reached
+        the coded altitude. can_exit is False for a hold/PT coded as the last
+        slot, which has nothing to exit to."""
+        nxt = {
+            LEGPHASE_ENTRY: LEGPHASE_INBOUND,
+            LEGPHASE_TURN_OUT: LEGPHASE_OUTBOUND,
+            LEGPHASE_OUTBOUND: LEGPHASE_TURN_IN if to_wp.pt in PT_HOLD else LEGPHASE_INBOUND,
+            LEGPHASE_TURN_IN: LEGPHASE_INBOUND,
+        }
+        if self._leg_phase is None:
+            self._start_pattern(to_wp, self._arrival_track_true(self.from_point, to))
+            return
+        if self._leg_phase in nxt:
+            self._leg_phase = nxt[self._leg_phase]
             self._prev_atd = None
             return
-        if self._leg_phase == LEGPHASE_OUTBOUND:
-            self._leg_phase = LEGPHASE_INBOUND
-            self._prev_atd = None
-            return
-        exit_now = True
+        exit_now = can_exit
         if to_wp.pt == "HM":
-            exit_now = self._hold_exit_requested
+            exit_now = exit_now and self._hold_exit_requested
         elif to_wp.pt == "HA":
-            exit_now = alt_ft is not None and _alt_reached_wp(to_wp, alt_ft)
+            exit_now = exit_now and alt_ft is not None and _alt_reached_wp(to_wp, alt_ft)
         if exit_now:
             self._sequence(to)
         else:
-            self._leg_phase = LEGPHASE_OUTBOUND
+            self._leg_phase = LEGPHASE_TURN_OUT if to_wp.pt in PT_HOLD else LEGPHASE_OUTBOUND
             self._prev_atd = None
 
     def _advance_leg(self, to_wp, to, alt_ft, ac_lat, ac_lon):
@@ -1289,6 +1472,9 @@ class Engine:
         to_wp = self.route[self.act_leg - 1]
         fr = self.from_point
         to = self.to_point
+        self._cycle_gs_kt, self._cycle_magvar_deg = gs_kt, magvar_deg
+        if to_wp.pt in PT_HOLD and self._leg_phase in LEGPHASES_PATTERN:
+            self._ensure_hold_dims(gs_kt)   # restored mid-hold from a pre-#45 state file
         anchor, atd, xtk, dtk_true = self._leg_geometry(to_wp, fr, to, ac_lat, ac_lon, magvar_deg)
 
         alert = False
@@ -1330,13 +1516,13 @@ class Engine:
 
         elif final and to_wp.pt in (PT_HOLD | PT_PROC_TURN) and not self.suspended:
             # A hold/PT coded as the very last slot has nowhere to
-            # sequence to -- keep flying the pattern (entry -> outbound ->
-            # inbound -> repeat) rather than freezing on arrival, the same
+            # sequence to -- keep flying the pattern (entry, then around
+            # the racetrack) rather than freezing on arrival, the same
             # "nothing after it" backstop _resume_from_vectors already has
             # for a vector leg with no next slot.
             if atd <= 0.0:
-                self._leg_phase = LEGPHASE_OUTBOUND if self._leg_phase != LEGPHASE_OUTBOUND else LEGPHASE_INBOUND
-                self._prev_atd = None
+                self._advance_hold_or_pt(to_wp, to, alt_ft, can_exit=False)
+                anchor, atd, xtk, dtk_true = self._leg_geometry(to_wp, fr, to, ac_lat, ac_lon, magvar_deg)
 
         self._prev_atd = atd
 
@@ -1383,7 +1569,7 @@ class Engine:
             "alert": alert,
             "fail": False,
         }
-        if to_wp.pt in PT_HOLD and self._leg_phase in (LEGPHASE_OUTBOUND, LEGPHASE_INBOUND):
+        if to_wp.pt in PT_HOLD and self._leg_phase in LEGPHASES_PATTERN:
             result["hold"] = True
         elif to_wp.pt in PT_PROC_TURN and self._leg_phase in (LEGPHASE_OUTBOUND, LEGPHASE_INBOUND):
             result["pturn"] = True
