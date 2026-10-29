@@ -427,6 +427,12 @@ def _result_class(result):
     return "r-fail"
 
 
+def _state_class(state):
+    if state.startswith("open"):
+        return "r-dev"
+    return "r-none" if state.startswith("not run") else "r-fail"
+
+
 def _test_link(record, test):
     label = test["nodeid"].split("::")[-1]
     url = blob_url(record, test)
@@ -502,7 +508,7 @@ def render_page(records, missing=()):
         for d in devs:
             h.append(f"<tr><td>{'<br>'.join(f'<code>{_e(i)}</code>' for i in d['ids']) or '-'}</td>"
                      f"<td>{_test_link(r, d['test'])}</td><td>{_e(d['test']['xfail_reason'])}</td>"
-                     f"<td class={'r-dev' if d['state'].startswith('open') else 'r-fail'}>"
+                     f"<td class={_state_class(d['state'])}>"
                      f"{_e(d['state'])}</td></tr>")
         h.append("</table>")
     if not any_dev:
