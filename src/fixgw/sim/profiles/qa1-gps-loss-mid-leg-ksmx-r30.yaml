@@ -82,5 +82,6 @@ checks:
     skip_when: {GPS_FIX_TYPE: 1}
     except_s_around_sequence: 5
     around_keys: [REFWPT]
+    tolerate_s: 1.0            # the first update after the fix returns: the flag's own 1 s bound
   - sequence: [NIRLE, ELZUS, PAMJI, CIMSO, ANIBY, RW30]
     keys: [WPNAME, REFWPT]
