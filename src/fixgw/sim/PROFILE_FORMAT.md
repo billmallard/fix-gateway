@@ -262,7 +262,7 @@ live run is twenty minutes of a moving display, and a deploy restarting
 flock -o -w 900 /tmp/pyefis-bench.lock timeout 45m \
     python -m fixgw.sim live <profile> --log ~/syn2/marks.jsonl \
         --hook 'DISPLAY=:0 ffmpeg -loglevel error -y -f x11grab -draw_mouse 0 \
-                -video_size 1280x800 -i :0 -frames:v 1 ~/syn2/$SYN_INDEX-$SYN_WHAT-$SYN_FIX.png'
+                -video_size 1920x1080 -i :0 -frames:v 1 ~/syn2/$SYN_INDEX-$SYN_WHAT-$SYN_FIX.png'
 ```
 
 `x11grab`, not pyEfis's SIGUSR1 screenshot: GL does not render into the
