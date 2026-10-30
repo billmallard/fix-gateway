@@ -14,8 +14,8 @@ leg into the start fix, and ``FPLCMD RESUME`` when the pilot goes missed.
 :func:`write_recorder_file` writes a run in the ``data_recorder`` JSON-lines
 format (``{"frequency", "starttime"}`` header, then one key-to-value row per
 tick, values as ``[value, annunciate, old, bad, fail, secfail]``), which
-``data_playback`` replays unchanged. A live netfix writer (SYN2) can iterate
-``Run.rows`` the same way.
+``data_playback`` replays unchanged. :mod:`fixgw.sim.live` (SYN2) streams
+``Run.rows`` into a running gateway over netfix instead.
 """
 
 import datetime
@@ -55,7 +55,7 @@ def _alt_constraints(cifp, proc):
     return out
 
 
-def generate(profile, frequency_ms=200, cifp_path=None, fplseq=1, gps_accuracy_ft=30.0):
+def generate(profile, frequency_ms=200, cifp_path=None, fplseq=1, gps_accuracy_ft=30.0, cmd_seq_base=0):
     if isinstance(profile, str):
         profile = load_profile(profile, cifp_override=cifp_path)
     cifp = Cifp(cifp_path or profile.cifp_file)
@@ -94,7 +94,7 @@ def generate(profile, frequency_ms=200, cifp_path=None, fplseq=1, gps_accuracy_f
     dt = frequency_ms / 1000.0
     rows = []
     timeline = []
-    cmd_seq = 0
+    cmd_seq = cmd_seq_base          # a live gateway has already acked earlier commands
     name = f"{proc['airport']} {proc['approach']} {proc['transition']}"[:32]
     route = fplroute.route_block_writes(slots, segments, name, "RNAV", cifp.cycle, fplseq)
 
