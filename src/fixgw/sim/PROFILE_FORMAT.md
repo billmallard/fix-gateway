@@ -16,7 +16,10 @@ aircraft files, no generator tuning. A profile describes the flight a pilot
 would be asked to fly, the pilot's inputs, and the checks.
 
 Profiles live in `src/fixgw/sim/profiles/`. The first one is
-`fp8-ksmx-rnav30-missed.yaml` (FP8 session 2, AER-809).
+`fp8-ksmx-rnav30-missed.yaml` (FP8 session 2, AER-809). The `qa1-*` profiles
+are QA's (AER-4211): hold entries from each sector in both turn directions,
+a missed approach coded to turn the long way round, and GPS losses of fix;
+their checks and tolerances are QA's and are not edited to fit a result.
 
 ## The rule for the reference
 
@@ -134,6 +137,13 @@ Each event has an `id`, one trigger under `at`, and one action under `do`.
 |---|---|---|
 | `offset_nm: d` (+ `hold_s: n`) | fly `d` nm off the desired track, positive right | established (within 0.05 nm) and held `n` s. The offset stays until another event changes it |
 | `hold_min: n` | stay in the hold | `n` minutes after it fired |
+| `gps_loss_s: n` | the GPS has no fix | `n` seconds after it fired |
+
+While a `gps_loss_s` event is active the generator publishes what the gpsd
+plugin does below a 2D fix: `GPS_FIX_TYPE` 1 and none of `LAT`, `LONG`,
+`TRACK`, `GS`, `GPS_ACCURACY_HORIZ` (the other sensor keys and the `REF*`
+truth carry on). The aircraft keeps flying the reference's guidance, as a
+pilot holding the course would.
 
 ### `end`
 
@@ -153,6 +163,20 @@ Tier-independent comparisons on the recorded bus. Each is one of:
   change of the sequence keys (the TO fix, on either side), so a turn's
   transition is not judged. `skip_when: {KEY: value}` skips rows where a key
   has that value. `after_s` (default 1) skips the start.
+  `unless_flagged: true` skips rows where the engine key was last written
+  bad or failed -- annunciated guidance is not compared, and the count is
+  reported. `tolerate_s: s` forgives a run of consecutive failing rows
+  shorter than `s` (reported as transients), for two navigators switching a
+  phase one update apart. `around_keys: [KEY, ...]` names the keys whose
+  changes open the `except_s_around_sequence` window, instead of the
+  sequence keys (a box that blanks its TO fix without a GPS fix would
+  otherwise open a window around the loss itself).
+- `flagged: [KEY, ...]` with `while_no_fix: true`, `within_s`,
+  `clear_within_s`: each key must be flagged (bad or failed) on every row
+  where `GPS_FIX_TYPE` has been below 3 for at least `within_s`, and must not
+  be flagged on any row where it has been 3 or more for at least
+  `clear_within_s`. A log with no loss of fix fails the check rather than
+  passing it vacuously.
 - `sequence: [FIX, ...]` with `keys` (default `[WPNAME, REFWPT]`): each key's
   run of TO fixes, blanks dropped, must equal the list. The report also gives
   the time difference at which each fix became the TO fix.
@@ -176,6 +200,32 @@ teardrop or parallel by the AIM sectors). CDI full scale 2.0 nm en route,
 1.0 nm within 30 nm of the airport, a linear ramp to 0.3 nm over the 2 nm
 before the FAF, 0.3 nm to the MAP and until the missed approach is
 initiated, then 1.0 nm.
+
+## The CI gate (SYN3)
+
+Every `*.yaml` in `profiles/` is flown headless through the navigation
+engine on every PR and push, and its `checks:` evaluated: the "Simulated
+flights" job in `.github/workflows/ci.yml`, and
+`tests/sim/test_profiles.py` under a plain `pytest`. A failing check fails
+the PR, one line per check naming the profile, the keys and tolerance, the
+time and values of the first failing row, and the largest error and when.
+The job summary carries each profile's full check table. Committing a
+profile is all it takes to put it under the gate; to fly one locally:
+
+```
+python -m tests.sim.profile_gate [src/fixgw/sim/profiles/<name>.yaml ...]
+```
+
+An open finding is a profile that is right while the box disagrees with it.
+Its owner lists it in the module-level `OPEN = {profile stem: reason}` of
+the test module that owns the profile (`tests/sim/test_qa1_profiles.py` for
+the `qa1-*` profiles; the gate's list of such modules is
+`OPEN_FINDINGS_FROM` in `profile_gate.py`). The gate reads those lists and
+does not edit them. A listed profile that still fails is reported as
+`XFAIL`, with warnings rather than errors, and passes the gate. A listed
+profile that passes is `XPASS` and fails the gate until the finding is
+closed and the entry removed. An entry naming no committed profile also
+fails it. Listing a finding never changes a check or a tolerance.
 
 ## Running it
 
