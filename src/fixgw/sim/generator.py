@@ -6,7 +6,8 @@
 
 :func:`generate` flies the scenario and returns a :class:`Run`: one row per
 tick of the keys a GPS/AHRS would publish (``LAT LONG ALT GS TRACK HEAD TAS
-VS PITCH ROLL MAGVAR GPS_FIX_TYPE GPS_ACCURACY_HORIZ``), the reference keys
+VS PITCH ROLL MAGVAR GPS_FIX_TYPE GPS_ACCURACY_HORIZ``; during a ``gps_loss_s``
+event only ``GPS_FIX_TYPE`` 1 of the GPS keys), the reference keys
 (``REFCRS REFXTK REFCDI REFDIS REFWPT REFPT``), and the pilot's inputs to the box
 under test: the route block once at the start, ``FPLCMD`` to activate the
 leg into the start fix, and ``FPLCMD RESUME`` when the pilot goes missed.
@@ -135,21 +136,28 @@ def generate(profile, frequency_ms=200, cifp_path=None, fplseq=1, gps_accuracy_f
             out = ref.update(t, s.lat, s.lon, s.alt_ft, s.gs_kt, s.track_true)
 
         done_now = _run_events(events, ref, out, t, leg_start_t, ac, timeline)
+        no_fix = any(ev["state"] == "active" and "gps_loss_s" in ev["e"].do for ev in events.values())
 
-        # sensor keys first, LAT/LONG last: the engine computes on a position write
+        # sensor keys first, LAT/LONG last: the engine computes on a position write.
+        # Without a fix the receiver reports its fix type and nothing it would
+        # need a fix for -- what the gpsd plugin publishes below mode 2.
         row["MAGVAR"] = mv
-        row["GPS_FIX_TYPE"] = 3
-        row["GPS_ACCURACY_HORIZ"] = gps_accuracy_ft
+        row["GPS_FIX_TYPE"] = 1 if no_fix else 3
+        if not no_fix:
+            row["GPS_ACCURACY_HORIZ"] = gps_accuracy_ft
         row["ALT"] = round(s.alt_ft, 2)
-        row["GS"] = round(s.gs_kt, 3)
+        if not no_fix:
+            row["GS"] = round(s.gs_kt, 3)
         row["TAS"] = round(perf.tas_kt, 3)
         row["VS"] = round(s.vs_fpm, 1)
-        row["TRACK"] = round(refnav.wrap360(s.track_true), 3)
+        if not no_fix:
+            row["TRACK"] = round(refnav.wrap360(s.track_true), 3)
         row["HEAD"] = round(refnav.wrap360(s.heading_true + mv), 3)
         row["PITCH"] = round(s.pitch_deg, 2)
         row["ROLL"] = round(s.roll_deg, 2)
-        row["LAT"] = round(s.lat, 8)
-        row["LONG"] = round(s.lon, 8)
+        if not no_fix:
+            row["LAT"] = round(s.lat, 8)
+            row["LONG"] = round(s.lon, 8)
         row["REFCRS"] = round(out.crs_mag, 3)
         row["REFXTK"] = round(out.xtk_nm, 5)
         row["REFCDI"] = round(out.cdi, 5)
@@ -237,6 +245,8 @@ def _run_events(events, ref, out, t, leg_start_t, ac, timeline):
                 if ref._hold is None:
                     raise GeneratorError(f"event {eid}: hold_min with no hold being flown")
                 finished = t - ev["t0"] >= float(e.do["hold_min"]) * 60.0
+            elif "gps_loss_s" in e.do:
+                finished = t - ev["t0"] >= float(e.do["gps_loss_s"])
             if finished:
                 ev["state"] = "done"
                 done_now.add(eid)

@@ -12,9 +12,16 @@ Each failing check is one line naming the profile, the keys and tolerance,
 the time of the first failure and the values there, and the largest error
 and when it happened. It lives in tests/ for the same reason
 ``engine_replay`` does: it is the part of the tier that runs the engine.
+
+A profile listed as an open finding (the strict-xfail ``OPEN`` dict of the
+test module that owns it) is expected to fail: its failing checks are
+reported as warnings and do not fail the gate. If it passes, the gate fails,
+so the finding is closed rather than left listed. The gate only reads those
+lists; their owner (QA, for the qa1 profiles) edits them.
 """
 
 import argparse
+import ast
 import sys
 import time
 from dataclasses import dataclass
@@ -29,10 +36,24 @@ from .engine_replay import replay
 
 REPO = Path(__file__).resolve().parents[2]
 PROFILES_DIR = REPO / "src/fixgw/sim/profiles"
+# Test modules whose module-level OPEN = {profile stem: reason} lists open
+# findings. Read with ast, not imported, so the gate needs no pytest.
+OPEN_FINDINGS_FROM = [REPO / "tests/sim/test_qa1_profiles.py"]
 
 
 def committed_profiles():
     return sorted(PROFILES_DIR.glob("*.yaml"))
+
+
+def open_findings(sources=None):
+    """{profile stem: reason} from each source's module-level OPEN dict."""
+    out = {}
+    for src in OPEN_FINDINGS_FROM if sources is None else sources:
+        for node in ast.parse(Path(src).read_text()).body:
+            if isinstance(node, ast.Assign) and any(
+                    isinstance(t, ast.Name) and t.id == "OPEN" for t in node.targets):
+                out.update(ast.literal_eval(node.value))
+    return out
 
 
 @dataclass
@@ -92,7 +113,7 @@ def _rel(path):
     return path.relative_to(REPO) if path.is_relative_to(REPO) else path
 
 
-def github_errors(run):
+def github_errors(run, level="error"):
     # GitHub workflow commands, one per failing check, pointing at its line
     # in the profile. %, CR and LF are escaped in the message.
     out = []
@@ -104,15 +125,28 @@ def github_errors(run):
         where = f"file={_rel(run.path)}"
         if i < len(run.check_lines):
             where += f",line={run.check_lines[i]}"
-        out.append(f"::error {where},title=Simulated flight {run.name}::{msg}")
+        out.append(f"::{level} {where},title=Simulated flight {run.name}::{msg}")
     return out
 
 
-def summary_markdown(runs):
-    ok = sum(r.passed for r in runs)
-    out = [f"## Simulated flights: {ok} of {len(runs)} profiles pass", ""]
+def verdict(run, open_):
+    """PASS, FAIL, XFAIL (an open finding that still fails) or XPASS (an
+    open finding that passes now: close it). Only PASS and XFAIL pass the gate."""
+    if run.path.stem in open_:
+        return "XPASS" if run.passed else "XFAIL"
+    return "PASS" if run.passed else "FAIL"
+
+
+def summary_markdown(runs, open_=None):
+    open_ = open_ or {}
+    ok = sum(verdict(r, open_) in ("PASS", "XFAIL") for r in runs)
+    out = [f"## Simulated flights: {ok} of {len(runs)} profiles pass the gate", ""]
     for run in runs:
-        out += [f"### {'PASS' if run.passed else 'FAIL'} {run.name}", "",
+        v = verdict(run, open_)
+        out += [f"### {v} {run.name}", ""]
+        if v in ("XFAIL", "XPASS"):
+            out += [f"Open finding: {open_[run.path.stem]}", ""]
+        out += [
                 f"`{_rel(run.path)}`: "
                 f"{run.rows} rows, {run.duration_s:.0f} s of flight, flown in {run.wall_s:.1f} s", ""]
         fails = failure_lines(run)
@@ -133,22 +167,38 @@ def main(argv=None):
         # A gate with nothing to fly would pass forever.
         print(f"no profiles in {PROFILES_DIR}", file=sys.stderr)
         return 2
+    open_ = open_findings()
+    ok = True
+    if not a.profiles:
+        # A listed finding whose profile is gone would never be closed.
+        for stem in sorted(set(open_) - {p.stem for p in paths}):
+            print(f"FAIL open finding {stem} names no profile in {PROFILES_DIR}")
+            ok = False
     runs = []
     for p in paths:
         run = fly(p)
         runs.append(run)
+        v = verdict(run, open_)
+        ok = ok and v in ("PASS", "XFAIL")
         n_ok = sum(r.passed for r in run.results)
-        print(f"{'PASS' if run.passed else 'FAIL'} {run.name}: {n_ok} of {len(run.results)} checks, "
+        print(f"{v} {run.name}: {n_ok} of {len(run.results)} checks, "
               f"{run.rows} rows, {run.duration_s:.0f} s flown in {run.wall_s:.1f} s")
+        if v == "XFAIL":
+            print(f"  open finding, expected to fail: {open_[p.stem]}")
+        elif v == "XPASS":
+            print(f"  listed as an open finding but passes now -- close it: {open_[p.stem]}")
         for line in failure_lines(run):
             print(f"  {line}")
         if a.github:
-            for line in github_errors(run):
+            for line in github_errors(run, "warning" if v == "XFAIL" else "error"):
                 print(line)
+            if v == "XPASS":
+                print(f"::error file={_rel(run.path)},title=Simulated flight {run.name}::"
+                      f"{run.name} passes but is listed as an open finding; close it")
     if a.summary:
         with open(a.summary, "a") as f:
-            f.write(summary_markdown(runs) + "\n")
-    return 0 if all(r.passed for r in runs) else 1
+            f.write(summary_markdown(runs, open_) + "\n")
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

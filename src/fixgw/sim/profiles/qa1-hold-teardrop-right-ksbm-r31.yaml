@@ -1,0 +1,68 @@
+# QA1 (AER-4211): a teardrop hold entry, right-hand pattern. QA-authored:
+# the scenario, the checks, the tolerances and the expected values are QA's.
+# KSBM RNAV (GPS) 31 via WOKNO, missed approach to the WOKNO hold
+# (inbound 032.5 M, R turns, 4.0 nm legs). The arrival at
+# WOKNO falls inside the AIM 5-3-8 teardrop sector, at least 15 deg from
+# either boundary, so either navigator choosing another entry is a defect,
+# not a judgement call at a sector line. Ten minutes in the hold covers the
+# entry and a full circuit. Format: ../PROFILE_FORMAT.md
+name: qa1-hold-teardrop-right-ksbm-r31
+description: >
+  KSBM RNAV 31 via WOKNO from 2 nm before FONAB, missed approach,
+  teardrop entry to the right-hand WOKNO hold, ten minutes in the hold.
+
+cifp:
+  cycle: "2611"
+  file: cifp/FAACIFP18-2611-KSBM-R31
+
+aircraft: {tas_kt: 110, climb_fpm: 700, descent_fpm: 600, bank_max_deg: 25}
+
+environment:
+  magvar_deg: 2.0              # FIX MAGVAR, positive west: CIFP airport record W0020
+  wind: {from_deg: 0, kt: 0}
+
+start: {fix: FONAB, before_nm: 2.0, alt_ft: 3000, heading: on_course}
+
+route:
+  - procedure: {airport: KSBM, approach: R31, transition: WOKNO, missed: true}
+
+pilot:
+  missed_after_map_s: 5
+
+events:
+  - id: hold
+    at: {hold_at: WOKNO}
+    do: {hold_min: 10}
+
+end: {after_event: hold, max_s: 5400}
+
+checks:
+  # QA's tolerances (AER-4211). A wrong entry is >= 30 deg of course and a
+  # wrong racetrack phase >= 90 deg; 1.5 deg passes a displayed-degree
+  # rounding step plus the sphere/WGS-84 difference measured in hold turns
+  # (<= 1.4 deg with cross-track agreeing to 0.002 nm). tolerate_s 0.1: the
+  # two navigators may switch racetrack phase one 0.2 s update apart, which
+  # shows as a single row of 90-180 deg difference. One row is tolerated;
+  # two consecutive rows fail.
+  - key_pair: [FPLCRS, REFCRS]
+    tol_deg: 1.5
+    except_s_around_sequence: 5
+    tolerate_s: 0.1
+  - key_pair: [FPLXTK, REFXTK]
+    tol: 0.02
+    except_s_around_sequence: 5
+    tolerate_s: 0.1
+  - key_pair: [FPLCDI, REFCDI]
+    tol: 0.05
+    same_sign: true
+    except_s_around_sequence: 5
+    tolerate_s: 0.1
+  - key_pair: [WPDIS, REFDIS]
+    tol: 0.015
+    tol_rel: 0.005
+    skip_when: {REFWPT: ""}
+    except_s_around_sequence: 5
+  - key_pair: [WPNAME, REFWPT]
+    except_s_around_sequence: 5
+  - sequence: [FONAB, DECEK, RW31, WOKNO]
+    keys: [WPNAME, REFWPT]
