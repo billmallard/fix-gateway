@@ -216,6 +216,15 @@ profile is all it takes to put it under the gate; to fly one locally:
 python -m tests.sim.profile_gate [src/fixgw/sim/profiles/<name>.yaml ...]
 ```
 
+A profile that is right while the box disagrees with it is an open finding.
+QA keeps the list in `tests/sim/open_findings.yaml`, one line per profile
+naming the finding; the gate and `tests/sim/test_qa1_profiles.py` only read
+it. A listed profile is a strict expected failure: its failing checks are
+reported (XFAIL, as warnings) and do not fail the PR, and if it passes
+(XPASS) the PR fails until the finding is closed and the entry removed. An
+entry naming no committed profile also fails the full run. A profile's
+`checks:` and tolerances are never loosened to get it through the gate.
+
 ## Running it
 
 ```
