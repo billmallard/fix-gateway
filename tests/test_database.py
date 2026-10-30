@@ -1450,3 +1450,60 @@ def test_no_description_contains_the_netfix_delimiter(database):
                  if ";" in database.get_raw_item(key).description]
     assert not offenders, (
         f"description contains ';' (breaks netfix's @q report): {offenders}")
+
+
+# AER-4246: going old must reach the callbacks (and so netfix clients) no
+# matter who observes the expiry first. The value getter used to set _old
+# itself when read past the tol, so a read between the expiry and the next
+# maintenance update() left update()'s `item.old = True` with nothing to
+# change, and no callback ever fired.
+def test_age_out_fires_callback_when_value_read_before_update(database):
+    item = database.get_raw_item("PITCH")
+    item.tol = 100
+    item.value = 1.0
+    cb = MagicMock()
+    item.callbacks.append(("cb", cb, None))
+
+    time.sleep(0.2)
+    assert item.value[2] is True  # a reader sees the expiry first
+    database.update()
+
+    cb.assert_called_once()
+    key, value, _ = cb.call_args.args
+    assert key == "PITCH"
+    assert value[2] is True
+
+
+def test_age_out_fires_callback_when_nothing_reads_first(database):
+    item = database.get_raw_item("PITCH")
+    item.tol = 100
+    item.value = 1.0
+    cb = MagicMock()
+    item.callbacks.append(("cb", cb, None))
+
+    time.sleep(0.2)
+    database.update()
+    database.update()  # a second tick must not repeat the notification
+
+    cb.assert_called_once()
+    assert cb.call_args.args[1][2] is True
+
+
+def test_fresh_write_after_age_out_clears_old_and_next_age_out_notifies(database):
+    item = database.get_raw_item("PITCH")
+    item.tol = 100
+    item.value = 1.0
+    cb = MagicMock()
+    item.callbacks.append(("cb", cb, None))
+
+    time.sleep(0.2)
+    item.value  # noqa: B018 -- the read is the point
+    database.update()
+    item.value = 2.0
+    assert cb.call_args.args[1][2] is False
+    time.sleep(0.2)
+    item.value  # noqa: B018
+    database.update()
+
+    assert cb.call_count == 3
+    assert cb.call_args.args[1][2] is True
