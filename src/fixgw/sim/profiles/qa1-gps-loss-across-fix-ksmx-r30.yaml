@@ -1,0 +1,82 @@
+# QA1 (AER-4211): the GPS loses its fix 15 s before the turn at the fly-by
+# fix ELZUS and gets it back 30 s later, on the next leg. The box cannot
+# sequence without a fix, so this asks what it does when the fix returns past
+# the turn: sequence to PAMJI and give the right guidance at once, without
+# flying back to ELZUS. QA-authored: the scenario, checks, tolerances and
+# expected values are QA's. No-fix signature as in
+# qa1-gps-loss-mid-leg-ksmx-r30.yaml. Format: ../PROFILE_FORMAT.md
+name: qa1-gps-loss-across-fix-ksmx-r30
+description: >
+  KSMX RNAV 30 via GVO from 2 nm before NIRLE. No GPS fix from 15 s before
+  the turn at ELZUS until 30 s later; the run ends 60 s after the fix returns.
+
+cifp:
+  cycle: "2611"
+  file: cifp/FAACIFP18-2611-KSMX-R30
+
+aircraft: {tas_kt: 110, climb_fpm: 700, descent_fpm: 600, bank_max_deg: 25}
+
+environment:
+  magvar_deg: -11.9                # FIX MAGVAR, positive west: CIFP E011.9 at the KSMX terminal fixes
+  wind: {from_deg: 0, kt: 0}
+
+start: {fix: NIRLE, before_nm: 2.0, alt_ft: 4400, heading: on_course}
+
+route:
+  - procedure: {airport: KSMX, approach: R30, transition: GVO, missed: false}
+
+events:
+  - id: loss
+    at: {leg: NIRLE-ELZUS, after_s: 255}
+    do: {gps_loss_s: 30}
+  - id: settle
+    at: {after: loss}
+    do: {offset_nm: 0.0, hold_s: 60}
+
+end: {after_event: settle, max_s: 3600}
+
+checks:
+  # QA-authored (AER-4211). Two requirements, both from AC 20-138D:
+  # 12-2.a, "navigation data is considered to be misleading when
+  # un-annunciated position errors exist" -- so on every row the guidance is
+  # either flagged (bad or failed) or agrees with the reference; and the
+  # failure indicator the lateral display must carry -- so the guidance is
+  # flagged while there is no fix and clears once the fix is back. 1 s is
+  # QA's bound: one update of a 1 Hz navigator. around_keys: the box blanks
+  # its TO fix while it has no fix, and that blank must not open an
+  # except-window around the very moments a loss starts and ends, so the
+  # windows follow the reference's sequencing only.
+  - key_pair: [FPLCRS, REFCRS]
+    tol_deg: 1.0
+    unless_flagged: true
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+  - key_pair: [FPLXTK, REFXTK]
+    tol: 0.02
+    unless_flagged: true
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+  - key_pair: [FPLCDI, REFCDI]
+    tol: 0.05
+    same_sign: true
+    unless_flagged: true
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+  - key_pair: [WPDIS, REFDIS]
+    tol: 0.015
+    tol_rel: 0.005
+    skip_when: {REFWPT: ""}
+    unless_flagged: true
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+  - flagged: [FPLCRS, FPLXTK, FPLCDI, WPDIS]
+    while_no_fix: true
+    within_s: 1.0
+    clear_within_s: 1.0
+  - key_pair: [WPNAME, REFWPT]
+    skip_when: {GPS_FIX_TYPE: 1}
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+    tolerate_s: 1.0            # the first update after the fix returns: the flag's own 1 s bound
+  - sequence: [NIRLE, ELZUS, PAMJI]
+    keys: [WPNAME, REFWPT]
