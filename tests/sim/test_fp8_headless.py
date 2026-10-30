@@ -38,10 +38,8 @@ def test_route_loads_and_activates_without_a_message(flown):
     assert (r["FPLMSG"], r["FPLCMDACK"], r["FPLACTLEG"], r["WPNAME"]) == ("", 1, 4, "PAMJI")
 
 
-def test_every_profile_check_passes(flown):
-    prof, rows = flown
-    results, _ = _results(prof.checks, rows)
-    assert [f"{r.label}: {r.detail}" for r in results if not r.passed] == []
+# The profile's own checks are flown by test_profiles.py, with every other
+# committed profile (SYN3).
 
 
 def test_two_full_circuits_of_the_winch_hold_match_the_reference():
