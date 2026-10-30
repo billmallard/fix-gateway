@@ -29,17 +29,6 @@ QA1 = sorted(PROFILES.glob("qa1-*.yaml"))
 OPEN = {
     "qa1-hold-teardrop-left-kded-r30": "AER-4211: FPLCRS 1.6 deg off the reference on the BARBS hold's "
                                        "outbound-end turn (5 nm legs); cross-track agrees to 0.014 nm",
-    # F4 (AER-4211/AER-4223), fix-gateway#58: a dead GPS link stays unflagged ~25 s
-    "qa1-gps-link-loss-mid-leg-ksmx-r30": "AER-4223 F4: guidance unflagged up to 25.4 s after LAT/LONG stop "
-                                          "with the fix type left at 3D",
-    "qa1-gps-position-loss-mid-leg-ksmx-r30": "AER-4223 F4: guidance unflagged up to 25.4 s after LAT/LONG "
-                                              "stop while the status keeps saying 3D",
-    "qa1-gps-status-loss-mid-leg-ksmx-r30": "AER-4223 F4: guidance never flagged while GPS_FIX_TYPE and "
-                                            "GPS_ACCURACY_HORIZ are silent and position keeps coming",
-    # F5 (AER-4223), also closed by fix-gateway#58: the first cycle after the fix returns runs on the LAT
-    # write with the LONG from before the outage, unflagged
-    "qa1-gps-loss-mid-leg-ksmx-r30": "AER-4223 F5: one unflagged cycle on new LAT + pre-outage LONG after "
-                                     "the fix returns (FPLXTK 0.199 nm on a 0.3 nm final)",
 }
 
 
