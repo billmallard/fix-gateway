@@ -1,5 +1,12 @@
 # SYN2 live-mode bench runs, 2026-10-30
 
+The Beelink frames and `beelink-marks.jsonl` are from run 2 (22:28-22:48 UTC,
+branch at `60153d6`, the generator now feeding `IAS`), against the bench
+gateway at `27dccad` (dev with AER-4217's 2 s position bound). Run 1
+(12:41 UTC, no `IAS`, so the tape read 0 kt) is in the history of this
+directory. The Pi 5 log is from run 1; the Pi was not re-run, because IAS
+changes nothing it can evidence without a screenshot.
+
 Profile `fp8-ksmx-rnav30-missed` flown live at x1 (1172.2 s) into each
 bench's running gateway, no sim, from a scratch copy of `src/fixgw` on
 branch `syn2/live-mode` (`~/bench-scratch/syn2/src`, not the bench checkout),
@@ -7,8 +14,8 @@ under `/tmp/pyefis-bench.lock` with a 45 min outer timeout.
 
 | Box | Display | Result | Evidence |
 |---|---|---|---|
-| Beelink 10.110.10.241 | X11, 1920x1080 | exit 0, 111552 writes, worst lateness 0.000 s, 9 hooks, 0 failed | `beelink-marks.jsonl`, the JPEGs here |
-| Pi 5 10.110.10.199 | eglfs | exit 0, 111552 writes, worst lateness 0.000 s | `pi5-marks.jsonl` only: there is no screenshot on eglfs |
+| Beelink 10.110.10.241 | X11, 1920x1080 | run 2: exit 0, 117414 writes, worst lateness 0.000 s, 9 hooks, 0 failed | `beelink-marks.jsonl`, the JPEGs here |
+| Pi 5 10.110.10.199 | eglfs | run 1: exit 0, 111552 writes, worst lateness 0.000 s | `pi5-marks.jsonl` only: there is no screenshot on eglfs |
 
 The Pi's active database has no `sim.yaml`, so its `REF*` writes were
 dropped (the run says so on its first line); nothing on the glass reads them.
@@ -21,11 +28,11 @@ panel blank):
 ```
 cd ~/bench-scratch/syn2/src
 flock -o -w 900 /tmp/pyefis-bench.lock timeout 45m \
-    python3 -m fixgw.sim live fixgw/sim/profiles/fp8-ksmx-rnav30-missed.yaml \
-        --log ~/bench-scratch/syn2/marks.jsonl \
+    ~/pyefis-venv/bin/python -m fixgw.sim live fixgw/sim/profiles/fp8-ksmx-rnav30-missed.yaml \
+        --log ~/bench-scratch/syn2/marks2.jsonl \
         --hook 'DISPLAY=:0 ffmpeg -loglevel error -y -f x11grab -draw_mouse 0 \
                 -video_size 1920x1080 -i :0 -frames:v 1 \
-                ~/bench-scratch/syn2/shots/$SYN_INDEX-$SYN_WHAT-$SYN_FIX.png'
+                ~/bench-scratch/syn2/shots2/$SYN_INDEX-$SYN_WHAT-$SYN_FIX.png'
 ```
 
 `00-before` was one manual `x11grab` before the run. Pi 5: the same command
