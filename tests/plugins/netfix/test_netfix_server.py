@@ -20,6 +20,11 @@ import yaml
 import socket
 import logging
 
+import pytest
+
+import fixgw.plugins.netfix
+from fixgw import cfg
+
 
 
 def test_value_write(plugin,database):
@@ -538,3 +543,47 @@ def test_subscriber_gets_old_flag_when_another_reader_sees_expiry_first(plugin, 
     database.update()
 
     assert plugin.sock.recv(1024).decode() == "IAS;120.0;01000\n"
+
+
+def test_back_to_back_connections_not_refused(plugin, database):
+    """One-shot clients that connect, read and close in quick succession must
+    never be refused.  The listening socket used to be re-created after every
+    accept(), so a connect that landed in the gap before the next bind() got
+    ECONNREFUSED, and one still queued in the old socket's backlog when it
+    was closed got ECONNRESET (fix-gateway #43)."""
+    database.write("ALT", 2000)
+    refused = 0
+    for _ in range(100):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(1.0)
+        try:
+            s.connect(("127.0.0.1", 34901))
+        except ConnectionRefusedError:
+            refused += 1
+            continue
+        try:
+            s.sendall("@rALT\n".encode())
+            assert s.recv(1024).decode() == "@rALT;2000.0;00000\n"
+        finally:
+            s.close()
+    assert refused == 0
+
+
+def test_stop_releases_listening_socket(netfix_config, database):
+    """stop() still ends the server thread on the accept timeout and closes
+    the listening socket, so the port stops accepting."""
+    nc, nc_meta = cfg.from_yaml(netfix_config, metadata=True)
+    pl = fixgw.plugins.netfix.Plugin("netfix", nc, nc_meta)
+    pl.start()
+    time.sleep(0.1)
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(1.0)
+    s.connect(("127.0.0.1", 34901))
+    s.close()
+    pl.stop()
+    assert not pl.thread.is_alive()
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(1.0)
+    with pytest.raises(ConnectionRefusedError):
+        s.connect(("127.0.0.1", 34901))
+    s.close()
