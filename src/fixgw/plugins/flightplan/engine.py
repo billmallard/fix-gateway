@@ -401,7 +401,16 @@ APPROACH_RAMP_NM_DEFAULT = 2.0
 TURN_RATE_DEG_S_DEFAULT = 3.0
 ALERT_S_DEFAULT = 10.0
 HAL_NM_DEFAULT = {"enr": 2.0, "term": 1.0, "lnav": 0.3}
-POSITION_TIMEOUT_S = 5.0
+# How long after the fix it was computed from a position may still drive
+# guidance (AER-4217). Measured from the fix (the time LAT/LONG were written),
+# not from the last cycle that saw them, and not stacked on the database tol.
+# The slowest navigation source we take is a 1 Hz receiver (NMEA GGA/RMC, a
+# gpsd TPV per 1 Hz epoch); 2.0 s is one whole missed epoch plus a full epoch
+# of delivery jitter, so the second consecutive missing fix flags. It matches
+# the 2 s tol the database already gives GPS_FIX_TYPE and GPS_ACCURACY_HORIZ,
+# which arrive in the same receiver message. Frozen-position error at the bound
+# is ground speed x 2 s: 0.08 nm at 150 kt.
+POSITION_TIMEOUT_S = 2.0
 DTO_MATCH_TOLERANCE_DEG = 0.001
 DIRECT_TO_NEEDS_POSITION_REASON = "NO POSITION"
 
@@ -1218,7 +1227,8 @@ class Engine:
     # ------------------------------------------------------------------
     # Per-cycle guidance update
     # ------------------------------------------------------------------
-    def update(self, ac_lat, ac_lon, gs_kt, magvar_deg, position_ok, fix_type_ok, accuracy_nm, now, alt_ft=None):
+    def update(self, ac_lat, ac_lon, gs_kt, magvar_deg, position_ok, fix_type_ok, accuracy_nm, now, alt_ft=None,
+               position_time=None):
         """Recompute all engine outputs for one position/timer cycle.
 
         fix_type_ok: True/False/None (None = the fix-type key is not
@@ -1230,6 +1240,10 @@ class Engine:
         None never terminates one (guardrail 1's "never invent" extended to
         altitude the same way position_ok's staleness gate already treats
         "no data" as "don't guess").
+        position_time: when ac_lat/ac_lon were produced (AER-4217), or None
+        for "now". The staleness bound runs from this time, so a position
+        that is still flagged good but has not been refreshed fails after
+        POSITION_TIMEOUT_S like any other.
 
         Returns a dict of output values (see OUTPUT_KEYS below) plus an
         optional "msg" key (only present when there is a new FPLMSG to post).
@@ -1237,7 +1251,7 @@ class Engine:
         self._pending_msg = None
 
         if position_ok:
-            self._last_good_time = now
+            self._last_good_time = now if position_time is None else position_time
             self._last_lat, self._last_lon = ac_lat, ac_lon
         elif self._last_lat is not None:
             ac_lat, ac_lon = self._last_lat, self._last_lon
