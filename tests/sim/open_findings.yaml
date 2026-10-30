@@ -1,0 +1,12 @@
+# QA's open findings: a committed profile that is right while the box
+# disagrees with it. QA owns this list; the gate (profile_gate.py,
+# test_profiles.py) and test_qa1_profiles.py only read it.
+#
+# Each entry is a profile file's stem and the finding, in one line. A listed
+# profile is a strict expected failure: failing is reported and does not fail
+# the job; passing fails it until the finding is closed and its entry removed.
+# An entry that names no committed profile also fails the job.
+
+qa1-hold-teardrop-left-kded-r30: >-
+  AER-4211: FPLCRS 1.6 deg off the reference on the BARBS hold's
+  outbound-end turn (5 nm legs); cross-track agrees to 0.014 nm

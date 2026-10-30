@@ -20,16 +20,15 @@ from fixgw.sim.cifp import Cifp
 from fixgw.sim.profile import ProfileError, load_profile
 
 from .engine_replay import replay
+from .profile_gate import open_findings
 
 PROFILES = Path(__file__).resolve().parents[2] / "src/fixgw/sim/profiles"
 QA1 = sorted(PROFILES.glob("qa1-*.yaml"))
 
 # Open findings: the profile is right and the box disagrees with it. strict,
-# so a fix turns the test red until the mark is removed.
-OPEN = {
-    "qa1-hold-teardrop-left-kded-r30": "AER-4211: FPLCRS 1.6 deg off the reference on the BARBS hold's "
-                                       "outbound-end turn (5 nm legs); cross-track agrees to 0.014 nm",
-}
+# so a fix turns the test red until the entry is removed. The list is QA's,
+# in open_findings.yaml, read here and by the CI gate (profile_gate.py).
+OPEN = open_findings()
 
 
 @pytest.fixture(scope="module")
@@ -51,7 +50,7 @@ def test_every_qa1_profile_check_passes(flown, path):
     log = checks.Log.from_rows(rows, checks.keys_needed(prof.checks))
     failed = [f"{r.label}: {r.detail}" for r in checks.evaluate(prof.checks, log) if not r.passed]
     if path.stem in OPEN:
-        assert failed, f"{path.stem} passes now -- close the finding and drop it from OPEN"
+        assert failed, f"{path.stem} passes now -- close the finding and drop it from open_findings.yaml"
         pytest.xfail(OPEN[path.stem])
     assert failed == []
 
