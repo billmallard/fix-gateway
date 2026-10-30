@@ -342,8 +342,74 @@ def test_restore_does_not_auto_sequence_a_direct_to_before_a_real_position_arriv
     assert database.get_raw_item("FPLCRS").fail is True
 
 
+def _persist_active_plan(state_file):
+    e = engine.Engine()
+    route = [
+        engine.Waypoint("KSBA", 34.42621, -119.84037),
+        engine.Waypoint("GVO", 34.53142, -120.09106),
+        engine.Waypoint("KSMX", 34.89892, -120.45758),
+    ]
+    load(e, route, "INFLIGHT", 9)
+    e.handle_command("1 ACT 2", (34.45, -119.9, True))
+    snapshot = e.to_persisted_dict()
+    state_file.write_text(json.dumps(snapshot))
+    return snapshot
+
+
+def test_position_feed_during_restore_delay_does_not_overwrite_the_persisted_plan(database, tmp_path):
+    # fix-gateway#50 (G48): a real GPS streams from the moment the gateway
+    # starts, so LAT/LONG callbacks run the guidance cycle -- and its persist
+    # hook -- inside restore_delay, while the engine is still empty. Without
+    # the guard, the empty snapshot replaced the state file before _restore()
+    # read it and an in-flight restart came back with no plan (FP8, AER-809).
+    state_file = tmp_path / "flightplan_state.json"
+    snapshot = _persist_active_plan(state_file)
+
+    pl = flightplan.Plugin("flightplan", make_config(tmp_path, restore_delay=1.0), {})
+    pl.run()
+    try:
+        # A 5 Hz position feed through the restore window, as on the bench.
+        deadline = time.time() + 0.3
+        while time.time() < deadline:
+            database.write("LAT", 34.45)
+            database.write("LONG", -119.9)
+            time.sleep(0.2)
+        assert pl.thread._position_seen  # the callbacks really ran
+        assert pl.thread.engine.count == 0  # still inside the window
+        assert json.loads(state_file.read_text()) == snapshot
+
+        deadline = time.time() + 3.0
+        while pl.thread.engine.count == 0 and time.time() < deadline:
+            time.sleep(0.05)
+    finally:
+        pl.stop()
+
+    assert pl.thread.engine.route_name == "INFLIGHT"
+    assert pl.thread.engine.act_leg == 2
+    assert database.read("FPLCOUNT")[0] == 3
+    assert database.read("FPLSEQ")[0] == 9
+    assert json.loads(state_file.read_text())["route"] == snapshot["route"]
+
+
+def test_stop_inside_restore_delay_does_not_overwrite_the_persisted_plan(database, tmp_path):
+    # The same window from the other end: run() flushes on exit, so a gateway
+    # stopped (or restarted again) before the restore ran must not write its
+    # still-empty engine over the plan it never read.
+    state_file = tmp_path / "flightplan_state.json"
+    snapshot = _persist_active_plan(state_file)
+
+    pl = flightplan.Plugin("flightplan", make_config(tmp_path, restore_delay=5.0), {})
+    pl.run()
+    time.sleep(0.1)
+    pl.stop()
+
+    assert pl.thread.engine.count == 0
+    assert json.loads(state_file.read_text()) == snapshot
+
+
 def test_persistence_flush_writes_atomically_on_change(database, tmp_path):
     pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
+    pl.thread._restore()  # no state file: nothing to restore, persistence opens
     write_route(database, [engine.Waypoint("A", 0.0, 0.0), engine.Waypoint("B", 0.0, 1.0)], seq=1)
     database.write("FPLCMD", "1 ACT 2")
 
