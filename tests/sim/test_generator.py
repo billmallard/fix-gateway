@@ -37,6 +37,8 @@ def test_the_synthetic_tier_imports_nothing_from_the_engine():
             elif isinstance(node, ast.ImportFrom):
                 names = [node.module or ""]
             for n in names:
+                if n == "fixgw.netfix" and py.name == "__main__.py":
+                    continue    # the bus client the live mode writes with (SYN2), not the engine
                 if n.startswith("fixgw") and not n.startswith("fixgw.sim"):
                     offenders.append(f"{py.name}: {n}")
     assert offenders == []
