@@ -470,6 +470,20 @@ def test_unknown_command(plugin):
     assert res == "@oALT!004\n"
 
 
+def test_empty_and_bare_at_frames_keep_connection_alive(plugin, database):
+    """An empty line and a bare '@' used to raise IndexError in the
+    connection thread, leaving the client deaf (#67)."""
+    database.write("IAS", 105.4)
+    plugin.sock.sendall("\n\n@\n@rIAS\n".encode())
+    res = ""
+    while res.count("\n") < 2:
+        chunk = plugin.sock.recv(1024).decode()
+        if not chunk:  # Server closed the connection
+            break
+        res += chunk
+    assert res == "@!004\n@rIAS;105.4;00000\n"
+
+
 def test_status_command(plugin):
     plugin.sock.sendall("@xstatus\n".encode())
     res = plugin.sock.recv(1024).decode()
