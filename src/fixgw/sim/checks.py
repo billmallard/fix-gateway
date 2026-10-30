@@ -223,6 +223,7 @@ def _eval_one(c, log, seq_times, legs, start_s):
         label += " (equal)"
     res = CheckResult(label, True)
     bad_rows = []      # (index among compared rows, t, a, b, leg)
+    errs = []          # per compared row: (t, error or None, leg)
     for i, (t, row, leg, flags) in enumerate(zip(log.t, log.rows, legs, log.flags)):
         if t < after or _in_window(t, seq_times, window):
             continue
@@ -251,17 +252,16 @@ def _eval_one(c, log, seq_times, legs, start_s):
         else:
             bad = str(a) != str(b)
         n, f, m = res.by_leg.get(leg, (0, 0, None))
-        if err is not None and (res.max_err is None or err > res.max_err):
-            res.max_err, res.t_max = err, t
-        if err is not None and (m is None or err > m):
-            m = err
+        errs.append((t, err, leg))
         if bad:
             bad_rows.append((res.compared, t, a, b, leg))
         res.compared += 1
         res.by_leg[leg] = (n + 1, f, m)
+    tolerated = set()
     for run in _runs(bad_rows):
         if tolerate > 0 and run[-1][1] - run[0][1] < tolerate:
             res.transients += 1
+            tolerated.update(r[0] for r in run)
             continue
         for _, t, a, b, leg in run:
             res.failed += 1
@@ -270,6 +270,22 @@ def _eval_one(c, log, seq_times, legs, start_s):
             if res.first_fail_t is None or t < res.first_fail_t:
                 res.first_fail_t = t
                 res.detail = f"t={t:.1f}s {a_key}={_fmt(a)} {b_key}={_fmt(b)}"
+    # The largest error is over the rows that count: a tolerated transient
+    # (two navigators switching a phase one update apart) is reported apart
+    # from it, so a 150 deg one-row switch does not read as the finding.
+    worst_transient = None
+    for k, (t, err, leg) in enumerate(errs):
+        if err is None:
+            continue
+        if k in tolerated:
+            if worst_transient is None or err > worst_transient[0]:
+                worst_transient = (err, t)
+            continue
+        if res.max_err is None or err > res.max_err:
+            res.max_err, res.t_max = err, t
+        n, f, m = res.by_leg[leg]
+        if m is None or err > m:
+            res.by_leg[leg] = (n, f, err)
     if unless_flagged:
         label += ", unless flagged"
     if tolerate:
@@ -282,7 +298,8 @@ def _eval_one(c, log, seq_times, legs, start_s):
     if res.flagged:
         extra.append(f"{res.flagged} rows flagged")
     if res.transients:
-        extra.append(f"{res.transients} transient runs")
+        extra.append(f"{res.transients} transient runs"
+                     + (f" (largest {worst_transient[0]:.4f} at t={worst_transient[1]:.1f}s)" if worst_transient else ""))
     if res.silent:
         extra.append(f"{res.silent} rows with an input silent")
     if extra:

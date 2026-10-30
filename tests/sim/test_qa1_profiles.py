@@ -236,6 +236,16 @@ def test_tolerate_s_forgives_one_row_and_not_two():
     assert not r2.passed and r2.failed == 2
 
 
+def test_the_largest_error_is_over_the_rows_that_count_not_a_tolerated_transient():
+    c = {"key_pair": ["A", "B"], "tol": 0.1, "tolerate_s": 0.1, "after_s": 0}
+    log = _log([{"A": 0, "B": 0}, {"A": 150, "B": 0}, {"A": 0, "B": 0},
+                {"A": 0.5, "B": 0}, {"A": 0.5, "B": 0}, {"A": 0, "B": 0}], {"A", "B"})
+    r = checks.evaluate([c], log)[0]
+    assert r.failed == 2 and r.transients == 1
+    assert r.max_err == pytest.approx(0.5) and r.t_max == pytest.approx(0.6)
+    assert "largest 150.0000 at t=0.2s" in r.detail
+
+
 def _fix_log(fix, flags):
     return _log([{"GPS_FIX_TYPE": f, "X": (F if g else 0.0)} for f, g in zip(fix, flags)], {"GPS_FIX_TYPE", "X"})
 
