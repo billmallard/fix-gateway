@@ -840,9 +840,11 @@ class Engine:
         )
         if uses_course_anchor:
             true_course = geo.wrap360(to_wp.crs - magvar_deg)
-            back_lat, back_lon = geo.destination_point(
-                to.lat, to.lon, geo.wrap360(true_course + 180.0), CF_VIRTUAL_FROM_NM
-            )
+            # A hold's inbound course is built on WGS-84 like the rest of
+            # its racetrack (_hold_geometry), so the turn inbound ends on
+            # it rather than up to 0.006 nm beside it.
+            dest = geo.destination_point_wgs84 if to_wp.pt in PT_HOLD else geo.destination_point
+            back_lat, back_lon = dest(to.lat, to.lon, geo.wrap360(true_course + 180.0), CF_VIRTUAL_FROM_NM)
             return Point(back_lat, back_lon)
         return fr
 
@@ -872,17 +874,20 @@ class Engine:
                                      Point(to_wp.lat, to_wp.lon), ac_lat, ac_lon)
 
     @staticmethod
-    def _circle_geometry(center, radius_nm, clockwise, exit_pt, ac_lat, ac_lon, ahead_max_deg=180.0):
+    def _circle_geometry(center, radius_nm, clockwise, exit_pt, ac_lat, ac_lon, ahead_max_deg=180.0,
+                         destination_point=geo.destination_point):
         """Guidance on a circle around center, flown clockwise or not, up to
         the radial through exit_pt: the RF/AF arc above, and (fix-gateway#45)
         the two turns of a hold's racetrack. A remaining sweep past
-        ahead_max_deg reads as already past the exit radial."""
+        ahead_max_deg reads as already past the exit radial. A hold passes
+        the WGS-84 destination_point its racetrack is built with, so the
+        circle has the radius it was built with."""
         ac_radial = geo.bearing_deg(center.lat, center.lon, ac_lat, ac_lon)
         to_radial = geo.bearing_deg(center.lat, center.lon, exit_pt.lat, exit_pt.lon)
         tangent_brg = geo.wrap360(ac_radial + (90.0 if clockwise else -90.0))
 
-        on_arc_lat, on_arc_lon = geo.destination_point(center.lat, center.lon, ac_radial, radius_nm)
-        ahead_lat, ahead_lon = geo.destination_point(on_arc_lat, on_arc_lon, tangent_brg, 1.0)
+        on_arc_lat, on_arc_lon = destination_point(center.lat, center.lon, ac_radial, radius_nm)
+        ahead_lat, ahead_lon = destination_point(on_arc_lat, on_arc_lon, tangent_brg, 1.0)
         xtk = geo.cross_track_nm(on_arc_lat, on_arc_lon, ahead_lat, ahead_lon, ac_lat, ac_lon)
 
         remaining_sweep = geo.arc_sweep_deg(ac_radial, to_radial, clockwise)
@@ -924,8 +929,12 @@ class Engine:
         side_true = geo.wrap360(inbound_true + (90.0 if clockwise else -90.0))
         r = self._hold_r_nm
 
+        # Every point here is built on WGS-84 (AER-4218). The sphere puts
+        # the turn-in point, a coded leg length out, up to 0.05 nm off,
+        # and the turn's tangent swings by atan(offset / r) -- 1.6 deg on a
+        # 5 nm leg at 110 kt, several degrees on the longest coded legs.
         def at(p, brg, nm):
-            return Point(*geo.destination_point(p.lat, p.lon, brg, nm))
+            return Point(*geo.destination_point_wgs84(p.lat, p.lon, brg, nm))
 
         if self._leg_phase == LEGPHASE_ENTRY:
             course = outbound_true
@@ -937,7 +946,7 @@ class Engine:
             return fix, atd, xtk, dtk_true
         if self._leg_phase == LEGPHASE_TURN_OUT:
             return self._circle_geometry(at(fix, side_true, r), r, clockwise, at(fix, side_true, 2.0 * r),
-                                         ac_lat, ac_lon, HOLD_TURN_AHEAD_MAX_DEG)
+                                         ac_lat, ac_lon, HOLD_TURN_AHEAD_MAX_DEG, geo.destination_point_wgs84)
         if self._leg_phase == LEGPHASE_OUTBOUND:
             start = at(fix, side_true, 2.0 * r)
             atd, xtk, dtk_true = self._line_geometry(start, at(start, outbound_true, to_wp.dst), ac_lat, ac_lon)
@@ -945,7 +954,7 @@ class Engine:
         # TURN_IN
         turn_end = at(fix, outbound_true, to_wp.dst)
         return self._circle_geometry(at(turn_end, side_true, r), r, clockwise, turn_end,
-                                     ac_lat, ac_lon, HOLD_TURN_AHEAD_MAX_DEG)
+                                     ac_lat, ac_lon, HOLD_TURN_AHEAD_MAX_DEG, geo.destination_point_wgs84)
 
     def _hold_outbound_target(self, to_wp, magvar_deg):
         """The synthetic endpoint of a PI procedure turn's outbound leg
