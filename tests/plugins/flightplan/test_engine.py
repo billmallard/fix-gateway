@@ -600,7 +600,7 @@ def test_wpete_bad_under_30kt():
     assert out["wp_ete_bad"] is False
 
 
-def test_outputs_fail_after_5s_of_bad_position():
+def test_outputs_fail_after_2s_of_bad_position():
     e = engine.Engine()
     route = [wp("A", 0.0, 0.0), wp("B", 0.0, nm_to_deg_lon(5))]
     load(e, route, "T", 1)
@@ -609,11 +609,29 @@ def test_outputs_fail_after_5s_of_bad_position():
     out = e.update(0.0, 0.0, 120.0, 0.0, True, None, None, 1000.0)
     assert out.get("fail", False) is False
 
-    out = e.update(0.0, 0.0, 120.0, 0.0, False, None, None, 1004.0)  # 4s stale
+    out = e.update(0.0, 0.0, 120.0, 0.0, False, None, None, 1001.9)  # 1.9s stale
     assert out.get("fail", False) is False
 
-    out = e.update(0.0, 0.0, 120.0, 0.0, False, None, None, 1006.0)  # 6s stale
+    out = e.update(0.0, 0.0, 120.0, 0.0, False, None, None, 1002.1)  # 2.1s stale
     assert out["fail"] is True
+
+
+def test_position_bound_runs_from_the_fix_time_not_the_cycle():
+    # AER-4217: a position still flagged good on the bus (its database tol
+    # is longer) but not refreshed since position_time fails on the bound.
+    e = engine.Engine()
+    route = [wp("A", 0.0, 0.0), wp("B", 0.0, nm_to_deg_lon(5))]
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+
+    out = e.update(0.0, 0.0, 120.0, 0.0, True, None, None, 1001.9, position_time=1000.0)
+    assert out.get("fail", False) is False
+
+    out = e.update(0.0, 0.0, 120.0, 0.0, True, None, None, 1002.1, position_time=1000.0)
+    assert out["fail"] is True
+
+    out = e.update(0.0, 0.0, 120.0, 0.0, True, None, None, 1003.0, position_time=1003.0)
+    assert out.get("fail", False) is False  # a fresh fix clears it at once
 
 
 # ---------------------------------------------------------------------------
