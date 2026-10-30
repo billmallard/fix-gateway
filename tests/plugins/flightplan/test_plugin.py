@@ -511,7 +511,8 @@ def test_dead_gps_link_flags_guidance_within_the_position_bound(database, tmp_pa
     # QA1 F4: the receiver (or its link) stops sending with the last fix type
     # still 3D. Nothing writes GPS_FIX_TYPE, LAT or LONG again. The guidance
     # must flag no later than the engine's position bound after the last fix
-    # -- not after LAT/LONG's 20 s database tol plus the bound.
+    # -- not after LAT/LONG's database tol plus the bound (20 s + 5 s before
+    # AER-4217).
     pl, clock = _flying(database, tmp_path, monkeypatch)
     for i in range(5):
         clock.t += 1.0

@@ -1452,6 +1452,24 @@ def test_no_description_contains_the_netfix_delimiter(database):
         f"description contains ';' (breaks netfix's @q report): {offenders}")
 
 
+@pytest.mark.parametrize("key", ["LAT", "LONG"])
+def test_shipped_position_keys_go_old_two_seconds_after_the_last_write(database, monkeypatch, key):
+    # AER-4217: a dead GPS link reads as old on every consumer (pyEfis's map
+    # greys the ownship and shows NO POS) two seconds after the last fix, not
+    # twenty. One missed epoch of a 1 Hz receiver plus one epoch of jitter.
+    now = [time.time()]
+    monkeypatch.setattr(time, "time", lambda: now[0])
+    database.write(key, 10.0)
+
+    now[0] += 1.9
+    assert database.read(key)[2] is False
+    now[0] += 0.2
+    assert database.read(key)[2] is True
+
+    database.write(key, 10.1)  # the next fix clears it at once
+    assert database.read(key)[2] is False
+
+
 # AER-4246: going old must reach the callbacks (and so netfix clients) no
 # matter who observes the expiry first. The value getter used to set _old
 # itself when read past the tol, so a read between the expiry and the next
