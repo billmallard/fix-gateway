@@ -24,8 +24,9 @@ def _parent(config=None, values=None):
     return parent
 
 
-def _value(value, old=False, bad=False, fail=False, secfail=False):
-    return (value, old, bad, fail, secfail, 0)
+def _value(value, annunciate=False, old=False, bad=False, fail=False, secfail=False):
+    # The order database items read in
+    return (value, annunciate, old, bad, fail, secfail)
 
 
 def _make_thread(parent, keys):
@@ -75,7 +76,7 @@ def test_persist_stores_only_tuple_database_values():
     thread.persist("ENG1", _value(123.4, old=True, bad=False, fail=True, secfail=False))
     thread.persist("ENG1.Aux", 22.0)
 
-    assert thread.data == {"ENG1": [123.4, 1, 0, 1, 0, 0]}
+    assert thread.data == {"ENG1": [123.4, 0, 1, 0, 1, 0]}
 
 
 def test_get_all_data_snapshots_matching_keys_without_callbacks():
@@ -104,7 +105,7 @@ def test_get_all_data_snapshots_all_keys_without_callbacks():
 
     assert thread.data == {
         "ENG1": [10.0, 0, 0, 0, 0, 0],
-        "ALT": [2500.0, 0, 1, 0, 0, 0],
+        "ALT": [2500.0, 0, 0, 1, 0, 0],
     }
 
 
@@ -134,7 +135,7 @@ def test_run_writes_header_and_data_snapshot(tmp_path):
     header = json.loads(lines[0])
     assert header["frequency"] == "1000"
     assert "starttime" in header
-    assert json.loads(lines[1]) == {"ENG1": [123.4, 1, 0, 0, 0, 0]}
+    assert json.loads(lines[1]) == {"ENG1": [123.4, 0, 1, 0, 0, 0]}
 
 
 def test_run_reuses_current_file_within_same_hour(tmp_path):
