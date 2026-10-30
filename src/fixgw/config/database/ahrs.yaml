@@ -428,6 +428,37 @@ items:
   initial: 0.0
   tol: 2000
 
+# Lateral guidance validity (CDI) per source (1 = the radio is receiving lateral
+# guidance). Without it a localizer tuned but not received drew a centred needle,
+# hidden only on the CDI's own data quality (fix-gateway#20). NAV#CDIV comes from
+# NAV#DH, the same input NAV#GSV uses. There is no GPSCDIV: X-Plane publishes no
+# per-source GPS lateral-validity dataref, so the GPS leg is not gated (CDIV=1)
+# and its needle stays on GPSCDI's own quality. Design record: MAOS-DESIGN
+# roadmap section 9.1 "Lateral guidance validity (CDI)".
+- key: NAV1CDIV
+  description: NAV1 lateral guidance valid (1=LOC/VOR received)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+- key: NAV2CDIV
+  description: NAV2 lateral guidance valid (1=LOC/VOR received)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+- key: CDIV
+  description: Selected-source lateral guidance valid (1=show CDI needle)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
 # VOR TO/FROM per source (0=off/flag, 1=TO, 2=FROM). From X-Plane nav#_fromto;
 # GPS has no TO/FROM so GPSTF stays 0. The HSI draws a TO/FROM triangle on the
 # course line for the selected source.
