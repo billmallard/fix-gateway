@@ -312,7 +312,10 @@ phase's horizontal alert limit -> `FPLINTEG = false`). The default
 `integrity_key` for FP2's `connections/flightplan.yaml` is
 **`GPS_ACCURACY_HORIZ`** (`database/ahrs.yaml`, units **feet** -- FP2 must
 convert to nm to compare against the nm-denominated HAL table
-`{enr: 2.0, term: 1.0, lnav: 0.3}`).
+`{enr: 2.0, term: 1.0, lnav: 0.3}`). Its `max` is 100,000 ft (about
+16.5 nm), above every HAL, so a degraded HPL/HFOM -- or one past the max,
+which clamps to it -- still raises LOI. It was 200 ft (0.033 nm) until
+fix-gateway#52, which clamped every value below every HAL.
 
 Plugins confirmed to write it: `mavlink` (`Mav.py`, mm -> ft) and `gpsd`
 (`__init__.py`, m -> ft). **Not written by `xplane`** -- the bench's X-Plane

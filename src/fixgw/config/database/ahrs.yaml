@@ -719,7 +719,10 @@ items:
   type: float
   units: ft
   min: 0
-  max: 200
+  # Must stay above every flightplan HAL (2.0 nm = 12,152 ft): a degraded
+  # HPL/HFOM runs to thousands of feet, and a value clamped below the HAL
+  # can never raise LOI (fix-gateway#52). 100,000 ft is about 16.5 nm.
+  max: 100000
   initial: 0
   tol: 2000
 
