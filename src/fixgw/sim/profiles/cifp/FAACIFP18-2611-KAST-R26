@@ -1,0 +1,26 @@
+HDR01FAACIFP18      001P013203973042611  07-OCT-202615:55:03  U.S.A. DOT FAA                                                9D60747B
+SUSAD        OLM   K1011340VTHW N46581790W122540660    N46581790W122540660E0190002002     NAROLYMPIA                       256302002
+SUSAEAENRT   KKARP K10    W   L N46074539W123264206                       E0148     NAR           KKARP                    415642605
+SUSAEAENRT   KULOA K10    C   L N45590061W123540410                       E0148     NAR           KULOA                    424222605
+SUSAP KASTK1AAST     0     057YHN46092872W123524305E015000015         1800018000C    MNAR    ASTORIA RGNL                  245172401
+SUSAP KASTK1CHOMKU K10    W     N46121979W123234785                       E0148     NAR           HOMKU                    245192605
+SUSAP KASTK1CIPUPE K10    W     N46090222W123451028                       E0148     NAR           IPUPE                    245202605
+SUSAP KASTK1CRROCK K10    W     N46083342W123380971                       E0148     NAR           RROCK                    245242605
+SUSAP KASTK1CSTAZY K10    W     N46095412W123580509                       E0149     NAR           STAZY                    245282605
+SUSAP KASTK1CYUXBU K10    W     N46033130W124021306                       E0149     NAR           YUXBU                    245312605
+SUSAP KASTK1CYUZPI K10    W     N46082148W123351712                       E0148     NAR           YUZPI                    245322605
+SUSAP KASTK1FR26   AOLM   010OLM  K1D 0V       IF                                             18000                 A JS   245780905
+SUSAP KASTK1FR26   AOLM   020HOMKUK1PC0E  A 020TF                                 + 05400                           A JS   245792401
+SUSAP KASTK1FR26   AOLM   030KKARPK1EA0EE B 010TF                                 + 04500                           A JS   245802401
+SUSAP KASTK1FR26   R      010KKARPK1EA0E  I    IF                                 + 04500     18000                 A JS   245842002
+SUSAP KASTK1FR26   R      011YUZPIK1PC0E    010TF                                 + 03800                           A JS   245852401
+SUSAP KASTK1FR26   R      020RROCKK1PC1E  F 010TF                                 + 03500                 RW26  K1PGA JS   245862401
+SUSAP KASTK1FR26   R      020RROCKK1PC2WALPV       N          ALNAV                                                   JS   245871310
+SUSAP KASTK1FR26   R      021IPUPEK1PC0E S  031TF                                 V 0178001784        -330          A JS   245882401
+SUSAP KASTK1FR26   R      030RW26 K1PG0GY M 031TF                                   00067             -330          A JS   245892401
+SUSAP KASTK1FR26   R      040         0  M     CA                     2607        + 00264                           A JS   245901808
+SUSAP KASTK1FR26   R      050STAZYK1PC0E    010DF                                                  210              A-JS   245911808
+SUSAP KASTK1FR26   R      060YUXBUK1PC0E    010TF                                                                   A JS   245922401
+SUSAP KASTK1FR26   R      070KULOAK1EA0EY   010TF                                 + 05000                           A JS   245932401
+SUSAP KASTK1FR26   R      080KULOAK1EA0EE  L   HM                     34960050    + 05000                           A JS   245941808
+SUSAP KASTK1GRW26    0057942600 N46093061W123521122         -0019700012071356100IIAST1                                     245971808

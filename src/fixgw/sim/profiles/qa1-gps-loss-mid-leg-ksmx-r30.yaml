@@ -1,0 +1,86 @@
+# QA1 (AER-4211): the GPS loses its fix in the middle of a leg, twice -- for
+# 30 s on NIRLE-ELZUS (terminal, 1.0 nm full scale) and for 15 s on the final
+# approach segment ANIBY-RW30 (0.3 nm) -- and gets it back before the next
+# fix. QA-authored: the scenario, checks, tolerances and expected values are
+# QA's. While there is no fix the generator publishes what the gpsd plugin
+# does below a 2D fix: GPS_FIX_TYPE 1 and no LAT/LONG/TRACK/GS/accuracy. The
+# aircraft keeps flying the reference's guidance, as a pilot holding the
+# course would. Format: ../PROFILE_FORMAT.md
+name: qa1-gps-loss-mid-leg-ksmx-r30
+description: >
+  KSMX RNAV 30 via GVO from 2 nm before NIRLE. No GPS fix for 30 s mid-way
+  along NIRLE-ELZUS and for 15 s on the final approach segment ANIBY-RW30;
+  the run ends 30 s after the second loss, before the MAP.
+
+cifp:
+  cycle: "2611"
+  file: cifp/FAACIFP18-2611-KSMX-R30
+
+aircraft: {tas_kt: 110, climb_fpm: 700, descent_fpm: 600, bank_max_deg: 25}
+
+environment:
+  magvar_deg: -11.9                # FIX MAGVAR, positive west: CIFP E011.9 at the KSMX terminal fixes
+  wind: {from_deg: 0, kt: 0}
+
+start: {fix: NIRLE, before_nm: 2.0, alt_ft: 4400, heading: on_course}
+
+route:
+  - procedure: {airport: KSMX, approach: R30, transition: GVO, missed: false}
+
+events:
+  - id: loss_terminal
+    at: {leg: NIRLE-ELZUS, after_s: 100}
+    do: {gps_loss_s: 30}
+  - id: loss_final
+    at: {leg: ANIBY-RW30, after_s: 30}
+    do: {gps_loss_s: 15}
+  - id: settle
+    at: {after: loss_final}
+    do: {offset_nm: 0.0, hold_s: 30}
+
+end: {after_event: settle, max_s: 3600}
+
+checks:
+  # QA-authored (AER-4211). Two requirements, both from AC 20-138D:
+  # 12-2.a, "navigation data is considered to be misleading when
+  # un-annunciated position errors exist" -- so on every row the guidance is
+  # either flagged (bad or failed) or agrees with the reference; and the
+  # failure indicator the lateral display must carry -- so the guidance is
+  # flagged while there is no fix and clears once the fix is back. 1 s is
+  # QA's bound: one update of a 1 Hz navigator. around_keys: the box blanks
+  # its TO fix while it has no fix, and that blank must not open an
+  # except-window around the very moments a loss starts and ends, so the
+  # windows follow the reference's sequencing only.
+  - key_pair: [FPLCRS, REFCRS]
+    tol_deg: 1.0
+    unless_flagged: true
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+  - key_pair: [FPLXTK, REFXTK]
+    tol: 0.02
+    unless_flagged: true
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+  - key_pair: [FPLCDI, REFCDI]
+    tol: 0.05
+    same_sign: true
+    unless_flagged: true
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+  - key_pair: [WPDIS, REFDIS]
+    tol: 0.015
+    tol_rel: 0.005
+    skip_when: {REFWPT: ""}
+    unless_flagged: true
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+  - flagged: [FPLCRS, FPLXTK, FPLCDI, WPDIS]
+    while_no_fix: true
+    within_s: 1.0
+    clear_within_s: 1.0
+  - key_pair: [WPNAME, REFWPT]
+    skip_when: {GPS_FIX_TYPE: 1}
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+  - sequence: [NIRLE, ELZUS, PAMJI, CIMSO, ANIBY, RW30]
+    keys: [WPNAME, REFWPT]
