@@ -297,7 +297,7 @@ def test_fail_outputs_keep_the_segment_identity_but_no_distance():
     load(e, route, "AWY", 1, segments)
     e.handle_command("1 ACT 3", (0.0, 0.0, True))
     _fly(e, 45.0, now=1000.0)
-    out = e.update(0.0, 0.0, 120.0, 0.0, False, None, None, 1010.0)  # position stale > 5 s
+    out = e.update(0.0, 0.0, 120.0, 0.0, False, None, None, 1010.0)  # position stale past the bound
     assert out["fail"] is True
     assert out["act_seg"] == 2 and out["seg_rem"] == 0.0
 
