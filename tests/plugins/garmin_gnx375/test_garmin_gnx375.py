@@ -191,34 +191,72 @@ class TestGgaParsing(unittest.TestCase):
         self.assertAlmostEqual(_db_value("LAT"), 48.1173, places=3)
         self.assertAlmostEqual(_db_value("LONG"), 11.5167, places=3)
         self.assertAlmostEqual(_db_value("GPS_ELLIPSOID_ALT"), 545.4 * 3.28084, places=0)
-        self.assertEqual(_db_value("GPS_FIX_TYPE"), 1)
+        # GGA quality 1 with 8 satellites is a 3D fix on the GPS_FIX_TYPE scale.
+        self.assertEqual(_db_value("GPS_FIX_TYPE"), 3)
 
     def test_gga_no_fix_skips_position(self):
         msg = MagicMock()
         msg.gps_qual = "0"
+        msg.num_sats = "00"
         msg.altitude = None
         initial_lat = _db_value("LAT")
         self.thread._handle_gga(msg)
         self.assertEqual(_db_value("GPS_FIX_TYPE"), 0)
         self.assertEqual(_db_value("LAT"), initial_lat)
 
-    def test_dgps_fix_type_2(self):
+    def test_waas_fix_is_3d_dgps(self):
         sentence = "$GPGGA,123519,4807.038,N,01131.000,E,2,08,0.9,545.4,M,46.9,M,,*44"
         msg = pynmea2.parse(sentence)
         self.thread._handle_gga(msg)
-        self.assertEqual(_db_value("GPS_FIX_TYPE"), 2)
+        self.assertEqual(_db_value("GPS_FIX_TYPE"), 4)
 
     def test_gga_fix_without_altitude_skips_altitude(self):
         msg = MagicMock()
         msg.gps_qual = "1"
+        msg.num_sats = "08"
         msg.latitude = 10.0
         msg.longitude = 20.0
         msg.altitude = None
 
         self.thread._handle_gga(msg)
 
-        self.assertEqual(_db_value("GPS_FIX_TYPE"), 1)
+        self.assertEqual(_db_value("GPS_FIX_TYPE"), 3)
         self.assertEqual(_db_value("GPS_ELLIPSOID_ALT"), 0.0)
+
+
+class TestFixTypeFromSentenceStream(unittest.TestCase):
+    """GPS_FIX_TYPE from real, checksummed sentences through _dispatch (AER-4224)."""
+
+    GGA_GPS_8 = "$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47"
+    GGA_WAAS_8 = "$GPGGA,123519,4807.038,N,01131.000,E,2,08,0.9,545.4,M,46.9,M,,*44"
+    GGA_GPS_3 = "$GPGGA,123519,4807.038,N,01131.000,E,1,03,2.9,545.4,M,46.9,M,,*4E"
+    GSA_2D = "$GPGSA,A,2,04,05,09,,,,,,,,,,3.1,2.9,1.0*33"
+    GNGSA_3D = "$GNGSA,A,3,04,05,,09,12,,,24,,,,,2.5,1.3,2.1*27"
+
+    def setUp(self):
+        database.init(io.StringIO(DB_CONFIG))
+        self.thread = _make_thread()
+
+    def _feed(self, *sentences):
+        for s in sentences:
+            self.thread._dispatch(pynmea2.parse(s, check=True), _CDI_FULL_SCALE)
+        return _db_value("GPS_FIX_TYPE")
+
+    def test_gga_only_stream_passes_the_3d_gate(self):
+        # The flight-plan engine requires GPS_FIX_TYPE >= 3.
+        self.assertEqual(self._feed(self.GGA_GPS_8), 3)
+        self.assertEqual(self._feed(self.GGA_WAAS_8), 4)
+
+    def test_three_satellites_is_2d(self):
+        self.assertEqual(self._feed(self.GGA_GPS_3), 2)
+
+    def test_gsa_mode_overrides_satellite_count_for_one_epoch(self):
+        self.assertEqual(self._feed(self.GSA_2D, self.GGA_GPS_8), 2)
+        # No GSA before this GGA: back to the satellite count.
+        self.assertEqual(self._feed(self.GGA_GPS_8), 3)
+
+    def test_multi_constellation_gsa_talker_is_used(self):
+        self.assertEqual(self._feed(self.GNGSA_3D, self.GGA_GPS_3), 3)
 
 
 class TestRmbParsing(unittest.TestCase):
@@ -346,11 +384,12 @@ class TestDispatch(unittest.TestCase):
             "_handle_gga": MagicMock(),
             "_handle_rmb": MagicMock(),
             "_handle_apb": MagicMock(),
+            "_handle_gsa": MagicMock(),
         }
         for name, handler in handlers.items():
             setattr(self.thread, name, handler)
 
-        for sentence_type in ["RMC", "GGA", "RMB", "APB", "TXT"]:
+        for sentence_type in ["RMC", "GGA", "RMB", "APB", "GSA", "TXT"]:
             msg = MagicMock()
             msg.sentence_type = sentence_type
             self.thread._dispatch(msg, _CDI_FULL_SCALE)
@@ -359,6 +398,7 @@ class TestDispatch(unittest.TestCase):
         handlers["_handle_gga"].assert_called_once()
         handlers["_handle_rmb"].assert_called_once()
         handlers["_handle_apb"].assert_called_once()
+        handlers["_handle_gsa"].assert_called_once()
 
 
 class TestSerialRunLoop(unittest.TestCase):
