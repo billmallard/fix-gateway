@@ -50,21 +50,27 @@ checks:
   # QA's bound: one update of a 1 Hz navigator. around_keys: the box blanks
   # its TO fix while it has no fix, and that blank must not open an
   # except-window around the very moments a loss starts and ends, so the
-  # windows follow the reference's sequencing only.
+  # windows follow the reference's sequencing only. skip_when_silent
+  # (AER-4223): agreement is judged on guidance from a current position
+  # only, not on the rows inside the flag's own 1 s allowance where the box
+  # still shows its last fix; the flagged check judges those.
   - key_pair: [FPLCRS, REFCRS]
     tol_deg: 1.0
     unless_flagged: true
+    skip_when_silent: {LAT: 0.5}
     except_s_around_sequence: 5
     around_keys: [REFWPT]
   - key_pair: [FPLXTK, REFXTK]
     tol: 0.02
     unless_flagged: true
+    skip_when_silent: {LAT: 0.5}
     except_s_around_sequence: 5
     around_keys: [REFWPT]
   - key_pair: [FPLCDI, REFCDI]
     tol: 0.05
     same_sign: true
     unless_flagged: true
+    skip_when_silent: {LAT: 0.5}
     except_s_around_sequence: 5
     around_keys: [REFWPT]
   - key_pair: [WPDIS, REFDIS]
@@ -72,6 +78,7 @@ checks:
     tol_rel: 0.005
     skip_when: {REFWPT: ""}
     unless_flagged: true
+    skip_when_silent: {LAT: 0.5}
     except_s_around_sequence: 5
     around_keys: [REFWPT]
   - flagged: [FPLCRS, FPLXTK, FPLCDI, WPDIS]
