@@ -1,0 +1,76 @@
+# QA1 (AER-4211): a missed approach whose turn is coded the long way round.
+# KSSF RNAV (GPS) 28: climb on 279.6 M to 1,100 ft (CA), then a RIGHT turn
+# direct GANLE (DF, turn direction R in the CIFP record), and hold. GANLE
+# lies about 125 deg to the LEFT of the climb-out, so the short way is left
+# and the procedure says right. QA-authored: the scenario, checks,
+# tolerances and expected values are QA's.
+#
+# What tier SYN can and cannot judge here. The checks compare the box's
+# course, cross-track, distance and TO fix with the reference through the
+# turn and the hold, as on every profile. They cannot judge the turn
+# direction: the reference does not read a DF's turn direction, the
+# generator turns the short way, and no FPL output key carries a turn
+# direction for a DF, so a box (or a reference) that turns left here passes.
+# Tier SIM, where X-Plane's FMS flies the coded right turn, is the check on
+# that. Format: ../PROFILE_FORMAT.md
+name: qa1-missed-coded-turn-kssf-r28
+description: >
+  KSSF RNAV 28 via XTEND from 2 nm before GEARE, missed approach with the
+  coded right turn direct GANLE (the short way is left), two minutes in the
+  GANLE hold.
+
+cifp:
+  cycle: "2611"
+  file: cifp/FAACIFP18-2611-KSSF-R28
+
+aircraft: {tas_kt: 110, climb_fpm: 700, descent_fpm: 600, bank_max_deg: 25}
+
+environment:
+  magvar_deg: -3.0                 # FIX MAGVAR, positive west: CIFP airport record E0030
+  wind: {from_deg: 0, kt: 0}
+
+start: {fix: GEARE, before_nm: 2.0, alt_ft: 3100, heading: on_course}
+
+route:
+  - procedure: {airport: KSSF, approach: R28, transition: XTEND, missed: true}
+
+pilot:
+  missed_after_map_s: 5
+
+events:
+  - id: hold
+    at: {hold_at: GANLE}
+    do: {hold_min: 2}
+
+end: {after_event: hold, max_s: 5400}
+
+checks:
+  # QA's tolerances (AER-4211). A wrong entry is >= 30 deg of course and a
+  # wrong racetrack phase >= 90 deg; 1.5 deg passes a displayed-degree
+  # rounding step plus the sphere/WGS-84 difference measured in hold turns
+  # (<= 1.4 deg with cross-track agreeing to 0.002 nm). tolerate_s 0.1: the
+  # two navigators may switch racetrack phase one 0.2 s update apart, which
+  # shows as a single row of 90-180 deg difference. One row is tolerated;
+  # two consecutive rows fail.
+  - key_pair: [FPLCRS, REFCRS]
+    tol_deg: 1.5
+    except_s_around_sequence: 5
+    tolerate_s: 0.1
+  - key_pair: [FPLXTK, REFXTK]
+    tol: 0.02
+    except_s_around_sequence: 5
+    tolerate_s: 0.1
+  - key_pair: [FPLCDI, REFCDI]
+    tol: 0.05
+    same_sign: true
+    except_s_around_sequence: 5
+    tolerate_s: 0.1
+  - key_pair: [WPDIS, REFDIS]
+    tol: 0.015
+    tol_rel: 0.005
+    skip_when: {REFWPT: ""}
+    except_s_around_sequence: 5
+  - key_pair: [WPNAME, REFWPT]
+    except_s_around_sequence: 5
+  - sequence: [GEARE, BEFOR, LANDD, RW28, GANLE]
+    keys: [WPNAME, REFWPT]

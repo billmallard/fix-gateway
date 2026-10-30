@@ -1,0 +1,24 @@
+HDR01FAACIFP18      001P013203973042611  07-OCT-202615:55:03  U.S.A. DOT FAA                                                9D60747B
+SUSAEAENRT   BASYE K60    C   B N41203740W073475499                       W0127     NAR           BASYE                    285512504
+SUSAEAENRT   HELON K60    C   L N41400272W074164952                       W0125     NAR           HELON                    373622605
+SUSAP KMGJK6AMGJ     0     050YHN41304252W074154874W014000370         1800018000C    MNAR    ORANGE COUNTY                 566631901
+SUSAP KMGJK6CBUNRE K60    W     N41344554W074024723                       W0126     NAR           BUNRE                    566652605
+SUSAP KMGJK6CEXEBE K60    W     N41330902W074074072                       W0126     NAR           EXEBE                    566672504
+SUSAP KMGJK6CGETRE K60    W     N41301050W074000726                       W0126     NAR           GETRE                    566682605
+SUSAP KMGJK6CORNGE K60    W     N41322079W074100707                       W0125     NAR           ORNGE                    566712605
+SUSAP KMGJK6CUTULE K60    W     N41354096W074262761                       W0124     NAR           UTULE                    566752605
+SUSAP KMGJK6CWEJTI K60    W     N41282177W074220904                       W0124     NAR           WEJTI                    566762605
+SUSAP KMGJK6FR26   ABASYE 010BASYEK6EA0E       IF                                             18000                 B PS   567401901
+SUSAP KMGJK6FR26   ABASYE 020GETREK6PC0E  A 010TF                                 + 04000                           B PS   567412510
+SUSAP KMGJK6FR26   ABASYE 030BUNREK6PC0EE B 010TF                                 + 03000                           B PS   567422409
+SUSAP KMGJK6FR26   R      010BUNREK6PC0E  I    IF                                 + 03000     18000                 B PS   567461901
+SUSAP KMGJK6FR26   R      011EXEBEK6PC0E    010TF                                 + 02000                           B PS   567472409
+SUSAP KMGJK6FR26   R      020ORNGEK6PC1E  F 010TF                                 + 01800                 RW26  K6PGB PS   567482409
+SUSAP KMGJK6FR26   R      020ORNGEK6PC2WN          N          ALNAV                                                   PS   567491901
+SUSAP KMGJK6FR26   R      030RW26 K6PG0GY M 031TF                                   00401              000          B PS   567502409
+SUSAP KMGJK6FR26   R      040         0  M     CA                     2603        + 00770                           B PS   567511901
+SUSAP KMGJK6FR26   R      050WEJTIK6PC0E    010DF                                                                   B PS   567522505
+SUSAP KMGJK6FR26   R      060UTULEK6PC0E   R010TFY                                                                  B PS   567532510
+SUSAP KMGJK6FR26   R      070HELONK6EA0EY   010TF                                 + 04000                           B PS   567542409
+SUSAP KMGJK6FR26   R      080HELONK6EA0EE  R   HM                     20890040    + 04000                           B PS   567551901
+SUSAP KMGJK6GRW26    0036642600 N41303584W074152473         +0077900361031540100R                                          567592112

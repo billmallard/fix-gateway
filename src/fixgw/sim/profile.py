@@ -25,9 +25,11 @@ _START = {"fix", "before_nm", "alt_ft", "heading"}
 _PROC = {"airport", "approach", "transition", "missed"}
 _PILOT = {"missed_after_map_s"}
 _END = {"after_event", "max_s"}
-_CHECK_KINDS = {"key_pair", "sequence"}
-_CHECK_KEYS = {"key_pair", "sequence", "keys", "tol", "tol_deg", "tol_rel", "same_sign",
-               "except_s_around_sequence", "skip_when", "after_s", "note"}
+_CHECK_KINDS = {"key_pair", "sequence", "flagged"}
+_CHECK_KEYS = {"key_pair", "sequence", "flagged", "keys", "tol", "tol_deg", "tol_rel", "same_sign",
+               "except_s_around_sequence", "skip_when", "after_s", "note", "unless_flagged",
+               "tolerate_s", "while_no_fix", "within_s", "clear_within_s", "around_keys"}
+_DO = ("offset_nm", "hold_min", "gps_loss_s")
 
 
 @dataclass
@@ -122,13 +124,15 @@ def load_profile(path, cifp_override=None):
         ids.add(eid)
         at, do = e.get("at") or {}, e.get("do") or {}
         _only(at, {"leg", "after_s", "after", "hold_at"}, f"events[{n}].at")
-        _only(do, {"offset_nm", "hold_s", "hold_min"}, f"events[{n}].do")
+        _only(do, set(_DO) | {"hold_s"}, f"events[{n}].do")
         if sum(k in at for k in ("leg", "after", "hold_at")) != 1:
             raise ProfileError(f"events[{n}].at: exactly one of leg / after / hold_at")
         if at.get("after") and at["after"] not in ids:
             raise ProfileError(f"events[{n}].at.after: {at['after']!r} is not an earlier event")
-        if ("offset_nm" in do) == ("hold_min" in do):
-            raise ProfileError(f"events[{n}].do: exactly one of offset_nm / hold_min")
+        if sum(k in do for k in _DO) != 1:
+            raise ProfileError(f"events[{n}].do: exactly one of {' / '.join(_DO)}")
+        if "hold_s" in do and "offset_nm" not in do:
+            raise ProfileError(f"events[{n}].do: hold_s goes with offset_nm")
         events.append(Event(eid, at, do))
 
     end = raw.get("end", {}) or {}
@@ -140,9 +144,14 @@ def load_profile(path, cifp_override=None):
     for n, c in enumerate(checks):
         _only(c, _CHECK_KEYS, f"checks[{n}]")
         if len(_CHECK_KINDS & set(c)) != 1:
-            raise ProfileError(f"checks[{n}]: exactly one of key_pair / sequence")
+            raise ProfileError(f"checks[{n}]: exactly one of key_pair / sequence / flagged")
         if "key_pair" in c and (not isinstance(c["key_pair"], list) or len(c["key_pair"]) != 2):
             raise ProfileError(f"checks[{n}].key_pair: [ENGINE_KEY, REFERENCE_KEY]")
+        if "flagged" in c:
+            if not isinstance(c["flagged"], list) or not c["flagged"]:
+                raise ProfileError(f"checks[{n}].flagged: a list of engine keys")
+            if c.get("while_no_fix") is not True:
+                raise ProfileError(f"checks[{n}].flagged: while_no_fix: true is the only condition so far")
 
     return Profile(
         name=raw["name"], path=os.path.abspath(path), description=raw.get("description", ""),
