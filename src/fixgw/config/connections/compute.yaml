@@ -145,6 +145,25 @@ compute:
       inputs: ["NAVSRC", "NAV1GSV", "NAV2GSV", "GPSGSV"]
       output: GSV
       require_leader: false
+    # Per-source lateral-validity, routed to the canonical CDIV the HSI reads
+    # (CDIV=0 hides/flags the course needle), the same shape as GSV. Without it a
+    # localizer tuned but not received drew a centred needle (fix-gateway#20).
+    #   NAV#CDIV = NAV#DH   (one-input min: a copy that keeps NAV#DH's quality)
+    # The GPS slot is the constant 1.0, i.e. not gated: X-Plane has no GPS
+    # lateral-validity dataref (only nav#_display_horizontal), so the GPS needle
+    # stays on GPSCDI's own quality. CDIV is written only by its select.
+    - function: min
+      inputs: ["NAV1DH"]
+      output: NAV1CDIV
+      require_leader: false
+    - function: min
+      inputs: ["NAV2DH"]
+      output: NAV2CDIV
+      require_leader: false
+    - function: select
+      inputs: ["NAVSRC", "NAV1CDIV", "NAV2CDIV", 1.0]
+      output: CDIV
+      require_leader: false
     - function: select
       inputs: ["NAVSRC", "NAV1TF", "NAV2TF", "GPSTF"]
       output: TOFROM
