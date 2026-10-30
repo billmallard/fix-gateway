@@ -216,6 +216,17 @@ profile is all it takes to put it under the gate; to fly one locally:
 python -m tests.sim.profile_gate [src/fixgw/sim/profiles/<name>.yaml ...]
 ```
 
+An open finding is a profile that is right while the box disagrees with it.
+Its owner lists it in the module-level `OPEN = {profile stem: reason}` of
+the test module that owns the profile (`tests/sim/test_qa1_profiles.py` for
+the `qa1-*` profiles; the gate's list of such modules is
+`OPEN_FINDINGS_FROM` in `profile_gate.py`). The gate reads those lists and
+does not edit them. A listed profile that still fails is reported as
+`XFAIL`, with warnings rather than errors, and passes the gate. A listed
+profile that passes is `XPASS` and fails the gate until the finding is
+closed and the entry removed. An entry naming no committed profile also
+fails it. Listing a finding never changes a check or a tolerance.
+
 ## Running it
 
 ```
