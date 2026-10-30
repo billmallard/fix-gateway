@@ -80,6 +80,12 @@ Configuration
     # RREF stream rate, Hz (how often X-Plane sends subscribed datarefs back).
     dataref_hz: 10
 
+    # Seconds between re-sends of every RREF subscription.  X-Plane forgets
+    # its subscriptions when it exits, so this is what makes an X-Plane started
+    # after FIX-Gateway, or restarted under it, stream without a gateway
+    # restart.  A repeat subscription is a no-op to a running X-Plane.
+    rref_resubscribe: 5.0
+
 recv -- indexed Data Output (X-Plane to FIX)
 --------------------------------------------
 
