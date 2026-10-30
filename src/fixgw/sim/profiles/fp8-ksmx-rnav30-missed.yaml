@@ -44,7 +44,7 @@ end: {after_event: hold, max_s: 3600}
 
 checks:
   - key_pair: [FPLCRS, REFCRS]
-    tol_deg: 0.5
+    tol_deg: 0.05
     except_s_around_sequence: 5
   - key_pair: [FPLXTK, REFXTK]
     tol: 0.02
@@ -63,5 +63,5 @@ checks:
     except_s_around_sequence: 5
   - key_pair: [WPNAME, REFWPT]
     except_s_around_sequence: 5
-  - sequence: [PAMJI, CIMSO, ANIBY, RW30, HANNU, WINCH]
+  - sequence: [PAMJI, CIMSO, ANIBY, RW30, WINCH, HANNU]
     keys: [WPNAME, REFWPT]
