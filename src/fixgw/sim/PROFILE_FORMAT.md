@@ -177,6 +177,21 @@ teardrop or parallel by the AIM sectors). CDI full scale 2.0 nm en route,
 before the FAF, 0.3 nm to the MAP and until the missed approach is
 initiated, then 1.0 nm.
 
+## The CI gate (SYN3)
+
+Every `*.yaml` in `profiles/` is flown headless through the navigation
+engine on every PR and push, and its `checks:` evaluated: the "Simulated
+flights" job in `.github/workflows/ci.yml`, and
+`tests/sim/test_profiles.py` under a plain `pytest`. A failing check fails
+the PR, one line per check naming the profile, the keys and tolerance, the
+time and values of the first failing row, and the largest error and when.
+The job summary carries each profile's full check table. Committing a
+profile is all it takes to put it under the gate; to fly one locally:
+
+```
+python -m tests.sim.profile_gate [src/fixgw/sim/profiles/<name>.yaml ...]
+```
+
 ## Running it
 
 ```
