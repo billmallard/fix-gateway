@@ -254,10 +254,17 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
     real gateway boot can show a few seconds of `fail`/`bad` guidance
     before a source starts publishing or the key goes stale — the same
     settling window `state_persist`'s `restore_delay` already assumes
-    elsewhere in the stack.
+    elsewhere in the stack. A `GPS_FIX_TYPE` that *was* written this
+    process and then goes `old` is not "no data": the receiver or its
+    link stopped, and the gate fails the guidance outputs (AER-4217).
 - **Cycle**: on `LAT`/`LONG` change, rate-limited to `rate_hz` (default
-  5 Hz); a 1 Hz timer handles staleness. Position old/bad/fail for more
-  than 5 s fails all guidance outputs. No dead reckoning.
+  5 Hz); a 1 Hz timer handles staleness. All guidance outputs fail once
+  the position is more than 2 s older than its last `LAT`/`LONG` write,
+  or has been old/bad/fail for 2 s. The bound runs from the write, not
+  from the database `tol` (also 2 s since AER-4217, but owned by the
+  database, not the engine): 2 s is one missed epoch of a 1 Hz receiver
+  plus a full epoch of jitter, so with the 1 Hz timer a dead link flags
+  within about 3 s (AER-4217). No dead reckoning.
 - **Persistence**: `{CONFIG}/flightplan_state.json`, atomic (temp +
   `os.replace`), holding the route, `FPLSEQ`, name, activation state
   (mode, active leg, FROM/TO points), the missed-approach/DTO-suppression

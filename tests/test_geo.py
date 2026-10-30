@@ -119,3 +119,49 @@ def _destination(lat_deg, lon_deg, bearing_deg_, dist_nm):
         math.cos(d) - math.sin(lat1) * math.sin(lat2),
     )
     return math.degrees(lat2), math.degrees(lon2)
+
+
+# destination_point_wgs84 (AER-4218). Expected values from GeographicLib 2.1:
+#   Geodesic.WGS84.Direct(lat, lon, az, nm * 1852) -> lat2, lon2
+@pytest.mark.parametrize(
+    "start,az,nm,expected",
+    [
+        ((39.0, -104.9), 124.0, 5.0, (38.953322910, -104.811437508)),
+        ((18.4, -66.0), 300.0, 11.0, (18.491953014, -66.167058929)),
+        ((64.8, -147.7), 45.0, 7.0, (64.882096226, -147.506536669)),
+        ((0.0, 0.0), 90.0, 60.0, (0.0, 0.998207944)),
+        ((34.42621, -119.84037), 0.0, 0.0, (34.42621, -119.84037)),
+    ],
+)
+def test_destination_point_wgs84_reference_fixtures(start, az, nm, expected):
+    lat, lon = geo.destination_point_wgs84(*start, az, nm)
+    assert lat == pytest.approx(expected[0], abs=1e-9)
+    assert lon == pytest.approx(expected[1], abs=1e-9)
+
+
+def test_destination_point_wgs84_agrees_with_geographiclib_everywhere():
+    # Random starts, courses and lengths from 0 to 5000 nm: under a
+    # millimetre from GeographicLib (measured: 0.06 mm).
+    import random
+
+    gl = pytest.importorskip("geographiclib.geodesic").Geodesic.WGS84
+    rng = random.Random(4218)
+    for _ in range(2000):
+        lat, lon = rng.uniform(-89.9, 89.9), rng.uniform(-180.0, 180.0)
+        az, nm = rng.uniform(0.0, 360.0), rng.choice([0.001, 0.5, 5.0, 11.0, 50.0, 500.0, 5000.0])
+        p = geo.destination_point_wgs84(lat, lon, az, nm)
+        r = gl.Direct(lat, lon, az, nm * 1852.0)
+        assert gl.Inverse(p[0], p[1], r["lat2"], r["lon2"])["s12"] < 0.001
+
+
+def test_the_sphere_misplaces_a_hold_turn_in_point_wgs84_does_not():
+    # The reason it exists: 11 nm south of a fix at 18N the sphere is
+    # 0.05 nm off the WGS-84 point, which on a 0.58 nm hold turn is a
+    # 5 deg swing of the tangent.
+    gl = pytest.importorskip("geographiclib.geodesic").Geodesic.WGS84
+    start, az, nm = (18.4, -66.0), 180.0, 11.0
+    r = gl.Direct(*start, az, nm * 1852.0)
+    sphere = geo.destination_point(*start, az, nm)
+    wgs = geo.destination_point_wgs84(*start, az, nm)
+    assert gl.Inverse(*sphere, r["lat2"], r["lon2"])["s12"] / 1852.0 > 0.04
+    assert gl.Inverse(*wgs, r["lat2"], r["lon2"])["s12"] < 0.001
