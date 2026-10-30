@@ -114,6 +114,21 @@ def test_the_scenario_flies_as_written(run):
     assert rows[t[("done", "hold")]]["REFPT"] == "HM"
 
 
+def test_every_position_row_feeds_indicated_airspeed(run):
+    """The glass reads IAS, not TAS: a run without it shows 0 kt all flight."""
+    pos = [row for _, row in run.rows if "LAT" in row]
+    assert pos and all("IAS" in row for row in pos)
+    for row in pos:
+        assert 0 < row["IAS"] <= row["TAS"]
+
+
+def test_ias_is_standard_day_eas():
+    assert generator.ias_kt(110.0, 0.0) == pytest.approx(110.0)
+    # ISA density ratio 0.7385 at 10000 ft: 110 KTAS reads about 94.5 KIAS
+    assert generator.ias_kt(110.0, 10000.0) == pytest.approx(110.0 * 0.7385 ** 0.5, abs=0.05)
+    assert generator.ias_kt(110.0, -200.0) == pytest.approx(110.0)
+
+
 def test_recorder_file_is_the_data_recorder_format(run, tmp_path):
     out = tmp_path / "run.json"
     generator.write_recorder_file(run, out)

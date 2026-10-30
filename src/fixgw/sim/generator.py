@@ -5,8 +5,8 @@
 """Profile + CIFP -> a FIX bus stream.
 
 :func:`generate` flies the scenario and returns a :class:`Run`: one row per
-tick of the keys a GPS/AHRS would publish (``LAT LONG ALT GS TRACK HEAD TAS
-VS PITCH ROLL MAGVAR GPS_FIX_TYPE GPS_ACCURACY_HORIZ``; during a ``gps_loss_s``
+tick of the keys a GPS/AHRS/air-data box would publish (``LAT LONG ALT GS TRACK
+HEAD TAS IAS VS PITCH ROLL MAGVAR GPS_FIX_TYPE GPS_ACCURACY_HORIZ``; during a ``gps_loss_s``
 event only ``GPS_FIX_TYPE`` 1 of the GPS keys), the reference keys
 (``REFCRS REFXTK REFCDI REFDIS REFWPT REFPT``), and the pilot's inputs to the box
 under test: the route block once at the start, ``FPLCMD`` to activate the
@@ -34,9 +34,18 @@ class GeneratorError(Exception):
 
 
 REF_KEYS = ("REFCRS", "REFXTK", "REFCDI", "REFDIS", "REFWPT", "REFPT")
-SENSOR_KEYS = ("MAGVAR", "GPS_FIX_TYPE", "GPS_ACCURACY_HORIZ", "ALT", "GS", "TAS", "VS",
+SENSOR_KEYS = ("MAGVAR", "GPS_FIX_TYPE", "GPS_ACCURACY_HORIZ", "ALT", "GS", "TAS", "IAS", "VS",
                "TRACK", "HEAD", "PITCH", "ROLL", "LAT", "LONG")
 ESTABLISHED_NM = 0.05
+
+
+def ias_kt(tas_kt, alt_ft):
+    """Indicated airspeed for ``tas_kt`` at ``alt_ft`` on a standard day:
+    EAS from the ISA troposphere density ratio, taking IAS = CAS = EAS (no
+    position error, no compressibility at these speeds). The air-data box
+    reports IAS; the profile flies TAS, so this is what it would read."""
+    sigma = (1.0 - 6.8755856e-6 * max(alt_ft, 0.0)) ** 4.2558797
+    return tas_kt * sigma ** 0.5
 
 
 @dataclass
@@ -149,6 +158,7 @@ def generate(profile, frequency_ms=200, cifp_path=None, fplseq=1, gps_accuracy_f
         if not no_fix:
             row["GS"] = round(s.gs_kt, 3)
         row["TAS"] = round(perf.tas_kt, 3)
+        row["IAS"] = round(ias_kt(perf.tas_kt, s.alt_ft), 3)
         row["VS"] = round(s.vs_fpm, 1)
         if not no_fix:
             row["TRACK"] = round(refnav.wrap360(s.track_true), 3)

@@ -48,7 +48,7 @@ cifp:                                 # required
   file: cifp/FAACIFP18-2611-KSMX-R30  # relative to the profile; a full FAACIFP18 also works
 
 aircraft:                             # optional, these are the defaults
-  tas_kt: 110
+  tas_kt: 110                         # flown as TAS; IAS is published as standard-day EAS at the current ALT
   climb_fpm: 700
   descent_fpm: 600
   bank_max_deg: 25
@@ -300,7 +300,7 @@ the wall clock (its update rate, alert timing, turn anticipation from
 `GS`), so at x4 the airplane covers ground four times faster than its own
 `GS` says. Sequencing still happens, a little late. Run `check` on a
 recording at x1 only; above that a disagreement is the time warp, not the
-engine. Writes scale with speed too (about 19 keys per row, 5 rows per
+engine. Writes scale with speed too (about 20 keys per row, 5 rows per
 second at x1).
 
 The run is one netfix client and writes nothing else, so it can be pointed
