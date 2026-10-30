@@ -7,6 +7,40 @@ import json
 import datetime
 
 
+def replay(key, recorded):
+    """Write one recorded key back into the database.
+
+    data_recorder writes each key in db_read() order:
+    [value, annunciate, old, bad, fail, secfail]. The db_item value setter
+    takes (value, annunciate, bad, fail, secfail) and has no old slot, because
+    old is derived from the item's age against its tol when it is read.
+
+    A recorded old is replayed the way it arose live: the item's timestamp is
+    moved back past its tol, so the database itself derives old. When only old
+    changed, the value setter is skipped so that consumers do not see a fresh
+    sample before the stale one.
+    """
+    if len(recorded) != 6:
+        raise ValueError(
+            f"Playback row for {key} has {len(recorded)} fields, expected 6"
+        )
+    value, annunciate, old, bad, fail, secfail = recorded
+    item = database.get_raw_item(key)
+    current = item.value
+    stale_only = (
+        old
+        and current[0] == value
+        and [bool(f) for f in current[1:2] + current[3:]]
+        == [bool(f) for f in (annunciate, bad, fail, secfail)]
+    )
+    if not stale_only:
+        item.value = (value, annunciate, bad, fail, secfail)
+    if bool(old) != item.value[2]:
+        if old and item.tol:
+            item.timestamp = time.time() - (item.tol + 1) / 1000
+        item.old = bool(old)
+
+
 class MainThread(threading.Thread):
     def __init__(self, parent):
         super(MainThread, self).__init__()
@@ -52,7 +86,7 @@ class MainThread(threading.Thread):
                                 self.log.debug(f"{file_time}  --  {start_time}")
                                 continue
                         for key in j:
-                            database.get_raw_item(key).value = tuple(j[key])
+                            replay(key, j[key])
                         # Wait for remainder of frequency interval
                         time.sleep(
                             (freq / 1000)
