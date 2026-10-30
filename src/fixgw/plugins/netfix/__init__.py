@@ -421,33 +421,22 @@ class ServerThread(threading.Thread):
         self.getout = False
 
     def run(self):
-        while True:
-            if self.getout:
-                break
-            try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                s.settimeout(self.timeout)
-                s.bind((self.host, self.port))
-                s.listen(5)
+        # Bind and listen once.  The socket used to be re-created after every
+        # accept(), so a client connecting in the gap before the next bind()
+        # was refused (fix-gateway #43).  The timeout only paces the getout
+        # check and the thread maintenance below.
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.settimeout(self.timeout)
+        try:
+            s.bind((self.host, self.port))
+            s.listen(5)
+            while not self.getout:
                 try:
                     conn, addr = s.accept()
                 except socket.timeout:
-                    # if the getout flag is set let's bail.
-                    if self.getout:
-                        try:
-                            s.shutdown(socket.SHUT_RDWR)
-                        except Exception as e:
-                            # For now just log the exception
-                            self.log.debug(e)
-                        for each in self.threads:
-                            each[0].stop()
-                            each[0].join()
-                            each[1].stop()
-                            each[1].join()
-                        break
                     # General thread maintainance
-                    for each in self.threads:
+                    for each in list(self.threads):
                         # The receive thread will stop running when the client closes
                         # This shoudl stop the send thread and clean it all up.
                         if not each[0].running:
@@ -455,7 +444,6 @@ class ServerThread(threading.Thread):
                             each[1].stop()
                             each[1].join()
                             self.threads.remove(each)
-
                 else:
                     co = Connection(self.parent, conn, addr)
                     receivethread = ReceiveThread(co)
@@ -464,8 +452,18 @@ class ServerThread(threading.Thread):
                     self.threads.append((receivethread, sendthread))
                     receivethread.start()
                     sendthread.start()
-            finally:
-                s.close()
+            try:
+                s.shutdown(socket.SHUT_RDWR)
+            except Exception as e:
+                # For now just log the exception
+                self.log.debug(e)
+            for each in self.threads:
+                each[0].stop()
+                each[0].join()
+                each[1].stop()
+                each[1].join()
+        finally:
+            s.close()
 
     def stop(self):
         self.getout = True
