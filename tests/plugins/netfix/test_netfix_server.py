@@ -522,3 +522,19 @@ def test_send_invalid_value_update2(plugin,caplog):
         assert 'Problem with input IAS;10;10;10;10;10: string index out of range' in caplog.text        
 
 
+
+
+def test_subscriber_gets_old_flag_when_another_reader_sees_expiry_first(plugin, database):
+    """AER-4246: a key aging out reaches the subscriber even when some other
+    reader (FLIGHTPLAN reading LAT, say) touches it before update() runs"""
+    database.get_raw_item("IAS").tol = 100
+    plugin.sock.sendall("@sIAS\n".encode())
+    assert plugin.sock.recv(1024).decode() == "@sIAS\n"
+    database.write("IAS", 120.0)
+    assert plugin.sock.recv(1024).decode() == "IAS;120.0;00000\n"
+
+    time.sleep(0.2)
+    assert database.read("IAS")[2] is True  # the other reader
+    database.update()
+
+    assert plugin.sock.recv(1024).decode() == "IAS;120.0;01000\n"
