@@ -230,6 +230,11 @@ What it does, in order:
    is a shell command with `SYN_INDEX` (01, 02, ...), `SYN_WHAT`, `SYN_FIX`,
    `SYN_T`, `SYN_WALL_S` and `SYN_PROFILE` in its environment. A hook that
    fails is counted and makes the exit `1`; it never stops the flight.
+   Marks on the last row (`end`, and any `done` at the same tick) are read
+   `--hook-delay-s` after the feed stopped, so they show a box going stale:
+   with the default 3 s, `GPS_ACCURACY_HORIZ` (2 s `tol`) is already old
+   and `FPLMSG` reads `NO INTEGRITY DATA`. That is the engine noticing the
+   feed has ended, not a fault in the flight.
 
 Exit codes: `0` flown, `1` flown but a hook failed, `2` no gateway at
 `--host:--port`, `3` another writer, `130` stopped (Ctrl-C or `SIGTERM`
