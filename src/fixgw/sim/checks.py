@@ -8,7 +8,9 @@ it compares two keys on the log and knows nothing about who wrote either.
 
 A recorder row holds only the keys that changed in that interval, so the
 log is forward-filled: each row sees the last value written to every key.
-Row ``n`` of a file is at ``n * frequency`` seconds.
+Row ``n`` of a file is at ``n * frequency`` seconds. A value written as
+``[value, annunciate, old, bad, fail, secfail]`` also carries its flags:
+the log keeps, per row, whether each key was last written bad or failed.
 """
 
 import json
@@ -21,28 +23,39 @@ def _val(v):
     return v[0] if isinstance(v, list) else v
 
 
+def _flagged(v):
+    # [value, annunciate, old, bad, fail, secfail]: bad or failed
+    return isinstance(v, list) and len(v) >= 5 and bool(v[3] or v[4])
+
+
 class Log:
     def __init__(self, keys):
         self.keys = set(keys)
         self.t = []
         self.rows = []
+        self.flags = []     # per row: {key: True} for each key last written bad or failed
+
+    def _add(self, t, cur, flags):
+        self.t.append(t)
+        self.rows.append(dict(cur))
+        self.flags.append({k for k, f in flags.items() if f})
 
     @classmethod
     def from_rows(cls, rows, keys):
         log = cls(keys)
-        cur = {}
+        cur, flags = {}, {}
         for t, row in rows:
             for k, v in row.items():
                 if k in log.keys:
                     cur[k] = _val(v)
-            log.t.append(t)
-            log.rows.append(dict(cur))
+                    flags[k] = _flagged(v)
+            log._add(t, cur, flags)
         return log
 
     @classmethod
     def from_recorder_files(cls, paths, keys):
         log = cls(keys)
-        cur = {}
+        cur, flags = {}, {}
         t = 0.0
         freq = 0.5
         first = True
@@ -59,11 +72,11 @@ class Log:
                     for k, v in j.items():
                         if k in log.keys:
                             cur[k] = _val(v)
+                            flags[k] = _flagged(v)
                     if not first:
                         t += freq
                     first = False
-                    log.t.append(round(t, 3))
-                    log.rows.append(dict(cur))
+                    log._add(round(t, 3), cur, flags)
         return log
 
 
@@ -78,6 +91,8 @@ class CheckResult:
     first_fail_t: float = None
     detail: str = ""
     by_leg: dict = field(default_factory=dict)   # leg label -> (compared, failed, max_err)
+    flagged: int = 0             # rows skipped because the engine key was flagged (unless_flagged)
+    transients: int = 0          # failing runs no longer than tolerate_s, not counted as failures
 
 
 def _fmt(v):
@@ -127,6 +142,9 @@ def keys_needed(checks):
     for c in checks:
         if "key_pair" in c:
             keys.update(c["key_pair"])
+        if "flagged" in c:
+            keys.update(c["flagged"])
+            keys.add("GPS_FIX_TYPE")
         keys.update((c.get("skip_when") or {}).keys())
     return keys
 
@@ -134,7 +152,11 @@ def keys_needed(checks):
 def evaluate(checks, log, start_s=1.0):
     seq_times = _change_times(log, _sequence_keys(checks))
     legs = _leg_labels(log)
-    return [_eval_one(c, log, seq_times, legs, start_s) for c in checks]
+    out = []
+    for c in checks:
+        around = c.get("around_keys")
+        out.append(_eval_one(c, log, _change_times(log, around) if around else seq_times, legs, start_s))
+    return out
 
 
 def _in_window(t, times, s):
@@ -152,6 +174,8 @@ def _in_window(t, times, s):
 def _eval_one(c, log, seq_times, legs, start_s):
     if "sequence" in c:
         return _eval_sequence(c, log)
+    if "flagged" in c:
+        return _eval_flagged(c, log, start_s)
     a_key, b_key = c["key_pair"]
     tol = c.get("tol")
     tol_deg = c.get("tol_deg")
@@ -160,6 +184,8 @@ def _eval_one(c, log, seq_times, legs, start_s):
     window = float(c.get("except_s_around_sequence", 0.0))
     skip = c.get("skip_when") or {}
     after = float(c.get("after_s", start_s))
+    unless_flagged = bool(c.get("unless_flagged", False))
+    tolerate = float(c.get("tolerate_s", 0.0))
     label = f"{a_key} vs {b_key}"
     if tol_deg is not None:
         label += f" (+-{tol_deg} deg)"
@@ -168,12 +194,17 @@ def _eval_one(c, log, seq_times, legs, start_s):
     else:
         label += " (equal)"
     res = CheckResult(label, True)
-    for t, row, leg in zip(log.t, log.rows, legs):
+    bad_rows = []      # (index among compared rows, t, a, b, leg)
+    for t, row, leg, flags in zip(log.t, log.rows, legs, log.flags):
         if t < after or _in_window(t, seq_times, window):
             continue
         if any(row.get(k) == v for k, v in skip.items()):
             continue
         if a_key not in row or b_key not in row:
+            continue
+        if unless_flagged and a_key in flags:
+            # annunciated: a flagged value is not presented as guidance
+            res.flagged += 1
             continue
         a, b = row[a_key], row[b_key]
         bad = False
@@ -188,22 +219,101 @@ def _eval_one(c, log, seq_times, legs, start_s):
                 bad = True
         else:
             bad = str(a) != str(b)
-        res.compared += 1
         n, f, m = res.by_leg.get(leg, (0, 0, None))
         if err is not None and (res.max_err is None or err > res.max_err):
             res.max_err, res.t_max = err, t
         if err is not None and (m is None or err > m):
             m = err
         if bad:
+            bad_rows.append((res.compared, t, a, b, leg))
+        res.compared += 1
+        res.by_leg[leg] = (n + 1, f, m)
+    for run in _runs(bad_rows):
+        if tolerate > 0 and run[-1][1] - run[0][1] < tolerate:
+            res.transients += 1
+            continue
+        for _, t, a, b, leg in run:
             res.failed += 1
-            f += 1
-            if res.first_fail_t is None:
+            n, f, m = res.by_leg[leg]
+            res.by_leg[leg] = (n, f + 1, m)
+            if res.first_fail_t is None or t < res.first_fail_t:
                 res.first_fail_t = t
                 res.detail = f"t={t:.1f}s {a_key}={_fmt(a)} {b_key}={_fmt(b)}"
-        res.by_leg[leg] = (n + 1, f, m)
+    if unless_flagged:
+        label += ", unless flagged"
+    if tolerate:
+        label += f", runs < {tolerate:g} s tolerated"
+    res.label = label
     res.passed = res.failed == 0 and res.compared > 0
     if res.compared == 0:
         res.detail = "nothing compared"
+    extra = []
+    if res.flagged:
+        extra.append(f"{res.flagged} rows flagged")
+    if res.transients:
+        extra.append(f"{res.transients} transient runs")
+    if extra:
+        res.detail = "; ".join(([res.detail] if res.detail else []) + extra)
+    return res
+
+
+def _runs(bad_rows):
+    """Group failing rows into runs of consecutive compared rows."""
+    runs = []
+    for r in bad_rows:
+        if runs and r[0] == runs[-1][-1][0] + 1:
+            runs[-1].append(r)
+        else:
+            runs.append([r])
+    return runs
+
+
+def _eval_flagged(c, log, start_s):
+    """Each key in ``flagged`` must be flagged (bad or failed) on every row
+    where the GPS has had no fix (``GPS_FIX_TYPE`` < 3) for at least
+    ``within_s``, and must not be flagged on any row where it has had a fix
+    for at least ``clear_within_s``. Rows in between are not judged."""
+    keys = list(c["flagged"])
+    within = float(c.get("within_s", 0.0))
+    clear = float(c.get("clear_within_s", 0.0))
+    after = float(c.get("after_s", start_s))
+    res = CheckResult(f"{', '.join(keys)} flagged without a GPS fix (within {within:g} s, "
+                      f"clear within {clear:g} s)", True)
+    since, state = None, None
+    lost = []
+    misses = []
+    for t, row, flags in zip(log.t, log.rows, log.flags):
+        fix = row.get("GPS_FIX_TYPE")
+        no_fix = fix is not None and fix < 3
+        if no_fix != state:
+            state, since = no_fix, t
+            if no_fix:
+                lost.append(t)
+        if t < after or fix is None:
+            continue
+        held = t - since
+        if no_fix and held >= within:
+            want = True
+        elif not no_fix and held >= clear:
+            want = False
+        else:
+            continue
+        for k in keys:
+            if k not in row:
+                continue
+            res.compared += 1
+            if (k in flags) != want:
+                res.failed += 1
+                misses.append((t, k, want))
+    res.passed = res.failed == 0 and res.compared > 0 and bool(lost)
+    if not lost:
+        res.detail = "no loss of fix on this log"
+    elif misses:
+        t, k, want = misses[0]
+        res.first_fail_t = t
+        res.detail = f"t={t:.1f}s {k} {'not flagged' if want else 'still flagged'}"
+    else:
+        res.detail = "losses of fix at " + ", ".join(f"{t:.1f}s" for t in lost)
     return res
 
 

@@ -456,3 +456,148 @@ def test_restore_of_a_bad_state_file_posts_the_reason_and_keeps_the_file(databas
 
     pl.thread._run_update_cycle()  # the persist hook must not overwrite the evidence
     assert json.loads(state_file.read_text())["segments"][1]["first"] == 3
+
+
+# ---------------------------------------------------------------------------
+# Navigation input staleness (AER-4217, QA1 F4)
+# ---------------------------------------------------------------------------
+
+
+class _Clock:
+    """Wall clock for fixgw.database's item ages and the plugin's cycle
+    time alike -- both read time.time()."""
+
+    def __init__(self, t):
+        self.t = t
+
+    def __call__(self):
+        return self.t
+
+
+def _flying(database, tmp_path, monkeypatch):
+    clock = _Clock(time.time())  # the database stamped its initial values with the real clock
+    monkeypatch.setattr(time, "time", clock)
+    pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
+    write_route(database, [engine.Waypoint("A", 0.0, 0.0), engine.Waypoint("B", 0.0, 1.0)], seq=1)
+    database.write("GS", 120.0)
+    database.write("MAGVAR", 0.0)
+    database.write("FPLCMD", "1 ACT 2")
+    return pl, clock
+
+
+def _gps_epoch(database, lon, fix_type=3):
+    # One receiver epoch as gpsd publishes it.
+    database.write("GPS_FIX_TYPE", fix_type)
+    database.write("LAT", 0.0)
+    database.write("LONG", lon)
+
+
+def _first_flag_after(pl, database, clock, seconds, step=0.2, each_step=None):
+    """Advance the clock in `step`s, one guidance cycle per step (finer than
+    the plugin's own 1 Hz tick, so this finds the earliest flag the inputs
+    allow); return the seconds elapsed at the first flagged FPLCRS, or None."""
+    t0 = clock.t
+    for _ in range(int(round(seconds / step))):
+        clock.t += step
+        if each_step is not None:
+            each_step(clock.t - t0)
+        pl.thread._run_update_cycle()
+        if database.get_raw_item("FPLCRS").fail:
+            return clock.t - t0
+    return None
+
+
+def test_dead_gps_link_flags_guidance_within_the_position_bound(database, tmp_path, monkeypatch):
+    # QA1 F4: the receiver (or its link) stops sending with the last fix type
+    # still 3D. Nothing writes GPS_FIX_TYPE, LAT or LONG again. The guidance
+    # must flag no later than the engine's position bound after the last fix
+    # -- not after LAT/LONG's database tol plus the bound (20 s + 5 s before
+    # AER-4217).
+    pl, clock = _flying(database, tmp_path, monkeypatch)
+    for i in range(5):
+        clock.t += 1.0
+        _gps_epoch(database, 0.002 * i)
+        pl.thread._run_update_cycle()
+    assert database.get_raw_item("FPLCRS").fail is False
+
+    flagged = _first_flag_after(pl, database, clock, 40.0)
+
+    assert flagged is not None
+    assert flagged <= 2.0 + 0.2 + 1e-6  # engine.POSITION_TIMEOUT_S carries the derivation
+
+
+def test_one_hz_receiver_with_jitter_never_flags(database, tmp_path, monkeypatch):
+    # The bound must not trip on the slowest healthy source: a 1 Hz receiver
+    # whose epochs land up to half an epoch late (serial burst, gpsd queue).
+    pl, clock = _flying(database, tmp_path, monkeypatch)
+    _gps_epoch(database, 0.0)
+    gaps = [1.0, 1.5, 0.5, 1.5, 1.0, 1.5, 0.5, 1.0] * 4
+    lon = 0.0
+    for gap in gaps:
+        for _ in range(int(round(gap / 0.1))):
+            clock.t += 0.1
+            pl.thread._run_update_cycle()
+            assert database.get_raw_item("FPLCRS").fail is False
+        lon += 0.0005 * gap
+        _gps_epoch(database, lon)
+
+
+def test_fix_type_that_goes_silent_while_position_flows_flags_guidance(database, tmp_path, monkeypatch):
+    # The mavlink plugin takes LAT/LONG from GLOBAL_POSITION_INT (the
+    # autopilot's fused estimate) and GPS_FIX_TYPE from GPS_RAW_INT -- two
+    # streams. If the GPS stream stops, position keeps flowing as a dead-
+    # reckoned estimate with no fix behind it. A fix-type key that WAS
+    # publishing and went silent is a failed input, not "this installation
+    # has no fix-type source".
+    pl, clock = _flying(database, tmp_path, monkeypatch)
+    _gps_epoch(database, 0.0)
+    pl.thread._run_update_cycle()
+    assert database.get_raw_item("FPLCRS").fail is False
+
+    def position_only(elapsed):
+        database.write("LAT", 0.0)
+        database.write("LONG", 0.0001 * elapsed)
+
+    flagged = _first_flag_after(pl, database, clock, 30.0, each_step=position_only)
+
+    tol_s = database.get_raw_item("GPS_FIX_TYPE").tol / 1000.0
+    assert flagged is not None
+    assert flagged <= tol_s + 0.2 + 1e-6
+
+
+def test_fix_type_never_published_still_skips_the_gate(database, tmp_path, monkeypatch):
+    # The bench's X-Plane FMS source writes position but never GPS_FIX_TYPE;
+    # the key going "old" from its startup default must keep meaning "no
+    # fix-type source here", as before.
+    pl, clock = _flying(database, tmp_path, monkeypatch)
+
+    def position_only(elapsed):
+        database.write("LAT", 0.0)
+        database.write("LONG", 0.0001 * elapsed)
+
+    # Until the startup default 0 goes old it reads as "no fix" (the grace
+    # window test_position_updates_write_guidance_outputs works around).
+    clock.t += database.get_raw_item("GPS_FIX_TYPE").tol / 1000.0 + 0.1
+    position_only(0.0)
+    pl.thread._run_update_cycle()
+    assert database.get_raw_item("FPLCRS").fail is False
+
+    assert _first_flag_after(pl, database, clock, 10.0, each_step=position_only) is None
+
+
+def test_dead_position_link_without_a_fix_type_source_flags_within_the_bound(database, tmp_path, monkeypatch):
+    # The same dead link from a source with no fix-type key (the bench's
+    # X-Plane FMS): only the position's own age can catch it.
+    pl, clock = _flying(database, tmp_path, monkeypatch)
+    clock.t += database.get_raw_item("GPS_FIX_TYPE").tol / 1000.0 + 0.1
+    for i in range(5):
+        clock.t += 1.0
+        database.write("LAT", 0.0)
+        database.write("LONG", 0.002 * i)
+        pl.thread._run_update_cycle()
+    assert database.get_raw_item("FPLCRS").fail is False
+
+    flagged = _first_flag_after(pl, database, clock, 40.0)
+
+    assert flagged is not None
+    assert flagged <= 2.0 + 0.2 + 1e-6
