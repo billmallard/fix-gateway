@@ -26,9 +26,10 @@ QA1 = sorted(PROFILES.glob("qa1-*.yaml"))
 
 # Open findings: the profile is right and the box disagrees with it. strict,
 # so a fix turns the test red until the mark is removed.
+# Closed: qa1-hold-teardrop-left-kded-r30 (AER-4211 F1, FPLCRS 1.6 deg off
+# on the BARBS hold's turn inbound) -- the engine builds the racetrack on
+# WGS-84 since AER-4218.
 OPEN = {
-    "qa1-hold-teardrop-left-kded-r30": "AER-4211: FPLCRS 1.6 deg off the reference on the BARBS hold's "
-                                       "outbound-end turn (5 nm legs); cross-track agrees to 0.014 nm",
     # F4 (AER-4211/AER-4223), fix-gateway#58: a dead GPS link stays unflagged ~25 s
     "qa1-gps-link-loss-mid-leg-ksmx-r30": "AER-4223 F4: guidance unflagged up to 25.4 s after LAT/LONG stop "
                                           "with the fix type left at 3D",
