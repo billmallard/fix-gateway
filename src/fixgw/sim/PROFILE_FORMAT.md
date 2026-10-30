@@ -282,9 +282,11 @@ What it does, in order:
    fails is counted and makes the exit `1`; it never stops the flight.
    Marks on the last row (`end`, and any `done` at the same tick) are read
    `--hook-delay-s` after the feed stopped, so they show a box going stale:
-   with the default 3 s, `GPS_ACCURACY_HORIZ` (2 s `tol`) is already old
-   and `FPLMSG` reads `NO INTEGRITY DATA`. That is the engine noticing the
-   feed has ended, not a fault in the flight.
+   with the default 3 s the position and `GPS_ACCURACY_HORIZ` (2 s `tol`)
+   are already old. An engine with the 2 s position bound (AER-4217) blanks
+   `WPNAME` and zeroes `FPLCRS`/`FPLCDI`; one without it posts `NO
+   INTEGRITY DATA` to `FPLMSG`. Either is the engine noticing the feed has
+   ended, not a fault in the flight.
 
 Exit codes: `0` flown, `1` flown but a hook failed, `2` no gateway at
 `--host:--port`, `3` another writer, `130` stopped (Ctrl-C or `SIGTERM`
