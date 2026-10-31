@@ -74,6 +74,117 @@ def test_alt_pressure_computes_without_failure():
     assert output.fail is False
 
 
+def test_alt_pressure_reference_values():
+    # Expected values from the ISA pressure-height relation written the other
+    # way round, h = (1 - (p / 29.92126) ** (1 / 5.25588)) / 6.87559e-6:
+    # PALT = ALT + h(BARO). Indicated 5500 ft at 30.42 inHg is 5042 ft.
+    parent = FakeParent()
+    func = compute.altPressure(["BARO", "ALT"], "PALT", require_leader=False)
+    func("BARO", value_tuple(30.42), parent)
+    func("ALT", value_tuple(5500.0), parent)
+    assert parent.db_get_item("PALT").value == pytest.approx(5042.0, abs=2.0)
+    func("BARO", value_tuple(29.42), parent)
+    assert parent.db_get_item("PALT").value == pytest.approx(5967.0, abs=2.0)
+
+
+def test_alt_pressure_reads_an_untouched_baro_from_the_database():
+    # P3c: BARO is only written when someone turns the knob. With no BARO
+    # callback ever, the first ALT must still compute against BARO's current
+    # database value, or PALT never goes live.
+    parent = FakeParent()
+    parent.items["BARO"] = FakeItem("BARO", value_tuple(29.92126))
+    func = compute.altPressure(["BARO", "ALT"], "PALT", require_leader=False)
+    func("ALT", value_tuple(3000.0), parent)
+    output = parent.db_get_item("PALT")
+    assert output.value == pytest.approx(3000.0)
+    assert (output.old, output.bad, output.fail) == (False, False, False)
+
+
+def test_alt_pressure_never_written_without_alt():
+    # ALT's schema initial is not an altitude: a BARO change before any ALT
+    # leaves PALT unwritten (reading its initial, old once its tol expires).
+    parent = FakeParent()
+    parent.items["ALT"] = FakeItem("ALT", value_tuple(0.0))
+    parent.items["PALT"] = FakeItem("PALT", "untouched")
+    func = compute.altPressure(["BARO", "ALT"], "PALT", require_leader=False)
+    func("BARO", value_tuple(30.10), parent)
+    assert parent.db_get_item("PALT").value == "untouched"
+
+
+def test_alt_pressure_old_alt_is_not_recomputed():
+    parent = FakeParent()
+    func = compute.altPressure(["BARO", "ALT"], "PALT", require_leader=False)
+    func("BARO", value_tuple(29.92126), parent)
+    func("ALT", value_tuple(4000.0), parent)
+    func("ALT", value_tuple(4100.0, old=True), parent)
+    output = parent.db_get_item("PALT")
+    assert output.value == pytest.approx(4000.0)
+    assert output.old is True
+    func("ALT", value_tuple(4200.0), parent)
+    assert output.value == pytest.approx(4200.0)
+    assert output.old is False
+
+
+@pytest.mark.parametrize("setting", [0.0, 24.9, 33.1])
+def test_alt_pressure_implausible_baro_is_bad(setting):
+    parent = FakeParent()
+    func = compute.altPressure(["BARO", "ALT"], "PALT", require_leader=False)
+    func("ALT", value_tuple(2000.0), parent)
+    func("BARO", value_tuple(setting), parent)
+    assert parent.db_get_item("PALT").bad is True
+    func("BARO", value_tuple(29.92126), parent)
+    assert parent.db_get_item("PALT").bad is False
+
+
+def test_alt_pressure_bad_and_failed_alt():
+    parent = FakeParent()
+    func = compute.altPressure(["BARO", "ALT"], "PALT", require_leader=False)
+    func("BARO", value_tuple(29.92126), parent)
+    func("ALT", value_tuple(2000.0, bad=True), parent)
+    output = parent.db_get_item("PALT")
+    assert output.bad is True and output.value == pytest.approx(2000.0)
+    func("ALT", value_tuple(2000.0, fail=True), parent)
+    assert output.fail is True and output.value == 0.0
+
+
+def test_alt_pressure_ages_out_with_alt_on_real_items(monkeypatch):
+    # The database's value getter derives `old` from age whenever tol != 0, so
+    # an `old` flag set on a freshly written PALT is invisible. What makes a
+    # stopped ALT show on PALT is not refreshing PALT's timestamp from it.
+    import fixgw.database as database
+
+    now = [1000.0]
+    monkeypatch.setattr(database.time, "time", lambda: now[0])
+    monkeypatch.setattr(database, "log", MagicMock(), raising=False)
+
+    def item(key, initial, tol, lo, hi):
+        i = database.db_item(key)
+        i.min, i.max, i.tol = lo, hi, tol
+        i.value = initial
+        return i
+
+    items = {
+        "BARO": item("BARO", 29.92, 0, 0.0, 35.0),
+        "ALT": item("ALT", 0.0, 2000, -2000.0, 60000.0),
+        "PALT": item("PALT", 0.0, 2000, -1000.0, 60000.0),
+    }
+    parent = MagicMock()
+    parent.db_get_item.side_effect = items.__getitem__
+    func = compute.altPressure(["BARO", "ALT"], "PALT", require_leader=False)
+    for key in ("BARO", "ALT"):
+        items[key].callbacks.append(("compute", func, parent))
+
+    items["ALT"].value = 6500.0          # BARO never written: 29.92 from the db
+    assert items["PALT"].value[0] == pytest.approx(6500.0, abs=2.0)
+    assert items["PALT"].value[2] is False
+
+    now[0] += 2.5                        # ALT stops arriving
+    monkeypatch.setattr(database, "__database", items)
+    database.update()                    # ALT -> old, callback fires
+    assert items["ALT"].value[2] is True
+    assert items["PALT"].value[2] is True    # same tick, not 2 s later
+
+
 def test_alt_density_waits_for_inputs_and_computes_value():
     parent = FakeParent()
     func = compute.altDensity(["PALT", "ALTMSL", "OAT"], "DALT", require_leader=True)
