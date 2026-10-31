@@ -103,6 +103,9 @@ inputs:
 
 outputs:
     - { fixid: "BARO", canid: 0x190, index: 0, owner: False }
+    # Selected Altitude (461). Sent as owner so an autopilot on the bus sees the
+    # pilot's target, with ALTSEL's annunciate flag (altitude deviation).
+    - { fixid: "ALTSEL", canid: 0x1CD, index: 0, owner: True }
     - { fixid: "BTN11,BTN12,BTN13,BTN14,BTN15,BTN16", canid: 0x308, index: 0 }
 
 # Special Input Functions

@@ -18,6 +18,9 @@ entries:
 - include: database/control.yaml
 - include: database/misc.yaml
 - include: database/tires.yaml
+# Open GCU contract keys (ALTSEL, GCUSEL). Before custom.yaml so a user
+# definition there still wins.
+- include: database/gcu.yaml
 #################################################
 # If you want to modify or add new items place do so in the file
 # database/custom.yaml

@@ -15,6 +15,7 @@ Coverage:
   - get_status(): item count reported correctly
 """
 import io
+import time
 import unittest
 from types import SimpleNamespace
 
@@ -301,6 +302,261 @@ class TestAnnunciatePlugin(unittest.TestCase):
     def test_get_status_multiple_items(self):
         p = _make_plugin([{"key": "OILP1"}, {"key": "OILP1"}])
         self.assertEqual(p.get_status()["Item Count"], 2)
+
+
+# ----------------------------------------------------------------------
+# Deviation items (G39, fix-gateway#42/#7; pyEfis EFIS-ALTSEL-005/-009/-010)
+# ----------------------------------------------------------------------
+
+DEV_DB_CONFIG = """
+entries:
+- key: ALT
+  description: Indicated Altitude
+  type: float
+  min: -1000.0
+  max: 60000.0
+  units: ft
+  initial: 0.0
+  tol: 2000
+
+- key: ALTSEL
+  description: Selected Altitude
+  type: int
+  min: -1000
+  max: 60000
+  units: ft
+  initial: 3000
+"""
+
+_ALTDEV = {"key": "ALTSEL", "deviation_from": "ALT", "threshold": 200, "deadband": 20}
+
+
+class TestDeviationItem(unittest.TestCase):
+
+    def setUp(self):
+        database.init(io.StringIO(DEV_DB_CONFIG))
+        database.write("ALTSEL", 5000)
+
+    def flag(self):
+        return database.read("ALTSEL")[1]
+
+    def test_within_threshold_does_not_annunciate(self):
+        _make_plugin([_ALTDEV])
+        for alt in (5000, 5199, 4801, 5200, 4800):     # 200 exactly is inside
+            database.write("ALT", alt)
+            self.assertFalse(self.flag(), alt)
+
+    def test_deviation_above_or_below_annunciates(self):
+        _make_plugin([_ALTDEV])
+        database.write("ALT", 5201)
+        self.assertTrue(self.flag())
+        database.write("ALT", 5000)
+        database.write("ALT", 4799)
+        self.assertTrue(self.flag())
+
+    def test_flag_holds_through_deadband_then_clears(self):
+        _make_plugin([_ALTDEV])
+        database.write("ALT", 5250)
+        self.assertTrue(self.flag())
+        database.write("ALT", 5190)                    # inside 200, not yet 180
+        self.assertTrue(self.flag())
+        database.write("ALT", 5181)
+        self.assertTrue(self.flag())
+        database.write("ALT", 5180)
+        self.assertFalse(self.flag())
+        database.write("ALT", 5190)                    # re-entry needs > 200 again
+        self.assertFalse(self.flag())
+
+    def test_moving_the_selected_altitude_evaluates(self):
+        _make_plugin([_ALTDEV])
+        database.write("ALT", 5000)
+        database.write("ALTSEL", 8000)                 # pilot sets a new target
+        self.assertTrue(self.flag())
+        database.write("ALTSEL", 5100)
+        self.assertFalse(self.flag())
+
+    def test_a_client_write_cannot_clear_a_live_deviation(self):
+        _make_plugin([_ALTDEV])
+        database.write("ALT", 5500)
+        self.assertTrue(self.flag())
+        # A FIX client writing ALTSEL with its flags (annunciate False).
+        database.write("ALTSEL", (5000, False, False, False))
+        self.assertTrue(self.flag())
+
+    def test_invalid_altitude_clears_the_alert(self):
+        _make_plugin([_ALTDEV])
+        database.write("ALT", 5500)
+        self.assertTrue(self.flag())
+        for flag in ("fail", "bad"):
+            item = database.get_raw_item("ALT")
+            setattr(item, flag, True)
+            self.assertFalse(self.flag(), flag)
+            setattr(item, flag, False)
+            self.assertTrue(self.flag(), flag)
+
+    def test_old_altitude_clears_the_alert(self):
+        _make_plugin([_ALTDEV])
+        database.write("ALT", 5500)
+        self.assertTrue(self.flag())
+        database.get_raw_item("ALT").tol = 100         # age ALT out for real
+        time.sleep(0.2)
+        database.update()
+        self.assertFalse(self.flag())
+        database.write("ALT", 5500)                    # a fresh reading re-alerts
+        self.assertTrue(self.flag())
+
+    def test_threshold_and_deadband_come_from_config(self):
+        _make_plugin([dict(_ALTDEV, threshold=500, deadband=0)])
+        database.write("ALT", 5450)
+        self.assertFalse(self.flag())
+        database.write("ALT", 5501)
+        self.assertTrue(self.flag())
+        database.write("ALT", 5500)                    # no deadband: clears at 500
+        self.assertFalse(self.flag())
+
+    def test_deadband_defaults_to_zero_not_the_defaults_percentage(self):
+        item = {"key": "ALTSEL", "deviation_from": "ALT", "threshold": 200}
+        p = _make_plugin([item], defaults=dict(_DEFAULTS, deadband="1%"))
+        self.assertEqual(p.items[0].deadband, 0.0)
+
+    def test_bad_deviation_config_is_rejected(self):
+        for bad in (
+            {"key": "ALTSEL", "deviation_from": "ALT"},
+            dict(_ALTDEV, threshold=0),
+            dict(_ALTDEV, deadband=200),
+            dict(_ALTDEV, deadband=-1),
+            dict(_ALTDEV, deviation_from="NOPE"),
+        ):
+            with self.assertRaises(ValueError, msg=bad):
+                _make_plugin([bad])
+
+    def test_stop_removes_both_callbacks(self):
+        p = _make_plugin([_ALTDEV])
+        p.stop()
+        database.write("ALT", 9000)
+        database.write("ALTSEL", 1000)
+        self.assertFalse(self.flag())
+
+    def test_str_reports_configuration(self):
+        p = _make_plugin([_ALTDEV])
+        s = str(p.items[0])
+        self.assertIn("Deviation From: ALT", s)
+        self.assertIn("Threshold: 200.0", s)
+        self.assertIn("Deadband: 20.0", s)
+
+
+_CAPTURE = dict(_ALTDEV, arm_on_capture=True)
+
+
+class TestDeviationArmOnCapture(unittest.TestCase):
+    """arm_on_capture (Bill, AER-4328): no alert on the way to a new target,
+    only on leaving one that ALT has reached."""
+
+    def setUp(self):
+        database.init(io.StringIO(DEV_DB_CONFIG))
+        database.write("ALT", 3000)
+        database.write("ALTSEL", 3000)
+
+    def flag(self):
+        return database.read("ALTSEL")[1]
+
+    def test_climb_to_a_new_target_is_not_an_alert_leaving_it_is(self):
+        _make_plugin([_CAPTURE])
+        database.write("ALTSEL", 5000)                 # level at 3000, set 5000
+        for alt in (3000, 3500, 4500, 4799):
+            database.write("ALT", alt)
+            self.assertFalse(self.flag(), alt)
+        database.write("ALT", 4800)                    # captured: armed
+        database.write("ALT", 5000)
+        self.assertFalse(self.flag())
+        database.write("ALT", 5201)                    # drifted off it
+        self.assertTrue(self.flag())
+        database.write("ALT", 5180)                    # back inside the deadband
+        self.assertFalse(self.flag())
+
+    def test_a_gateway_start_off_target_waits_for_a_capture(self):
+        _make_plugin([_CAPTURE])                       # ALT and ALTSEL predate it
+        database.write("ALT", 3300)
+        self.assertFalse(self.flag())
+        database.write("ALT", 3100)
+        database.write("ALT", 3300)
+        self.assertTrue(self.flag())
+
+    def test_before_any_capture_nothing_alerts(self):
+        _make_plugin([_CAPTURE])
+        database.write("ALTSEL", 9000)
+        database.write("ALT", 1000)                    # descending away: never armed
+        self.assertFalse(self.flag())
+
+    def test_a_new_target_disarms_and_clears_a_live_alert(self):
+        _make_plugin([_CAPTURE])
+        database.write("ALT", 3000)                    # captured at 3000
+        database.write("ALT", 3300)
+        self.assertTrue(self.flag())
+        database.write("ALTSEL", 8000)                 # pilot selects a new altitude
+        self.assertFalse(self.flag())
+        database.write("ALT", 6000)
+        self.assertFalse(self.flag())
+
+    def test_a_small_bump_within_the_threshold_stays_armed(self):
+        _make_plugin([_CAPTURE])
+        database.write("ALT", 3000)
+        database.write("ALTSEL", 3100)                 # still within 200: captured
+        database.write("ALT", 3350)
+        self.assertTrue(self.flag())
+
+    def test_rewriting_the_same_target_does_not_disarm(self):
+        _make_plugin([_CAPTURE])
+        database.write("ALT", 3000)                    # captured
+        database.write("ALT", 3300)
+        self.assertTrue(self.flag())
+        database.write("ALTSEL", 3000)                 # a client republishes it
+        self.assertTrue(self.flag())
+        database.write("ALTSEL", (3000, False, False, False))
+        self.assertTrue(self.flag())
+
+    def test_an_altitude_dropout_keeps_the_capture(self):
+        _make_plugin([_CAPTURE])
+        database.write("ALT", 3000)                    # captured
+        item = database.get_raw_item("ALT")
+        item.fail = True
+        database.write("ALT", 3300)
+        self.assertFalse(self.flag())                  # invalid: no alert
+        item.fail = False
+        self.assertTrue(self.flag())                   # back, still captured
+
+    def test_str_reports_arm_on_capture(self):
+        p = _make_plugin([_CAPTURE])
+        self.assertIn("Arm On Capture: Yes", str(p.items[0]))
+        p2 = _make_plugin([_ALTDEV])
+        self.assertIn("Arm On Capture: No", str(p2.items[0]))
+
+
+def test_shipped_annunciate_config_alerts_altsel_at_200_ft():
+    """The shipped connections/annunciate.yaml against the shipped database:
+    every item builds, and ALTSEL alerts 200 ft off a captured altitude, not
+    on the climb to it (EFIS-ALTSEL-005/-009; arm on capture, AER-4328)."""
+    import yaml
+
+    database.init("src/fixgw/config/database.yaml")
+    with open("src/fixgw/config/connections/annunciate.yaml") as f:
+        config = yaml.safe_load(f)["annunciate"]
+    p = annunciate.Plugin("annunciate", config, None)
+    p.run()
+    dev = [i for i in p.items if isinstance(i, annunciate.DeviationItem)]
+    assert [(i.key, i.ref_key, i.threshold, i.arm_on_capture) for i in dev] == [
+        ("ALTSEL", "ALT", 200.0, True)
+    ]
+
+    database.write("ALT", 3000)
+    database.write("ALTSEL", 5000)
+    database.write("ALT", 4000)                        # the climb: no alert
+    assert database.read("ALTSEL")[1] is False
+    database.write("ALT", 5100)                        # captured
+    assert database.read("ALTSEL")[1] is False
+    database.write("ALT", 5300)                        # left it
+    assert database.read("ALTSEL")[1] is True
+    p.stop()
 
 
 if __name__ == "__main__":
