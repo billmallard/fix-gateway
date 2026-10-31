@@ -195,6 +195,12 @@ load an alternate configuration file and turn debugging on...
 FGW will load the ``test.yaml`` file instead of the ``default.yaml``
 configuration file that ships with the program.
 
+On startup FGW copies new and updated configuration files from the package
+into ``~/makerplane/fixgw/config``. Files you have edited are not replaced; the
+new version is written beside them with a ``.dist`` extension. This update
+also runs when ``--config-file`` names a file inside
+``~/makerplane/fixgw/config``. A ``--config-file`` anywhere else is not updated.
+
 Running the client
 -------------------
 
