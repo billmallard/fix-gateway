@@ -48,7 +48,7 @@ bench's `xplane` plugin wrote it is in `EXTCRS`/`EXTCDI`. `t` is the Beelink's
 epoch. Trace time is `t - 1793251953.66` (`BUS_EPOCH` in `xplane_replay.py`),
 found by position (0.0015 nm median, 0.006 nm worst). The rows are trimmed to
 the trace's span, 1229 rows, with the columns as logged. `EXTTF` is 0
-throughout: the bench does not map it.
+throughout: the bench did not map it until fix-gateway#41, after this flight.
 
 `tests/sim/test_fp8_bench_bus.py` uses it to show that the trace's navigator
 columns are the bus keys. On the aligned rows the bus `EXTCRS` matches
