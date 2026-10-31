@@ -23,8 +23,8 @@ Then run one of the two helper scripts.
 
 ::
 
-    ./fixgw.py
-    ./fixgwc.py
+    ./fixGw.py
+    ./fixGwClient.py
 
 These will run the server and the client respectively.
 
