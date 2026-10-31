@@ -13,6 +13,11 @@ the time of the first failure and the values there, and the largest error
 and when it happened. It lives in tests/ for the same reason
 ``engine_replay`` does: it is the part of the tier that runs the engine.
 
+A profile that takes a GPS input away (a ``gps_*`` event) is flown through
+the plugin itself (``plugin_replay``), not the engine: what the box does
+with an input that stops is the plugin's job, and ``engine_replay`` only
+models it. Every other profile is flown through the engine.
+
 A profile listed as an open finding (the strict-xfail ``OPEN`` dict of the
 test module that owns it) is expected to fail: its failing checks are
 reported as warnings and do not fail the gate. If it passes, the gate fails,
@@ -32,7 +37,7 @@ import yaml
 from fixgw.sim import checks, generator
 from fixgw.sim.profile import load_profile
 
-from .engine_replay import replay
+from . import engine_replay, plugin_replay
 
 REPO = Path(__file__).resolve().parents[2]
 PROFILES_DIR = REPO / "src/fixgw/sim/profiles"
@@ -66,6 +71,7 @@ class ProfileRun:
     rows: int
     duration_s: float
     wall_s: float
+    via: str = "engine_replay"   # which replay flew it
 
     @property
     def passed(self):
@@ -81,14 +87,22 @@ def _check_lines(path):
     return []
 
 
+def replay_for(prof):
+    """The replay a profile is flown through: the plugin when it takes a GPS
+    input away, the engine otherwise."""
+    gps = any(generator.GPS_EVENTS.keys() & e.do.keys() for e in prof.events)
+    return plugin_replay if gps else engine_replay
+
+
 def fly(path):
     t0 = time.monotonic()
     prof = load_profile(str(path))
-    rows = replay(generator.generate(prof).rows)
+    via = replay_for(prof)
+    rows = via.replay(generator.generate(prof).rows)
     log = checks.Log.from_rows(rows, checks.keys_needed(prof.checks))
     results = checks.evaluate(prof.checks, log)
     return ProfileRun(prof.name, Path(path), prof.checks, results, _check_lines(path),
-                      len(rows), rows[-1][0], time.monotonic() - t0)
+                      len(rows), rows[-1][0], time.monotonic() - t0, via.__name__.rsplit(".", 1)[-1])
 
 
 def failure_line(name, r):
@@ -152,7 +166,7 @@ def summary_markdown(runs, open_=None):
         fails = failure_lines(run)
         if fails:
             out += [f"- {f}" for f in fails] + [""]
-        out += [checks.markdown(run.name, run.results, "the headless engine replay"), ""]
+        out += [checks.markdown(run.name, run.results, f"the headless {run.via.replace('_', ' ')}"), ""]
     return "\n".join(out)
 
 

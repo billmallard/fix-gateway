@@ -331,7 +331,9 @@ def test_ksba_i07_golet_hold_flies_the_real_inbound_course_and_turn_direction():
     entry = e.update(arrival_past_lat, arrival_past_lon, 120.0, 0.0, True, None, None, 1000.0)
     assert (e._leg_phase, e._hold_entry) == (engine.LEGPHASE_ENTRY, engine.HOLD_ENTRY_PARALLEL)
     assert entry.get("phase") == "HOLD"
-    assert entry["crs"] == pytest.approx(KSBA_GOLET_HM_COURSE - 180.0, abs=0.05)
+    # 0.2: the hold is built on WGS-84 and its course read on the sphere,
+    # within 0.193 deg (AER-4218; 0.13 here).
+    assert entry["crs"] == pytest.approx(KSBA_GOLET_HM_COURSE - 180.0, abs=0.2)
 
     e.update(*geo.destination_point(*KSBA_GOLET, KSBA_GOLET_HM_COURSE - 180.0, 2.05),
              120.0, 0.0, True, None, None, 1001.0)

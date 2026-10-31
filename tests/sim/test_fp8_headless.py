@@ -47,17 +47,15 @@ def test_two_full_circuits_of_the_winch_hold_match_the_reference():
     # so the turn inbound and the inbound leg are never compared there.
     # Twelve minutes covers two full circuits of the racetrack.
     #
-    # Every check holds at the profile's tolerance except course on the
-    # turn inbound, which needs 1.0 deg. That is the earth model, not the
-    # engine. The engine's sphere puts the end of the 4 nm outbound leg
-    # 0.13 deg off in WGS-84 azimuth, 0.009 nm across track. That moves
-    # the centre of the 0.58 nm turn by as much, and the tangent at the
-    # aircraft by up to atan(0.0092 / 0.5836) = 0.90 deg (measured: 0.93).
-    # The cross-track on the same turn agrees to 0.010 nm.
+    # Every check holds at the profile's tolerance. Course on the turn
+    # inbound needed 1.0 deg while the engine built its racetrack on a
+    # sphere: the end of the 4 nm outbound leg landed 0.009 nm off its
+    # WGS-84 place, and the tangent on the 0.58 nm turn swung by up to
+    # atan(0.0092 / 0.5836) = 0.90 deg (measured: 0.93). The racetrack is
+    # built on WGS-84 now (AER-4218) and the turn agrees to 0.17 deg.
     prof = load_profile(str(PROFILE))
     prof.events = [dataclasses.replace(e, do=dict(e.do, hold_min=12)) if e.id == "hold" else e
                    for e in prof.events]
     rows = replay(generator.generate(prof).rows)
-    wide = [dict(c, tol_deg=1.0) if c.get("key_pair") == ["FPLCRS", "REFCRS"] else c for c in prof.checks]
-    results, _ = _results(wide, rows)
+    results, _ = _results(prof.checks, rows)
     assert [f"{r.label}: {r.detail}" for r in results if not r.passed] == []

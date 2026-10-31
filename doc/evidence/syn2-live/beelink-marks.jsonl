@@ -1,0 +1,22 @@
+{"t":0.0,"what":"start","wall_s":0.001,"readback":{"WPNAME":"PAMJI","FPLCRS":"318.6858347187267","FPLCDI":"-0.00261863442049078","FPLMSG":""},"hook":{"index":1,"rc":0,"out":""}}
+{"t":0.2,"what":"pilot","cmd":"1 ACT 4","wall_s":0.2,"readback":{"WPNAME":"PAMJI","FPLCRS":"318.68579999650285","FPLCDI":"-0.002618799725482348","FPLMSG":""}}
+{"t":65.6,"what":"sequence","from":"PAMJI","to":"CIMSO","wall_s":65.601,"readback":{"WPNAME":"CIMSO","FPLCRS":"318.6754053658212","FPLCDI":"-1.1648992835768403e-06","FPLMSG":"SEQ PAMJI -> CIMSO"},"hook":{"index":2,"rc":0,"out":""}}
+{"t":155.6,"what":"sequence","from":"CIMSO","to":"ANIBY","wall_s":155.6,"readback":{"WPNAME":"ANIBY","FPLCRS":"318.6632973284398","FPLCDI":"-0.00872695092699525","FPLMSG":"SEQ CIMSO -> ANIBY"},"hook":{"index":3,"rc":0,"out":""}}
+{"t":191.6,"what":"sequence","from":"ANIBY","to":"RW30","wall_s":191.601,"readback":{"WPNAME":"RW30","FPLCRS":"318.65257232867083","FPLCDI":"-0.008749137363055746","FPLMSG":"SEQ ANIBY -> RW30"},"hook":{"index":4,"rc":0,"out":""}}
+{"t":319.2,"what":"map","fix":"RW30","wall_s":319.201,"readback":{"WPNAME":"RW30","FPLCRS":"318.6302949178561","FPLCDI":"-0.00874144017611178","FPLMSG":"SEQ ANIBY -> RW30"},"hook":{"index":5,"rc":0,"out":""}}
+{"t":324.4,"what":"pilot","cmd":"2 RESUME","wall_s":324.401,"readback":{"WPNAME":"","FPLCRS":"316.51069523814067","FPLCDI":"-0.006060861397052941","FPLMSG":"SEQ RW30 -> "}}
+{"t":353.8,"what":"sequence","from":"","to":"HANNU","wall_s":353.8,"readback":{"WPNAME":"HANNU","FPLCRS":"319.15550619534895","FPLCDI":"0.004636900024191895","FPLMSG":"SEQ ALT -> HANNU"},"hook":{"index":6,"rc":0,"out":""}}
+{"t":479.0,"what":"sequence","from":"HANNU","to":"WINCH","wall_s":479.001,"readback":{"WPNAME":"WINCH","FPLCRS":"296.4838161122749","FPLCDI":"0.0162136074888119","FPLMSG":"SEQ HANNU -> WINCH"},"hook":{"index":7,"rc":0,"out":""}}
+{"t":484.2,"what":"event","id":"right","do":{"offset_nm":1.0,"hold_s":30},"wall_s":484.201,"readback":{"WPNAME":"WINCH","FPLCRS":"296.4824190209063","FPLCDI":"-0.016696648294167803","FPLMSG":"SEQ HANNU -> WINCH"}}
+{"t":541.4,"what":"established","id":"right","xtk_nm":0.95,"wall_s":541.401,"readback":{"WPNAME":"WINCH","FPLCRS":"296.46944598072645","FPLCDI":"-0.9632837187819371","FPLMSG":"SEQ HANNU -> WINCH"}}
+{"t":571.4,"what":"done","id":"right","wall_s":571.401,"readback":{"WPNAME":"WINCH","FPLCRS":"296.4611775445775","FPLCDI":"-0.99518327742041","FPLMSG":"SEQ HANNU -> WINCH"}}
+{"t":571.4,"what":"event","id":"left","do":{"offset_nm":-1.0,"hold_s":30},"wall_s":571.401,"readback":{"WPNAME":"WINCH","FPLCRS":"296.4611775445775","FPLCDI":"-0.99518327742041","FPLMSG":"SEQ HANNU -> WINCH"}}
+{"t":677.0,"what":"established","id":"left","xtk_nm":-0.9507,"wall_s":677.001,"readback":{"WPNAME":"WINCH","FPLCRS":"296.43851074054214","FPLCDI":"0.9605352960772358","FPLMSG":"SEQ HANNU -> WINCH"}}
+{"t":707.0,"what":"done","id":"left","wall_s":707.0,"readback":{"WPNAME":"WINCH","FPLCRS":"296.4300995403904","FPLCDI":"0.9910118579652687","FPLMSG":"SEQ HANNU -> WINCH"}}
+{"t":707.0,"what":"event","id":"rejoin","do":{"offset_nm":0.0},"wall_s":707.0,"readback":{"WPNAME":"WINCH","FPLCRS":"296.4300995403904","FPLCDI":"0.9910118579652687","FPLMSG":"SEQ HANNU -> WINCH"}}
+{"t":766.2,"what":"established","id":"rejoin","xtk_nm":-0.0498,"wall_s":766.201,"readback":{"WPNAME":"WINCH","FPLCRS":"296.41655823032625","FPLCDI":"0.03446927516388984","FPLMSG":"SEQ HANNU -> WINCH"}}
+{"t":766.2,"what":"done","id":"rejoin","wall_s":766.201,"readback":{"WPNAME":"WINCH","FPLCRS":"296.41655823032625","FPLCDI":"0.03446927516388984","FPLMSG":"SEQ HANNU -> WINCH"}}
+{"t":872.2,"what":"sequence","from":"WINCH","to":"WINCH","wall_s":872.201,"readback":{"WPNAME":"WINCH","FPLCRS":"301.52801571490613","FPLCDI":"0.0007685714237581289","FPLMSG":"SEQ WINCH -> WINCH"},"hook":{"index":8,"rc":0,"out":""}}
+{"t":872.2,"what":"event","id":"hold","do":{"hold_min":5},"wall_s":872.201,"readback":{"WPNAME":"WINCH","FPLCRS":"301.52796376464573","FPLCDI":"0.0008375937826347929","FPLMSG":"SEQ WINCH -> WINCH"}}
+{"t":1172.2,"what":"done","id":"hold","wall_s":1172.201,"readback":{"WPNAME":"","FPLCRS":"0.0","FPLCDI":"0.0","FPLMSG":"SEQ WINCH -> WINCH"}}
+{"t":1172.2,"what":"end","wall_s":1172.201,"readback":{"WPNAME":"","FPLCRS":"0.0","FPLCDI":"0.0","FPLMSG":"SEQ WINCH -> WINCH"},"hook":{"index":9,"rc":0,"out":""}}

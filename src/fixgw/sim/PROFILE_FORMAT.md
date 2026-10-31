@@ -18,8 +18,10 @@ would be asked to fly, the pilot's inputs, and the checks.
 Profiles live in `src/fixgw/sim/profiles/`. The first one is
 `fp8-ksmx-rnav30-missed.yaml` (FP8 session 2, AER-809). The `qa1-*` profiles
 are QA's (AER-4211): hold entries from each sector in both turn directions,
-a missed approach coded to turn the long way round, and GPS losses of fix;
-their checks and tolerances are QA's and are not edited to fit a result.
+a missed approach coded to turn the long way round, GPS losses of fix, and
+(AER-4223) a dead GPS link, and a status or a position stream that stops on
+its own; their checks and
+tolerances are QA's and are not edited to fit a result.
 
 ## The rule for the reference
 
@@ -48,7 +50,7 @@ cifp:                                 # required
   file: cifp/FAACIFP18-2611-KSMX-R30  # relative to the profile; a full FAACIFP18 also works
 
 aircraft:                             # optional, these are the defaults
-  tas_kt: 110
+  tas_kt: 110                         # flown as TAS; IAS is published as standard-day EAS at the current ALT
   climb_fpm: 700
   descent_fpm: 600
   bank_max_deg: 25
@@ -138,12 +140,32 @@ Each event has an `id`, one trigger under `at`, and one action under `do`.
 | `offset_nm: d` (+ `hold_s: n`) | fly `d` nm off the desired track, positive right | established (within 0.05 nm) and held `n` s. The offset stays until another event changes it |
 | `hold_min: n` | stay in the hold | `n` minutes after it fired |
 | `gps_loss_s: n` | the GPS has no fix | `n` seconds after it fired |
+| `gps_link_loss_s: n` | the GPS receiver or its link goes dead | `n` seconds after it fired |
+| `gps_status_loss_s: n` | the receiver's status stream stops, position keeps coming | `n` seconds after it fired |
+| `gps_position_loss_s: n` | the position stops, the status stream keeps saying 3D | `n` seconds after it fired |
 
-While a `gps_loss_s` event is active the generator publishes what the gpsd
-plugin does below a 2D fix: `GPS_FIX_TYPE` 1 and none of `LAT`, `LONG`,
-`TRACK`, `GS`, `GPS_ACCURACY_HORIZ` (the other sensor keys and the `REF*`
-truth carry on). The aircraft keeps flying the reference's guidance, as a
-pilot holding the course would.
+While a GPS event is active the generator withholds keys; the other sensor
+keys and the `REF*` truth carry on, and the aircraft keeps flying the
+reference's guidance, as a pilot holding the course would.
+
+| Event | Not published | `GPS_FIX_TYPE` |
+|---|---|---|
+| `gps_loss_s` | `LAT LONG TRACK GS GPS_ACCURACY_HORIZ` | 1, what the gpsd plugin publishes below a 2D fix |
+| `gps_link_loss_s` | `LAT LONG TRACK GS GPS_ACCURACY_HORIZ GPS_FIX_TYPE` | not written: the last value, 3, stands |
+| `gps_status_loss_s` | `GPS_FIX_TYPE GPS_ACCURACY_HORIZ` | not written: the last value, 3, stands |
+| `gps_position_loss_s` | `LAT LONG` | 3, still written |
+
+`gps_status_loss_s` and `gps_position_loss_s` are the mavlink shapes: that
+plugin takes the fix type and accuracy from `GPS_RAW_INT` and the position
+from `GLOBAL_POSITION_INT`, the autopilot's fused estimate, so either stream
+can stop without the other. `gps_position_loss_s` is also the only dead-input
+case where nothing but the position's own age can tell the box it is dead.
+
+The gate (`tests/sim/profile_gate.py`) flies a profile with any GPS event
+through the `flightplan` plugin itself (`tests/sim/plugin_replay.py`, the
+real plugin and database on the stream's clock) rather than through the
+engine alone: what the box does with an input that stops arriving is the
+plugin's job, and `engine_replay` only models it.
 
 ### `end`
 
@@ -170,13 +192,28 @@ Tier-independent comparisons on the recorded bus. Each is one of:
   phase one update apart. `around_keys: [KEY, ...]` names the keys whose
   changes open the `except_s_around_sequence` window, instead of the
   sequence keys (a box that blanks its TO fix without a GPS fix would
-  otherwise open a window around the loss itself).
+  otherwise open a window around the loss itself). `skip_when_silent:
+  {KEY: s}` skips rows where KEY has not been written for more than `s`
+  seconds (counted, with `silent`, in the report): guidance from an input
+  that has stopped is judged by a `flagged` check instead.
 - `flagged: [KEY, ...]` with `while_no_fix: true`, `within_s`,
   `clear_within_s`: each key must be flagged (bad or failed) on every row
   where `GPS_FIX_TYPE` has been below 3 for at least `within_s`, and must not
   be flagged on any row where it has been 3 or more for at least
   `clear_within_s`. A log with no loss of fix fails the check rather than
   passing it vacuously.
+- `flagged: [KEY, ...]` with `while_silent: [INPUT, ...]`, `within_s`,
+  `clear_within_s`: each key must be flagged on every row where one of the
+  inputs has not been written for at least `within_s`, and must not be
+  flagged on any row where all of them have been live (written within the
+  last 1 s, the slowest position output AC 20-138D 15-7.3 contemplates) for
+  at least `clear_within_s`. The value an input last had does not matter: a
+  dead link leaves a good-looking one behind. A log with no such silence
+  fails the check.
+
+A recorder row holds exactly the keys written in its interval, so a
+recorded log shows when each key was last written; the first row of each
+recorder file is a snapshot of every key and does not count as a write.
 - `sequence: [FIX, ...]` with `keys` (default `[WPNAME, REFWPT]`): each key's
   run of TO fixes, blanks dropped, must equal the list. The report also gives
   the time difference at which each fix became the TO fix.
@@ -239,9 +276,93 @@ header, then one row per tick), which `data_playback` replays unchanged.
 To run it through a gateway, enable `data_playback` with `files:` naming
 the output, `flightplan`, and `data_recorder` (the engine's and the `REF*`
 keys), then `check` the recorded files. `gateway-replay.yaml` beside this
-file is the exact config the first bench replay used, with the commands. `generate`'s Python interface
-(`fixgw.sim.generator.generate` returning rows in write order) is what a
-live netfix writer would iterate (SYN2).
+file is the exact config the first bench replay used, with the commands.
+
+## Live mode (SYN2)
+
+`live` flies the same profile into a gateway that is already running, over
+netfix, so the display on a bench moves as if the airplane were flying it.
+No simulator, no `data_playback`:
+
+```
+python -m fixgw.sim live src/fixgw/sim/profiles/fp8-ksmx-rnav30-missed.yaml \
+    --host 127.0.0.1 --port 3490 --speed 1 --log run.marks.jsonl \
+    --hook 'my-screenshot.sh'
+```
+
+What it does, in order:
+
+1. Connects, then **watches `LAT`/`LONG` for `--watch-s` (3 s)**. If either
+   moves while it is not writing, another source (X-Plane, a GPS, a demo,
+   a forgotten writer) is publishing a position. It refuses with exit `3`
+   unless `--allow-other-writer`: two writers on one key is a flight nobody
+   flew.
+2. Reads `FPLSEQ` and `FPLCMDACK`. The run commits its route as `FPLSEQ`
+   one past the gateway's, and numbers its commands after the last ack, so
+   a box that has already loaded routes and taken commands sees a new route
+   and new commands, not a repeat.
+3. Names every key the run writes that the gateway's database does not
+   have. netfix drops a write to an unknown key silently; this says so
+   first (a gateway without `database/sim.yaml` drops the `REF*` keys, which
+   nothing on the glass reads).
+4. Writes the rows at the profile's times divided by `--speed`. The
+   schedule is absolute, so a slow write is caught up, not accumulated;
+   the closing line reports the worst lateness of any row.
+5. At each timeline mark (`start`, each `sequence`, `map`, `pilot`, each
+   `event`/`established`/`done`, `end`) it waits `--hook-delay-s` (3 s, for
+   the glass to draw the change), reads `--readback` keys from the gateway
+   (default `WPNAME,FPLCRS,FPLCDI,FPLMSG`: what the engine is doing at that
+   moment), runs `--hook` if the mark is one of `--hook-on` (default
+   `start,sequence,map,end`), and prints and logs one JSON line. The hook
+   is a shell command with `SYN_INDEX` (01, 02, ...), `SYN_WHAT`, `SYN_FIX`,
+   `SYN_T`, `SYN_WALL_S` and `SYN_PROFILE` in its environment. A hook that
+   fails is counted and makes the exit `1`; it never stops the flight.
+   Marks on the last row (`end`, and any `done` at the same tick) are read
+   `--hook-delay-s` after the feed stopped, so they show a box going stale:
+   with the default 3 s the position and `GPS_ACCURACY_HORIZ` (2 s `tol`)
+   are already old. An engine with the 2 s position bound (AER-4217) blanks
+   `WPNAME` and zeroes `FPLCRS`/`FPLCDI`; one without it posts `NO
+   INTEGRITY DATA` to `FPLMSG`. Either is the engine noticing the feed has
+   ended, not a fault in the flight.
+
+Exit codes: `0` flown, `1` flown but a hook failed, `2` no gateway at
+`--host:--port`, `3` another writer, `130` stopped (Ctrl-C or `SIGTERM`
+end the run between rows).
+
+What it leaves behind: the run's route stays loaded in the box and the last
+position stays on the bus until it goes old (each key's `tol`). It changes
+the box's flight plan; on a shared bench that is the point, so say so on
+the issue.
+
+**`--speed` above 1 is for looking, not for checks.** The engine runs on
+the wall clock (its update rate, alert timing, turn anticipation from
+`GS`), so at x4 the airplane covers ground four times faster than its own
+`GS` says. Sequencing still happens, a little late. Run `check` on a
+recording at x1 only; above that a disagreement is the time warp, not the
+engine. Writes scale with speed too (about 20 keys per row, 5 rows per
+second at x1).
+
+The run is one netfix client and writes nothing else, so it can be pointed
+at another box's gateway across the LAN (`--host`). It needs `geographiclib`
+and `yaml` where it runs, not on the box it drives.
+
+### On a bench
+
+Hold the bench lock for the whole run (`processes/bench_deploy.md`): a
+live run is twenty minutes of a moving display, and a deploy restarting
+`fixgw` in the middle would end it.
+
+```
+flock -o -w 900 /tmp/pyefis-bench.lock timeout 45m \
+    python -m fixgw.sim live <profile> --log ~/syn2/marks.jsonl \
+        --hook 'DISPLAY=:0 ffmpeg -loglevel error -y -f x11grab -draw_mouse 0 \
+                -video_size 1920x1080 -i :0 -frames:v 1 ~/syn2/$SYN_INDEX-$SYN_WHAT-$SYN_FIX.png'
+```
+
+`x11grab`, not pyEfis's SIGUSR1 screenshot: GL does not render into the
+SIGUSR1 grab, so its SVS panel is always blank. The Pi 5 has
+no screenshot of any kind (eglfs); drive it the same way with `--host`,
+and its proof is the readback log and someone looking at the glass.
 
 ## What changed from the plan's sketch (`briefs/sim_bench_plan.md` section 3)
 

@@ -13,6 +13,7 @@ import time
 
 import pytest
 
+import fixgw.geo as geo
 import fixgw.plugin as plugin_base
 import fixgw.plugins.flightplan as flightplan
 import fixgw.plugins.flightplan.engine as engine
@@ -342,8 +343,74 @@ def test_restore_does_not_auto_sequence_a_direct_to_before_a_real_position_arriv
     assert database.get_raw_item("FPLCRS").fail is True
 
 
+def _persist_active_plan(state_file):
+    e = engine.Engine()
+    route = [
+        engine.Waypoint("KSBA", 34.42621, -119.84037),
+        engine.Waypoint("GVO", 34.53142, -120.09106),
+        engine.Waypoint("KSMX", 34.89892, -120.45758),
+    ]
+    load(e, route, "INFLIGHT", 9)
+    e.handle_command("1 ACT 2", (34.45, -119.9, True))
+    snapshot = e.to_persisted_dict()
+    state_file.write_text(json.dumps(snapshot))
+    return snapshot
+
+
+def test_position_feed_during_restore_delay_does_not_overwrite_the_persisted_plan(database, tmp_path):
+    # fix-gateway#50 (G48): a real GPS streams from the moment the gateway
+    # starts, so LAT/LONG callbacks run the guidance cycle -- and its persist
+    # hook -- inside restore_delay, while the engine is still empty. Without
+    # the guard, the empty snapshot replaced the state file before _restore()
+    # read it and an in-flight restart came back with no plan (FP8, AER-809).
+    state_file = tmp_path / "flightplan_state.json"
+    snapshot = _persist_active_plan(state_file)
+
+    pl = flightplan.Plugin("flightplan", make_config(tmp_path, restore_delay=1.0), {})
+    pl.run()
+    try:
+        # A 5 Hz position feed through the restore window, as on the bench.
+        deadline = time.time() + 0.3
+        while time.time() < deadline:
+            database.write("LAT", 34.45)
+            database.write("LONG", -119.9)
+            time.sleep(0.2)
+        assert pl.thread._position_seen  # the callbacks really ran
+        assert pl.thread.engine.count == 0  # still inside the window
+        assert json.loads(state_file.read_text()) == snapshot
+
+        deadline = time.time() + 3.0
+        while pl.thread.engine.count == 0 and time.time() < deadline:
+            time.sleep(0.05)
+    finally:
+        pl.stop()
+
+    assert pl.thread.engine.route_name == "INFLIGHT"
+    assert pl.thread.engine.act_leg == 2
+    assert database.read("FPLCOUNT")[0] == 3
+    assert database.read("FPLSEQ")[0] == 9
+    assert json.loads(state_file.read_text())["route"] == snapshot["route"]
+
+
+def test_stop_inside_restore_delay_does_not_overwrite_the_persisted_plan(database, tmp_path):
+    # The same window from the other end: run() flushes on exit, so a gateway
+    # stopped (or restarted again) before the restore ran must not write its
+    # still-empty engine over the plan it never read.
+    state_file = tmp_path / "flightplan_state.json"
+    snapshot = _persist_active_plan(state_file)
+
+    pl = flightplan.Plugin("flightplan", make_config(tmp_path, restore_delay=5.0), {})
+    pl.run()
+    time.sleep(0.1)
+    pl.stop()
+
+    assert pl.thread.engine.count == 0
+    assert json.loads(state_file.read_text()) == snapshot
+
+
 def test_persistence_flush_writes_atomically_on_change(database, tmp_path):
     pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
+    pl.thread._restore()  # no state file: nothing to restore, persistence opens
     write_route(database, [engine.Waypoint("A", 0.0, 0.0), engine.Waypoint("B", 0.0, 1.0)], seq=1)
     database.write("FPLCMD", "1 ACT 2")
 
@@ -456,3 +523,216 @@ def test_restore_of_a_bad_state_file_posts_the_reason_and_keeps_the_file(databas
 
     pl.thread._run_update_cycle()  # the persist hook must not overwrite the evidence
     assert json.loads(state_file.read_text())["segments"][1]["first"] == 3
+
+
+# ---------------------------------------------------------------------------
+# Integrity gate through the database (fix-gateway#52)
+# ---------------------------------------------------------------------------
+
+FT_PER_NM = flightplan.GPS_ACCURACY_FT_PER_NM
+
+
+def _nm_lon(nm):
+    # Along the equator, for building synthetic straight-line routes.
+    return nm / geo.distance_nm(0.0, 0.0, 0.0, 1.0)
+
+
+def _phase_case(phase):
+    # (route, activation command, aircraft longitude, HAL in nm) for one
+    # flight phase, each with the aircraft on the active leg.
+    if phase == "ENR":
+        route = [engine.Waypoint("A", 0.0, 0.0), engine.Waypoint("B", 0.0, _nm_lon(200.0))]
+        return route, "1 ACT 2", _nm_lon(100.0), 2.0
+    if phase == "TERM":
+        route = [
+            engine.Waypoint("A", 0.0, 0.0, type=engine.TYPE_AIRPORT),
+            engine.Waypoint("B", 0.0, _nm_lon(5.0), type=engine.TYPE_AIRPORT),
+        ]
+        return route, "1 ACT 2", _nm_lon(2.0), 1.0
+    # LNAV: IAF -> FAF -> MAP -> MAHP, aircraft on the FAF -> MAP leg.
+    route = [
+        engine.Waypoint("IAF", 0.0, 0.0, type=engine.TYPE_FIX, flags=engine.FLAG_IAF),
+        engine.Waypoint("FAF", 0.0, _nm_lon(5.0), type=engine.TYPE_FIX, flags=engine.FLAG_FAF),
+        engine.Waypoint("MAP", 0.0, _nm_lon(10.0), type=engine.TYPE_MAPPOINT, flags=engine.FLAG_MAP),
+        engine.Waypoint("MAHP", 0.0, _nm_lon(12.0), type=engine.TYPE_FIX, flags=engine.FLAG_MAHP),
+    ]
+    return route, "1 ACT 3", _nm_lon(7.0), 0.3
+
+
+def _guide_with_accuracy(database, pl, accuracy_ft):
+    database.write("GPS_ACCURACY_HORIZ", accuracy_ft)
+    pl.thread._run_update_cycle()
+    return database.read("FPLINTEG")[0], database.read("FPLPHASE")[0]
+
+
+@pytest.mark.parametrize("phase", ["ENR", "TERM", "LNAV"])
+def test_accuracy_above_each_hal_written_to_the_database_raises_loi(database, tmp_path, phase):
+    # GPS_ACCURACY_HORIZ is published in feet and was capped at 200 ft
+    # (0.033 nm), so every write clamped below every HAL and the gate could
+    # never fire (FP8 on the bench, AER-809). Drive the key through the real
+    # database, not Engine.update, so the key's own range is under test.
+    pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
+    route, cmd, lon, hal_nm = _phase_case(phase)
+    database.write("GPS_FIX_TYPE", 3)
+    write_route(database, route, seq=1)
+    database.write("LAT", 0.0)
+    database.write("LONG", lon)
+    database.write("GS", 120.0)
+    database.write("MAGVAR", 0.0)
+    database.write("FPLCMD", cmd)
+
+    below_ft = 0.9 * hal_nm * FT_PER_NM
+    assert _guide_with_accuracy(database, pl, below_ft) == (True, phase)
+
+    above_ft = 1.1 * hal_nm * FT_PER_NM
+    assert _guide_with_accuracy(database, pl, above_ft) == (False, "LOI")
+    assert database.read("GPS_ACCURACY_HORIZ")[0] == pytest.approx(above_ft)
+
+    # A receiver reporting more than the key can hold saturates at its max,
+    # and the max itself must still be above every HAL.
+    assert _guide_with_accuracy(database, pl, 1.0e7) == (False, "LOI")
+
+
+# ---------------------------------------------------------------------------
+# Navigation input staleness (AER-4217, QA1 F4)
+# ---------------------------------------------------------------------------
+
+
+class _Clock:
+    """Wall clock for fixgw.database's item ages and the plugin's cycle
+    time alike -- both read time.time()."""
+
+    def __init__(self, t):
+        self.t = t
+
+    def __call__(self):
+        return self.t
+
+
+def _flying(database, tmp_path, monkeypatch):
+    clock = _Clock(time.time())  # the database stamped its initial values with the real clock
+    monkeypatch.setattr(time, "time", clock)
+    pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
+    write_route(database, [engine.Waypoint("A", 0.0, 0.0), engine.Waypoint("B", 0.0, 1.0)], seq=1)
+    database.write("GS", 120.0)
+    database.write("MAGVAR", 0.0)
+    database.write("FPLCMD", "1 ACT 2")
+    return pl, clock
+
+
+def _gps_epoch(database, lon, fix_type=3):
+    # One receiver epoch as gpsd publishes it.
+    database.write("GPS_FIX_TYPE", fix_type)
+    database.write("LAT", 0.0)
+    database.write("LONG", lon)
+
+
+def _first_flag_after(pl, database, clock, seconds, step=0.2, each_step=None):
+    """Advance the clock in `step`s, one guidance cycle per step (finer than
+    the plugin's own 1 Hz tick, so this finds the earliest flag the inputs
+    allow); return the seconds elapsed at the first flagged FPLCRS, or None."""
+    t0 = clock.t
+    for _ in range(int(round(seconds / step))):
+        clock.t += step
+        if each_step is not None:
+            each_step(clock.t - t0)
+        pl.thread._run_update_cycle()
+        if database.get_raw_item("FPLCRS").fail:
+            return clock.t - t0
+    return None
+
+
+def test_dead_gps_link_flags_guidance_within_the_position_bound(database, tmp_path, monkeypatch):
+    # QA1 F4: the receiver (or its link) stops sending with the last fix type
+    # still 3D. Nothing writes GPS_FIX_TYPE, LAT or LONG again. The guidance
+    # must flag no later than the engine's position bound after the last fix
+    # -- not after LAT/LONG's database tol plus the bound (20 s + 5 s before
+    # AER-4217).
+    pl, clock = _flying(database, tmp_path, monkeypatch)
+    for i in range(5):
+        clock.t += 1.0
+        _gps_epoch(database, 0.002 * i)
+        pl.thread._run_update_cycle()
+    assert database.get_raw_item("FPLCRS").fail is False
+
+    flagged = _first_flag_after(pl, database, clock, 40.0)
+
+    assert flagged is not None
+    assert flagged <= 2.0 + 0.2 + 1e-6  # engine.POSITION_TIMEOUT_S carries the derivation
+
+
+def test_one_hz_receiver_with_jitter_never_flags(database, tmp_path, monkeypatch):
+    # The bound must not trip on the slowest healthy source: a 1 Hz receiver
+    # whose epochs land up to half an epoch late (serial burst, gpsd queue).
+    pl, clock = _flying(database, tmp_path, monkeypatch)
+    _gps_epoch(database, 0.0)
+    gaps = [1.0, 1.5, 0.5, 1.5, 1.0, 1.5, 0.5, 1.0] * 4
+    lon = 0.0
+    for gap in gaps:
+        for _ in range(int(round(gap / 0.1))):
+            clock.t += 0.1
+            pl.thread._run_update_cycle()
+            assert database.get_raw_item("FPLCRS").fail is False
+        lon += 0.0005 * gap
+        _gps_epoch(database, lon)
+
+
+def test_fix_type_that_goes_silent_while_position_flows_flags_guidance(database, tmp_path, monkeypatch):
+    # The mavlink plugin takes LAT/LONG from GLOBAL_POSITION_INT (the
+    # autopilot's fused estimate) and GPS_FIX_TYPE from GPS_RAW_INT -- two
+    # streams. If the GPS stream stops, position keeps flowing as a dead-
+    # reckoned estimate with no fix behind it. A fix-type key that WAS
+    # publishing and went silent is a failed input, not "this installation
+    # has no fix-type source".
+    pl, clock = _flying(database, tmp_path, monkeypatch)
+    _gps_epoch(database, 0.0)
+    pl.thread._run_update_cycle()
+    assert database.get_raw_item("FPLCRS").fail is False
+
+    def position_only(elapsed):
+        database.write("LAT", 0.0)
+        database.write("LONG", 0.0001 * elapsed)
+
+    flagged = _first_flag_after(pl, database, clock, 30.0, each_step=position_only)
+
+    tol_s = database.get_raw_item("GPS_FIX_TYPE").tol / 1000.0
+    assert flagged is not None
+    assert flagged <= tol_s + 0.2 + 1e-6
+
+
+def test_fix_type_never_published_still_skips_the_gate(database, tmp_path, monkeypatch):
+    # The bench's X-Plane FMS source writes position but never GPS_FIX_TYPE;
+    # the key going "old" from its startup default must keep meaning "no
+    # fix-type source here", as before.
+    pl, clock = _flying(database, tmp_path, monkeypatch)
+
+    def position_only(elapsed):
+        database.write("LAT", 0.0)
+        database.write("LONG", 0.0001 * elapsed)
+
+    # Until the startup default 0 goes old it reads as "no fix" (the grace
+    # window test_position_updates_write_guidance_outputs works around).
+    clock.t += database.get_raw_item("GPS_FIX_TYPE").tol / 1000.0 + 0.1
+    position_only(0.0)
+    pl.thread._run_update_cycle()
+    assert database.get_raw_item("FPLCRS").fail is False
+
+    assert _first_flag_after(pl, database, clock, 10.0, each_step=position_only) is None
+
+
+def test_dead_position_link_without_a_fix_type_source_flags_within_the_bound(database, tmp_path, monkeypatch):
+    # The same dead link from a source with no fix-type key (the bench's
+    # X-Plane FMS): only the position's own age can catch it.
+    pl, clock = _flying(database, tmp_path, monkeypatch)
+    clock.t += database.get_raw_item("GPS_FIX_TYPE").tol / 1000.0 + 0.1
+    for i in range(5):
+        clock.t += 1.0
+        database.write("LAT", 0.0)
+        database.write("LONG", 0.002 * i)
+        pl.thread._run_update_cycle()
+    assert database.get_raw_item("FPLCRS").fail is False
+
+    flagged = _first_flag_after(pl, database, clock, 40.0)
+
+    assert flagged is not None
+    assert flagged <= 2.0 + 0.2 + 1e-6

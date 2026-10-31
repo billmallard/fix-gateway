@@ -5,9 +5,9 @@
 """Profile + CIFP -> a FIX bus stream.
 
 :func:`generate` flies the scenario and returns a :class:`Run`: one row per
-tick of the keys a GPS/AHRS would publish (``LAT LONG ALT GS TRACK HEAD TAS
-VS PITCH ROLL MAGVAR GPS_FIX_TYPE GPS_ACCURACY_HORIZ``; during a ``gps_loss_s``
-event only ``GPS_FIX_TYPE`` 1 of the GPS keys), the reference keys
+tick of the keys a GPS/AHRS/air-data box would publish (``LAT LONG ALT GS TRACK
+HEAD TAS IAS VS PITCH ROLL MAGVAR GPS_FIX_TYPE GPS_ACCURACY_HORIZ``, less what a
+GPS event withholds: see :data:`GPS_EVENTS`), the reference keys
 (``REFCRS REFXTK REFCDI REFDIS REFWPT REFPT``), and the pilot's inputs to the box
 under test: the route block once at the start, ``FPLCMD`` to activate the
 leg into the start fix, and ``FPLCMD RESUME`` when the pilot goes missed.
@@ -15,8 +15,8 @@ leg into the start fix, and ``FPLCMD RESUME`` when the pilot goes missed.
 :func:`write_recorder_file` writes a run in the ``data_recorder`` JSON-lines
 format (``{"frequency", "starttime"}`` header, then one key-to-value row per
 tick, values as ``[value, annunciate, old, bad, fail, secfail]``), which
-``data_playback`` replays unchanged. A live netfix writer (SYN2) can iterate
-``Run.rows`` the same way.
+``data_playback`` replays unchanged. :mod:`fixgw.sim.live` (SYN2) streams
+``Run.rows`` into a running gateway over netfix instead.
 """
 
 import datetime
@@ -34,9 +34,38 @@ class GeneratorError(Exception):
 
 
 REF_KEYS = ("REFCRS", "REFXTK", "REFCDI", "REFDIS", "REFWPT", "REFPT")
-SENSOR_KEYS = ("MAGVAR", "GPS_FIX_TYPE", "GPS_ACCURACY_HORIZ", "ALT", "GS", "TAS", "VS",
+SENSOR_KEYS = ("MAGVAR", "GPS_FIX_TYPE", "GPS_ACCURACY_HORIZ", "ALT", "GS", "TAS", "IAS", "VS",
                "TRACK", "HEAD", "PITCH", "ROLL", "LAT", "LONG")
 ESTABLISHED_NM = 0.05
+
+# What each GPS event stops publishing, and the fix type written meanwhile
+# (None: GPS_FIX_TYPE is not written at all, so it keeps its last value).
+#   gps_loss_s        the receiver has no fix: what the gpsd plugin publishes
+#                     below a 2D fix, GPS_FIX_TYPE 1 and nothing needing a fix
+#   gps_link_loss_s   the receiver or its link goes dead: nothing at all, so
+#                     the last fix type (3) stands
+#   gps_status_loss_s only the receiver's status stream stops while position
+#                     keeps coming: the mavlink plugin takes GPS_FIX_TYPE and
+#                     GPS_ACCURACY_HORIZ from GPS_RAW_INT but LAT/LONG from
+#                     GLOBAL_POSITION_INT, the autopilot's fused estimate
+#   gps_position_loss_s the other way round: LAT/LONG stop while the status
+#                     stream still says 3D
+_GPS_POSITION = ("LAT", "LONG", "TRACK", "GS", "GPS_ACCURACY_HORIZ")
+GPS_EVENTS = {
+    "gps_loss_s": (_GPS_POSITION, 1),
+    "gps_link_loss_s": (_GPS_POSITION + ("GPS_FIX_TYPE",), None),
+    "gps_status_loss_s": (("GPS_FIX_TYPE", "GPS_ACCURACY_HORIZ"), None),
+    "gps_position_loss_s": (("LAT", "LONG"), 3),
+}
+
+
+def ias_kt(tas_kt, alt_ft):
+    """Indicated airspeed for ``tas_kt`` at ``alt_ft`` on a standard day:
+    EAS from the ISA troposphere density ratio, taking IAS = CAS = EAS (no
+    position error, no compressibility at these speeds). The air-data box
+    reports IAS; the profile flies TAS, so this is what it would read."""
+    sigma = (1.0 - 6.8755856e-6 * max(alt_ft, 0.0)) ** 4.2558797
+    return tas_kt * sigma ** 0.5
 
 
 @dataclass
@@ -56,7 +85,7 @@ def _alt_constraints(cifp, proc):
     return out
 
 
-def generate(profile, frequency_ms=200, cifp_path=None, fplseq=1, gps_accuracy_ft=30.0):
+def generate(profile, frequency_ms=200, cifp_path=None, fplseq=1, gps_accuracy_ft=30.0, cmd_seq_base=0):
     if isinstance(profile, str):
         profile = load_profile(profile, cifp_override=cifp_path)
     cifp = Cifp(cifp_path or profile.cifp_file)
@@ -95,7 +124,7 @@ def generate(profile, frequency_ms=200, cifp_path=None, fplseq=1, gps_accuracy_f
     dt = frequency_ms / 1000.0
     rows = []
     timeline = []
-    cmd_seq = 0
+    cmd_seq = cmd_seq_base          # a live gateway has already acked earlier commands
     name = f"{proc['airport']} {proc['approach']} {proc['transition']}"[:32]
     route = fplroute.route_block_writes(slots, segments, name, "RNAV", cifp.cycle, fplseq)
 
@@ -136,28 +165,35 @@ def generate(profile, frequency_ms=200, cifp_path=None, fplseq=1, gps_accuracy_f
             out = ref.update(t, s.lat, s.lon, s.alt_ft, s.gs_kt, s.track_true)
 
         done_now = _run_events(events, ref, out, t, leg_start_t, ac, timeline)
-        no_fix = any(ev["state"] == "active" and "gps_loss_s" in ev["e"].do for ev in events.values())
+        withheld, fix_type = set(), 3
+        for ev in events.values():
+            for kind in GPS_EVENTS.keys() & ev["e"].do.keys():
+                if ev["state"] == "active":
+                    withheld.update(GPS_EVENTS[kind][0])
+                    # not written beats "no fix", which beats 3D
+                    ft = GPS_EVENTS[kind][1]
+                    fix_type = None if ft is None or fix_type is None else min(fix_type, ft)
 
         # sensor keys first, LAT/LONG last: the engine computes on a position write.
-        # Without a fix the receiver reports its fix type and nothing it would
-        # need a fix for -- what the gpsd plugin publishes below mode 2.
-        row["MAGVAR"] = mv
-        row["GPS_FIX_TYPE"] = 1 if no_fix else 3
-        if not no_fix:
-            row["GPS_ACCURACY_HORIZ"] = gps_accuracy_ft
-        row["ALT"] = round(s.alt_ft, 2)
-        if not no_fix:
-            row["GS"] = round(s.gs_kt, 3)
-        row["TAS"] = round(perf.tas_kt, 3)
-        row["VS"] = round(s.vs_fpm, 1)
-        if not no_fix:
-            row["TRACK"] = round(refnav.wrap360(s.track_true), 3)
-        row["HEAD"] = round(refnav.wrap360(s.heading_true + mv), 3)
-        row["PITCH"] = round(s.pitch_deg, 2)
-        row["ROLL"] = round(s.roll_deg, 2)
-        if not no_fix:
-            row["LAT"] = round(s.lat, 8)
-            row["LONG"] = round(s.lon, 8)
+        sensors = {
+            "MAGVAR": mv,
+            "GPS_FIX_TYPE": fix_type,
+            "GPS_ACCURACY_HORIZ": gps_accuracy_ft,
+            "ALT": round(s.alt_ft, 2),
+            "GS": round(s.gs_kt, 3),
+            "TAS": round(perf.tas_kt, 3),
+            "IAS": round(ias_kt(perf.tas_kt, s.alt_ft), 3),
+            "VS": round(s.vs_fpm, 1),
+            "TRACK": round(refnav.wrap360(s.track_true), 3),
+            "HEAD": round(refnav.wrap360(s.heading_true + mv), 3),
+            "PITCH": round(s.pitch_deg, 2),
+            "ROLL": round(s.roll_deg, 2),
+            "LAT": round(s.lat, 8),
+            "LONG": round(s.lon, 8),
+        }
+        for key, value in sensors.items():
+            if key not in withheld and value is not None:
+                row[key] = value
         row["REFCRS"] = round(out.crs_mag, 3)
         row["REFXTK"] = round(out.xtk_nm, 5)
         row["REFCDI"] = round(out.cdi, 5)
@@ -245,8 +281,9 @@ def _run_events(events, ref, out, t, leg_start_t, ac, timeline):
                 if ref._hold is None:
                     raise GeneratorError(f"event {eid}: hold_min with no hold being flown")
                 finished = t - ev["t0"] >= float(e.do["hold_min"]) * 60.0
-            elif "gps_loss_s" in e.do:
-                finished = t - ev["t0"] >= float(e.do["gps_loss_s"])
+            elif GPS_EVENTS.keys() & e.do.keys():
+                kind = next(iter(GPS_EVENTS.keys() & e.do.keys()))
+                finished = t - ev["t0"] >= float(e.do[kind])
             if finished:
                 ev["state"] = "done"
                 done_now.add(eid)
