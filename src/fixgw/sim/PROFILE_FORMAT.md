@@ -48,7 +48,7 @@ cifp:                                 # required
   file: cifp/FAACIFP18-2611-KSMX-R30  # relative to the profile; a full FAACIFP18 also works
 
 aircraft:                             # optional, these are the defaults
-  tas_kt: 110
+  tas_kt: 110                         # flown as TAS; IAS is published as standard-day EAS at the current ALT
   climb_fpm: 700
   descent_fpm: 600
   bank_max_deg: 25
@@ -239,9 +239,93 @@ header, then one row per tick), which `data_playback` replays unchanged.
 To run it through a gateway, enable `data_playback` with `files:` naming
 the output, `flightplan`, and `data_recorder` (the engine's and the `REF*`
 keys), then `check` the recorded files. `gateway-replay.yaml` beside this
-file is the exact config the first bench replay used, with the commands. `generate`'s Python interface
-(`fixgw.sim.generator.generate` returning rows in write order) is what a
-live netfix writer would iterate (SYN2).
+file is the exact config the first bench replay used, with the commands.
+
+## Live mode (SYN2)
+
+`live` flies the same profile into a gateway that is already running, over
+netfix, so the display on a bench moves as if the airplane were flying it.
+No simulator, no `data_playback`:
+
+```
+python -m fixgw.sim live src/fixgw/sim/profiles/fp8-ksmx-rnav30-missed.yaml \
+    --host 127.0.0.1 --port 3490 --speed 1 --log run.marks.jsonl \
+    --hook 'my-screenshot.sh'
+```
+
+What it does, in order:
+
+1. Connects, then **watches `LAT`/`LONG` for `--watch-s` (3 s)**. If either
+   moves while it is not writing, another source (X-Plane, a GPS, a demo,
+   a forgotten writer) is publishing a position. It refuses with exit `3`
+   unless `--allow-other-writer`: two writers on one key is a flight nobody
+   flew.
+2. Reads `FPLSEQ` and `FPLCMDACK`. The run commits its route as `FPLSEQ`
+   one past the gateway's, and numbers its commands after the last ack, so
+   a box that has already loaded routes and taken commands sees a new route
+   and new commands, not a repeat.
+3. Names every key the run writes that the gateway's database does not
+   have. netfix drops a write to an unknown key silently; this says so
+   first (a gateway without `database/sim.yaml` drops the `REF*` keys, which
+   nothing on the glass reads).
+4. Writes the rows at the profile's times divided by `--speed`. The
+   schedule is absolute, so a slow write is caught up, not accumulated;
+   the closing line reports the worst lateness of any row.
+5. At each timeline mark (`start`, each `sequence`, `map`, `pilot`, each
+   `event`/`established`/`done`, `end`) it waits `--hook-delay-s` (3 s, for
+   the glass to draw the change), reads `--readback` keys from the gateway
+   (default `WPNAME,FPLCRS,FPLCDI,FPLMSG`: what the engine is doing at that
+   moment), runs `--hook` if the mark is one of `--hook-on` (default
+   `start,sequence,map,end`), and prints and logs one JSON line. The hook
+   is a shell command with `SYN_INDEX` (01, 02, ...), `SYN_WHAT`, `SYN_FIX`,
+   `SYN_T`, `SYN_WALL_S` and `SYN_PROFILE` in its environment. A hook that
+   fails is counted and makes the exit `1`; it never stops the flight.
+   Marks on the last row (`end`, and any `done` at the same tick) are read
+   `--hook-delay-s` after the feed stopped, so they show a box going stale:
+   with the default 3 s the position and `GPS_ACCURACY_HORIZ` (2 s `tol`)
+   are already old. An engine with the 2 s position bound (AER-4217) blanks
+   `WPNAME` and zeroes `FPLCRS`/`FPLCDI`; one without it posts `NO
+   INTEGRITY DATA` to `FPLMSG`. Either is the engine noticing the feed has
+   ended, not a fault in the flight.
+
+Exit codes: `0` flown, `1` flown but a hook failed, `2` no gateway at
+`--host:--port`, `3` another writer, `130` stopped (Ctrl-C or `SIGTERM`
+end the run between rows).
+
+What it leaves behind: the run's route stays loaded in the box and the last
+position stays on the bus until it goes old (each key's `tol`). It changes
+the box's flight plan; on a shared bench that is the point, so say so on
+the issue.
+
+**`--speed` above 1 is for looking, not for checks.** The engine runs on
+the wall clock (its update rate, alert timing, turn anticipation from
+`GS`), so at x4 the airplane covers ground four times faster than its own
+`GS` says. Sequencing still happens, a little late. Run `check` on a
+recording at x1 only; above that a disagreement is the time warp, not the
+engine. Writes scale with speed too (about 20 keys per row, 5 rows per
+second at x1).
+
+The run is one netfix client and writes nothing else, so it can be pointed
+at another box's gateway across the LAN (`--host`). It needs `geographiclib`
+and `yaml` where it runs, not on the box it drives.
+
+### On a bench
+
+Hold the bench lock for the whole run (`processes/bench_deploy.md`): a
+live run is twenty minutes of a moving display, and a deploy restarting
+`fixgw` in the middle would end it.
+
+```
+flock -o -w 900 /tmp/pyefis-bench.lock timeout 45m \
+    python -m fixgw.sim live <profile> --log ~/syn2/marks.jsonl \
+        --hook 'DISPLAY=:0 ffmpeg -loglevel error -y -f x11grab -draw_mouse 0 \
+                -video_size 1920x1080 -i :0 -frames:v 1 ~/syn2/$SYN_INDEX-$SYN_WHAT-$SYN_FIX.png'
+```
+
+`x11grab`, not pyEfis's SIGUSR1 screenshot: GL does not render into the
+SIGUSR1 grab, so its SVS panel is always blank. The Pi 5 has
+no screenshot of any kind (eglfs); drive it the same way with `--host`,
+and its proof is the readback log and someone looking at the glass.
 
 ## What changed from the plan's sketch (`briefs/sim_bench_plan.md` section 3)
 

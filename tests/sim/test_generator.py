@@ -37,6 +37,8 @@ def test_the_synthetic_tier_imports_nothing_from_the_engine():
             elif isinstance(node, ast.ImportFrom):
                 names = [node.module or ""]
             for n in names:
+                if n == "fixgw.netfix" and py.name == "__main__.py":
+                    continue    # the bus client the live mode writes with (SYN2), not the engine
                 if n.startswith("fixgw") and not n.startswith("fixgw.sim"):
                     offenders.append(f"{py.name}: {n}")
     assert offenders == []
@@ -110,6 +112,21 @@ def test_the_scenario_flies_as_written(run):
     assert t[("done", "right")] - t[("established", "right")] == pytest.approx(30.0, abs=0.25)
     assert t[("done", "hold")] - t[("event", "hold")] == pytest.approx(300.0, abs=0.25)
     assert rows[t[("done", "hold")]]["REFPT"] == "HM"
+
+
+def test_every_position_row_feeds_indicated_airspeed(run):
+    """The glass reads IAS, not TAS: a run without it shows 0 kt all flight."""
+    pos = [row for _, row in run.rows if "LAT" in row]
+    assert pos and all("IAS" in row for row in pos)
+    for row in pos:
+        assert 0 < row["IAS"] <= row["TAS"]
+
+
+def test_ias_is_standard_day_eas():
+    assert generator.ias_kt(110.0, 0.0) == pytest.approx(110.0)
+    # ISA density ratio 0.7385 at 10000 ft: 110 KTAS reads about 94.5 KIAS
+    assert generator.ias_kt(110.0, 10000.0) == pytest.approx(110.0 * 0.7385 ** 0.5, abs=0.05)
+    assert generator.ias_kt(110.0, -200.0) == pytest.approx(110.0)
 
 
 def test_recorder_file_is_the_data_recorder_format(run, tmp_path):
