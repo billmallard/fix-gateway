@@ -1,17 +1,21 @@
-"""Every committed profile flown headless, its checks evaluated (SYN3).
+"""Every committed profile flown headless, its checks evaluated (SYN3), and
+every recorded X-Plane flight replayed against X-Plane's navigator (SYN4).
 
-A new profile in ``src/fixgw/sim/profiles/`` is picked up here and in the
-"Simulated flights" CI job with no other change. See ``profile_gate.py``.
+A new profile in ``src/fixgw/sim/profiles/`` or recording in
+``tests/sim/fixtures/`` is picked up here and in the "Simulated flights" CI
+job with no other change. See ``profile_gate.py``.
 """
 
 import pytest
 
 from fixgw.sim import checks
 
-from . import profile_gate
+from . import profile_gate, xplane_replay
 
 PROFILES = profile_gate.committed_profiles()
+RECORDINGS = profile_gate.committed_recordings()
 OPEN = profile_gate.open_findings()
+FP8_XPLANE = profile_gate.RECORDINGS_DIR / "fp8_xplane_2026-10-29.yaml"
 
 
 def test_there_is_a_profile_to_fly():
@@ -19,7 +23,13 @@ def test_there_is_a_profile_to_fly():
     assert PROFILES
 
 
-@pytest.mark.parametrize("path", PROFILES, ids=[p.stem for p in PROFILES])
+def test_the_fp8_xplane_flight_is_a_recording():
+    assert FP8_XPLANE in RECORDINGS
+    assert profile_gate.is_recording(FP8_XPLANE)
+    assert not any(profile_gate.is_recording(p) for p in PROFILES)
+
+
+@pytest.mark.parametrize("path", PROFILES + RECORDINGS, ids=[p.stem for p in PROFILES + RECORDINGS])
 def test_every_check_in_the_profile_passes(path):
     run = profile_gate.fly(path)
     if path.stem in OPEN:
@@ -58,6 +68,40 @@ def test_a_listed_profile_that_passes_fails_the_gate(monkeypatch, listed, expect
     monkeypatch.setattr(profile_gate, "open_findings", lambda: {listed: "test"})
     fp8 = profile_gate.PROFILES_DIR / "fp8-ksmx-rnav30-missed.yaml"
     assert profile_gate.main([str(fp8)]) == expected
+
+
+def _perturbed(change):
+    rows = xplane_replay.load_trace()
+    for r in rows:
+        change(r)
+    return profile_gate.fly_recording(FP8_XPLANE, trace=rows)
+
+
+def test_xplanes_course_off_by_2p5_deg_on_one_leg_fails_the_course_check():
+    def change(r):
+        if r["xp_wpt"] == "ANIBY":
+            r["xp_crs"] += 2.5
+    run = _perturbed(change)
+    fails = profile_gate.failure_lines(run)
+    assert len(fails) == 1 and fails[0].startswith("fp8-xplane-2026-10-29: FPLCRS vs EXTCRS (+-2.0 deg) FAILED")
+    errors = profile_gate.github_errors(run)
+    assert errors[0].startswith("::error file=tests/sim/fixtures/fp8_xplane_2026-10-29.yaml,line=22,")
+
+
+def test_xplanes_deflection_reversed_on_the_offsets_fails_the_cdi_check():
+    def change(r):
+        if r["xp_wpt"] == "WINCH":
+            r["xp_hdef_dot"] = -r["xp_hdef_dot"]
+    fails = profile_gate.failure_lines(_perturbed(change))
+    assert len(fails) == 1 and fails[0].startswith("fp8-xplane-2026-10-29: FPLCDI vs EXTCDI (+-0.1) FAILED")
+
+
+def test_xplane_skipping_a_fix_fails_the_sequence_check():
+    def change(r):
+        if r["xp_wpt"] == "ANIBY":
+            r["xp_wpt"] = "RW30"
+    fails = profile_gate.failure_lines(_perturbed(change))
+    assert any(f.startswith("fp8-xplane-2026-10-29: sequence PAMJI CIMSO ANIBY RW30 HANNU WINCH") for f in fails)
 
 
 def _result(**kw):

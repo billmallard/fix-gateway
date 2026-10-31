@@ -264,6 +264,27 @@ profile that passes is `XPASS` and fails the gate until the finding is
 closed and the entry removed. An entry naming no committed profile also
 fails it. Listing a finding never changes a check or a tolerance.
 
+### Recorded X-Plane flights (SYN4)
+
+The gate also flies every recording in `tests/sim/fixtures/*.yaml`: a real
+X-Plane session's truth trace, with the engine flown headless along X-Plane's
+own trajectory and X-Plane's navigator as the expected values. A recording
+names its `profile` (for the route) and its `trace`, and carries its own
+`checks:` in the format above. The profile's checks are written against the
+synthetic reference, and X-Plane is a different navigator. It sequences
+earlier, holds its own way, and has no `REF*` keys. So the recording's
+checks use the keys the bench writes X-Plane's navigator to:
+
+| Key | From the trace |
+|---|---|
+| `EXTCRS` | `gps_crs_mag` (as `connections/xplane.yaml` maps `gps_course_degtm`) |
+| `EXTCDI` | `gps_hdef_dot` x 0.4, held to +-1 |
+| `EXTTF` | `gps_fromto` (1 TO, 2 FROM; the bench does not map it yet) |
+| `gps_id` | X-Plane's active waypoint (no bus key) |
+
+`tests/sim/test_fp8_bench_bus.py` checks that mapping against the bench's
+own bus log of the same flight. See `tests/sim/fixtures/README.md`.
+
 ## Running it
 
 ```

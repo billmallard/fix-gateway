@@ -14,6 +14,13 @@ than from wall-clock times: ``RESUME`` 10 s after the MAP auto-SUSP, ``SUSP``
 1 nm before HANNU, ``RESUME`` once the engine shows FROM past it. X-Plane publishes neither
 ``GPS_FIX_TYPE`` nor ``GPS_ACCURACY_HORIZ``, so the integrity inputs are
 ``None``, as on the bench.
+
+The bench's own 1 Hz bus log of the same flight (``fp8_bench_bus_*``) is the
+recorder output: the live engine's keys beside the ``EXTCRS``/``EXTCDI`` the
+gateway's ``xplane`` plugin wrote from the same X-Plane navigator. It pins
+two things the trace alone cannot: that the trace's navigator columns are
+those bus keys (``test_fp8_bench_bus.py``), and where the live engine
+sequenced.
 """
 
 import csv
@@ -26,10 +33,15 @@ from fixgw.sim import fplroute
 from fixgw.sim.cifp import Cifp
 from fixgw.sim.profile import load_profile
 
-from .engine_replay import ENGINE_CONFIG, _route
+from .engine_replay import ENGINE_CONFIG, OUT_KEYS, _route
 
 ROOT = Path(__file__).resolve().parents[2]
-FIXTURE = Path(__file__).resolve().parent / "fixtures/fp8_xplane_2026-10-29.csv.gz"
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+FIXTURE = FIXTURES / "fp8_xplane_2026-10-29.csv.gz"
+BENCH_BUS = FIXTURES / "fp8_bench_bus_2026-10-29.csv.gz"
+# Trace time is X-Plane network time, the bus log's is the Beelink's epoch:
+# trace t = bus t - BUS_EPOCH. Found by position, 0.002 nm mean error.
+BUS_EPOCH = 1793251953.66
 PROFILE = ROOT / "src/fixgw/sim/profiles/fp8-ksmx-rnav30-missed.yaml"
 # FIX MAGVAR on the bench bus throughout the flight (median of the 1 Hz log).
 MAGVAR = -11.912
@@ -52,8 +64,18 @@ def load_trace(path=FIXTURE):
         return rows
 
 
-def build_route():
-    prof = load_profile(str(PROFILE))
+def load_bench_bus(path=BENCH_BUS):
+    """The bench recorder's rows, with ``t`` on the trace's clock. Values are
+    as logged: strings, ``""`` for a key never written."""
+    with gzip.open(path, "rt", newline="") as f:
+        rows = list(csv.DictReader(f))
+    for r in rows:
+        r["t"] = float(r["t"]) - BUS_EPOCH
+    return rows
+
+
+def build_route(profile=PROFILE):
+    prof = load_profile(str(profile))
     cifp = Cifp(prof.cifp_file)
     p = prof.procedure
     slots, segs = fplroute.procedure_slots(cifp, p["airport"], p["approach"], p["transition"], prof.magvar_deg)
@@ -63,11 +85,11 @@ def build_route():
     return wps, segments, act, cifp.cycle
 
 
-def fly(rows=None):
+def fly(rows=None, profile=PROFILE):
     """-> (samples, events). samples: one dict per trace row with the engine
     outputs beside X-Plane's; events: (t, what, detail, lat, lon)."""
     rows = rows if rows is not None else load_trace()
-    wps, segs, act, cycle = build_route()
+    wps, segs, act, cycle = build_route(profile)
     by_id = {w.id: w for w in wps if w.id}
     e = Engine(dict(ENGINE_CONFIG))
     e.load_route(wps, "KSMX R30 GVO", 1, segs, aprtype="RNAV", dbcyc=cycle)
@@ -125,6 +147,26 @@ def fly(rows=None):
         samples.append(s)
         prev = out
     return samples, events
+
+
+def ext_cdi(hdef_dot):
+    """EXTCDI as the bench writes it: ``gps_hdef_dot`` x 0.4
+    (``connections/xplane.yaml``), held to the key's -1..1 range."""
+    return max(-1.0, min(1.0, 0.4 * hdef_dot))
+
+
+def bus_rows(samples):
+    """The replay as bus rows for ``fixgw.sim.checks``: the engine's keys,
+    and X-Plane's navigator under the keys the bench's ``xplane`` plugin
+    writes it to (``EXTCRS``, ``EXTCDI``) or the contract defines for it
+    (``EXTTF``: the plugin does not map it yet). X-Plane's active waypoint
+    has no bus key; it keeps its truth-log name, ``gps_id``."""
+    out = []
+    for s in samples:
+        row = {key: s[k] for k, key in OUT_KEYS.items() if k in s}
+        row.update(EXTCRS=s["xp_crs"], EXTCDI=ext_cdi(s["xp_hdef_dot"]), EXTTF=s["xp_fromto"], gps_id=s["xp_wpt"])
+        out.append((s["t"], row))
+    return out
 
 
 def xplane_sequences(rows):
