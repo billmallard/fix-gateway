@@ -170,16 +170,23 @@ def main_setup():
             break
 
     config_file = "{}/{}".format(config_path, config_filename)
+    user_config_root = "{USER}/makerplane/fixgw".format(USER=user_home)
 
     # if we passed in a configuration file on the command line...
     if args.config_file:
         cf = args.config_file
         config_file = cf.name
         cf.close()
+        # A file inside ~/makerplane/fixgw/config is still the managed copy
+        # (the shipped systemd unit names default.yaml there), so keep it
+        # updated. A file anywhere else is left alone.
+        config_dir = os.path.realpath(user_config_root + "/config")
+        if os.path.commonpath([os.path.realpath(config_file), config_dir]) == config_dir:
+            create_config_dir(user_config_root)
     else:
         # If all else fails copy or update the configuration from the package
         # to ~/makerplane/fixgw/config
-        create_config_dir("{USER}/makerplane/fixgw".format(USER=user_home))
+        create_config_dir(user_config_root)
         # Reset this stuff like we found it
         config_file = "{USER}/makerplane/fixgw/config/{FILE}".format(
             USER=user_home, FILE=config_filename
