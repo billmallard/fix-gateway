@@ -445,9 +445,97 @@ class TestDeviationItem(unittest.TestCase):
         self.assertIn("Deadband: 20.0", s)
 
 
+_CAPTURE = dict(_ALTDEV, arm_on_capture=True)
+
+
+class TestDeviationArmOnCapture(unittest.TestCase):
+    """arm_on_capture (Bill, AER-4328): no alert on the way to a new target,
+    only on leaving one that ALT has reached."""
+
+    def setUp(self):
+        database.init(io.StringIO(DEV_DB_CONFIG))
+        database.write("ALT", 3000)
+        database.write("ALTSEL", 3000)
+
+    def flag(self):
+        return database.read("ALTSEL")[1]
+
+    def test_climb_to_a_new_target_is_not_an_alert_leaving_it_is(self):
+        _make_plugin([_CAPTURE])
+        database.write("ALTSEL", 5000)                 # level at 3000, set 5000
+        for alt in (3000, 3500, 4500, 4799):
+            database.write("ALT", alt)
+            self.assertFalse(self.flag(), alt)
+        database.write("ALT", 4800)                    # captured: armed
+        database.write("ALT", 5000)
+        self.assertFalse(self.flag())
+        database.write("ALT", 5201)                    # drifted off it
+        self.assertTrue(self.flag())
+        database.write("ALT", 5180)                    # back inside the deadband
+        self.assertFalse(self.flag())
+
+    def test_a_gateway_start_off_target_waits_for_a_capture(self):
+        _make_plugin([_CAPTURE])                       # ALT and ALTSEL predate it
+        database.write("ALT", 3300)
+        self.assertFalse(self.flag())
+        database.write("ALT", 3100)
+        database.write("ALT", 3300)
+        self.assertTrue(self.flag())
+
+    def test_before_any_capture_nothing_alerts(self):
+        _make_plugin([_CAPTURE])
+        database.write("ALTSEL", 9000)
+        database.write("ALT", 1000)                    # descending away: never armed
+        self.assertFalse(self.flag())
+
+    def test_a_new_target_disarms_and_clears_a_live_alert(self):
+        _make_plugin([_CAPTURE])
+        database.write("ALT", 3000)                    # captured at 3000
+        database.write("ALT", 3300)
+        self.assertTrue(self.flag())
+        database.write("ALTSEL", 8000)                 # pilot selects a new altitude
+        self.assertFalse(self.flag())
+        database.write("ALT", 6000)
+        self.assertFalse(self.flag())
+
+    def test_a_small_bump_within_the_threshold_stays_armed(self):
+        _make_plugin([_CAPTURE])
+        database.write("ALT", 3000)
+        database.write("ALTSEL", 3100)                 # still within 200: captured
+        database.write("ALT", 3350)
+        self.assertTrue(self.flag())
+
+    def test_rewriting_the_same_target_does_not_disarm(self):
+        _make_plugin([_CAPTURE])
+        database.write("ALT", 3000)                    # captured
+        database.write("ALT", 3300)
+        self.assertTrue(self.flag())
+        database.write("ALTSEL", 3000)                 # a client republishes it
+        self.assertTrue(self.flag())
+        database.write("ALTSEL", (3000, False, False, False))
+        self.assertTrue(self.flag())
+
+    def test_an_altitude_dropout_keeps_the_capture(self):
+        _make_plugin([_CAPTURE])
+        database.write("ALT", 3000)                    # captured
+        item = database.get_raw_item("ALT")
+        item.fail = True
+        database.write("ALT", 3300)
+        self.assertFalse(self.flag())                  # invalid: no alert
+        item.fail = False
+        self.assertTrue(self.flag())                   # back, still captured
+
+    def test_str_reports_arm_on_capture(self):
+        p = _make_plugin([_CAPTURE])
+        self.assertIn("Arm On Capture: Yes", str(p.items[0]))
+        p2 = _make_plugin([_ALTDEV])
+        self.assertIn("Arm On Capture: No", str(p2.items[0]))
+
+
 def test_shipped_annunciate_config_alerts_altsel_at_200_ft():
     """The shipped connections/annunciate.yaml against the shipped database:
-    every item builds, and ALTSEL deviates at 200 ft (EFIS-ALTSEL-005/-009)."""
+    every item builds, and ALTSEL alerts 200 ft off a captured altitude, not
+    on the climb to it (EFIS-ALTSEL-005/-009; arm on capture, AER-4328)."""
     import yaml
 
     database.init("src/fixgw/config/database.yaml")
@@ -456,12 +544,17 @@ def test_shipped_annunciate_config_alerts_altsel_at_200_ft():
     p = annunciate.Plugin("annunciate", config, None)
     p.run()
     dev = [i for i in p.items if isinstance(i, annunciate.DeviationItem)]
-    assert [(i.key, i.ref_key, i.threshold) for i in dev] == [("ALTSEL", "ALT", 200.0)]
+    assert [(i.key, i.ref_key, i.threshold, i.arm_on_capture) for i in dev] == [
+        ("ALTSEL", "ALT", 200.0, True)
+    ]
 
+    database.write("ALT", 3000)
     database.write("ALTSEL", 5000)
-    database.write("ALT", 5100)
+    database.write("ALT", 4000)                        # the climb: no alert
     assert database.read("ALTSEL")[1] is False
-    database.write("ALT", 5300)
+    database.write("ALT", 5100)                        # captured
+    assert database.read("ALTSEL")[1] is False
+    database.write("ALT", 5300)                        # left it
     assert database.read("ALTSEL")[1] is True
     p.stop()
 

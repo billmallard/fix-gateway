@@ -177,6 +177,11 @@ class DeviationItem(object):
     deviation falls to `threshold - deadband`. pyEfis EFIS-ALTSEL-005/-009/
     -010: ALT against ALTSEL, computed here so every client sees it.
 
+    With `arm_on_capture`, the alert only arms once the measured value has
+    come within `threshold` of the target, and a new target disarms it: no
+    alert on the climb to a newly selected altitude, only on leaving it
+    (Bill, AER-4328, 2026-10-31).
+
     The `defaults` block does not apply: its aux points and percentage
     deadband describe a value against its own limits, not a deviation.
     """
@@ -206,6 +211,9 @@ class DeviationItem(object):
                     self.key
                 )
             )
+        self.arm_on_capture = bool(itemdef.get("arm_on_capture", False))
+        self.armed = not self.arm_on_capture
+        self.last_target = None
         self.latch = False
         plugin.db_callback_add(self.key, self.evaluate)
         plugin.db_callback_add(self.ref_key, self.evaluate)
@@ -215,12 +223,19 @@ class DeviationItem(object):
         ref = self.plugin.db_read(self.ref_key)
         # A deviation from an invalid value means nothing: clear rather than
         # alert on it. The invalid value carries its own flag to the display.
+        if self.arm_on_capture and target[0] != self.last_target:
+            self.armed = False                     # a new target: not yet captured
+            self.latch = False
+        self.last_target = target[0]
         if any(v[2] or v[3] or v[4] for v in (target, ref)):
             self.latch = False
         else:
             dev = abs(ref[0] - target[0])
-            self.latch = dev > self.threshold or (
-                self.latch and dev > self.threshold - self.deadband
+            if dev <= self.threshold:
+                self.armed = True
+            self.latch = self.armed and (
+                dev > self.threshold
+                or (self.latch and dev > self.threshold - self.deadband)
             )
         self.item.annunciate = self.latch
 
@@ -233,6 +248,7 @@ class DeviationItem(object):
         s.append("  Deviation From: {}".format(self.ref_key))
         s.append("  Threshold: {}".format(self.threshold))
         s.append("  Deadband: {}".format(self.deadband))
+        s.append("  Arm On Capture: {}".format("Yes" if self.arm_on_capture else "No"))
         return "\n".join(s)
 
 
