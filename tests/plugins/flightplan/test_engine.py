@@ -465,6 +465,123 @@ def test_resume_at_map_with_no_mahp_posts_no_missed_approach_message():
     assert out["apr"] == engine.APR_MISSED
 
 
+# ---------------------------------------------------------------------------
+# FPLSUSPMAP (G49): 1 only for the MAP auto-suspend, where RESUME flies the
+# missed. A pilot SUSP reads 0 wherever the aircraft is, so a display labels
+# the RESUME it will send correctly ("Fly the missed" vs "Resume").
+# ---------------------------------------------------------------------------
+
+
+def test_susp_map_is_1_at_the_map_auto_suspend_and_0_after_resume():
+    e = engine.Engine()
+    route = approach_route()
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 3", (0.0, 0.0, True))
+    map_lon = route[2].lon
+
+    out = e.update(0.0, map_lon - nm_to_deg_lon(0.01), 120.0, 0.0, True, None, None, 1000.0)
+    assert out["susp_map"] == 0  # short of the MAP, not suspended
+
+    out = e.update(0.0, map_lon + nm_to_deg_lon(0.01), 120.0, 0.0, True, None, None, 1001.0)
+    assert out["state"] == engine.STATE_SUSP
+    assert out["susp_map"] == 1
+    out = e.update(0.0, map_lon + nm_to_deg_lon(0.2), 120.0, 0.0, True, None, None, 1002.0)
+    assert out["susp_map"] == 1  # holds while it waits for RESUME
+    # Failed guidance still identifies the state, like FPLSTATE/FPLACTLEG.
+    out = e.update(0.0, map_lon + nm_to_deg_lon(0.2), 120.0, 0.0, True, False, None, 1003.0)
+    assert out["fail"] is True and out["susp_map"] == 1
+
+    e.handle_command("2 RESUME", (0.0, map_lon + nm_to_deg_lon(0.2), True))
+    out = e.update(0.0, map_lon + nm_to_deg_lon(0.5), 120.0, 0.0, True, None, None, 1004.0)
+    assert out["apr"] == engine.APR_MISSED
+    assert out["susp_map"] == 0
+
+
+def test_susp_map_survives_a_restart_while_suspended_at_the_map():
+    e = engine.Engine()
+    route = approach_route()
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 3", (0.0, 0.0, True))
+    map_lon = route[2].lon
+    e.update(0.0, map_lon + nm_to_deg_lon(0.01), 120.0, 0.0, True, None, None, 1000.0)
+
+    restored = engine.Engine()
+    restored.restore_from_dict(e.to_persisted_dict())
+    out = restored.update(0.0, map_lon + nm_to_deg_lon(0.02), 120.0, 0.0, True, None, None, 1001.0)
+    assert out["state"] == engine.STATE_SUSP
+    assert out["susp_map"] == 1
+
+
+def test_susp_map_is_0_for_a_pilot_susp_short_of_the_map():
+    e = engine.Engine()
+    route = approach_route()
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 3", (0.0, 0.0, True))
+    map_lon = route[2].lon
+    e.handle_command("2 SUSP", (0.0, map_lon - nm_to_deg_lon(1.0), True))
+
+    out = e.update(0.0, map_lon - nm_to_deg_lon(1.0), 120.0, 0.0, True, None, None, 1000.0)
+    assert out["state"] == engine.STATE_SUSP
+    assert out["tf"] == engine.TF_TO
+    assert out["susp_map"] == 0
+
+
+def test_susp_map_is_0_for_a_pilot_susp_held_from_before_the_map_past_it():
+    # Rare case 1: the pilot suspends on final and flies on past the MAP. The
+    # auto-suspend never fires over an existing SUSP, so RESUME here would only
+    # un-suspend -- the display must not offer "Fly the missed".
+    e = engine.Engine()
+    route = approach_route()
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 3", (0.0, 0.0, True))
+    map_lon = route[2].lon
+    e.update(0.0, map_lon - nm_to_deg_lon(0.5), 120.0, 0.0, True, None, None, 1000.0)
+    e.handle_command("2 SUSP", (0.0, map_lon - nm_to_deg_lon(0.5), True))
+
+    out = e.update(0.0, map_lon + nm_to_deg_lon(0.2), 120.0, 0.0, True, None, None, 1001.0)
+    assert out["state"] == engine.STATE_SUSP
+    assert out["act_leg"] == 3 and out["tf"] == engine.TF_FROM  # on the MAP, past it
+    assert out["susp_map"] == 0
+
+    # RESUME only un-suspends; the auto-suspend then fires on the next cycle
+    # and the key goes to 1 -- the second press is the one that goes missed.
+    ack, _ = e.handle_command("3 RESUME", (0.0, map_lon + nm_to_deg_lon(0.2), True))
+    assert ack == 3
+    out = e.update(0.0, map_lon + nm_to_deg_lon(0.25), 120.0, 0.0, True, None, None, 1002.0)
+    assert out["state"] == engine.STATE_SUSP
+    assert out["susp_map"] == 1
+
+
+def test_susp_map_is_0_for_a_pilot_susp_after_a_missed_with_no_mahp():
+    # Rare case 2: RESUME at the MAP with no MAHP slot leaves the active leg on
+    # the MAP (TF=FROM). A later pilot SUSP there is a plain suspend.
+    e = engine.Engine()
+    route = approach_route()[:3]
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 3", (0.0, 0.0, True))
+    map_lon = route[2].lon
+    e.update(0.0, map_lon + nm_to_deg_lon(0.01), 120.0, 0.0, True, None, None, 1000.0)
+    e.handle_command("2 RESUME", (0.0, map_lon + nm_to_deg_lon(0.01), True))
+    e.handle_command("3 SUSP", (0.0, map_lon + nm_to_deg_lon(0.3), True))
+
+    out = e.update(0.0, map_lon + nm_to_deg_lon(0.5), 120.0, 0.0, True, None, None, 1001.0)
+    assert out["state"] == engine.STATE_SUSP
+    assert out["act_leg"] == 3 and out["tf"] == engine.TF_FROM
+    assert out["apr"] == engine.APR_MISSED
+    assert out["susp_map"] == 0
+
+
+def test_susp_map_is_0_when_not_suspended_or_no_plan():
+    e = engine.Engine()
+    out = e.update(0.0, 0.0, 120.0, 0.0, True, None, None, 1000.0)
+    assert out["susp_map"] == 0
+    load(e, approach_route(), "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+    out = e.update(0.0, 0.0, 120.0, 0.0, True, None, None, 1001.0)
+    assert out["state"] != engine.STATE_SUSP
+    assert out["susp_map"] == 0
+
+
 def test_off_route_direct_to_drops_approach_back_to_armed_or_none():
     e = engine.Engine()
     route = approach_route()

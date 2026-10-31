@@ -179,6 +179,38 @@ def test_vector_leg_annunciates_vectors_and_suspends_via_plugin(database, tmp_pa
     assert database.read("FPLXTK")[0] == pytest.approx(0.0)
 
 
+def test_map_auto_suspend_publishes_fplsuspmap_and_resume_clears_it(database, tmp_path):
+    # G49: the engine is FPLSUSPMAP's only writer; a display reads it to label
+    # RESUME "Fly the missed".
+    pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
+    database.write("GPS_FIX_TYPE", 3)
+    d5 = 5.0 / 60.0
+    waypoints = [
+        engine.Waypoint("IAF", 0.0, 0.0, type=engine.TYPE_FIX, flags=engine.FLAG_IAF),
+        engine.Waypoint("FAF", 0.0, d5, type=engine.TYPE_FIX, flags=engine.FLAG_FAF),
+        engine.Waypoint("MAP", 0.0, 2 * d5, type=engine.TYPE_MAPPOINT, flags=engine.FLAG_MAP),
+        engine.Waypoint("MAHP", 0.0, 3 * d5, type=engine.TYPE_FIX, flags=engine.FLAG_MAHP),
+    ]
+    write_route(database, waypoints, seq=1)
+    database.write("LAT", 0.0)
+    database.write("LONG", 2 * d5 - 0.01)
+    database.write("GS", 120.0)
+    database.write("MAGVAR", 0.0)
+    database.write("FPLCMD", "1 ACT 3")
+    pl.thread._run_update_cycle()
+    assert database.read("FPLSUSPMAP")[0] == 0
+
+    database.write("LONG", 2 * d5 + 0.001)
+    pl.thread._run_update_cycle()
+    assert database.read("FPLSTATE")[0] == engine.STATE_SUSP
+    assert database.read("FPLSUSPMAP")[0] == 1
+
+    database.write("FPLCMD", "2 RESUME")
+    pl.thread._run_update_cycle()
+    assert database.read("FPLAPR")[0] == engine.APR_MISSED
+    assert database.read("FPLSUSPMAP")[0] == 0
+
+
 def test_command_channel_act_writes_ack_and_engine_state(database, tmp_path):
     pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
     waypoints = [engine.Waypoint("A", 0.0, 0.0), engine.Waypoint("B", 0.0, 1.0)]
