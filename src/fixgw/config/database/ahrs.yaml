@@ -657,6 +657,10 @@ items:
   initial: 0
   tol: 2000
 
+# MAGX/MAGY/MAGZ: the raw, uncalibrated field a magnetometer reports, in wire
+# units (gauss), in the frame the sensor reports.  Ratified by Bill 2026-10-31
+# (AER-4338).  One writer each (the dronecan plugin); calibration, mount
+# alignment and the derived HEAD belong to a compute stage, which owns MAGW.
 - key: MAGW
   description: Magnetic sensor Warning
   type: int
@@ -664,6 +668,33 @@ items:
   max: 5
   units: warninglevel
   initial: 0
+  tol: 2000
+
+- key: MAGX
+  description: Raw magnetic field, body X axis
+  type: float
+  min: -10.0
+  max: 10.0
+  units: gauss
+  initial: 0.0
+  tol: 2000
+
+- key: MAGY
+  description: Raw magnetic field, body Y axis
+  type: float
+  min: -10.0
+  max: 10.0
+  units: gauss
+  initial: 0.0
+  tol: 2000
+
+- key: MAGZ
+  description: Raw magnetic field, body Z axis
+  type: float
+  min: -10.0
+  max: 10.0
+  units: gauss
+  initial: 0.0
   tol: 2000
 
 - key: PITCHSET

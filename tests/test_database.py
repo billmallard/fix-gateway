@@ -1525,3 +1525,15 @@ def test_fresh_write_after_age_out_clears_old_and_next_age_out_notifies(database
 
     assert cb.call_count == 3
     assert cb.call_args.args[1][2] is True
+
+
+# AER-4338: raw magnetometer vector, ratified by Bill 2026-10-31.  Written as
+# received (gauss) by the dronecan plugin; a compute stage derives HEAD.
+@pytest.mark.parametrize("key", ["MAGX", "MAGY", "MAGZ"])
+def test_magnetometer_vector_keys(database, key):
+    item = database.get_raw_item(key)
+    assert item.typestring == "float"
+    assert (item.min, item.max) == (-10.0, 10.0)
+    assert item.units == "gauss"
+    assert item.tol == 2000
+    assert item.value[0] == 0.0
