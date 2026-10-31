@@ -1109,11 +1109,22 @@ def test_old_bad_and_secfail_properties_and_str():
     item.bad = True
     assert item.bad is True
     item.secfail = True
-    assert item.secfail is False
+    assert item.secfail is True
     assert item.fail is False
     assert item.min is None
     assert item.max is None
     assert str(item) == "TEST = (1.5, False, False, True, False, True)"
+
+
+# fix-gateway#68: the secfail getter returned _fail. Set the two flags to
+# opposite values, both ways round, so a getter reading the other flag fails.
+@pytest.mark.parametrize("fail, secfail", [(True, False), (False, True)])
+def test_secfail_and_fail_getters_read_their_own_flags(fail, secfail):
+    item = database.db_item("TEST", "float")
+    item.fail = fail
+    item.secfail = secfail
+    assert item.fail is fail
+    assert item.secfail is secfail
 
 
 def test_add_item_returns_none_for_invalid_entry_type():
