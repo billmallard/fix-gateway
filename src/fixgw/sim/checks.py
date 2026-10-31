@@ -11,12 +11,21 @@ log is forward-filled: each row sees the last value written to every key.
 Row ``n`` of a file is at ``n * frequency`` seconds. A value written as
 ``[value, annunciate, old, bad, fail, secfail]`` also carries its flags:
 the log keeps, per row, whether each key was last written bad or failed.
+And since a row holds exactly the keys written in its interval, the log
+also keeps when each key was last written, which is how a check sees an
+input go silent. (The first row of a recorder file is a snapshot of every
+key, not a write, and does not count as one.)
 """
 
 import json
 from dataclasses import dataclass, field
 
 DEFAULT_SEQUENCE_KEYS = ("WPNAME", "REFWPT")
+
+# An input counts as live while it has been written within the last second:
+# 1 Hz is the slowest position output AC 20-138D contemplates for an IFR
+# navigation source (15-7.3: "If the equipment provides a 1 Hz output").
+LIVE_S = 1.0
 
 
 def _val(v):
@@ -34,31 +43,40 @@ class Log:
         self.t = []
         self.rows = []
         self.flags = []     # per row: {key: True} for each key last written bad or failed
+        self.written = []   # per row: {key: t of its last write}
 
-    def _add(self, t, cur, flags):
+    def _add(self, t, cur, flags, written):
         self.t.append(t)
         self.rows.append(dict(cur))
         self.flags.append({k for k, f in flags.items() if f})
+        self.written.append(dict(written))
+
+    def silent_s(self, i, key):
+        """Seconds since ``key`` was last written, as of row ``i`` (inf if never)."""
+        w = self.written[i].get(key)
+        return float("inf") if w is None else round(self.t[i] - w, 6)
 
     @classmethod
     def from_rows(cls, rows, keys):
         log = cls(keys)
-        cur, flags = {}, {}
+        cur, flags, written = {}, {}, {}
         for t, row in rows:
             for k, v in row.items():
                 if k in log.keys:
                     cur[k] = _val(v)
                     flags[k] = _flagged(v)
-            log._add(t, cur, flags)
+                    written[k] = t
+            log._add(t, cur, flags, written)
         return log
 
     @classmethod
     def from_recorder_files(cls, paths, keys):
         log = cls(keys)
-        cur, flags = {}, {}
+        cur, flags, written = {}, {}, {}
         t = 0.0
         freq = 0.5
         first = True
+        snapshot = False
         for path in paths:
             with open(path) as f:
                 for line in f:
@@ -68,15 +86,19 @@ class Log:
                     j = json.loads(line)
                     if "frequency" in j and "starttime" in j:
                         freq = int(j["frequency"]) / 1000.0
+                        snapshot = True
                         continue
+                    if not first:
+                        t += freq
+                    first = False
                     for k, v in j.items():
                         if k in log.keys:
                             cur[k] = _val(v)
                             flags[k] = _flagged(v)
-                    if not first:
-                        t += freq
-                    first = False
-                    log._add(round(t, 3), cur, flags)
+                            if not snapshot:
+                                written[k] = round(t, 3)
+                    snapshot = False
+                    log._add(round(t, 3), cur, flags, written)
         return log
 
 
@@ -93,6 +115,7 @@ class CheckResult:
     by_leg: dict = field(default_factory=dict)   # leg label -> (compared, failed, max_err)
     flagged: int = 0             # rows skipped because the engine key was flagged (unless_flagged)
     transients: int = 0          # failing runs no longer than tolerate_s, not counted as failures
+    silent: int = 0              # rows skipped because an input had gone silent (skip_when_silent)
 
 
 def _fmt(v):
@@ -146,7 +169,9 @@ def keys_needed(checks):
         if "flagged" in c:
             keys.update(c["flagged"])
             keys.add("GPS_FIX_TYPE")
+            keys.update(c.get("while_silent") or ())
         keys.update((c.get("skip_when") or {}).keys())
+        keys.update((c.get("skip_when_silent") or {}).keys())
     return keys
 
 
@@ -177,6 +202,8 @@ def _in_window(t, times, s):
 def _eval_one(c, log, seq_times, legs, start_s):
     if "sequence" in c:
         return _eval_sequence(c, log)
+    if "flagged" in c and "while_silent" in c:
+        return _eval_flagged_silent(c, log, start_s)
     if "flagged" in c:
         return _eval_flagged(c, log, start_s)
     a_key, b_key = c["key_pair"]
@@ -186,6 +213,7 @@ def _eval_one(c, log, seq_times, legs, start_s):
     same_sign = bool(c.get("same_sign", False))
     window = float(c.get("except_s_around_sequence", 0.0))
     skip = c.get("skip_when") or {}
+    skip_silent = c.get("skip_when_silent") or {}
     after = float(c.get("after_s", start_s))
     unless_flagged = bool(c.get("unless_flagged", False))
     tolerate = float(c.get("tolerate_s", 0.0))
@@ -198,10 +226,14 @@ def _eval_one(c, log, seq_times, legs, start_s):
         label += " (equal)"
     res = CheckResult(label, True)
     bad_rows = []      # (index among compared rows, t, a, b, leg)
-    for t, row, leg, flags in zip(log.t, log.rows, legs, log.flags):
+    errs = []          # per compared row: (t, error or None, leg)
+    for i, (t, row, leg, flags) in enumerate(zip(log.t, log.rows, legs, log.flags)):
         if t < after or _in_window(t, seq_times, window):
             continue
         if any(row.get(k) == v for k, v in skip.items()):
+            continue
+        if any(log.silent_s(i, k) > float(s) for k, s in skip_silent.items()):
+            res.silent += 1
             continue
         if a_key not in row or b_key not in row:
             continue
@@ -223,17 +255,16 @@ def _eval_one(c, log, seq_times, legs, start_s):
         else:
             bad = str(a) != str(b)
         n, f, m = res.by_leg.get(leg, (0, 0, None))
-        if err is not None and (res.max_err is None or err > res.max_err):
-            res.max_err, res.t_max = err, t
-        if err is not None and (m is None or err > m):
-            m = err
+        errs.append((t, err, leg))
         if bad:
             bad_rows.append((res.compared, t, a, b, leg))
         res.compared += 1
         res.by_leg[leg] = (n + 1, f, m)
+    tolerated = set()
     for run in _runs(bad_rows):
         if tolerate > 0 and run[-1][1] - run[0][1] < tolerate:
             res.transients += 1
+            tolerated.update(r[0] for r in run)
             continue
         for _, t, a, b, leg in run:
             res.failed += 1
@@ -242,6 +273,22 @@ def _eval_one(c, log, seq_times, legs, start_s):
             if res.first_fail_t is None or t < res.first_fail_t:
                 res.first_fail_t = t
                 res.detail = f"t={t:.1f}s {a_key}={_fmt(a)} {b_key}={_fmt(b)}"
+    # The largest error is over the rows that count: a tolerated transient
+    # (two navigators switching a phase one update apart) is reported apart
+    # from it, so a 150 deg one-row switch does not read as the finding.
+    worst_transient = None
+    for k, (t, err, leg) in enumerate(errs):
+        if err is None:
+            continue
+        if k in tolerated:
+            if worst_transient is None or err > worst_transient[0]:
+                worst_transient = (err, t)
+            continue
+        if res.max_err is None or err > res.max_err:
+            res.max_err, res.t_max = err, t
+        n, f, m = res.by_leg[leg]
+        if m is None or err > m:
+            res.by_leg[leg] = (n, f, err)
     if unless_flagged:
         label += ", unless flagged"
     if tolerate:
@@ -254,7 +301,10 @@ def _eval_one(c, log, seq_times, legs, start_s):
     if res.flagged:
         extra.append(f"{res.flagged} rows flagged")
     if res.transients:
-        extra.append(f"{res.transients} transient runs")
+        extra.append(f"{res.transients} transient runs"
+                     + (f" (largest {worst_transient[0]:.4f} at t={worst_transient[1]:.1f}s)" if worst_transient else ""))
+    if res.silent:
+        extra.append(f"{res.silent} rows with an input silent")
     if extra:
         res.detail = "; ".join(([res.detail] if res.detail else []) + extra)
     return res
@@ -317,6 +367,65 @@ def _eval_flagged(c, log, start_s):
         res.detail = f"t={t:.1f}s {k} {'not flagged' if want else 'still flagged'}"
     else:
         res.detail = "losses of fix at " + ", ".join(f"{t:.1f}s" for t in lost)
+    return res
+
+
+def _eval_flagged_silent(c, log, start_s):
+    """Each key in ``flagged`` must be flagged (bad or failed) on every row
+    where one of the ``while_silent`` inputs has not been written for at
+    least ``within_s``, and must not be flagged on any row where all of them
+    have been live (written within ``LIVE_S``) for at least
+    ``clear_within_s``. Rows in between are not judged. The value an input
+    last had does not matter: a dead link leaves a good-looking last value
+    behind, and that is the case this check is for."""
+    keys = list(c["flagged"])
+    inputs = list(c["while_silent"])
+    within = float(c.get("within_s", 0.0))
+    clear = float(c.get("clear_within_s", 0.0))
+    after = float(c.get("after_s", start_s))
+    res = CheckResult(f"{', '.join(keys)} flagged when {', '.join(inputs)} silent "
+                      f"(within {within:g} s, clear within {clear:g} s)", True)
+    live_since, silences, in_silence = None, [], False
+    misses = []
+    for i, (t, row, flags) in enumerate(zip(log.t, log.rows, log.flags)):
+        age = max(log.silent_s(i, k) for k in inputs)
+        if age < LIVE_S:
+            live_since = t if live_since is None else live_since
+        else:
+            live_since = None
+        if age >= within and age != float("inf"):
+            if not in_silence:
+                silences.append(t - age)
+            in_silence = True
+        elif age < LIVE_S:
+            in_silence = False
+        if t < after:
+            continue
+        if age >= within and age != float("inf"):
+            want = True
+        elif live_since is not None and t - live_since >= clear:
+            want = False
+        else:
+            continue
+        for k in keys:
+            if k not in row:
+                continue
+            res.compared += 1
+            if (k in flags) != want:
+                res.failed += 1
+                misses.append((t, k, want, age))
+    res.passed = res.failed == 0 and res.compared > 0 and bool(silences)
+    if not silences:
+        res.detail = f"no silence of {within:g} s on this log"
+    elif misses:
+        t, k, want, age = misses[0]
+        res.first_fail_t = t
+        res.detail = (f"t={t:.1f}s {k} not flagged, inputs silent {age:.1f} s" if want
+                      else f"t={t:.1f}s {k} still flagged")
+        if want:
+            res.detail += f"; unflagged at up to {max(m[3] for m in misses if m[2]):.1f} s of silence"
+    else:
+        res.detail = "silences from " + ", ".join(f"{t:.1f}s" for t in silences)
     return res
 
 

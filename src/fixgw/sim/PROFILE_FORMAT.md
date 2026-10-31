@@ -18,8 +18,10 @@ would be asked to fly, the pilot's inputs, and the checks.
 Profiles live in `src/fixgw/sim/profiles/`. The first one is
 `fp8-ksmx-rnav30-missed.yaml` (FP8 session 2, AER-809). The `qa1-*` profiles
 are QA's (AER-4211): hold entries from each sector in both turn directions,
-a missed approach coded to turn the long way round, and GPS losses of fix;
-their checks and tolerances are QA's and are not edited to fit a result.
+a missed approach coded to turn the long way round, GPS losses of fix, and
+(AER-4223) a dead GPS link, and a status or a position stream that stops on
+its own; their checks and
+tolerances are QA's and are not edited to fit a result.
 
 ## The rule for the reference
 
@@ -138,12 +140,32 @@ Each event has an `id`, one trigger under `at`, and one action under `do`.
 | `offset_nm: d` (+ `hold_s: n`) | fly `d` nm off the desired track, positive right | established (within 0.05 nm) and held `n` s. The offset stays until another event changes it |
 | `hold_min: n` | stay in the hold | `n` minutes after it fired |
 | `gps_loss_s: n` | the GPS has no fix | `n` seconds after it fired |
+| `gps_link_loss_s: n` | the GPS receiver or its link goes dead | `n` seconds after it fired |
+| `gps_status_loss_s: n` | the receiver's status stream stops, position keeps coming | `n` seconds after it fired |
+| `gps_position_loss_s: n` | the position stops, the status stream keeps saying 3D | `n` seconds after it fired |
 
-While a `gps_loss_s` event is active the generator publishes what the gpsd
-plugin does below a 2D fix: `GPS_FIX_TYPE` 1 and none of `LAT`, `LONG`,
-`TRACK`, `GS`, `GPS_ACCURACY_HORIZ` (the other sensor keys and the `REF*`
-truth carry on). The aircraft keeps flying the reference's guidance, as a
-pilot holding the course would.
+While a GPS event is active the generator withholds keys; the other sensor
+keys and the `REF*` truth carry on, and the aircraft keeps flying the
+reference's guidance, as a pilot holding the course would.
+
+| Event | Not published | `GPS_FIX_TYPE` |
+|---|---|---|
+| `gps_loss_s` | `LAT LONG TRACK GS GPS_ACCURACY_HORIZ` | 1, what the gpsd plugin publishes below a 2D fix |
+| `gps_link_loss_s` | `LAT LONG TRACK GS GPS_ACCURACY_HORIZ GPS_FIX_TYPE` | not written: the last value, 3, stands |
+| `gps_status_loss_s` | `GPS_FIX_TYPE GPS_ACCURACY_HORIZ` | not written: the last value, 3, stands |
+| `gps_position_loss_s` | `LAT LONG` | 3, still written |
+
+`gps_status_loss_s` and `gps_position_loss_s` are the mavlink shapes: that
+plugin takes the fix type and accuracy from `GPS_RAW_INT` and the position
+from `GLOBAL_POSITION_INT`, the autopilot's fused estimate, so either stream
+can stop without the other. `gps_position_loss_s` is also the only dead-input
+case where nothing but the position's own age can tell the box it is dead.
+
+The gate (`tests/sim/profile_gate.py`) flies a profile with any GPS event
+through the `flightplan` plugin itself (`tests/sim/plugin_replay.py`, the
+real plugin and database on the stream's clock) rather than through the
+engine alone: what the box does with an input that stops arriving is the
+plugin's job, and `engine_replay` only models it.
 
 ### `end`
 
@@ -170,13 +192,28 @@ Tier-independent comparisons on the recorded bus. Each is one of:
   phase one update apart. `around_keys: [KEY, ...]` names the keys whose
   changes open the `except_s_around_sequence` window, instead of the
   sequence keys (a box that blanks its TO fix without a GPS fix would
-  otherwise open a window around the loss itself).
+  otherwise open a window around the loss itself). `skip_when_silent:
+  {KEY: s}` skips rows where KEY has not been written for more than `s`
+  seconds (counted, with `silent`, in the report): guidance from an input
+  that has stopped is judged by a `flagged` check instead.
 - `flagged: [KEY, ...]` with `while_no_fix: true`, `within_s`,
   `clear_within_s`: each key must be flagged (bad or failed) on every row
   where `GPS_FIX_TYPE` has been below 3 for at least `within_s`, and must not
   be flagged on any row where it has been 3 or more for at least
   `clear_within_s`. A log with no loss of fix fails the check rather than
   passing it vacuously.
+- `flagged: [KEY, ...]` with `while_silent: [INPUT, ...]`, `within_s`,
+  `clear_within_s`: each key must be flagged on every row where one of the
+  inputs has not been written for at least `within_s`, and must not be
+  flagged on any row where all of them have been live (written within the
+  last 1 s, the slowest position output AC 20-138D 15-7.3 contemplates) for
+  at least `clear_within_s`. The value an input last had does not matter: a
+  dead link leaves a good-looking one behind. A log with no such silence
+  fails the check.
+
+A recorder row holds exactly the keys written in its interval, so a
+recorded log shows when each key was last written; the first row of each
+recorder file is a snapshot of every key and does not count as a write.
 - `sequence: [FIX, ...]` with `keys` (default `[WPNAME, REFWPT]`): each key's
   run of TO fixes, blanks dropped, must equal the list. The report also gives
   the time difference at which each fix became the TO fix.
