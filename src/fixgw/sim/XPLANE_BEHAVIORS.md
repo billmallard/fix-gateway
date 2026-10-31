@@ -59,7 +59,7 @@ Unless an entry says otherwise:
 |---|---|---|
 | [XPB-001](#xpb-001) | Switches to the next waypoint about 0.2 nm early, even at collinear fixes | `unknown` |
 | [XPB-002](#xpb-002) | Course reads about 0.11 deg above the WGS-84 reference on straight legs | `unknown` |
-| [XPB-003](#xpb-003) | G1000 SVS terrain horizon tilts less than the attitude horizon in a bank | `sim-quirk` |
+| [XPB-003](#xpb-003) | G1000 SVS terrain horizon tilts less than the attitude horizon in a bank | `unknown` |
 | [XPB-004](#xpb-004) | Hold: shows the hold course through the entry and turns, FROM 0.2 nm before the hold fix | `unknown` |
 | [XPB-005](#xpb-005) | The bench's pilot commands (SUSP/RESUME) reach our engine only | `interface` |
 | [XPB-006](#xpb-006) | No cross-track or distance from X-Plane's navigator in the trace or on the bus | `interface` |
@@ -76,7 +76,7 @@ Unless an entry says otherwise:
 | [XPB-017](#xpb-017) | No API path loads the FMS on a G1000 aircraft | `interface` |
 | [XPB-018](#xpb-018) | Autopilot command semantics: heading-bug writes, `alt_vs`, servo drops | `interface` |
 | [XPB-019](#xpb-019) | Pause and unpause lag after launch, and the start flips a preference | `interface` |
-| [XPB-020](#xpb-020) | LAT holds its value on east-west legs while the stream is alive | `interface` |
+| [XPB-020](#xpb-020) | LAT holds its value for seconds while the stream is alive | `interface` |
 | [XPB-021](#xpb-021) | X-Plane's nav data provider changed on 2026-10-31 | `interface` |
 
 ---
@@ -89,40 +89,45 @@ Unless an entry says otherwise:
 
 - **Class:** `unknown`.
 - **Setup:** X-Plane 12, SR22 G1000, cycle 2406, session `cbbeafe57646`.
-- **Observed** (AER-4286, comment 4d4661bb, 2026-10-31). The lead is the along-track distance before the fix where X-Plane's active waypoint changed. The time runs from that switch to abeam the fix.
+- **Observed** (AER-4286, comment 4d4661bb, 2026-10-31, except where a row says otherwise). The lead is the along-track distance before the fix where X-Plane's active waypoint (or, for HANNU's first row, its course) changed. Time is lead / groundspeed.
 
-  | Fix | Turn | GS kt | Lead nm | Time s |
-  |---|---:|---:|---:|---:|
-  | PAMJI -> CIMSO | 0 deg | 111.7 | 0.195 | 6.8 |
-  | CIMSO -> ANIBY (FAF) | 0 deg | 115.0 | 0.195 | 6.3 |
-  | ANIBY -> RW30 | 0 deg | 110.0 | 0.199 | 6.8 |
-  | HANNU, course change | 22 deg | 95.0 | 0.225 | 8.5 |
-  | HANNU -> WINCH, waypoint | 22 deg | 94.2 | 0.00 (abeam) | 0 |
+  | Fix | Session | Fix type, turn | GS kt | Lead nm | Time s |
+  |---|---|---|---:|---:|---:|
+  | PAMJI -> CIMSO | `cbbeafe57646` | fly-by, 0 deg | 111.7 | 0.195 | 6.3 |
+  | CIMSO -> ANIBY | `cbbeafe57646` | FAF, fly-by, 0 deg | 115.0 | 0.195 | 6.1 |
+  | ANIBY -> RW30 | `cbbeafe57646` | fly-by, 0 deg | 110.0 | 0.199 | 6.5 |
+  | HANNU, course change | `cbbeafe57646` | fly-by, 22 deg | 95.0 | 0.225 | 8.5 |
+  | HANNU -> WINCH, waypoint | `cbbeafe57646` | fly-by, 22 deg | 94.2 | 0.00 (abeam) | 0 |
+  | RW30 -> HANNU | `cbbeafe57646` | MAP, fly-over | 101.4 | 0.029 | 1.0 |
+  | ELZUS | AER-809 session 1 | fly-by, 16 deg | not recorded | 0.254 | not recorded |
 
-  - At HANNU, the one real fly-by turn, X-Plane changed the course 0.225 nm early but the waypoint only abeam the fix.
+  - At HANNU, the one real fly-by turn on the recording, X-Plane changed the course 0.225 nm early but the waypoint only abeam the fix.
+  - At the MAP, a fly-over, there is no 0.2 nm lead. The behavior is bounded to fly-by fixes so far.
+  - **ELZUS does not fit.** AER-809, comment 5687f7c2, gives "ELZUS against X-Plane's own sequence: 0.083 vs 0.254 nm": our engine's lead against X-Plane's, both measured from the fix. The "0.17 nm before we did" in the same comment is the difference between them. 0.254 nm is above the ~0.2 nm floor in the current hypothesis, and a 16 deg turn's R tan(delta/2) is only about 0.06 to 0.11 nm at 120 kt and 15 to 25 deg of bank (QA, AER-4375).
   - PAMJI is collinear: both legs bear 330.6 T in the CIFP. It is not the 12 deg turn the issue's first table gave.
-  - Session 1 showed the same lead: "X-Plane sequenced 0.17 nm before we did" at ELZUS (AER-809, comment 5687f7c2).
+  - The times are recomputed from the committed trace as lead / groundspeed. 4d4661bb's table gave 6.8, 6.3 and 6.8 s for the three collinear fixes. Time from the switch to closest approach in the trace is 6.6, 6.1 and 6.5 s.
 - **Reference.** The sources below are quoted on AER-4286, comment 22584c01.
   - ICAO Doc 9613 Vol I Att. A §5.2, citing DO-236 §3.2.5.4.1: "The RNAV and RNP system transitions from one leg to the next at the bisector of the turn." At a collinear fix the bisector passes through the fix, so the expected lead there is about zero.
   - The GNS 430 guide (p.194), the G1000 TBM guide (p.709) and the GPS 150XL guide (p.78) describe two events: the desired track changes at turn start, and the TO/FROM changes at the turn midpoint. None covers a zero-degree turn.
   - No standard or Garmin guide found sets a minimum sequencing distance or a constant lead.
 - **Hypotheses ruled out** (comment 4d4661bb):
   - Y = V^2/g with groundspeed, from DO-236C's bank rule (proposed in comment 22584c01). ANIBY is the slowest collinear fix but has the largest lead, and V^2/g predicts 0.132 nm at HANNU.
-  - A fixed time: 6.3 to 6.8 s at the approach fixes, but 8.5 s at HANNU.
+  - A fixed time: 6.1 to 6.5 s at the approach fixes, but 8.5 s at HANNU.
 - **Current hypothesis.** A fixed distance fits best, but only over 94 to 115 kt. The shape would be a floor on turn start, `max(~0.2 nm, R tan(delta/2))`, with the waypoint switching at the bisector.
 - **Discriminating test** (AER-4286):
   - The same approach at 90 KTAS (`ba51cf5e0d3b`) and 140 KTAS (`d4dee8e34bdf`), queued. At CIMSO and ANIBY, a fixed distance predicts 0.2 nm at both speeds. V^2/g predicts 0.118 and 0.286 nm, and a fixed time predicts 0.16 and 0.25 nm.
-  - Then, if still needed, a turn whose R tan(delta/2) is well over 0.2 nm (over 46 deg). That needs another procedure.
+  - Then, if still needed, a turn whose R tan(delta/2) is well over 0.2 nm. Where that happens depends on the bank assumed: at 110 kt, about 34 deg of turn at 15 deg of bank and about 56 deg at 25 deg. A session should assume 25 deg and use a turn well over 56 deg. That needs another procedure. (46 deg is where DO-236C's bank cap ends, which matters only to the V^2/g hypothesis that is ruled out.)
 - **Our side, for contrast** (comment 4d4661bb, step 4):
   - The engine's turn anticipation has a 0.1 nm floor: `src/fixgw/plugins/flightplan/engine.py:547`, `max(0.1, min(5.0, d_ta))`.
   - The engine sequences at turn start, where the Garmin guides switch at the bisector.
   - Both are open questions for Bill on AER-4286, not settled behavior.
 - **Relied on by:**
   - `tests/sim/test_fp8_xplane_replay.py:65`: the sequence points are within 0.3 nm of X-Plane's. 0.3 nm is the FP8 brief's bound (AER-809), not fitted to this.
-  - `tests/sim/test_fp8_xplane_replay.py:120`: `_shared` excludes 5 s around either system's sequence.
+  - `tests/sim/test_fp8_xplane_replay.py:74`: HANNU -> WINCH is not compared, because X-Plane switches that waypoint abeam the fix.
+  - `tests/sim/test_fp8_xplane_replay.py:123`: `_shared` excludes 5 s around either system's sequence.
   - `tests/sim/fixtures/fp8_xplane_2026-10-29.yaml:24,29`: `except_s_around_sequence: 5`.
   - `tests/sim/fixtures/fp8_xplane_2026-10-29.yaml:16`: the EXTTF 2 skip, for the FROM before WINCH.
-  - The synthetic tier's 5 s `WPNAME`/`REFWPT` window would not hold against X-Plane: the lead is 6-7 s (AER-4286, AER-4283).
+  - The synthetic tier's 5 s `WPNAME`/`REFWPT` window would not hold against X-Plane: the lead is 6.1 to 6.6 s (AER-4286, AER-4283).
 
 ### XPB-002
 
@@ -132,7 +137,7 @@ Unless an entry says otherwise:
 - **Setup:** X-Plane 12, AER-809 session 1 (aircraft not recorded). Also session `cbbeafe57646` (SR22).
 - **Observed:**
   - SYN1 (AER-4073, comment bdf38b51, 2026-10-28; fix-gateway#47): "the engine and X-Plane agree with each other to 0.02 deg. Both read 0.11 deg above the reference on every leg. That's the earth model: a great circle on a sphere versus the WGS-84 geodesic, 0.111 deg on ELZUS-PAMJI."
-  - AER-4286 (on `cbbeafe57646`): 0.11 to 0.14 deg above the reference on every straight leg.
+  - AER-4286's description (on `cbbeafe57646`): 0.11 to 0.14 deg above the reference on every straight leg.
 - **Reference.** None found for whether a certified navigator computes courses on the ellipsoid or on a sphere. The reference navigator uses GeographicLib WGS-84 geodesics by design (`PROFILE_FORMAT.md`, "The rule for the reference").
 - **What is inferred, not shown.** That X-Plane's own model is a sphere: its offset matches the computed sphere-minus-ellipsoid azimuth on one leg, and the engine (spherical on straight legs) agrees with it.
 - **Discriminating test.** For X-Plane's model: compute the sphere-minus-WGS-84 azimuth for every straight leg of `cbbeafe57646`, and compare it with X-Plane's course minus the reference, leg by leg. Agreement to about 0.01 deg on legs of different bearing means X-Plane is spherical. For the class: a manufacturer's statement, or a real unit's course on a long leg against a geodesic.
@@ -146,13 +151,13 @@ Unless an entry says otherwise:
 
 **X-Plane's G1000 SVS terrain horizon tilts less than the attitude horizon in a bank.**
 
-- **Class:** `sim-quirk`. This is provisional: the X-Plane observation is relayed and unquantified (below).
+- **Class:** `unknown`. No real G1000's SVT behavior in a bank has been found, so nothing shows X-Plane differing from real avionics. AC 20-167A is a certification criterion, not an observation of a real unit. Bill's direction frames it as a behavior "that may show up, in different forms, in both X-Plane and real Garmin equipment" (AER-4286, comment 22584c01). The X-Plane side is relayed and unquantified (below).
 - **Setup:** X-Plane 12, G1000. The aircraft is not named in the source.
 - **Observed.**
   - In X-Plane: G32 (pyEfis #304), the terrain horizon tilting less than the attitude horizon in a bank, "turned out to be visible in X-Plane's own G1000 once he knew what to look for". That is Bill's direction, written from his account on AER-4286, comment 22584c01, 2026-10-31. No first-hand comment, angle or screenshot exists.
   - pyEfis had the same defect: at 30 deg of bank the terrain horizon drew at 19.1 deg (pyEfis #304). It was fixed in pyEfis #318 (merged 2026-10-27, AER-3865), with QA's verification on AER-3984.
 - **Reference:** FAA AC 20-167A §4.1.6.1.2 and §4.1.6.1.3 (cited in pyEfis #304): "Scale and align all spatially referenced symbology within each axis with the imagery so as not to present any misleading information to the pilot." This is guidance for certificated installations. A real G1000's SVT behavior in a bank: none found.
-- **To firm it up:** a screenshot of X-Plane's G1000 PFD at 30 deg of bank, with the terrain horizon angle measured against the attitude horizon.
+- **Discriminating test:** a screenshot of X-Plane's G1000 PFD at 30 deg of bank, with the terrain horizon angle measured against the attitude horizon, and a real G1000's SVT photographed in a bank. If both tilt less, the class is `real`; whether pyEfis should then match it, against the AC it follows now, goes to Bill as a card. If only X-Plane does, the class is `sim-quirk`.
 - **Relied on by:** nothing in fix-gateway. pyEfis follows the AC, not X-Plane. Its SVS roll is tested against the attitude horizon (pyEfis #318), and no pyEfis test compares against X-Plane's display.
 
 ### XPB-004
@@ -176,8 +181,10 @@ Unless an entry says otherwise:
   - For the display through the entry: the hold section of a Garmin pilot's guide (G1000 or GNS 530W), or a real unit flown through an entry.
 - **Relied on by:**
   - `tests/sim/fixtures/fp8_xplane_2026-10-29.yaml:13,16,25,30`: the skips `FPLPHASE: HOLD` and `EXTTF: 2`.
-  - `tests/sim/test_fp8_xplane_replay.py:120`: `_shared` drops the last 0.5 nm to WINCH.
-  - `tests/sim/test_fp8_xplane_replay.py:151`: `test_hold_inbound_leg_matches_xplane` compares only the inbound leg.
+  - `tests/sim/test_fp8_xplane_replay.py:123`: `_shared` drops the last 0.5 nm to WINCH.
+  - `tests/sim/test_fp8_xplane_replay.py:154`: `test_hold_inbound_leg_matches_xplane` compares only the inbound leg.
+  - `tests/sim/test_fp8_xplane_replay.py:166`: that test picks its rows by agreement within 5 deg, so an inbound disagreement over 5 deg is dropped, not failed, and only `len(inbound) > 500` guards it. Selecting on the engine's own course is a separate, behavior-changing fix (fix-gateway#89).
+  - `tests/sim/test_fp8_xplane_replay.py:173`: the CDI sign is checked only where both deflections exceed 0.05 of full scale. The 0.1 magnitude bound applies to every row.
 
 ## Interface
 
@@ -190,7 +197,7 @@ Unless an entry says otherwise:
   - The replay re-derives these commands from engine state (`tests/sim/xplane_replay.py:9-14`).
   - While suspended, the pilot's commands decide what the engine shows, not the leg. So there is nothing on X-Plane's side to compare.
 - **Reference:** not applicable; this is the comparison's setup.
-- **Relied on by:** `tests/sim/fixtures/fp8_xplane_2026-10-29.yaml:11,25,30` (the skip `FPLSTATE: 3`). The engine's own SUSP behavior is checked without X-Plane in `tests/sim/test_fp8_xplane_replay.py` (`test_no_sequence_at_the_map_auto_susp_then_from`, `test_susp_does_not_sequence_past_hannu`).
+- **Relied on by:** `tests/sim/fixtures/fp8_xplane_2026-10-29.yaml:11,25,30` (the skip `FPLSTATE: 3`); `tests/sim/test_fp8_xplane_replay.py:74` (RW30 -> HANNU is not compared, because the engine sequences there on the orchestrator's RESUME). The engine's own SUSP behavior is checked without X-Plane in `tests/sim/test_fp8_xplane_replay.py` (`test_no_sequence_at_the_map_auto_susp_then_from`, `test_susp_does_not_sequence_past_hannu`).
 
 ### XPB-006
 
@@ -222,12 +229,12 @@ Unless an entry says otherwise:
 - **Observed.**
   - `connections/xplane.yaml` maps nothing to `EXTTF`, so it reads 0 throughout the bench bus log of `cbbeafe57646` (`tests/sim/fixtures/README.md`).
   - The truth trace does carry `gps_fromto` (1 TO, 2 FROM).
-  - The issues are fix-gateway#41 (filed from AER-809, comment fad7fff0) and AER-4324 (in progress). The proposed mapping is `sim/cockpit/radios/gps_fromto`, with the encoding to be confirmed against a live sim.
+  - The issues are fix-gateway#41 (filed from AER-809, comment fad7fff0) and AER-4324. The fix is open as fix-gateway#84: it maps `sim/cockpit/radios/gps_fromto`, with the encoding checked against the recorded trace but not yet against a live sim.
 - **Relied on by:**
   - `tests/sim/xplane_replay.py:158-164`: the gate fills `EXTTF` from the trace.
   - `tests/sim/test_fp8_bench_bus.py:56-60`: `test_the_bench_never_wrote_exttf` fails once the bench maps it, as intended.
   - `src/fixgw/sim/PROFILE_FORMAT.md`, the SYN4 key table.
-  - Update this entry when AER-4324 lands.
+  - Update this entry when fix-gateway#84 lands.
 
 ### XPB-009
 
@@ -358,12 +365,12 @@ Unless an entry says otherwise:
 
 ### XPB-020
 
-**LAT holds its value on east-west legs while the stream is alive.**
+**LAT holds its value for seconds while the stream is alive.**
 
 - **Class:** `interface`.
 - **Observed** (AER-4217, comment ecdb3e90, from the 2026-10-28 and 10-29 bench recordings):
   - LAT changed in 3,595 of 3,603 0.5 s recorder intervals.
-  - In the 4 longer gaps (4.5 to 65 s), LONG, attitude and speeds kept changing.
+  - In the 4 longer gaps (4.5 to 65 s), LONG, attitude and speeds kept changing. The source does not say what the aircraft was doing in them. The committed 10-29 trace and bus log show no repeated LAT value (QA, AER-4375), so the gaps are in recordings that are not committed.
   - The plugin writes LAT on every inbound packet whether or not it changed, so these gaps cannot trip the 2 s staleness bound.
 - **Relied on by:** the 2 s `LAT`/`LONG` tol (fix-gateway#73) and the engine's 2 s bound from the position write (fix-gateway#58). Both assume the plugin keeps writing unchanged values.
 
