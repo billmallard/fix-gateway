@@ -40,7 +40,7 @@ class NormalizedNavMessage:
     waypoint: Waypoint = field(default_factory=Waypoint)
     nav_mode: Optional[str] = None          # 'GPS', 'VLOC', 'APR', ...
     integrity: str = "valid"               # 'valid', 'degraded', 'invalid'
-    gps_fix_type: Optional[int] = None     # 0=none, 1=GPS, 2=DGPS/WAAS
+    gps_fix_type: Optional[int] = None     # GPS_FIX_TYPE scale: 0-1 none, 2 2D, 3 3D, 4 DGPS, 5 RTK
 
 
 @dataclass

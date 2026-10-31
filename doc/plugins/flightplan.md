@@ -261,7 +261,8 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   5 Hz); a 1 Hz timer handles staleness. All guidance outputs fail once
   the position is more than 2 s older than its last `LAT`/`LONG` write,
   or has been old/bad/fail for 2 s. The bound runs from the write, not
-  from the 20 s database `tol`: 2 s is one missed epoch of a 1 Hz receiver
+  from the database `tol` (also 2 s since AER-4217, but owned by the
+  database, not the engine): 2 s is one missed epoch of a 1 Hz receiver
   plus a full epoch of jitter, so with the 1 Hz timer a dead link flags
   within about 3 s (AER-4217). No dead reckoning.
 - **Persistence**: `{CONFIG}/flightplan_state.json`, atomic (temp +

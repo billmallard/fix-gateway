@@ -5,9 +5,9 @@
 """Profile + CIFP -> a FIX bus stream.
 
 :func:`generate` flies the scenario and returns a :class:`Run`: one row per
-tick of the keys a GPS/AHRS would publish (``LAT LONG ALT GS TRACK HEAD TAS
-VS PITCH ROLL MAGVAR GPS_FIX_TYPE GPS_ACCURACY_HORIZ``, less what a GPS
-event withholds: see :data:`GPS_EVENTS`), the reference keys
+tick of the keys a GPS/AHRS/air-data box would publish (``LAT LONG ALT GS TRACK
+HEAD TAS IAS VS PITCH ROLL MAGVAR GPS_FIX_TYPE GPS_ACCURACY_HORIZ``, less what a
+GPS event withholds: see :data:`GPS_EVENTS`), the reference keys
 (``REFCRS REFXTK REFCDI REFDIS REFWPT REFPT``), and the pilot's inputs to the box
 under test: the route block once at the start, ``FPLCMD`` to activate the
 leg into the start fix, and ``FPLCMD RESUME`` when the pilot goes missed.
@@ -15,8 +15,8 @@ leg into the start fix, and ``FPLCMD RESUME`` when the pilot goes missed.
 :func:`write_recorder_file` writes a run in the ``data_recorder`` JSON-lines
 format (``{"frequency", "starttime"}`` header, then one key-to-value row per
 tick, values as ``[value, annunciate, old, bad, fail, secfail]``), which
-``data_playback`` replays unchanged. A live netfix writer (SYN2) can iterate
-``Run.rows`` the same way.
+``data_playback`` replays unchanged. :mod:`fixgw.sim.live` (SYN2) streams
+``Run.rows`` into a running gateway over netfix instead.
 """
 
 import datetime
@@ -34,7 +34,7 @@ class GeneratorError(Exception):
 
 
 REF_KEYS = ("REFCRS", "REFXTK", "REFCDI", "REFDIS", "REFWPT", "REFPT")
-SENSOR_KEYS = ("MAGVAR", "GPS_FIX_TYPE", "GPS_ACCURACY_HORIZ", "ALT", "GS", "TAS", "VS",
+SENSOR_KEYS = ("MAGVAR", "GPS_FIX_TYPE", "GPS_ACCURACY_HORIZ", "ALT", "GS", "TAS", "IAS", "VS",
                "TRACK", "HEAD", "PITCH", "ROLL", "LAT", "LONG")
 ESTABLISHED_NM = 0.05
 
@@ -59,6 +59,15 @@ GPS_EVENTS = {
 }
 
 
+def ias_kt(tas_kt, alt_ft):
+    """Indicated airspeed for ``tas_kt`` at ``alt_ft`` on a standard day:
+    EAS from the ISA troposphere density ratio, taking IAS = CAS = EAS (no
+    position error, no compressibility at these speeds). The air-data box
+    reports IAS; the profile flies TAS, so this is what it would read."""
+    sigma = (1.0 - 6.8755856e-6 * max(alt_ft, 0.0)) ** 4.2558797
+    return tas_kt * sigma ** 0.5
+
+
 @dataclass
 class Run:
     profile: object
@@ -76,7 +85,7 @@ def _alt_constraints(cifp, proc):
     return out
 
 
-def generate(profile, frequency_ms=200, cifp_path=None, fplseq=1, gps_accuracy_ft=30.0):
+def generate(profile, frequency_ms=200, cifp_path=None, fplseq=1, gps_accuracy_ft=30.0, cmd_seq_base=0):
     if isinstance(profile, str):
         profile = load_profile(profile, cifp_override=cifp_path)
     cifp = Cifp(cifp_path or profile.cifp_file)
@@ -115,7 +124,7 @@ def generate(profile, frequency_ms=200, cifp_path=None, fplseq=1, gps_accuracy_f
     dt = frequency_ms / 1000.0
     rows = []
     timeline = []
-    cmd_seq = 0
+    cmd_seq = cmd_seq_base          # a live gateway has already acked earlier commands
     name = f"{proc['airport']} {proc['approach']} {proc['transition']}"[:32]
     route = fplroute.route_block_writes(slots, segments, name, "RNAV", cifp.cycle, fplseq)
 
@@ -173,6 +182,7 @@ def generate(profile, frequency_ms=200, cifp_path=None, fplseq=1, gps_accuracy_f
             "ALT": round(s.alt_ft, 2),
             "GS": round(s.gs_kt, 3),
             "TAS": round(perf.tas_kt, 3),
+            "IAS": round(ias_kt(perf.tas_kt, s.alt_ft), 3),
             "VS": round(s.vs_fpm, 1),
             "TRACK": round(refnav.wrap360(s.track_true), 3),
             "HEAD": round(refnav.wrap360(s.heading_true + mv), 3),

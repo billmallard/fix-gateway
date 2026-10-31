@@ -29,7 +29,8 @@ GNX 375 serial port configuration (set via unit installer menu):
 NMEA sentences consumed
 -----------------------
   $GPRMC  position, ground speed, track
-  $GPGGA  position, GPS altitude, fix quality
+  $GPGGA  position, GPS altitude, fix quality, satellites in use
+  $GPGSA  2D/3D fix mode (any talker, e.g. $GNGSA)
   $GPRMB  cross-track error (XTE), destination waypoint, range/bearing
   $GPAPB  XTE, heading-to-steer, bearing to destination
 
@@ -40,7 +41,9 @@ FIX-Gateway keys written
   GS                  ground speed (knots)
   TRACK               track over ground (deg true)
   GPS_ELLIPSOID_ALT   GPS ellipsoid altitude (feet)
-  GPS_FIX_TYPE        GPS fix quality (0=none, 1=GPS, 2=DGPS/WAAS)
+  GPS_FIX_TYPE        contract scale: 0-1 no fix, 2 2D, 3 3D, 4 3D DGPS/WAAS,
+                      5 3D RTK. Mapped from GGA quality and GSA mode by
+                      fixgw.nmea_fix.gps_fix_type, written once per GGA.
   XTRACK              signed cross-track error (nm); negative = left of track
   CDI                 scaled course deviation [-1.0, +1.0]
   COURSE              bearing to active destination waypoint (deg true)
@@ -60,6 +63,7 @@ from collections import OrderedDict
 import pynmea2
 import serial
 import fixgw.plugin as plugin
+from fixgw.nmea_fix import gps_fix_type
 
 
 _DEFAULT_BAUD = 9600
@@ -74,6 +78,7 @@ class MainThread(threading.Thread):
         self.parent = parent
         self.log = parent.log
         self._serial = None
+        self._gsa_mode = None
 
     def run(self):
         try:
@@ -129,6 +134,8 @@ class MainThread(threading.Thread):
             self._handle_rmc(msg)
         elif stype == "GGA":
             self._handle_gga(msg)
+        elif stype == "GSA":
+            self._handle_gsa(msg)
         elif stype == "RMB":
             self._handle_rmb(msg, cdi_scale)
         elif stype == "APB":
@@ -144,9 +151,16 @@ class MainThread(threading.Thread):
         if msg.true_course is not None:
             self.parent.db_write("TRACK", float(msg.true_course))
 
+    def _handle_gsa(self, msg):
+        # Held for the next GGA, which writes GPS_FIX_TYPE once per epoch.
+        self._gsa_mode = msg.mode_fix_type
+
     def _handle_gga(self, msg):
+        # A GSA counts only for the GGA that follows it, so a source that stops
+        # sending GSA falls back to the satellite count after one epoch.
+        gsa_mode, self._gsa_mode = self._gsa_mode, None
+        self.parent.db_write("GPS_FIX_TYPE", gps_fix_type(msg.gps_qual, msg.num_sats, gsa_mode))
         qual = int(msg.gps_qual) if msg.gps_qual is not None else 0
-        self.parent.db_write("GPS_FIX_TYPE", qual)
         if qual == 0:
             return
         self.parent.db_write("LAT", msg.latitude)
