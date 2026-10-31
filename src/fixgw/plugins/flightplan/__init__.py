@@ -138,9 +138,10 @@ class MainThread(threading.Thread):
 
     def _setval(self, key, value, fail=False, bad=False):
         item = self.parent.db_get_item(key)
-        item.value = value
-        item.fail = fail
-        item.bad = bad
+        # Value and flags in one write, so a subscriber never sees the new
+        # value under the old flags -- e.g. a placeholder WPLAT 0.0 still
+        # marked valid for one callback as a plan is cleared (NULLWP1).
+        item.value = (value, item.annunciate, bool(bad), bool(fail))
 
     # ------------------------------------------------------------------
     # Route block

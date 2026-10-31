@@ -107,6 +107,34 @@ def test_replacing_the_plan_fails_them_again(database, tmp_path):
         assert _fail(database, key), key
 
 
+def test_no_subscriber_sees_the_placeholder_unflagged(database, tmp_path):
+    # Value and flag land in one write: a callback between "value 0.0" and
+    # "fail set" would hand compute one cycle of a valid bearing to 0N 0E.
+    pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
+    _good_position(database)
+    write_route(database, _route(), seq=1)
+    database.write("FPLCMD", "1 ACT 2")
+    pl.thread._run_update_cycle()
+
+    seen = []
+
+    def watch(key, value, udata):
+        if isinstance(value, tuple):
+            seen.append((key, value[0], value[4]))   # (value, annunc, old, bad, fail, secfail)
+
+    for key in WP_KEYS:
+        database.callback_add("nullwp1", key, watch, None)
+    try:
+        write_route(database, _route(), seq=2)
+        pl.thread._run_update_cycle()
+    finally:
+        for key in WP_KEYS:
+            database.callback_del("nullwp1", key, watch, None)
+
+    assert seen, "no callbacks observed -- the test proved nothing"
+    assert [s for s in seen if s[1] == 0.0 and not s[2]] == []
+
+
 def test_position_failure_still_fails_them(database, tmp_path):
     # Unchanged behaviour, now flagged: on a position failure the engine
     # blanks the waypoint fields, and a blanked 0.0 is not a waypoint either.
