@@ -120,6 +120,17 @@ Configuration files live in `src/fixgw/config/`:
 - `database/custom.yaml` — add or override parameters without touching upstream files
 - `init_data/custom.ini` — set initial parameter values for your specific aircraft
 
+### One writer per key
+
+Every FIX key has exactly one writer. Two writers on one key overwrite each other's values and each other's quality flags. Some keys are written by `compute` in the shipped `compute.yaml` and also by a source plugin, so the owner depends on what is fitted:
+
+| Key | Written by compute (`compute.yaml`) | Also written by | When that box is fitted |
+|---|---|---|---|
+| `PALT` | derived from the altimeter setting | `dynon` | delete the compute function whose output is `PALT` |
+| `FUELQT` | sum of `FUELQ1`-`FUELQ3` | `shadin`; `mgl_serial` (a fuel-level channel) | delete the compute function whose output is `FUELQT` |
+
+Navigation keys are different: `COURSE`, `CDI` and `GSI` belong to compute's `NAVSRC` select in every configuration. A navigator or receiver writes the source inputs (`NAV1CRS`, `EXTCRS` and so on), never the canonical key.
+
 ## Important Disclaimer
 
 > FIX-Gateway is developed for Experimental Amateur-Built aircraft use only.  
