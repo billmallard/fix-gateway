@@ -31,8 +31,8 @@ NMEA sentences consumed
   $GPRMC  position, ground speed, track
   $GPGGA  position, GPS altitude, fix quality, satellites in use
   $GPGSA  2D/3D fix mode (any talker, e.g. $GNGSA)
-  $GPRMB  cross-track error (XTE), destination waypoint, range/bearing
-  $GPAPB  XTE, heading-to-steer, bearing to destination
+  $GPRMB  cross-track error (XTE)
+  $GPAPB  desired track (bearing origin to destination), perpendicular passed
 
 FIX-Gateway keys written
 ------------------------
@@ -44,17 +44,23 @@ FIX-Gateway keys written
   GPS_FIX_TYPE        contract scale: 0-1 no fix, 2 2D, 3 3D, 4 3D DGPS/WAAS,
                       5 3D RTK. Mapped from GGA quality and GSA mode by
                       fixgw.nmea_fix.gps_fix_type, written once per GGA.
-  XTRACK              signed cross-track error (nm); negative = left of track
-  CDI                 scaled course deviation [-1.0, +1.0]
-  COURSE              bearing to active destination waypoint (deg true)
+  EXTCDI              course deviation [-1.0, +1.0], -XTE / cdi_full_scale_nm
+  EXTCRS              desired track of the active leg (deg magnetic)
+  EXTTF               TO/FROM: 0 off (APB not valid), 1 TO, 2 FROM
 
-Sign convention for XTRACK (matches FIX-Gateway compute.py xte function):
+The GNX is an external navigator: it feeds the EXT* inputs, and compute's
+GPSSRC select routes them into GPSCRS/GPSCDI/GPSTF and its NAVSRC select into
+COURSE/CDI/TOFROM. It does not write COURSE, CDI or XTRACK, which compute owns
+(AER-4473). The GNX's own cross-track error has no key yet; until it does,
+XTRACK comes from compute's xte.
+
+Sign convention for the XTE behind EXTCDI (the FPLXTK/XTRACK convention):
   Negative → aircraft is LEFT of desired course (need to steer right)
   Positive → aircraft is RIGHT of desired course (need to steer left)
 
 In $GPRMB the steer-direction flag encodes this as:
-  'L' (steer left to return) → aircraft is RIGHT of course → XTRACK positive
-  'R' (steer right to return) → aircraft is LEFT of course  → XTRACK negative
+  'L' (steer left to return) → aircraft is RIGHT of course → XTE positive
+  'R' (steer right to return) → aircraft is LEFT of course  → XTE negative
 """
 
 import threading
@@ -63,7 +69,13 @@ from collections import OrderedDict
 import pynmea2
 import serial
 import fixgw.plugin as plugin
-from fixgw.nmea_fix import gps_fix_type
+from fixgw.nmea_fix import (
+    apb_guidance,
+    cdi_from_cross_track,
+    gps_fix_type,
+    rmb_cross_track_nm,
+    rmc_magvar_east,
+)
 
 
 _DEFAULT_BAUD = 9600
@@ -79,6 +91,7 @@ class MainThread(threading.Thread):
         self.log = parent.log
         self._serial = None
         self._gsa_mode = None
+        self._magvar_east = None
 
     def run(self):
         try:
@@ -144,6 +157,10 @@ class MainThread(threading.Thread):
     def _handle_rmc(self, msg):
         if msg.status != "A":
             return
+        # Held for APB, which may give the desired track as a true bearing.
+        magvar = rmc_magvar_east(msg)
+        if magvar is not None:
+            self._magvar_east = magvar
         self.parent.db_write("LAT", msg.latitude)
         self.parent.db_write("LONG", msg.longitude)
         if msg.spd_over_grnd is not None:
@@ -171,21 +188,16 @@ class MainThread(threading.Thread):
             self.parent.db_write("GPS_ELLIPSOID_ALT", alt_ft)
 
     def _handle_rmb(self, msg, cdi_scale):
-        if msg.status != "A":
+        xtrack = rmb_cross_track_nm(msg)
+        if xtrack is None:
             return
-        if msg.cross_track_err is None or msg.dir_steer not in ("L", "R"):
-            return
-        xte_mag = float(msg.cross_track_err)
-        # 'L' (steer left) = aircraft is RIGHT of track = positive XTRACK
-        xtrack = xte_mag if msg.dir_steer == "L" else -xte_mag
-        self.parent.db_write("XTRACK", xtrack)
-        cdi = max(-1.0, min(1.0, -xtrack / cdi_scale))
-        self.parent.db_write("CDI", cdi)
+        self.parent.db_write("EXTCDI", cdi_from_cross_track(xtrack, cdi_scale))
 
     def _handle_apb(self, msg):
-        # Update COURSE from bearing-present-to-destination if available
-        if msg.bearing_present_dest is not None:
-            self.parent.db_write("COURSE", float(msg.bearing_present_dest))
+        dtk, to_from = apb_guidance(msg, self._magvar_east)
+        self.parent.db_write("EXTTF", to_from)
+        if dtk is not None:
+            self.parent.db_write("EXTCRS", dtk)
 
 
 class Plugin(plugin.PluginBase):
