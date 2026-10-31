@@ -13,6 +13,7 @@ import time
 
 import pytest
 
+import fixgw.geo as geo
 import fixgw.plugin as plugin_base
 import fixgw.plugins.flightplan as flightplan
 import fixgw.plugins.flightplan.engine as engine
@@ -522,6 +523,74 @@ def test_restore_of_a_bad_state_file_posts_the_reason_and_keeps_the_file(databas
 
     pl.thread._run_update_cycle()  # the persist hook must not overwrite the evidence
     assert json.loads(state_file.read_text())["segments"][1]["first"] == 3
+
+
+# ---------------------------------------------------------------------------
+# Integrity gate through the database (fix-gateway#52)
+# ---------------------------------------------------------------------------
+
+FT_PER_NM = flightplan.GPS_ACCURACY_FT_PER_NM
+
+
+def _nm_lon(nm):
+    # Along the equator, for building synthetic straight-line routes.
+    return nm / geo.distance_nm(0.0, 0.0, 0.0, 1.0)
+
+
+def _phase_case(phase):
+    # (route, activation command, aircraft longitude, HAL in nm) for one
+    # flight phase, each with the aircraft on the active leg.
+    if phase == "ENR":
+        route = [engine.Waypoint("A", 0.0, 0.0), engine.Waypoint("B", 0.0, _nm_lon(200.0))]
+        return route, "1 ACT 2", _nm_lon(100.0), 2.0
+    if phase == "TERM":
+        route = [
+            engine.Waypoint("A", 0.0, 0.0, type=engine.TYPE_AIRPORT),
+            engine.Waypoint("B", 0.0, _nm_lon(5.0), type=engine.TYPE_AIRPORT),
+        ]
+        return route, "1 ACT 2", _nm_lon(2.0), 1.0
+    # LNAV: IAF -> FAF -> MAP -> MAHP, aircraft on the FAF -> MAP leg.
+    route = [
+        engine.Waypoint("IAF", 0.0, 0.0, type=engine.TYPE_FIX, flags=engine.FLAG_IAF),
+        engine.Waypoint("FAF", 0.0, _nm_lon(5.0), type=engine.TYPE_FIX, flags=engine.FLAG_FAF),
+        engine.Waypoint("MAP", 0.0, _nm_lon(10.0), type=engine.TYPE_MAPPOINT, flags=engine.FLAG_MAP),
+        engine.Waypoint("MAHP", 0.0, _nm_lon(12.0), type=engine.TYPE_FIX, flags=engine.FLAG_MAHP),
+    ]
+    return route, "1 ACT 3", _nm_lon(7.0), 0.3
+
+
+def _guide_with_accuracy(database, pl, accuracy_ft):
+    database.write("GPS_ACCURACY_HORIZ", accuracy_ft)
+    pl.thread._run_update_cycle()
+    return database.read("FPLINTEG")[0], database.read("FPLPHASE")[0]
+
+
+@pytest.mark.parametrize("phase", ["ENR", "TERM", "LNAV"])
+def test_accuracy_above_each_hal_written_to_the_database_raises_loi(database, tmp_path, phase):
+    # GPS_ACCURACY_HORIZ is published in feet and was capped at 200 ft
+    # (0.033 nm), so every write clamped below every HAL and the gate could
+    # never fire (FP8 on the bench, AER-809). Drive the key through the real
+    # database, not Engine.update, so the key's own range is under test.
+    pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
+    route, cmd, lon, hal_nm = _phase_case(phase)
+    database.write("GPS_FIX_TYPE", 3)
+    write_route(database, route, seq=1)
+    database.write("LAT", 0.0)
+    database.write("LONG", lon)
+    database.write("GS", 120.0)
+    database.write("MAGVAR", 0.0)
+    database.write("FPLCMD", cmd)
+
+    below_ft = 0.9 * hal_nm * FT_PER_NM
+    assert _guide_with_accuracy(database, pl, below_ft) == (True, phase)
+
+    above_ft = 1.1 * hal_nm * FT_PER_NM
+    assert _guide_with_accuracy(database, pl, above_ft) == (False, "LOI")
+    assert database.read("GPS_ACCURACY_HORIZ")[0] == pytest.approx(above_ft)
+
+    # A receiver reporting more than the key can hold saturates at its max,
+    # and the max itself must still be above every HAL.
+    assert _guide_with_accuracy(database, pl, 1.0e7) == (False, "LOI")
 
 
 # ---------------------------------------------------------------------------
