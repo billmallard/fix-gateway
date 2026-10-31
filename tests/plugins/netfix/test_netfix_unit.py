@@ -207,6 +207,15 @@ def test_unknown_command_returns_protocol_error():
     assert drain_queue(connection) == [b"@zALT!004\n"]
 
 
+def test_empty_frame_is_ignored_and_bare_at_is_unknown_command():
+    connection = make_connection()
+
+    connection.handle_request("")
+    connection.handle_request("@")
+
+    assert drain_queue(connection) == [b"@!004\n"]
+
+
 def test_value_update_sets_false_flags_and_logs_bad_frames():
     parent = FakeParent()
     parent.item.annunciate = True

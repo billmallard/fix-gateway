@@ -180,7 +180,12 @@ class Connection(object):
             self.queue.put("@w{};{};{}\n".format(a[0], val[0], flags).encode())
 
     def handle_request(self, d):
+        if not d:  # Empty line, nothing to do
+            return
         if d[0] == "@":  # It's a command frame
+            if len(d) < 2:  # Bare '@' with no command
+                self.queue.put("{}!004\n".format(d).encode())
+                return
             if d[1] == "l":
                 self.__send_list()
                 return
