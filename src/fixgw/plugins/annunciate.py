@@ -174,6 +174,9 @@ class AnnunciateItem(object):
             else:
                 self.item.annunciate = False
 
+    def callbacks(self):
+        return [self.key]
+
     def __str__(self):
         s = []
         s.append(self.key)
@@ -187,6 +190,89 @@ class AnnunciateItem(object):
         return "\n".join(s)
 
 
+class DeviationItem(object):
+    """Annunciate a target key when a measured key strays from it.
+
+    Sets the annunciate flag on `key` (the target, e.g. ALTSEL) while
+    |deviation_from - key| exceeds `threshold`, holding it until the
+    deviation falls to `threshold - deadband`. pyEfis EFIS-ALTSEL-005/-009/
+    -010: ALT against ALTSEL, computed here so every client sees it.
+
+    With `arm_on_capture`, the alert only arms once the measured value has
+    come within `threshold` of the target, and a new target disarms it: no
+    alert on the climb to a newly selected altitude, only on leaving it
+    (Bill, AER-4328, 2026-10-31).
+
+    The `defaults` block does not apply: its aux points and percentage
+    deadband describe a value against its own limits, not a deviation.
+    """
+
+    def __init__(self, plugin, itemdef):
+        self.plugin = plugin
+        self.key = itemdef["key"]
+        self.ref_key = itemdef["deviation_from"]
+        self.item = plugin.db_get_item(self.key)
+        if self.item is None:
+            raise ValueError("Key {} not found".format(self.key))
+        try:
+            self.ref_item = plugin.db_get_item(self.ref_key)
+        except KeyError:
+            self.ref_item = None
+        if self.ref_item is None:
+            raise ValueError(
+                "Unknown Key {} for deviation: {}".format(self.ref_key, self.key)
+            )
+        if "threshold" not in itemdef:
+            raise ValueError("No threshold given for deviation: {}".format(self.key))
+        self.threshold = float(itemdef["threshold"])
+        self.deadband = float(itemdef.get("deadband", 0))
+        if self.threshold <= 0 or not 0 <= self.deadband < self.threshold:
+            raise ValueError(
+                "Deviation {} needs threshold > 0 and 0 <= deadband < threshold".format(
+                    self.key
+                )
+            )
+        self.arm_on_capture = bool(itemdef.get("arm_on_capture", False))
+        self.armed = not self.arm_on_capture
+        self.last_target = None
+        self.latch = False
+        plugin.db_callback_add(self.key, self.evaluate)
+        plugin.db_callback_add(self.ref_key, self.evaluate)
+
+    def evaluate(self, k, x, udata):
+        target = self.plugin.db_read(self.key)
+        ref = self.plugin.db_read(self.ref_key)
+        # A deviation from an invalid value means nothing: clear rather than
+        # alert on it. The invalid value carries its own flag to the display.
+        if self.arm_on_capture and target[0] != self.last_target:
+            self.armed = False                     # a new target: not yet captured
+            self.latch = False
+        self.last_target = target[0]
+        if any(v[2] or v[3] or v[4] for v in (target, ref)):
+            self.latch = False
+        else:
+            dev = abs(ref[0] - target[0])
+            if dev <= self.threshold:
+                self.armed = True
+            self.latch = self.armed and (
+                dev > self.threshold
+                or (self.latch and dev > self.threshold - self.deadband)
+            )
+        self.item.annunciate = self.latch
+
+    def callbacks(self):
+        return [self.key, self.ref_key]
+
+    def __str__(self):
+        s = []
+        s.append(self.key)
+        s.append("  Deviation From: {}".format(self.ref_key))
+        s.append("  Threshold: {}".format(self.threshold))
+        s.append("  Deadband: {}".format(self.deadband))
+        s.append("  Arm On Capture: {}".format("Yes" if self.arm_on_capture else "No"))
+        return "\n".join(s)
+
+
 class Plugin(plugin.PluginBase):
     def __init__(self, name, config, config_meta):
         super(Plugin, self).__init__(name, config, config_meta)
@@ -196,12 +282,16 @@ class Plugin(plugin.PluginBase):
         # This directory of functions are functions that aggregate a list
         # of inputs and produce a single output.
         for item in self.config["items"]:
-            i = AnnunciateItem(self, self.config["defaults"], item)
+            if "deviation_from" in item:
+                i = DeviationItem(self, item)
+            else:
+                i = AnnunciateItem(self, self.config["defaults"], item)
             self.items.append(i)
 
     def stop(self):
         for item in self.items:
-            self.db_callback_del(item.key, item.evaluate)
+            for key in item.callbacks():
+                self.db_callback_del(key, item.evaluate)
 
     def get_status(self):
         """The get_status method should return a dict or OrderedDict that
