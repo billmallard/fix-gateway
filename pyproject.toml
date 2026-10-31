@@ -44,6 +44,9 @@ dependencies = [
     "pyyaml==6.0.2",
     "pyserial==3.5",
     "pymavlink==2.4.42",
+    # DroneCAN-in plugin.  Pinned exactly: the plugin supplies its own CAN
+    # driver against this version's AbstractDriver contract.
+    "dronecan==1.0.27",
     "pynmea2==1.19.0",
     "numpy>=1.26.4",
     "tables>=3.9.2",
