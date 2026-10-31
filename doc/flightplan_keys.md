@@ -251,6 +251,7 @@ circuit/turn; `HA` exits automatically once the coded altitude is reached.
 | Key | Type | Range | Meaning |
 |---|---|---|---|
 | `FPLSTATE` | int | 0 NONE, 1 LEG, 2 DIRECT, 3 SUSP | Engine state |
+| `FPLSUSPMAP` | int | 0/1 | Suspended at the MAP (G49): 1 only while `FPLSTATE = 3` is the MAP auto-suspend, where `FPLCMD RESUME` flies the missed approach (`FPLAPR` -> 3). 0 for any other state, including a pilot `SUSP` past the MAP (held from before the MAP, or after a missed with no MAHP leg), where RESUME only un-suspends. A display shows "Fly the missed" on 1 and "Resume" otherwise; with the key absent (older gateway) it shows "Resume" |
 | `FPLACTLEG` | int | 0..100 | Slot of the TO waypoint, 0 = none |
 | `FPLPHASE` | str | `ENR` / `TERM` / `LNAV` / `LOI` / `VECTORS` / `HOLD` / `PTURN` / `0.30 NM` / `1.00 NM` / `""` | Flight-phase annunciation. `VECTORS` (PA4, guardrail 4) wins over everything else while the active leg is `VA`/`VM`/`FM`/`VI` -- `FPLSTATE` is also forced to `SUSP` and `FPLCRS`/`FPLXTK`/`FPLCDI`/`WPDIS`/`WPETE`/`FPLREMDIS`/`FPLREMETE` all read 0 (the box invents no heading, and no distance to one either). `HOLD` (PA13) shows while flying a published `HM`/`HF`/`HA` circuit, `PTURN` while flying a `PI` procedure turn -- both keep live course/cross-track guidance, unlike `VECTORS` |
 | `FPLAPR` | int | 0 none, 1 armed, 2 active, 3 missed | Approach state |
