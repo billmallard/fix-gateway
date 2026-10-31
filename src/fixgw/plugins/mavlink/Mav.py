@@ -247,11 +247,11 @@ class Mav:
                     "GPS_ACCURACY_SPEED", round(msg.vel_acc * 0.0019438445, 2)
                 )  # int32 mm/s to knots Docs just sa "mm" I assumed/sec
                 self.parent.db_write(
-                    "GPS_ACCURACY_HORIZ", round(msg.h_acc / 3048, 2)
-                )  # / 3.048,2)) # int32 mm to ft
+                    "GPS_ACCURACY_HORIZ", round(msg.h_acc / 304.8, 2)
+                )  # uint32 mm to ft
                 self.parent.db_write(
-                    "GPS_ACCURACY_VERTICAL", round(msg.v_acc / 3048, 2)
-                )  # / 3.048,2)) # int mm to ft
+                    "GPS_ACCURACY_VERTICAL", round(msg.v_acc / 304.8, 2)
+                )  # uint32 mm to ft
 
         elif msg_type == "GLOBAL_POSITION_INT":
             if self._ahrs:
