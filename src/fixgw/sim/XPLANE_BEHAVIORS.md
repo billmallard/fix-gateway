@@ -46,7 +46,9 @@ Unless an entry says otherwise:
 - **Avionics:** the G1000. The bench aircraft are the Cirrus SR22 (G1000)
   by default and the Cessna 172 SP (G1000) on request (AER-4072, comment
   2e4803cc). No GNS 530 or default-FMS aircraft has been flown on the bench.
-- **Nav data:** X-Plane's own, cycle 2406. Our profiles pin 2611 (XPB-015).
+- **Nav data:** through 2026-10-30, X-Plane's default data, cycle 2406. From
+  2026-10-31, a different provider's cycle 2611 in `Custom Data` (XPB-021).
+  Our profiles pin FAA CIFP 2611 (XPB-015).
 - **Sessions:**
   - `cbbeafe57646`: the FP8 session 2 recording, 2026-10-29 05:32Z, SR22, pilotless sim bench. The trace and the bench bus log are committed in `tests/sim/fixtures/` (README there).
   - AER-809 session 1: 2026-10-28, flown by Bill at the sim. No session id. The aircraft is not recorded.
@@ -75,6 +77,7 @@ Unless an entry says otherwise:
 | [XPB-018](#xpb-018) | Autopilot command semantics: heading-bug writes, `alt_vs`, servo drops | `interface` |
 | [XPB-019](#xpb-019) | Pause and unpause lag after launch, and the start flips a preference | `interface` |
 | [XPB-020](#xpb-020) | LAT holds its value on east-west legs while the stream is alive | `interface` |
+| [XPB-021](#xpb-021) | X-Plane's nav data provider changed on 2026-10-31 | `interface` |
 
 ---
 
@@ -308,7 +311,7 @@ Unless an entry says otherwise:
   - Session `ae4d2057bd45` failed at t=0 with `KeyError: 'KSSF R28'`. The driver looks the approach up in X-Plane's own nav data, cycle 2406, which has no `R28` at KSSF. The profile pins 2611.
   - Every session reports the cycle mismatch, which is not fatal by itself (`processes/sim_bench.md`).
   - For FP8 the KSMX R30 fixes are identical in both cycles (AER-809).
-  - Updating X-Plane's nav data is Bill's call (AER-4219).
+  - Bill installed cycle 2611 in `Custom Data` on 2026-10-31, which has the KSSF `R28` approach (AER-4219, comment 9fb5ad1e). KSSF is resubmitted as `acdbb0757fca`. The provider changed with it (XPB-021).
 - **Relied on by:**
   - `tests/sim/fixtures/README.md:10` (the FP8 recording flew cycle 2406).
   - `src/fixgw/sim/profiles/qa1-missed-coded-turn-kssf-r28.yaml`, whose tier-SIM check waits on this.
@@ -363,6 +366,30 @@ Unless an entry says otherwise:
   - In the 4 longer gaps (4.5 to 65 s), LONG, attitude and speeds kept changing.
   - The plugin writes LAT on every inbound packet whether or not it changed, so these gaps cannot trip the 2 s staleness bound.
 - **Relied on by:** the 2 s `LAT`/`LONG` tol (fix-gateway#73) and the engine's 2 s bound from the position write (fix-gateway#58). Both assume the plugin keeps writing unchanged values.
+
+### XPB-021
+
+**X-Plane's nav data provider changed on 2026-10-31.**
+
+- **Class:** `interface` (nav data).
+- **Observed** (AER-4219, comment 9fb5ad1e, 2026-10-31, written from Bill's account; AER-4344, comment 65257214):
+  - Through 2026-10-30, sessions ran on X-Plane's default data: Navigraph (source Jeppesen), cycle 2406. That includes `cbbeafe57646`, the committed FP8 recording.
+  - From 2026-10-31, they run on XPNavData (APPEED, source KEYVAN Aviation), cycle 2611 revision 1, installed in `Custom Data`. The driver prefers `Custom Data` and starts X-Plane fresh for each session, so every later session uses it.
+  - Sessions before and after that date are on different providers, not only different cycles.
+- **What it means for a disagreement.** A cross-tier disagreement at a single fix may come from how the provider processed the record, or from the watermarking the package says it may carry. It is not necessarily navigator behavior. Before such a disagreement is classified under any other entry:
+  - compare X-Plane's behavior against the FAA CIFP coding of that fix or leg;
+  - check which provider and cycle the session reports (`xplane_nav_cycle` in the session result).
+
+  Where X-Plane's path differs from the FAA coding and the provider may have coded it differently, the FMS question is inconclusive until that is ruled out. QA reads KSSF that way (AER-4219, comment c3340e36).
+- **Licence boundary.** The provider's data is licensed for personal flight simulation only. Its terms forbid copying it or using it as a source for another database, product or service.
+  - This register, the fixtures and the issues may name the provider and cycle.
+  - They must never quote or reproduce its records: no fix coordinates, no procedure legs, no file excerpts.
+  - Recorded instrument outputs from a session (`truth.jsonl`, timeline, result) may be kept.
+  - Where an entry needs a value, take it from the FAA CIFP, which is public domain.
+- **Reference:** not applicable; this is the sim's data source.
+- **Relied on by:**
+  - `tests/sim/fixtures/README.md:10` (the FP8 recording, cycle 2406, default data).
+  - Any recording committed from a session flown on or after 2026-10-31 must name its provider and cycle in that README.
 
 ---
 
