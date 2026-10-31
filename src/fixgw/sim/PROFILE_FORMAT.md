@@ -272,8 +272,8 @@ own trajectory and X-Plane's navigator as the expected values. A recording
 names its `profile` (for the route) and its `trace`, and carries its own
 `checks:` in the format above. The profile's checks are written against the
 synthetic reference, and X-Plane is a different navigator. It sequences
-earlier, holds its own way, and has no `REF*` keys. So the recording's
-checks use the keys the bench writes X-Plane's navigator to:
+earlier (XPB-001), holds its own way (XPB-004), and has no `REF*` keys. So
+the recording's checks use the keys the bench writes X-Plane's navigator to:
 
 | Key | From the trace |
 |---|---|
@@ -284,6 +284,12 @@ checks use the keys the bench writes X-Plane's navigator to:
 
 `tests/sim/test_fp8_bench_bus.py` checks that mapping against the bench's
 own bus log of the same flight. See `tests/sim/fixtures/README.md`.
+
+**Every place X-Plane differs from real avionics, from our engine or from the
+synthetic reference is entered in `XPLANE_BEHAVIORS.md`** beside this file,
+classified and with its evidence. A recording's skip or tolerance cites its
+`XPB-NNN` entry. A new disagreement goes in there as `unknown` before any
+check, tolerance or engine code is changed to fit it.
 
 ## Running it
 
