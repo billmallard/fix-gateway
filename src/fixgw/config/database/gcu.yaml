@@ -1,0 +1,34 @@
+# Open GCU contract keys (pyEfis docs/gcu_design.md).
+#
+# These lived in custom.yaml until fix-gateway#42. custom.yaml is the user's
+# file and is never replaced once edited, so an install that predates the GCU
+# work never received them and had to hand-add them (seen on the Pi 5 bench,
+# AER-3915). Here they ship with the software and arrive on update like every
+# other database file. An older custom.yaml that still defines either key is
+# harmless: custom.yaml is included after this file, and the later definition
+# wins.
+#
+# ALTSEL mirrors CAN-FIX parameter 461 (0x1CD) "Selected Altitude" (DINT, ft,
+# -1000 to 60000); canfix/map.yaml sends it. The annunciate plugin sets its
+# annunciate flag when ALT deviates from it by more than a configured
+# threshold (connections/annunciate.yaml; pyEfis EFIS-ALTSEL-005/-009/-010).
+
+items:
+
+# Selected altitude (altitude bug). Any FIX client may write it: the gcu
+# mapper on a knob step, pyEfis from the tape box (pyEfis #310).
+- key: ALTSEL
+  description: "Selected Altitude"
+  type: int
+  min: -1000
+  max: 60000
+  units: ft
+  initial: 3000
+
+# GCU edit focus: which set-point the control-head knobs currently drive.
+# Written ONLY by the gcu mapper; displays subscribe to annunciate focus.
+# Values: NONE, BARO, HDG, CRS, ALT (extensible).
+- key: GCUSEL
+  description: "GCU Edit Focus"
+  type: str
+  initial: "NONE"
