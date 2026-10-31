@@ -1,5 +1,4 @@
-# DroneCAN test mapfile.  MAGX/MAGY/MAGZ are added to the test database by
-# the mag_keys fixture; they are not shipped keys.
+# DroneCAN test mapfile.
 ignore_fixid_missing: false
 
 inputs:

@@ -323,13 +323,13 @@ def test_unknown_top_level_key_warns(tmp_path, database):
 # --- dispatch ------------------------------------------------------------
 
 
-def test_mag_vector_written(tmp_path, mag_keys):
+def test_mag_vector_written(tmp_path, database):
     m = make_mapping(tmp_path, MAG_MAP)
     deliver(m, MAG2(sensor_id=0, magnetic_field_ga=[0.21, -0.05, 0.4]))
     # float16 on the wire: ~3 significant digits
-    assert mag_keys.read("MAGX")[0] == pytest.approx(0.21, abs=1e-3)
-    assert mag_keys.read("MAGY")[0] == pytest.approx(-0.05, abs=1e-3)
-    assert mag_keys.read("MAGZ")[0] == pytest.approx(0.4, abs=1e-3)
+    assert database.read("MAGX")[0] == pytest.approx(0.21, abs=1e-3)
+    assert database.read("MAGY")[0] == pytest.approx(-0.05, abs=1e-3)
+    assert database.read("MAGZ")[0] == pytest.approx(0.4, abs=1e-3)
     assert m.write_count == 3
     assert m.transfer_count == 1
 
@@ -354,10 +354,10 @@ inputs:
     assert database.read("OAT")[0] == pytest.approx(15.1, abs=0.15)
 
 
-def test_where_guard_filters(tmp_path, mag_keys):
+def test_where_guard_filters(tmp_path, database):
     m = make_mapping(tmp_path, MAG_MAP)
     deliver(m, MAG2(sensor_id=1, magnetic_field_ga=[0.3, 0.3, 0.3]))
-    assert mag_keys.read("MAGX")[0] == 0.0
+    assert database.read("MAGX")[0] == 0.0
     assert m.filtered_count == 1
     assert m.write_count == 0
 
@@ -503,31 +503,31 @@ inputs:
         (dc_mapping.HEALTH_CRITICAL, True),
     ],
 )
-def test_sender_health_sets_bad(tmp_path, mag_keys, health, bad):
+def test_sender_health_sets_bad(tmp_path, database, health, bad):
     m = make_mapping(tmp_path, MAG_MAP)
     m.node_health[42] = health
     deliver(m, MAG2(sensor_id=0, magnetic_field_ga=[0.2, 0.0, 0.4]), node=42)
     for key in ("MAGX", "MAGY", "MAGZ"):
-        assert mag_keys.get_raw_item(key).bad is bad
+        assert database.get_raw_item(key).bad is bad
     # the value is still written: bad is a flag, not a gate
-    assert mag_keys.read("MAGX")[0] == pytest.approx(0.2, abs=1e-3)
+    assert database.read("MAGX")[0] == pytest.approx(0.2, abs=1e-3)
 
 
-def test_bad_clears_when_sender_recovers(tmp_path, mag_keys):
+def test_bad_clears_when_sender_recovers(tmp_path, database):
     m = make_mapping(tmp_path, MAG_MAP)
     m.node_health[42] = dc_mapping.HEALTH_ERROR
     deliver(m, MAG2(sensor_id=0, magnetic_field_ga=[0.2, 0.0, 0.4]))
-    assert mag_keys.get_raw_item("MAGX").bad is True
+    assert database.get_raw_item("MAGX").bad is True
     m.node_health[42] = dc_mapping.HEALTH_OK
     deliver(m, MAG2(sensor_id=0, magnetic_field_ga=[0.2, 0.0, 0.4]))
-    assert mag_keys.get_raw_item("MAGX").bad is False
+    assert database.get_raw_item("MAGX").bad is False
 
 
-def test_unknown_sender_health_is_not_bad(tmp_path, mag_keys):
+def test_unknown_sender_health_is_not_bad(tmp_path, database):
     # A node whose NodeStatus has not been seen yet is not presumed bad.
     m = make_mapping(tmp_path, MAG_MAP)
     deliver(m, MAG2(sensor_id=0, magnetic_field_ga=[0.2, 0.0, 0.4]), node=99)
-    assert mag_keys.get_raw_item("MAGX").bad is False
+    assert database.get_raw_item("MAGX").bad is False
 
 
 def test_database_rejection_counted(tmp_path, database):

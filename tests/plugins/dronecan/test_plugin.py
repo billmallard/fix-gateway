@@ -67,7 +67,7 @@ def start_plugin(cc, cc_meta):
 
 
 @pytest.fixture
-def plugin(mag_keys):
+def plugin(database):
     obj = start_plugin(*make_config())
     yield obj
     obj.pl.stop()
@@ -247,7 +247,7 @@ def test_anonymous_plugin_transmits_nothing(plugin, database):
         listener.shutdown()
 
 
-def test_node_id_publishes_only_nodestatus(mag_keys):
+def test_node_id_publishes_only_nodestatus(database):
     obj = start_plugin(*make_config("node_id: 100"))
     listener = can.Bus(obj.pl.channel, interface="virtual")
     try:
@@ -269,7 +269,7 @@ def test_node_id_publishes_only_nodestatus(mag_keys):
         obj.bus.shutdown()
 
 
-def test_node_created_on_plugin_thread(mag_keys, monkeypatch):
+def test_node_created_on_plugin_thread(database, monkeypatch):
     made = []
     real = dc_plugin.make_node
 
@@ -306,7 +306,7 @@ class DyingNode:
         self.closed = True
 
 
-def test_repeated_driver_errors_reopen_the_node(mag_keys, monkeypatch):
+def test_repeated_driver_errors_reopen_the_node(database, monkeypatch):
     nodes = []
 
     def dying(driver, node_id):
@@ -330,7 +330,7 @@ def test_repeated_driver_errors_reopen_the_node(mag_keys, monkeypatch):
         pl.stop()
 
 
-def test_open_failure_is_retried(mag_keys, monkeypatch):
+def test_open_failure_is_retried(database, monkeypatch):
     calls = []
 
     def broken(driver, node_id):
@@ -383,7 +383,7 @@ class FakeAllocator:
         self.closed = True
 
 
-def test_allocator_constructed_and_closed(mag_keys, monkeypatch, tmp_path):
+def test_allocator_constructed_and_closed(database, monkeypatch, tmp_path):
     FakeMonitor.instances.clear()
     FakeAllocator.instances.clear()
     monkeypatch.setattr(dc_plugin, "NodeMonitor", FakeMonitor)
@@ -415,20 +415,20 @@ def test_allocator_constructed_and_closed(mag_keys, monkeypatch, tmp_path):
         ("allocator: 'yes'", "true or false"),
     ],
 )
-def test_config_validation(mag_keys, extra, why):
+def test_config_validation(database, extra, why):
     cc, meta = make_config(extra)
     with pytest.raises(ValueError, match=why):
         dc_plugin.Plugin("dronecan", cc, meta)
 
 
-def test_missing_mapfile_raises(mag_keys):
+def test_missing_mapfile_raises(database):
     cc, meta = make_config()
     cc["mapfile"] = "no_such_map.yaml"
     with pytest.raises(ValueError):
         dc_plugin.Plugin("dronecan", cc, meta)
 
 
-def test_stop_failure_raises_pluginfail(mag_keys):
+def test_stop_failure_raises_pluginfail(database):
     cc, meta = make_config()
     pl = dc_plugin.Plugin("dronecan", cc, meta)
 
@@ -448,11 +448,16 @@ def test_stop_failure_raises_pluginfail(mag_keys):
 
 
 def test_shipped_configs_load(database):
-    # The shipped mapfile must validate (all entries commented out until
-    # their keys are ratified / bench-checked), and the connection yaml
-    # must ship with load: no.
+    # The shipped mapfile must validate against the shipped database with
+    # only the magnetometer live (the other examples stay commented out:
+    # possible second writer, or not bench-checked), and the connection
+    # yaml must ship with load: no.
     m = dc_mapping.Mapping("src/fixgw/config/dronecan/map.yaml")
-    assert m.inputs == {}
+    assert list(m.inputs) == ["uavcan.equipment.ahrs.MagneticFieldStrength2"]
+    fields = m.inputs["uavcan.equipment.ahrs.MagneticFieldStrength2"]["entries"][0][
+        "fields"
+    ]
+    assert [f["fixid"] for f in fields] == ["MAGX", "MAGY", "MAGZ"]
     with open("src/fixgw/config/connections/dronecan.yaml") as f:
         conn = cfg.from_yaml(f.read())
     assert conn["dronecan"]["load"] is False
@@ -460,7 +465,7 @@ def test_shipped_configs_load(database):
     assert conn["dronecan"]["allocator"] is False
 
 
-def test_shipped_commented_examples_validate(mag_keys, tmp_path):
+def test_shipped_commented_examples_validate(database, tmp_path):
     # Uncommenting the shipped examples must give a valid mapfile: proves
     # the documented field paths match the installed library's DSDL.
     with open("src/fixgw/config/dronecan/map.yaml") as f:

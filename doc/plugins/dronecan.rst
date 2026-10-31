@@ -118,12 +118,13 @@ Mapfile
   converter names as the CANaerospace plugin: ``none``, ``k2c``, ``c2f``,
   ``kpa2inhg``, ``kpa2psi``, ``mps2knots``, ``m2ft``, ``pct``.
 
-The shipped ``config/dronecan/map.yaml`` has every example commented out:
-the magnetometer keys (``MAGX``/``MAGY``/``MAGZ``) are not yet in the FIX
-database, the power and temperature keys may already have another writer
-(one key, one writer), and the GNSS example is not bench-checked.  All of
-the examples' field paths are validated against the library's DSDL by the
-test suite.
+The shipped ``config/dronecan/map.yaml`` maps sensor 0 of
+``MagneticFieldStrength2`` to ``MAGX``/``MAGY``/``MAGZ``: raw field in
+gauss, uncalibrated, in the frame the sensor reports, written by this plugin
+only.  The other examples are commented out: the power and temperature keys
+may already have another writer (one key, one writer), and the GNSS example
+is not bench-checked.  All of the examples' field paths are validated
+against the library's DSDL by the test suite.
 
 Data quality
 ------------
@@ -195,8 +196,9 @@ Bench check (manual, not CI)
    set ``node_id: 100`` and ``allocator: true``, restart fix-gateway, and
    watch the log for the allocation and the ``Nodes`` table for the new
    node.
-3. Uncomment the magnetometer block in the mapfile (once the MAG keys
-   exist), restart, and rotate the sensor: ``fixgwc`` should show
+3. Restart with the shipped mapfile (if the sensor publishes a
+   ``sensor_id`` other than 0, change the ``where`` guard) and rotate the
+   sensor: ``fixgwc`` should show
    ``MAGX``/``MAGY``/``MAGZ`` moving, the horizontal magnitude staying
    roughly constant through a level 360.
 4. Leave an unrelated DroneCAN device (an ESC, a GNSS) chattering on the

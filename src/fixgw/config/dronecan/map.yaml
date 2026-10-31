@@ -1,10 +1,8 @@
 # DroneCAN -> FIX mapping.
 #
-# Every entry below is commented out ON PURPOSE:
+# Only the magnetometer block is live (MAGX/MAGY/MAGZ, ratified 2026-10-31;
+# nothing else writes them).  The rest is commented out ON PURPOSE:
 #
-#   * The magnetometer block writes MAGX/MAGY/MAGZ, which do not exist in
-#     the FIX database yet.  Those keys are a FIX-contract change awaiting
-#     ratification; uncomment the block when they land in ahrs.yaml.
 #   * The power and temperature blocks write keys (VOLT, CURRNT, OAT) that
 #     other plugins may already own.  One key, one writer: uncomment an
 #     entry only if no other enabled plugin writes that key.
@@ -30,12 +28,12 @@ inputs:
   # Magnetometer: uavcan.equipment.ahrs.MagneticFieldStrength2 (1002),
   # body-frame field in gauss.  Written as received; calibration and
   # tilt-compensated heading belong to a compute stage, not this bridge.
-  # - message: uavcan.equipment.ahrs.MagneticFieldStrength2
-  #   where: { sensor_id: 0 }
-  #   fields:
-  #     - { path: "magnetic_field_ga[0]", fixid: MAGX }
-  #     - { path: "magnetic_field_ga[1]", fixid: MAGY }
-  #     - { path: "magnetic_field_ga[2]", fixid: MAGZ }
+  - message: uavcan.equipment.ahrs.MagneticFieldStrength2
+    where: { sensor_id: 0 }
+    fields:
+      - { path: "magnetic_field_ga[0]", fixid: MAGX }
+      - { path: "magnetic_field_ga[1]", fixid: MAGY }
+      - { path: "magnetic_field_ga[2]", fixid: MAGZ }
 
   # Power monitor: uavcan.equipment.power.CircuitStatus (1091), V and A.
   # - message: uavcan.equipment.power.CircuitStatus
