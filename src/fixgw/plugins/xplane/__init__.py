@@ -32,6 +32,7 @@ Config schema (``connections/xplane.yaml``):
         udp_in:  49001           # local UDP port we receive on
         udp_out: 49000           # X-Plane's "port we receive on" (commands)
         send_interval: 0.1       # seconds between FIX -> X-Plane bursts
+        rref_resubscribe: 5.0    # seconds between RREF subscription re-sends
 
         # X-Plane -> FIX. Eight slots per index. ``_`` / ``x`` / blank skip.
         recv:
@@ -50,6 +51,7 @@ honoured and treated as ``send`` mappings (matching the old plugin's
 behaviour).
 """
 import threading
+import time
 import socket
 import select
 import struct
@@ -198,9 +200,12 @@ class MainThread(threading.Thread):
         # source isn't blasted at the loop rate.
         self.dref_writes = dict(cfg.get("dataref_writes", {}))
         self._dref_last = {}
-        # Re-send subscriptions every ~5s so they survive an X-Plane (re)start
-        # or a lost subscribe packet, expressed in select-loop iterations.
-        self._resub_every = max(1, int(5.0 / self.send_interval))
+        # Re-send subscriptions every rref_resubscribe seconds so they survive
+        # an X-Plane (re)start or a lost subscribe packet. X-Plane treats a
+        # repeat subscription to the same index as a no-op. Kept unconditional
+        # rather than gated on silence: one lost subscribe packet leaves one
+        # dataref dark while the rest stream, which silence never detects.
+        self.rref_resubscribe = float(cfg.get("rref_resubscribe", 5.0))
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("0.0.0.0", self.udp_in))
@@ -354,7 +359,9 @@ class MainThread(threading.Thread):
     def run(self):
         if self.dataref_map:
             self.subscribe_datarefs(self.dataref_hz)
-        loops = 0
+        # Wall clock, not loop passes: every received packet is a pass, so a
+        # pass count shrinks the interval as the link gets busier.
+        next_resub = time.monotonic() + self.rref_resubscribe
         while not self.getout:
             ready, _, _ = select.select(
                 [self.sock], [], [], self.send_interval)
@@ -372,9 +379,9 @@ class MainThread(threading.Thread):
                 self.senddata()
             if self.dref_writes:
                 self.senddref()
-            loops += 1
-            if self.dataref_map and loops % self._resub_every == 0:
+            if self.dataref_map and time.monotonic() >= next_resub:
                 self.subscribe_datarefs(self.dataref_hz)   # survive X-Plane restart
+                next_resub = time.monotonic() + self.rref_resubscribe
 
     def stop(self):
         self.getout = True
