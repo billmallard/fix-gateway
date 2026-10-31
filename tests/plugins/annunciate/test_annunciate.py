@@ -11,6 +11,7 @@ Coverage:
   - Conditional bypass: flag clears when a bypass condition is met
     (also verifies the annunicate→annunciate typo fix on the bypass path)
   - Start bypass: no annunciation until value first rises above low setpoint
+  - start_bypass: no (YAML False) does not arm the start latch
   - stop(): callbacks removed, flag no longer updated after shutdown
   - get_status(): item count reported correctly
 """
@@ -217,6 +218,15 @@ class TestAnnunciatePlugin(unittest.TestCase):
 
         database.write("OILP1", 60.0)          # above low → latch released
         database.write("OILP1", 5.0)           # now below low again
+        self.assertTrue(p.items[0].item.annunciate)
+
+    def test_start_bypass_no_does_not_latch(self):
+        # YAML parses "start_bypass: no" as False.  That must disable the
+        # latch: a value already below its low limit at startup (low fuel
+        # at a gateway restart) has to annunciate at once.
+        p = _make_plugin([{"key": "OILP1", "start_bypass": False}])
+        self.assertFalse(p.items[0].start_bypass_latch)
+        database.write("OILP1", 5.0)
         self.assertTrue(p.items[0].item.annunciate)
 
     def test_none_low_alarm_falls_back_to_minimum_for_start_bypass_and_low_latch(self):

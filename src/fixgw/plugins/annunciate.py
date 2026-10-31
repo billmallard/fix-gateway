@@ -104,7 +104,8 @@ class AnnunciateItem(object):
                     )
                 )
             self.cond_value = self.cond_item.dtype(tokens[2])
-        self.start_bypass_latch = self.start_bypass is not None
+        # YAML gives start_bypass: no as False, which must not arm the latch
+        self.start_bypass_latch = bool(self.start_bypass)
         self.low_latch = False
         self.high_latch = False
 
