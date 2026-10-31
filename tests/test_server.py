@@ -321,6 +321,72 @@ def test_main_setup_uses_default_config_copy_when_no_config_file_is_provided(tmp
     assert server.config_path == f"{tmp_path}/makerplane/fixgw/config"
 
 
+def run_main_setup_with_config_file(config_file):
+    config = {"database file": "{CONFIG}/db.yaml", "connections": {}}
+    args = make_args(config_file=open(config_file))
+    with (
+        patch.object(
+            argparse.ArgumentParser, "parse_known_args", return_value=(args, [])
+        ),
+        patch("fixgw.server.create_config_dir") as create_config_dir,
+        patch("fixgw.server.cfg.from_yaml", return_value=(config, {"connections": {}})),
+        patch("fixgw.server.database.init"),
+        patch("fixgw.server.database.write"),
+        patch("fixgw.server.status.initialize"),
+        patch("fixgw.server.signal.signal"),
+        patch("fixgw.server.logging.getLogger", return_value=MagicMock()),
+        patch("fixgw.server.logging.basicConfig"),
+    ):
+        try:
+            server.main_setup()
+        finally:
+            args.config_file.close()
+    return create_config_dir
+
+
+def test_main_setup_updates_config_dir_when_config_file_is_in_it(tmp_path, monkeypatch):
+    # The shipped systemd unit passes --config-file naming the default file;
+    # that install must still receive new and updated config files (#92).
+    config_dir = tmp_path / "makerplane" / "fixgw" / "config"
+    write_preferences(config_dir)
+    config_file = make_config_file(config_dir)
+    monkeypatch.setattr(server, "user_home", str(tmp_path))
+
+    create_config_dir = run_main_setup_with_config_file(config_file)
+
+    create_config_dir.assert_called_once_with(f"{tmp_path}/makerplane/fixgw")
+    assert server.config_path == str(config_dir)
+
+
+def test_main_setup_updates_config_dir_through_a_symlinked_path(tmp_path, monkeypatch):
+    config_dir = tmp_path / "home" / "makerplane" / "fixgw" / "config"
+    write_preferences(config_dir)
+    make_config_file(config_dir)
+    (tmp_path / "link").symlink_to(tmp_path / "home")
+    monkeypatch.setattr(server, "user_home", str(tmp_path / "home"))
+
+    create_config_dir = run_main_setup_with_config_file(
+        tmp_path / "link" / "makerplane" / "fixgw" / "config" / "default.yaml"
+    )
+
+    create_config_dir.assert_called_once_with(f"{tmp_path}/home/makerplane/fixgw")
+
+
+def test_main_setup_leaves_config_dir_alone_for_a_config_file_elsewhere(tmp_path, monkeypatch):
+    other_dir = tmp_path / "elsewhere"
+    write_preferences(other_dir)
+    config_file = make_config_file(other_dir)
+    # A sibling whose name merely starts with "config" is not the config dir
+    sibling_dir = tmp_path / "makerplane" / "fixgw" / "config-old"
+    write_preferences(sibling_dir)
+    sibling_file = make_config_file(sibling_dir)
+    monkeypatch.setattr(server, "user_home", str(tmp_path))
+
+    assert not run_main_setup_with_config_file(config_file).called
+    assert not run_main_setup_with_config_file(sibling_file).called
+    assert server.config_path == str(sibling_dir)
+
+
 def test_main_setup_exits_under_systemd_when_auto_start_disabled(tmp_path):
     config_file = make_config_file(tmp_path)
     write_preferences(tmp_path)
