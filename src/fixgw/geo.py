@@ -149,6 +149,63 @@ def destination_point(lat_deg, lon_deg, bearing_deg_, distance_nm):
     return math.degrees(lat2), (math.degrees(lon2) + 540.0) % 360.0 - 180.0
 
 
+WGS84_A_M = 6378137.0
+WGS84_F = 1.0 / 298.257223563
+M_PER_NM = 1852.0
+
+
+def destination_point_wgs84(lat_deg, lon_deg, bearing_deg_, distance_nm):
+    """destination_point on the WGS-84 ellipsoid: the end of the geodesic
+    from (lat_deg, lon_deg) on initial azimuth bearing_deg_ (degrees true)
+    for distance_nm. Vincenty's direct formula (Survey Review 23:176,
+    1975), which converges for every direct problem and agrees with
+    GeographicLib to well under a millimetre at the distances a procedure
+    constructs (asserted in tests/test_geo.py).
+
+    For a point built far from the fix and then turned around: a hold's
+    turn-in point is the coded leg length out, and the sphere puts it up to
+    0.05 nm off (11 nm leg, 18N). On a 0.6 nm turn radius that swings the
+    tangent at the aircraft by several degrees (fix-gateway, AER-4218).
+    Bearings and distances measured between points stay spherical: between
+    points this close the sphere's azimuth is within 0.18 deg of WGS-84's."""
+    a = WGS84_A_M
+    f = WGS84_F
+    b = a * (1.0 - f)
+    s = distance_nm * M_PER_NM
+    alpha1 = math.radians(bearing_deg_)
+    sin_a1, cos_a1 = math.sin(alpha1), math.cos(alpha1)
+    tan_u1 = (1.0 - f) * math.tan(math.radians(lat_deg))
+    cos_u1 = 1.0 / math.sqrt(1.0 + tan_u1 * tan_u1)
+    sin_u1 = tan_u1 * cos_u1
+    sigma1 = math.atan2(tan_u1, cos_a1)
+    sin_alpha = cos_u1 * sin_a1
+    cos2_alpha = 1.0 - sin_alpha * sin_alpha
+    u2 = cos2_alpha * (a * a - b * b) / (b * b)
+    big_a = 1.0 + u2 / 16384.0 * (4096.0 + u2 * (-768.0 + u2 * (320.0 - 175.0 * u2)))
+    big_b = u2 / 1024.0 * (256.0 + u2 * (-128.0 + u2 * (74.0 - 47.0 * u2)))
+    sigma = s / (b * big_a)
+    for _ in range(100):
+        cos_2sm = math.cos(2.0 * sigma1 + sigma)
+        sin_s, cos_s = math.sin(sigma), math.cos(sigma)
+        d_sigma = big_b * sin_s * (cos_2sm + big_b / 4.0 * (
+            cos_s * (-1.0 + 2.0 * cos_2sm * cos_2sm)
+            - big_b / 6.0 * cos_2sm * (-3.0 + 4.0 * sin_s * sin_s) * (-3.0 + 4.0 * cos_2sm * cos_2sm)))
+        prev, sigma = sigma, s / (b * big_a) + d_sigma
+        if abs(sigma - prev) < 1e-12:
+            break
+    cos_2sm = math.cos(2.0 * sigma1 + sigma)
+    sin_s, cos_s = math.sin(sigma), math.cos(sigma)
+    tmp = sin_u1 * sin_s - cos_u1 * cos_s * cos_a1
+    lat2 = math.atan2(sin_u1 * cos_s + cos_u1 * sin_s * cos_a1,
+                      (1.0 - f) * math.sqrt(sin_alpha * sin_alpha + tmp * tmp))
+    lam = math.atan2(sin_s * sin_a1, cos_u1 * cos_s - sin_u1 * sin_s * cos_a1)
+    c = f / 16.0 * cos2_alpha * (4.0 + f * (4.0 - 3.0 * cos2_alpha))
+    big_l = lam - (1.0 - c) * f * sin_alpha * (
+        sigma + c * sin_s * (cos_2sm + c * cos_s * (-1.0 + 2.0 * cos_2sm * cos_2sm)))
+    lon2 = math.radians(lon_deg) + big_l
+    return math.degrees(lat2), (math.degrees(lon2) + 540.0) % 360.0 - 180.0
+
+
 def desired_track_true(from_lat, from_lon, to_lat, to_lon, ac_lat, ac_lon):
     """DTK: the true bearing from the aircraft's along-track projection on
     the leg from_->to_ to the TO waypoint (FP2, fix-gateway#23) -- not the

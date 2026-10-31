@@ -28,8 +28,9 @@ _END = {"after_event", "max_s"}
 _CHECK_KINDS = {"key_pair", "sequence", "flagged"}
 _CHECK_KEYS = {"key_pair", "sequence", "flagged", "keys", "tol", "tol_deg", "tol_rel", "same_sign",
                "except_s_around_sequence", "skip_when", "after_s", "note", "unless_flagged",
-               "tolerate_s", "while_no_fix", "within_s", "clear_within_s", "around_keys"}
-_DO = ("offset_nm", "hold_min", "gps_loss_s")
+               "tolerate_s", "while_no_fix", "while_silent", "within_s", "clear_within_s", "around_keys",
+               "skip_when_silent"}
+_DO = ("offset_nm", "hold_min", "gps_loss_s", "gps_link_loss_s", "gps_status_loss_s", "gps_position_loss_s")
 
 
 @dataclass
@@ -150,8 +151,18 @@ def load_profile(path, cifp_override=None):
         if "flagged" in c:
             if not isinstance(c["flagged"], list) or not c["flagged"]:
                 raise ProfileError(f"checks[{n}].flagged: a list of engine keys")
-            if c.get("while_no_fix") is not True:
-                raise ProfileError(f"checks[{n}].flagged: while_no_fix: true is the only condition so far")
+            silent = c.get("while_silent")
+            if (c.get("while_no_fix") is True) == (silent is not None):
+                raise ProfileError(f"checks[{n}].flagged: exactly one condition, while_no_fix: true "
+                                   "or while_silent: [KEY, ...]")
+            if silent is not None and (not isinstance(silent, list) or not silent):
+                raise ProfileError(f"checks[{n}].while_silent: a list of input keys")
+        if "while_silent" in c and "flagged" not in c:
+            raise ProfileError(f"checks[{n}].while_silent goes with flagged")
+        sws = c.get("skip_when_silent")
+        if sws is not None and (not isinstance(sws, dict) or not sws
+                                or not all(isinstance(v, (int, float)) for v in sws.values())):
+            raise ProfileError(f"checks[{n}].skip_when_silent: {{KEY: seconds, ...}}")
 
     return Profile(
         name=raw["name"], path=os.path.abspath(path), description=raw.get("description", ""),

@@ -739,6 +739,94 @@ def test_navsrc_select_still_lands_gps_in_course_cdi_tofrom():
     assert parent.db_get_item("TOFROM").value == 1
 
 
+def test_select_numeric_option_is_a_fresh_valid_constant():
+    # A number in a select's source list is a constant: always fresh and valid,
+    # never "never published". Existing selects (all key names) are unaffected.
+    parent = FakeParent()
+    func = compute.selectFunction(
+        ["NAVSRC", "NAV1CDIV", "NAV2CDIV", 1.0], "CDIV", require_leader=False)
+    out = parent.db_get_item("CDIV")
+    out.fail = out.old = out.bad = True
+
+    func("NAVSRC", value_tuple(2.0), parent)          # 2 = GPS -> the constant
+    assert out.value == 1.0
+    assert (out.fail, out.old, out.bad, out.secfail) == (False, False, False, False)
+
+
+def _cdiv_chain():
+    # The shipped wiring: NAV#CDIV = min(NAV#DH), CDIV = select over NAVSRC.
+    nav1 = compute.minFunction(["NAV1DH"], "NAV1CDIV", require_leader=False)
+    nav2 = compute.minFunction(["NAV2DH"], "NAV2CDIV", require_leader=False)
+    sel = compute.selectFunction(
+        ["NAVSRC", "NAV1CDIV", "NAV2CDIV", 1.0], "CDIV", require_leader=False)
+    parent = FakeParent()
+
+    def write(key, value, **flags):
+        tup = value_tuple(value, **flags)
+        if key == "NAV1DH":
+            nav1(key, tup, parent)
+            o = parent.db_get_item("NAV1CDIV")
+            sel("NAV1CDIV", (o.value, False, o.old, o.bad, o.fail, o.secfail), parent)
+        elif key == "NAV2DH":
+            nav2(key, tup, parent)
+            o = parent.db_get_item("NAV2CDIV")
+            sel("NAV2CDIV", (o.value, False, o.old, o.bad, o.fail, o.secfail), parent)
+        else:
+            sel(key, tup, parent)
+        return parent.db_get_item("CDIV")
+
+    return write
+
+
+def test_cdiv_follows_the_selected_nav_radios_lateral_signal():
+    # fix-gateway#20: LOC 1 tuned but not received (nav1_display_horizontal=0)
+    # must read CDIV=0, so the HSI stops drawing a centred needle from no signal.
+    write = _cdiv_chain()
+    write("NAV1DH", 0.0)
+    write("NAV2DH", 1.0)
+
+    cdiv = write("NAVSRC", 0.0)                       # NAV1: tuned, no signal
+    assert cdiv.value == 0.0 and cdiv.fail is False
+    cdiv = write("NAVSRC", 1.0)                       # NAV2: receiving
+    assert cdiv.value == 1.0
+
+    write("NAVSRC", 0.0)
+    cdiv = write("NAV1DH", 1.0)                       # NAV1 captures the LOC
+    assert cdiv.value == 1.0
+    cdiv = write("NAV1DH", 0.0)                       # ... and loses it
+    assert cdiv.value == 0.0
+
+
+def test_cdiv_gps_leg_is_not_gated():
+    # No GPS lateral-validity source exists, so GPS reads CDIV=1 whatever the
+    # nav radios are doing; its needle stays on GPSCDI's own quality.
+    write = _cdiv_chain()
+    write("NAV1DH", 0.0)
+    write("NAV2DH", 0.0)
+    cdiv = write("NAVSRC", 2.0)
+    assert cdiv.value == 1.0 and cdiv.fail is False
+
+
+def test_cdiv_carries_nav_dh_quality():
+    # NAV#DH going stale (X-Plane feed stopped) shows up as a stale CDIV, the
+    # same way NAV#GSV carries it.
+    write = _cdiv_chain()
+    write("NAVSRC", 0.0)
+    cdiv = write("NAV1DH", 1.0, old=True)
+    assert cdiv.old is True
+    cdiv = write("NAV1DH", 1.0, fail=True)
+    assert cdiv.fail is True and cdiv.value == 0.0
+
+
+def test_cdiv_never_published_source_fails_the_output():
+    # Selecting NAV2 when NAV2DH has never arrived is the select's honest
+    # "no source": CDIV is flagged failed rather than keeping NAV1's 1.0.
+    write = _cdiv_chain()
+    write("NAV1DH", 1.0)
+    assert write("NAVSRC", 0.0).value == 1.0
+    assert write("NAVSRC", 1.0).fail is True
+
+
 def test_xte_is_fed_gpscrs_not_course():
     # FP1: xte is re-fed GPSCRS (post-GPSSRC-select) instead of COURSE
     # (post-NAVSRC-select) so XTRACK stays correct against the active plan/

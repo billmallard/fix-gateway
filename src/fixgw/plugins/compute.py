@@ -805,6 +805,9 @@ def selectFunction(inputs, output, require_leader):
     # output, so ONE canonical key (e.g. CDI / COURSE) always carries the
     # selected source -- which the HSI display and the autopilot both read.
     # Models an EFIS nav-source selector (GPS / NAV1 / NAV2).
+    # A source option may be a number instead of a key: a constant that is
+    # always fresh and valid (e.g. CDIV's GPS slot is 1.0 because no GPS
+    # lateral-validity signal exists to route there).
     vals = {}
     for each in inputs:
         vals[each] = None
@@ -820,7 +823,11 @@ def selectFunction(inputs, output, require_leader):
             return  # no selection yet -- leave the output untouched at boot
         o = parent.db_get_item(output)
         idx = max(0, min(len(inputs) - 2, int(round(sel[0]))))
-        src = vals[inputs[idx + 1]]
+        option = inputs[idx + 1]
+        if isinstance(option, str):
+            src = vals[option]
+        else:
+            src = (float(option), False, False, False, False, False)
         if src is None:
             # The selected source has never published a value. Do NOT leave the
             # previously selected source's value showing as if it were valid --
