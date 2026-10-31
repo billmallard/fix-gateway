@@ -54,7 +54,7 @@ def test_extcdi_on_the_bus_is_xplanes_deflection_times_0p4(paired):
 
 
 def test_the_bench_never_wrote_exttf():
-    # EXTTF is in the contract but connections/xplane.yaml does not map it;
+    # XPB-008. EXTTF is in the contract but connections/xplane.yaml does not map it;
     # the gate fills it from the trace's gps_fromto. If this fails, the bench
     # maps it now: compare it with gps_fromto like EXTCRS above.
     assert {b["EXTTF"] for b in load_bench_bus()} == {"0"}
