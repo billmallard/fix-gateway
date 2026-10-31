@@ -14,23 +14,29 @@ annunciate:
 
     # No annunciation until the value first climbs above the set point
     start_bypass: no
-    # Bypasses the value on a condition
+    # Bypasses the value on a condition, or on a list of conditions that
+    # must all hold.  A condition whose input is old, bad or failed never
+    # holds, so a lost bypass sensor leaves the alarm armed.  Do not bypass
+    # an alarm on one input: a single failed sensor would silence it.
     cond_bypass: None
-    #cond_bypass: TACH1 < 1000
+    #cond_bypass: [TACH1 < 1000, IAS < 40]
     # Once triggered the annunication will not clear until the value clears
     # the setpoint plus the deadband.  This cuts down "flashing" annunications
     # that are caused by values that are very near the set point.  The value
     # can be in absolute units or in percentage of full range.
     deadband: 1%
   items:
+    # The engine alarms are bypassed only with the engine stopped AND the
+    # aircraft slow enough to be on the ground.  A tach that fails and reads
+    # 0 in flight leaves them armed (AER-4370).
     - key: OILT1
       start_bypass: yes
-      cond_bypass: TACH1 < 500
+      cond_bypass: [TACH1 < 500, IAS < 40]
       deadband: 4
 
     - key: OILP1
       start_bypass: yes
-      cond_bypass: TACH1 < 500
+      cond_bypass: [TACH1 < 500, IAS < 40]
       deadband: 2
 
     - key: CHT11
@@ -45,7 +51,7 @@ annunciate:
 
     - key: CURRNT
     - key: VOLT
-      cond_bypass: TACH1 < 500
+      cond_bypass: [TACH1 < 500, IAS < 40]
 
     - key: FUELP1
     - key: FUELQ1
