@@ -1113,7 +1113,9 @@ def test_old_bad_and_secfail_properties_and_str():
     assert item.fail is False
     assert item.min is None
     assert item.max is None
-    assert str(item) == "TEST = (1.5, False, False, True, False, True)"
+    # The value tuple carries the old flag that was set, though the item is
+    # fresh (AER-4450).
+    assert str(item) == "TEST = (1.5, False, True, True, False, True)"
 
 
 # fix-gateway#68: the secfail getter returned _fail. Set the two flags to
