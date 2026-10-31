@@ -1354,6 +1354,7 @@ def test_flight_plan_keys_exist_with_specified_types_and_ranges(database):
         "FPLCMDACK": ("int", None, None),
         "FPLMSG": ("str", None, None),
         "FPLSTATE": ("int", 0, 3),
+        "FPLSUSPMAP": ("int", 0, 1),
         "FPLACTLEG": ("int", 0, 100),
         "FPLPHASE": ("str", None, None),
         "FPLAPR": ("int", 0, 3),
