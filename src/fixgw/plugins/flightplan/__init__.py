@@ -333,6 +333,7 @@ class MainThread(threading.Thread):
         wp_ete_bad = out.get("wp_ete_bad", False)
 
         self._setval("FPLSTATE", out["state"])
+        self._setval("FPLSUSPMAP", out["susp_map"])
         self._setval("FPLACTLEG", out["act_leg"])
         self._setval("FPLPHASE", out["phase"])
         self._setval("FPLAPR", out["apr"])
