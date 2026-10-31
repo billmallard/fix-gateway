@@ -20,6 +20,13 @@ class FakeItem:
         self.secfail = False
         self.aux = {}
 
+    def set(self, value, old=None, bad=None, fail=None, secfail=None):
+        self.value = value
+        flags = {"old": old, "bad": bad, "fail": fail, "secfail": secfail}
+        for name, flag in flags.items():
+            if flag is not None:
+                setattr(self, name, flag)
+
     def get_aux_value(self, name):
         return self.aux.get(name)
 
