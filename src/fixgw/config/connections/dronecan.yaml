@@ -1,0 +1,24 @@
+# DroneCAN sensor input bridge (magnetometer, GNSS, air data, power).
+# Listen-only unless node_id is set.  Needs its OWN CAN interface or SLCAN
+# adapter: never put DroneCAN on the same physical bus as CAN-FIX (bit
+# rates and identifier spaces collide).
+dronecan:
+  load: no
+  module: fixgw.plugins.dronecan
+  # python-can options.  SocketCAN: interface socketcan, channel can1 (set
+  # the bit rate with `ip link set can1 up type can bitrate 1000000`).
+  # SLCAN USB adapter: interface slcan, channel /dev/ttyACM0 (or COM5).
+  interface: socketcan
+  channel: can1
+  # DroneCAN convention; many sensors also run 500k/250k.  Used by
+  # adapters that set their own bit rate (slcan); socketcan ignores it.
+  bitrate: 1000000
+  # node_id absent/null -> anonymous listen-only node (default posture).
+  # Set a node id (1..125) only if you enable the allocator below or a
+  # sensor requires seeing a live node to start publishing.
+  node_id: null
+  # Dynamic node-ID allocation server.  Requires node_id to be set.
+  # Turn on for factory-fresh sensors that wait for an allocator.
+  allocator: false
+  allocator_db: "{CONFIG}/dronecan/allocation.db"   # persisted allocations
+  mapfile: "{CONFIG}/dronecan/map.yaml"

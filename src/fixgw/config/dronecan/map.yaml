@@ -1,0 +1,60 @@
+# DroneCAN -> FIX mapping.
+#
+# Every entry below is commented out ON PURPOSE:
+#
+#   * The magnetometer block writes MAGX/MAGY/MAGZ, which do not exist in
+#     the FIX database yet.  Those keys are a FIX-contract change awaiting
+#     ratification; uncomment the block when they land in ahrs.yaml.
+#   * The power and temperature blocks write keys (VOLT, CURRNT, OAT) that
+#     other plugins may already own.  One key, one writer: uncomment an
+#     entry only if no other enabled plugin writes that key.
+#   * The GNSS block has not been bench-checked against a real GNSS node.
+#
+# Field names and wire units were checked against the DSDL sources shipped
+# with the dronecan library (dronecan/dsdl_specs/uavcan/...), version
+# 1.0.27.  Entry schema:
+#
+#   - message: <full DSDL type name>
+#     source_node: <1-127>      optional; only accept this sender
+#     where: {<path>: <number>} optional; equality guards, all must match
+#     fields:
+#       - path: <field>[<index>].<field>    dotted names and indices
+#         fixid: <FIX key>
+#         scale: 1.0              optional, applied first
+#         offset: 0.0             optional
+#         converter: none         optional, applied last (k2c, c2f,
+#                                 kpa2inhg, kpa2psi, mps2knots, m2ft, pct)
+ignore_fixid_missing: false
+
+inputs:
+  # Magnetometer: uavcan.equipment.ahrs.MagneticFieldStrength2 (1002),
+  # body-frame field in gauss.  Written as received; calibration and
+  # tilt-compensated heading belong to a compute stage, not this bridge.
+  # - message: uavcan.equipment.ahrs.MagneticFieldStrength2
+  #   where: { sensor_id: 0 }
+  #   fields:
+  #     - { path: "magnetic_field_ga[0]", fixid: MAGX }
+  #     - { path: "magnetic_field_ga[1]", fixid: MAGY }
+  #     - { path: "magnetic_field_ga[2]", fixid: MAGZ }
+
+  # Power monitor: uavcan.equipment.power.CircuitStatus (1091), V and A.
+  # - message: uavcan.equipment.power.CircuitStatus
+  #   where: { circuit_id: 0 }
+  #   fields:
+  #     - { path: voltage, fixid: VOLT }
+  #     - { path: current, fixid: CURRNT }
+
+  # Outside air temperature: uavcan.equipment.air_data.StaticTemperature
+  # (1029), kelvin.
+  # - message: uavcan.equipment.air_data.StaticTemperature
+  #   fields:
+  #     - { path: static_temperature, fixid: OAT, converter: k2c }
+
+  # GNSS: uavcan.equipment.gnss.Fix2 (1063).  Same keys as the gpsd and
+  # garmin_gnx375 plugins.  latitude/longitude are degrees * 1e8;
+  # ned_velocity is m/s (ground speed and track need a compute step, so
+  # they are not mapped here).  NOT bench-checked.
+  # - message: uavcan.equipment.gnss.Fix2
+  #   fields:
+  #     - { path: latitude_deg_1e8, fixid: LAT, scale: 1.0e-8 }
+  #     - { path: longitude_deg_1e8, fixid: LONG, scale: 1.0e-8 }
