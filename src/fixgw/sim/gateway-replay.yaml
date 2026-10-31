@@ -36,6 +36,7 @@ connections:
   data_recorder:
     load: yes
     module: fixgw.plugins.data_recorder
-    key_prefixes: [FPLC, FPLX, FPLM, FPLA, FPLP, FPLSTATE, FPLSEQ, FPLTF, WP, REF, CDISCALE, LAT, LONG, ALT, GS, TRACK]
+    key_prefixes: [FPLC, FPLX, FPLM, FPLA, FPLP, FPLSTATE, FPLSEQ, FPLTF, WP, REF, CDISCALE, LAT, LONG, ALT, GS, TRACK,
+                   GPS_FIX_TYPE, GPS_ACCURACY_HORIZ]
     frequency: 200
     filepath: "{CONFIG}/fdr"

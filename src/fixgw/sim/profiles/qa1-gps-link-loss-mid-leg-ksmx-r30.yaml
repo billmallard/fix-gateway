@@ -1,0 +1,105 @@
+# QA1 F4 (AER-4223): the GPS link goes dead in the middle of a leg, twice --
+# for 30 s on NIRLE-ELZUS (terminal, 1.0 nm full scale) and for 15 s on the
+# final approach segment ANIBY-RW30 (0.3 nm) -- and comes back before the next
+# fix. QA-authored: the scenario, checks, tolerances and expected values are
+# QA's. Unlike qa1-gps-loss-mid-leg (the receiver says it has no fix), here
+# nothing arrives at all: no LAT, LONG, GS, TRACK, GPS_ACCURACY_HORIZ or
+# GPS_FIX_TYPE, so the last fix type, 3D, is what the bus still shows. The
+# aircraft keeps flying the reference's guidance, as a pilot holding the
+# course would, so the box's frozen position falls behind the truth.
+# Format: ../PROFILE_FORMAT.md
+name: qa1-gps-link-loss-mid-leg-ksmx-r30
+description: >
+  KSMX RNAV 30 via GVO from 2 nm before NIRLE. The GPS link is dead for 30 s
+  mid-way along NIRLE-ELZUS and for 15 s on the final approach segment
+  ANIBY-RW30, with the last fix type left at 3D; the run ends 30 s after the
+  second loss, before the MAP.
+
+cifp:
+  cycle: "2611"
+  file: cifp/FAACIFP18-2611-KSMX-R30
+
+aircraft: {tas_kt: 110, climb_fpm: 700, descent_fpm: 600, bank_max_deg: 25}
+
+environment:
+  magvar_deg: -11.9                # FIX MAGVAR, positive west: CIFP E011.9 at the KSMX terminal fixes
+  wind: {from_deg: 0, kt: 0}
+
+start: {fix: NIRLE, before_nm: 2.0, alt_ft: 4400, heading: on_course}
+
+route:
+  - procedure: {airport: KSMX, approach: R30, transition: GVO, missed: false}
+
+events:
+  - id: link_terminal
+    at: {leg: NIRLE-ELZUS, after_s: 100}
+    do: {gps_link_loss_s: 30}
+  - id: link_final
+    at: {leg: ANIBY-RW30, after_s: 30}
+    do: {gps_link_loss_s: 15}
+  - id: settle
+    at: {after: link_final}
+    do: {offset_nm: 0.0, hold_s: 30}
+
+end: {after_event: settle, max_s: 3600}
+
+checks:
+  # QA-authored (AER-4223). The requirements are qa1-gps-loss-mid-leg's, from
+  # AC 20-138D: 12-2.a, "navigation data is considered to be misleading when
+  # un-annunciated position errors exist", and 15-3.a/c, every failure
+  # condition gets a display, a flag or an integrity annunciation. A dead
+  # link differs in one way: nothing on the bus says the fix is gone, so the
+  # box can only notice that it stopped arriving. The bound is QA's:
+  #
+  #   within_s 3.4 = 1 s  the slowest position output an IFR source may have
+  #                       (AC 20-138D 15-7.3, "If the equipment provides a
+  #                       1 Hz output")
+  #                + 1 s  one such fix missed, so a late fix is not a dead link
+  #                + 1 s  one update of a 1 Hz navigator to show the flag (the
+  #                       bound the no-fix profiles already use)
+  #                + 0.4 s the log is sampled every 0.2 s, and both the last
+  #                       write and the flag are read off it
+  #
+  # The agreement checks compare guidance computed from a current position
+  # only. Past 0.5 s without a LAT write (two of the generator's 0.2 s rows
+  # missed) the box is showing an aging fix; the flag check judges that, and
+  # the un-annunciated error it allows, ground speed x 3.4 s, is the declared
+  # cost of the bound (0.10 nm at this profile's 110 kt).
+  - key_pair: [FPLCRS, REFCRS]
+    tol_deg: 1.0
+    unless_flagged: true
+    skip_when_silent: {LAT: 0.5}
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+  - key_pair: [FPLXTK, REFXTK]
+    tol: 0.02
+    unless_flagged: true
+    skip_when_silent: {LAT: 0.5}
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+  - key_pair: [FPLCDI, REFCDI]
+    tol: 0.05
+    same_sign: true
+    unless_flagged: true
+    skip_when_silent: {LAT: 0.5}
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+  - key_pair: [WPDIS, REFDIS]
+    tol: 0.015
+    tol_rel: 0.005
+    skip_when: {REFWPT: ""}
+    unless_flagged: true
+    skip_when_silent: {LAT: 0.5}
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+  - flagged: [FPLCRS, FPLXTK, FPLCDI, WPDIS]
+    while_silent: [LAT, LONG]
+    within_s: 3.4
+    clear_within_s: 1.0
+  - key_pair: [WPNAME, REFWPT]
+    skip_when_silent: {LAT: 0.5}
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+    tolerate_s: 1.0            # the first update after the link returns: the flag's own 1 s clear bound
+  - sequence: [NIRLE, ELZUS, PAMJI, CIMSO, ANIBY, RW30]
+    keys: [WPNAME, REFWPT]
