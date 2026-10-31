@@ -85,8 +85,11 @@ xplane:
         # these rows write EXTCRS/EXTCDI, not GPSCRS/GPSCDI directly, so a
         # compute GPSSRC select can route between this and the internal flight
         # plan (FPLCRS/FPLCDI, FP2) into the canonical GPSCRS/GPSCDI.
+        # EXTTF is the FMS's TO/FROM (1=TO, 2=FROM, same encoding as NAV1TF
+        # below), which the select routes into GPSTF (fix-gateway#41).
         EXTCRS:  sim/cockpit/radios/gps_course_degtm
         EXTCDI:  [sim/cockpit/radios/gps_hdef_dot, 0.4]
+        EXTTF:   sim/cockpit/radios/gps_fromto
         NAV1CRS: sim/cockpit/radios/nav1_obs_degm
         NAV1CDI: [sim/cockpit/radios/nav1_hdef_dot, 0.4]
         NAV2CRS: sim/cockpit/radios/nav2_obs_degm
