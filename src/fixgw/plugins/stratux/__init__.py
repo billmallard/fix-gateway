@@ -51,11 +51,14 @@ class MainThread(threading.Thread):
             self.parent.db_write("ALT", alt)
             self.parent.db_write("VS", vs)
         elif msg[0] == 0x0A:
-            # ownship report
+            # ownship report; horizontal velocity is ground speed, not IAS
             alt = struct.unpack(">h", msg[11:13])[0]
             tmp = struct.unpack("BB", msg[14:16])
             gnd_speed = (tmp[0] << 4) | (tmp[1] >> 4)
-            self.parent.db_write("IAS", gnd_speed)
+            # 0xFFF is "no horizontal velocity available": skip the write so
+            # GS goes stale instead of reading 4095 kt
+            if gnd_speed != 0xFFF:
+                self.parent.db_write("GS", gnd_speed)
 
     def stop(self):
         self.getout = True

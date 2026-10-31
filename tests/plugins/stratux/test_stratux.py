@@ -86,6 +86,14 @@ entries:
   units: knots
   initial: 0
   tol: 2000
+- key: GS
+  description: Ground Speed
+  type: float
+  min: 0.0
+  max: 2000.0
+  units: knots
+  initial: 0.0
+  tol: 2000
 - key: ZZLOADER
   description: DB load sentinel
   type: str
@@ -268,15 +276,30 @@ class TestStratuxOwnship(unittest.TestCase):
 
     def test_groundspeed_zero(self):
         self._dispatch(_build_ownship(speed_raw=0))
-        self.assertEqual(_db("IAS"), 0)
+        self.assertEqual(_db("GS"), 0)
 
     def test_groundspeed_120(self):
         self._dispatch(_build_ownship(speed_raw=120))
-        self.assertEqual(_db("IAS"), 120)
+        self.assertEqual(_db("GS"), 120)
 
-    def test_groundspeed_max_12bit(self):
+    def test_groundspeed_does_not_write_ias(self):
+        # Ownship horizontal velocity is ground speed. It must never land on
+        # the airspeed tape.
+        database.write("IAS", 87)
+        self._dispatch(_build_ownship(speed_raw=120))
+        self.assertEqual(_db("IAS"), 87)
+
+    def test_groundspeed_no_data_not_written(self):
+        # GDL90 reserves 0xFFF for "no horizontal velocity available".
+        # Leave GS alone so it times out rather than showing 4095 kt.
+        self._dispatch(_build_ownship(speed_raw=55))
         self._dispatch(_build_ownship(speed_raw=0xFFF))
-        self.assertEqual(_db("IAS"), 0xFFF)
+        self.assertEqual(_db("GS"), 55)
+
+    def test_groundspeed_max_value(self):
+        # 0xFFE means 4094 kt or more; the GS key clamps at its max.
+        self._dispatch(_build_ownship(speed_raw=0xFFE))
+        self.assertEqual(_db("GS"), 2000.0)
 
 
 class FakeSocket:
@@ -337,7 +360,8 @@ def test_run_decodes_ahrs_ownship_and_skips_invalid_frames(monkeypatch):
     assert _db("HEAD") == 123.4
     assert _db("ALT") == 999.5
     assert _db("VS") == -123
-    assert _db("IAS") == 321
+    assert _db("GS") == 321
+    assert _db("IAS") == 0
 
 
 def test_plugin_lifecycle_status_and_failure(monkeypatch):
