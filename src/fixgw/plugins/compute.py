@@ -36,6 +36,21 @@ from fixgw.geo import (
     _normalize_angle_rad,
 )
 
+
+# The functions below cache each input's tuple from its last callback and OR
+# the cached flags on every recompute.  Old is the one flag that changes with
+# no write at all: the input simply outlives its tol, and its callback waits
+# for the next database.update() tick, up to a second later.  A recompute in
+# that window, triggered by a sibling input that is still updating, would
+# otherwise publish a good output from a stale input (AER-4450).  So mark as
+# old any cached input that reads old now.  Never clear it here: a fresh
+# write always fires its own callback, which replaces the cached tuple.
+def _refresh_old(vals, parent):
+    for each, cached in vals.items():
+        if isinstance(cached, tuple) and not cached[2]:
+            if parent.db_read(each)[2]:
+                vals[each] = cached[:2] + (True,) + cached[3:]
+
 # Determine pressure altitude
 # inputs: BARO, ALTMSL
 # Pressure Altitude = Elevation  in FT + (145442.2 * ( 1 - ( altimeter setting in inhg/29.92126)^.190261))
@@ -59,6 +74,7 @@ def altPressure(inputs, output, require_leader):
                     o.set_aux_value(x[1], value)
             return
         vals[key] = value
+        _refresh_old(vals, parent)
         flag_old = False
         flag_bad = False
         flag_fail = False
@@ -112,6 +128,7 @@ def altDensity(inputs, output, require_leader):
                     o.set_aux_value(x[1], value)
             return
         vals[key] = value
+        _refresh_old(vals, parent)
         flag_old = False
         flag_bad = False
         flag_fail = False
@@ -164,6 +181,7 @@ def averageFunction(inputs, output, require_leader):
             return
 
         vals[key] = value
+        _refresh_old(vals, parent)
         arrsum = 0
         flag_old = False
         flag_bad = False
@@ -240,6 +258,7 @@ def sumFunction(inputs, output, require_leader):
             return  # Only the leader can do calculations
 
         vals[key] = value
+        _refresh_old(vals, parent)
         arrsum = 0
         flag_old = False
         flag_bad = False
@@ -292,6 +311,7 @@ def maxFunction(inputs, output, require_leader):
                     o.set_aux_value(x[1], value)
             return
         vals[key] = value
+        _refresh_old(vals, parent)
         flag_old = False
         flag_bad = False
         flag_fail = False
@@ -343,6 +363,7 @@ def minFunction(inputs, output, require_leader):
                     o.set_aux_value(x[1], value)
             return
         vals[key] = value
+        _refresh_old(vals, parent)
         flag_old = False
         flag_bad = False
         flag_fail = False
@@ -388,6 +409,7 @@ def spanFunction(inputs, output, require_leader):
         if type(value) != tuple:
             return  # This might be a meta data update
         vals[key] = value
+        _refresh_old(vals, parent)
         flag_old = False
         flag_bad = False
         flag_fail = False
@@ -462,6 +484,7 @@ def AOAFunction(inputs, output, require_leader):
         # This is to set the aux data in the output to one of the inputs
         o = parent.db_get_item(output)
         vals[key] = value
+        _refresh_old(vals, parent)
         Vs = read("IAS.Vs")
         if Vs is None:
             Vs = 9999
@@ -680,6 +703,7 @@ def xteFunction(inputs, output, require_leader):
             return  # Only the leader can do calculations
 
         vals[key] = value
+        _refresh_old(vals, parent)
         flag_old = False
         flag_bad = False
         flag_fail = False
@@ -759,6 +783,7 @@ def bearingFunction(inputs, output, require_leader):
             return  # Only the leader can do calculations
 
         vals[key] = value
+        _refresh_old(vals, parent)
         flag_old = False
         flag_bad = False
         flag_fail = False
@@ -818,6 +843,7 @@ def selectFunction(inputs, output, require_leader):
         if type(value) != tuple:
             return  # aux data, ignore
         vals[key] = value
+        _refresh_old(vals, parent)
         sel = vals[inputs[0]]
         if sel is None:
             return  # no selection yet -- leave the output untouched at boot
@@ -882,6 +908,7 @@ def wrap360Function(inputs, output, require_leader):
         if not quorum.leader and require_leader:
             return  # Only the leader can do calculations
         vals[key] = value
+        _refresh_old(vals, parent)
         arrsum = 0
         flag_old = False
         flag_bad = False
@@ -930,6 +957,7 @@ def windTriangle(inputs, output, require_leader):
             return
 
         vals[key] = value
+        _refresh_old(vals, parent)
         flag_old = False
         flag_bad = False
         flag_fail = False
@@ -1012,6 +1040,7 @@ def windComponents(inputs, output, require_leader):
             return
 
         vals[key] = value
+        _refresh_old(vals, parent)
         flag_old = False
         flag_bad = False
         flag_fail = False

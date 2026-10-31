@@ -34,6 +34,11 @@ class FakeParent:
     def db_get_item(self, key):
         return self.items.setdefault(key, FakeItem(key))
 
+    # Every input reads fresh on the bus; the flags under test are the ones
+    # passed to the function.
+    def db_read(self, key):
+        return value_tuple(0.0)
+
 
 @pytest.fixture(autouse=True)
 def leader(monkeypatch):
