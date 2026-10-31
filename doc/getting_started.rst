@@ -26,7 +26,7 @@ Then run one of the two helper scripts.
     ./fixgw.py
     ./fixgwc.py
 
-These will run the client and the server respectively.
+These will run the server and the client respectively.
 
 The configuration files are in the ``fixgw/config`` directory.
 
