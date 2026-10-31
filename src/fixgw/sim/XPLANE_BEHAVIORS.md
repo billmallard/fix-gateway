@@ -64,7 +64,7 @@ Unless an entry says otherwise:
 | [XPB-005](#xpb-005) | The bench's pilot commands (SUSP/RESUME) reach our engine only | `interface` |
 | [XPB-006](#xpb-006) | No cross-track or distance from X-Plane's navigator in the trace or on the bus | `interface` |
 | [XPB-007](#xpb-007) | No GPS fix type or horizontal accuracy | `interface` |
-| [XPB-008](#xpb-008) | No X-Plane source for `EXTTF` (G38) | `interface` |
+| [XPB-008](#xpb-008) | `EXTTF` was not mapped when FP8 was recorded (G38); mapped since fix-gateway#84 | `interface` |
 | [XPB-009](#xpb-009) | RREF requests need the 400-byte dataref field and the legacy port 49000 | `interface` |
 | [XPB-010](#xpb-010) | RREF subscriptions after an X-Plane restart (G47): re-sent every 5 s | `interface` |
 | [XPB-011](#xpb-011) | Data Output (DATA) rows never reached the bench while RREF worked | `interface` |
@@ -206,7 +206,7 @@ Unless an entry says otherwise:
 - **Class:** `interface`.
 - **Observed.**
   - The bench's truth log carries X-Plane's active waypoint, course, deflection and to/from, but no cross-track and no distance to the fix (`tests/sim/fixtures/README.md`).
-  - The bench's `xplane` plugin maps course and deflection only (`src/fixgw/config/connections/xplane.yaml:88-89`).
+  - The bench's `xplane` plugin maps course, deflection and to/from only (`src/fixgw/config/connections/xplane.yaml:90-92`); nothing maps cross-track or distance.
   - X-Plane's web API does return the navigator's cross-track: SIM0 lists "active waypoint, course, cross-track, CDI, to/from" (AER-4072, comment 7bedd544). So the gap is in what we record, not in what X-Plane exposes. An X-Plane distance-to-fix source has not been checked.
 - **Consequence.** The recording's checks are course, CDI and sequence only. There is no `XTK`/`DIS` check against X-Plane, and legs are labelled by X-Plane's active waypoint.
 - **Relied on by:** `tests/sim/profile_gate.py:135-136`; `tests/sim/xplane_replay.py:158-164` (`bus_rows`).
@@ -223,18 +223,17 @@ Unless an entry says otherwise:
 
 ### XPB-008
 
-**No X-Plane source for `EXTTF` (G38).**
+**`EXTTF` was not mapped when FP8 was recorded (G38); it is mapped since fix-gateway#84.**
 
 - **Class:** `interface`.
 - **Observed.**
-  - `connections/xplane.yaml` maps nothing to `EXTTF`, so it reads 0 throughout the bench bus log of `cbbeafe57646` (`tests/sim/fixtures/README.md`).
+  - When `cbbeafe57646` was recorded, `connections/xplane.yaml` mapped nothing to `EXTTF`, so it reads 0 throughout that session's bench bus log (`tests/sim/fixtures/README.md`).
   - The truth trace does carry `gps_fromto` (1 TO, 2 FROM).
-  - The issues are fix-gateway#41 (filed from AER-809, comment fad7fff0) and AER-4324. The fix is open as fix-gateway#84: it maps `sim/cockpit/radios/gps_fromto`, with the encoding checked against the recorded trace but not yet against a live sim.
+  - The issues are fix-gateway#41 (filed from AER-809, comment fad7fff0) and AER-4324. fix-gateway#84 fixed it: `EXTTF` now maps `sim/cockpit/radios/gps_fromto` (`src/fixgw/config/connections/xplane.yaml:92`). Its encoding is checked against the recorded trace (`test_gps_fromto_is_1_to_2_from_as_exttf_declares`), not yet against a bench bus log recorded since.
 - **Relied on by:**
-  - `tests/sim/xplane_replay.py:158-164`: the gate fills `EXTTF` from the trace.
-  - `tests/sim/test_fp8_bench_bus.py:56-60`: `test_the_bench_never_wrote_exttf` fails once the bench maps it, as intended.
+  - `tests/sim/xplane_replay.py:158-164`: the gate fills `EXTTF` from the trace for the FP8 recording.
+  - `tests/sim/test_fp8_bench_bus.py:57-61`: `test_the_bench_never_wrote_exttf` pins the FP8 log's `EXTTF` at 0. A recording made since should compare `EXTTF` with `gps_fromto` instead.
   - `src/fixgw/sim/PROFILE_FORMAT.md`, the SYN4 key table.
-  - Update this entry when fix-gateway#84 lands.
 
 ### XPB-009
 
