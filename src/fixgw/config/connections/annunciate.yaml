@@ -54,3 +54,13 @@ annunciate:
 
     - key: OAT
 
+    # Altitude deviation (pyEfis EFIS-ALTSEL-005/-009/-010): annunciate
+    # ALTSEL while ALT is more than `threshold` ft from it. Once set, the
+    # flag holds until ALT is back within threshold - deadband, so altimeter
+    # noise at the boundary does not flash it. The defaults above do not
+    # apply to a deviation item. No alert while ALT or ALTSEL is old, bad or
+    # failed.
+    - key: ALTSEL
+      deviation_from: ALT
+      threshold: 200
+      deadband: 20
