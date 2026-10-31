@@ -294,12 +294,15 @@ selects into `COURSE`/`CDI`/`TOFROM` for the HSI:
 
 On the bench, `xplane.yaml`'s nav RREF rows now write `EXTCRS`/`EXTCDI`
 (previously `GPSCRS`/`GPSCDI` directly) so X-Plane's FMS is the external
-navigator. `garmin_gnx375` and `navigator_adapter` are **not** touched by
-this item -- they write `COURSE`/`CDI` directly today (a pre-select legacy
-path predating `NAVSRC`, see the code audit in the flight-plan brief section
-1.2), not `GPSCRS`/`GPSCDI`, so there is no collision with the new selects.
-Migrating them onto the `EXTCRS`/`EXTCDI`/`GPSSRC` path is a noted follow-on,
-not in this epic.
+navigator. `garmin_gnx375` and `navigator_adapter` write `EXTCRS` (APB
+field 8, the leg's desired track, magnetic), `EXTCDI` (RMB cross-track,
+`-XTE / cdi_full_scale_nm`) and `EXTTF` (APB perpendicular passed) too
+(AER-4473). Before that they wrote `COURSE`, `CDI` and `XTRACK` directly,
+racing compute's `NAVSRC` selects and `xte` for the same keys, and their
+`COURSE` was the bearing from the aircraft to the waypoint, not the desired
+track. The navigator's own cross-track error has no key yet, so `XTRACK`
+stays compute's `xte`, which measures against `WPLAT`/`WPLON` from the
+internal plan even when `GPSSRC` = 1.
 
 The `xte` compute (`connections/compute.yaml`) is re-fed `GPSCRS` instead of
 `COURSE`, so `XTRACK`/`GPSBRG` track the active plan/external navigator
