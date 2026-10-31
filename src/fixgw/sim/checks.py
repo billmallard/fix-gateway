@@ -115,13 +115,14 @@ def _change_times(log, keys):
     return sorted(out)
 
 
-def _leg_labels(log):
+def _leg_labels(log, leg_keys=("REFWPT", "REFPT")):
     # The reference's TO fix and leg type: a hold at the fix the leg before
     # it flew to is its own leg ("WINCH HM").
+    ident_key, pt_key = leg_keys
     labels = []
     prev, cur = "", None
     for row in log.rows:
-        w = (row.get("REFWPT"), row.get("REFPT"))
+        w = (row.get(ident_key), row.get(pt_key) if pt_key else None)
         if w != cur:
             prev, cur = (cur[0] if cur else ""), w
         ident, pt = cur
@@ -149,9 +150,11 @@ def keys_needed(checks):
     return keys
 
 
-def evaluate(checks, log, start_s=1.0):
+def evaluate(checks, log, start_s=1.0, leg_keys=("REFWPT", "REFPT")):
+    """``leg_keys``: the (TO fix, leg type) keys that label each row's leg
+    in the per-leg report; the leg type key may be None."""
     seq_times = _change_times(log, _sequence_keys(checks))
-    legs = _leg_labels(log)
+    legs = _leg_labels(log, leg_keys)
     out = []
     for c in checks:
         around = c.get("around_keys")
