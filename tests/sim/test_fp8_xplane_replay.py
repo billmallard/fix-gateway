@@ -12,18 +12,14 @@ X-Plane's deviation is ``gps_hdef_dot``: 2.5 dots is full scale.
 
 import pytest
 
-from .xplane_replay import build_route, fly, load_trace, nm, xplane_sequences
+from .xplane_replay import build_route, fly, load_bench_bus, load_trace, nm, xplane_sequences
 
 DOTS_FS = 2.5
 
-# Where the live bench engine (fix-gateway 2666bc4, 1 Hz bus log) sequenced
-# on this flight. The replay must land on the same points: that is what makes
-# the trace a faithful stand-in for the flight.
-LIVE_BENCH_SEQUENCES = {
-    "PAMJI -> CIMSO": (34.77871, -120.36720),
-    "CIMSO -> ANIBY": (34.82016, -120.39570),
-    "ANIBY -> RW30": (34.83625, -120.40672),
-}
+# The sequences the live bench engine (fix-gateway 2666bc4) made on its own.
+# RW30 -> HANNU and HANNU -> WINCH followed the orchestrator's RESUMEs, which
+# the replay re-derives from engine state rather than the wall clock.
+AUTO_SEQUENCES = ("PAMJI -> CIMSO", "CIMSO -> ANIBY", "ANIBY -> RW30", "WINCH -> WINCH")
 
 
 def w180(a):
@@ -42,12 +38,25 @@ def _seq(events):
     return {ev[2]: (ev[3], ev[4], ev[0]) for ev in events if ev[1] == "sequence"}
 
 
+def live_bench_sequences():
+    """{"A -> B": (lat, lon)} wherever FPLACTLEG changed in the bench bus log."""
+    out = {}
+    bus = load_bench_bus()
+    for a, b in zip(bus, bus[1:]):
+        if b["FPLACTLEG"] != a["FPLACTLEG"]:
+            out[f"{a['WPNAME']} -> {b['WPNAME']}"] = (float(b["LAT"]), float(b["LONG"]))
+    return out
+
+
 def test_replay_lands_on_the_live_bench_sequence_points(flown):
+    # The replay must sequence where the live engine did: that is what makes
+    # the trace a faithful stand-in for the flight.
     _, _, events, _ = flown
     seq = _seq(events)
-    for name, (lat, lon) in LIVE_BENCH_SEQUENCES.items():
+    live = live_bench_sequences()
+    for name in AUTO_SEQUENCES:
         # 0.04 nm: the bus log is 1 Hz (0.03 nm at 110 kt), the trace 5 Hz
-        assert nm(lat, lon, *seq[name][:2]) <= 0.04, name
+        assert nm(*live[name], *seq[name][:2]) <= 0.04, name
 
 
 def test_sequence_points_within_0p3_nm_of_xplane(flown):

@@ -33,3 +33,38 @@ PY
 ```
 
 Replayed by `tests/sim/test_fp8_xplane_replay.py` through `tests/sim/xplane_replay.py`.
+
+## `fp8_bench_bus_2026-10-29.csv.gz`
+
+The recorder output for the same flight: the Beelink gateway's bus at 1 Hz,
+logged by `fp8_logger2.py` (AER-809 bench scratch) during session 2. The live
+engine (fix-gateway 2666bc4) is in `FPL*`/`WP*`, and X-Plane's navigator as the
+bench's `xplane` plugin wrote it is in `EXTCRS`/`EXTCDI`. `t` is the Beelink's
+epoch. Trace time is `t - 1793251953.66` (`BUS_EPOCH` in `xplane_replay.py`),
+found by position (0.0015 nm median, 0.006 nm worst). The rows are trimmed to
+the trace's span, 1229 rows, with the columns as logged. `EXTTF` is 0
+throughout: the bench does not map it.
+
+`tests/sim/test_fp8_bench_bus.py` uses it to show that the trace's navigator
+columns are the bus keys. On the aligned rows the bus `EXTCRS` matches
+`gps_crs_mag` to 0.0006 deg, and `EXTCDI` matches 0.4 x `gps_hdef_dot` to
+0.005. `test_fp8_xplane_replay.py` reads the live engine's sequence points
+from it.
+
+Regenerate (the raw log stays on the Beelink):
+
+```sh
+scp pyefis@10.110.10.241:bench-scratch/aer809/fp8_s2.csv .
+python3 - <<'PY'
+import csv, gzip, io
+OFF = 1793251953.66
+rows = list(csv.reader(open("fp8_s2.csv")))
+keep = [r for r in rows[1:] if 55.69 + OFF <= float(r[0]) <= 1283.79 + OFF]
+s = io.StringIO()
+w = csv.writer(s, lineterminator="\n")
+w.writerow(rows[0])
+w.writerows(keep)
+with gzip.GzipFile("fp8_bench_bus_2026-10-29.csv.gz", "wb", mtime=0) as g:
+    g.write(s.getvalue().encode())
+PY
+```
