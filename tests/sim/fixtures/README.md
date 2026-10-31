@@ -32,7 +32,12 @@ with gzip.open("fp8_xplane_2026-10-29.csv.gz", "wt", newline="") as f:
 PY
 ```
 
-Replayed by `tests/sim/test_fp8_xplane_replay.py` through `tests/sim/xplane_replay.py`.
+Replayed by `tests/sim/test_fp8_xplane_replay.py` through `tests/sim/xplane_replay.py`,
+and by the simulated-flight gate (the "Simulated flights" CI job) through
+`fp8_xplane_2026-10-29.yaml`. That file names the trace and the profile and
+carries the X-Plane tier's checks: `FPLCRS` against `EXTCRS` and `FPLCDI`
+against `EXTCDI`, from the FP8 brief's acceptance, with each comparison skip
+and its reason in the file.
 
 ## `fp8_bench_bus_2026-10-29.csv.gz`
 

@@ -1,0 +1,32 @@
+# A recorded X-Plane flight, replayed by the simulated-flight gate (SYN4):
+# the engine flies X-Plane's own trajectory headless, and X-Plane's navigator
+# in the same trace is the expected value. See README.md beside this file.
+#
+# The profile's own checks: are written against the synthetic reference
+# navigator. These are the X-Plane tier's, from the FP8 brief's acceptance
+# (section 6): DTK within 2 deg, CDI within 0.1 of full scale and of the same
+# sign. They compare only where both navigators guide to the same fix on the
+# same leg, so each skip below is a place where X-Plane legitimately differs:
+#   FPLSTATE 3: the engine is suspended at the MAP and short of HANNU, where
+#     the pilot's commands, not the leg, decide what it shows.
+#   FPLPHASE HOLD: the engine flies the AIM entry and turns the course with
+#     the aircraft (fix-gateway#49, Bill's call on AER-4076); X-Plane shows
+#     its hold course throughout. tests/sim/test_fp8_xplane_replay.py
+#     compares the inbound leg.
+#   EXTTF 2: X-Plane is FROM: past the MAP, and from 0.2 nm before WINCH,
+#     where it already shows the hold's inbound course.
+name: fp8-xplane-2026-10-29
+profile: fp8-ksmx-rnav30-missed
+trace: fp8_xplane_2026-10-29.csv.gz
+checks:
+  - key_pair: [FPLCRS, EXTCRS]
+    tol_deg: 2.0
+    except_s_around_sequence: 5
+    skip_when: {FPLSTATE: 3, FPLPHASE: HOLD, EXTTF: 2}
+  - key_pair: [FPLCDI, EXTCDI]
+    tol: 0.1
+    same_sign: true
+    except_s_around_sequence: 5
+    skip_when: {FPLSTATE: 3, FPLPHASE: HOLD, EXTTF: 2}
+  - sequence: [PAMJI, CIMSO, ANIBY, RW30, HANNU, WINCH]
+    keys: [WPNAME, gps_id]

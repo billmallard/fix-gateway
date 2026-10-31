@@ -33,7 +33,7 @@ from fixgw.sim import fplroute
 from fixgw.sim.cifp import Cifp
 from fixgw.sim.profile import load_profile
 
-from .engine_replay import ENGINE_CONFIG, _route
+from .engine_replay import ENGINE_CONFIG, OUT_KEYS, _route
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -74,8 +74,8 @@ def load_bench_bus(path=BENCH_BUS):
     return rows
 
 
-def build_route():
-    prof = load_profile(str(PROFILE))
+def build_route(profile=PROFILE):
+    prof = load_profile(str(profile))
     cifp = Cifp(prof.cifp_file)
     p = prof.procedure
     slots, segs = fplroute.procedure_slots(cifp, p["airport"], p["approach"], p["transition"], prof.magvar_deg)
@@ -85,11 +85,11 @@ def build_route():
     return wps, segments, act, cifp.cycle
 
 
-def fly(rows=None):
+def fly(rows=None, profile=PROFILE):
     """-> (samples, events). samples: one dict per trace row with the engine
     outputs beside X-Plane's; events: (t, what, detail, lat, lon)."""
     rows = rows if rows is not None else load_trace()
-    wps, segs, act, cycle = build_route()
+    wps, segs, act, cycle = build_route(profile)
     by_id = {w.id: w for w in wps if w.id}
     e = Engine(dict(ENGINE_CONFIG))
     e.load_route(wps, "KSMX R30 GVO", 1, segs, aprtype="RNAV", dbcyc=cycle)
@@ -153,6 +153,20 @@ def ext_cdi(hdef_dot):
     """EXTCDI as the bench writes it: ``gps_hdef_dot`` x 0.4
     (``connections/xplane.yaml``), held to the key's -1..1 range."""
     return max(-1.0, min(1.0, 0.4 * hdef_dot))
+
+
+def bus_rows(samples):
+    """The replay as bus rows for ``fixgw.sim.checks``: the engine's keys,
+    and X-Plane's navigator under the keys the bench's ``xplane`` plugin
+    writes it to (``EXTCRS``, ``EXTCDI``) or the contract defines for it
+    (``EXTTF``: the plugin does not map it yet). X-Plane's active waypoint
+    has no bus key; it keeps its truth-log name, ``gps_id``."""
+    out = []
+    for s in samples:
+        row = {key: s[k] for k, key in OUT_KEYS.items() if k in s}
+        row.update(EXTCRS=s["xp_crs"], EXTCDI=ext_cdi(s["xp_hdef_dot"]), EXTTF=s["xp_fromto"], gps_id=s["xp_wpt"])
+        out.append((s["t"], row))
+    return out
 
 
 def xplane_sequences(rows):
