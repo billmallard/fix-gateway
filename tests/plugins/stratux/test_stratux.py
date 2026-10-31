@@ -8,7 +8,6 @@ Covers:
 The socket is never opened; we call the parse logic directly.
 """
 import io
-import math
 import struct
 import unittest
 from unittest.mock import MagicMock
@@ -86,6 +85,14 @@ entries:
   max: 9999
   units: knots
   initial: 0
+  tol: 2000
+- key: GS
+  description: Ground Speed
+  type: float
+  min: 0.0
+  max: 2000.0
+  units: knots
+  initial: 0.0
   tol: 2000
 - key: ZZLOADER
   description: DB load sentinel
@@ -220,25 +227,7 @@ class TestStratuxAhrs(unittest.TestCase):
     def _dispatch(self, raw_framed: bytes):
         msg = gdl90mod.decodeGDL90(raw_framed)
         self.assertGreater(len(msg), 0, "GDL90 decode failed — check test helper")
-        # Drive the same dispatch logic the run() loop uses
-        if msg[0] == 0x4C:
-            roll     = struct.unpack(">h", msg[4:6])[0] / 10.0
-            pitch    = struct.unpack(">h", msg[6:8])[0] / 10.0
-            heading  = struct.unpack(">h", msg[8:10])[0] / 10.0
-            slipskid = struct.unpack(">h", msg[10:12])[0] / 10.0
-            alt      = struct.unpack(">h", msg[18:20])[0] - 5000.5
-            vs       = struct.unpack(">h", msg[20:22])[0]
-            self.thread.parent.db_write("PITCH", pitch)
-            self.thread.parent.db_write("ROLL", roll)
-            self.thread.parent.db_write("HEAD", heading)
-            self.thread.parent.db_write("ALAT", -math.sin(slipskid * math.pi / 180))
-            self.thread.parent.db_write("ALT", alt)
-            self.thread.parent.db_write("VS", vs)
-        elif msg[0] == 0x0A:
-            alt      = struct.unpack(">h", msg[11:13])[0]
-            tmp      = struct.unpack("BB", msg[14:16])
-            gnd_speed = (tmp[0] << 4) | (tmp[1] >> 4)
-            self.thread.parent.db_write("IAS", gnd_speed)
+        self.thread.dispatch(msg)
 
     def test_pitch(self):
         self._dispatch(_build_ahrs(pitch_10=150))
@@ -283,23 +272,34 @@ class TestStratuxOwnship(unittest.TestCase):
     def _dispatch(self, raw_framed: bytes):
         msg = gdl90mod.decodeGDL90(raw_framed)
         self.assertGreater(len(msg), 0)
-        if msg[0] == 0x0A:
-            alt       = struct.unpack(">h", msg[11:13])[0]
-            tmp       = struct.unpack("BB", msg[14:16])
-            gnd_speed = (tmp[0] << 4) | (tmp[1] >> 4)
-            self.thread.parent.db_write("IAS", gnd_speed)
+        self.thread.dispatch(msg)
 
     def test_groundspeed_zero(self):
         self._dispatch(_build_ownship(speed_raw=0))
-        self.assertEqual(_db("IAS"), 0)
+        self.assertEqual(_db("GS"), 0)
 
     def test_groundspeed_120(self):
         self._dispatch(_build_ownship(speed_raw=120))
-        self.assertEqual(_db("IAS"), 120)
+        self.assertEqual(_db("GS"), 120)
 
-    def test_groundspeed_max_12bit(self):
+    def test_groundspeed_does_not_write_ias(self):
+        # Ownship horizontal velocity is ground speed. It must never land on
+        # the airspeed tape.
+        database.write("IAS", 87)
+        self._dispatch(_build_ownship(speed_raw=120))
+        self.assertEqual(_db("IAS"), 87)
+
+    def test_groundspeed_no_data_not_written(self):
+        # GDL90 reserves 0xFFF for "no horizontal velocity available".
+        # Leave GS alone so it times out rather than showing 4095 kt.
+        self._dispatch(_build_ownship(speed_raw=55))
         self._dispatch(_build_ownship(speed_raw=0xFFF))
-        self.assertEqual(_db("IAS"), 0xFFF)
+        self.assertEqual(_db("GS"), 55)
+
+    def test_groundspeed_max_value(self):
+        # 0xFFE means 4094 kt or more; the GS key clamps at its max.
+        self._dispatch(_build_ownship(speed_raw=0xFFE))
+        self.assertEqual(_db("GS"), 2000.0)
 
 
 class FakeSocket:
@@ -360,7 +360,8 @@ def test_run_decodes_ahrs_ownship_and_skips_invalid_frames(monkeypatch):
     assert _db("HEAD") == 123.4
     assert _db("ALT") == 999.5
     assert _db("VS") == -123
-    assert _db("IAS") == 321
+    assert _db("GS") == 321
+    assert _db("IAS") == 0
 
 
 def test_plugin_lifecycle_status_and_failure(monkeypatch):
