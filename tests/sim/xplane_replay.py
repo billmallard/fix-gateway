@@ -158,9 +158,9 @@ def ext_cdi(hdef_dot):
 def bus_rows(samples):
     """The replay as bus rows for ``fixgw.sim.checks``: the engine's keys,
     and X-Plane's navigator under the keys the bench's ``xplane`` plugin
-    writes it to (``EXTCRS``, ``EXTCDI``) or the contract defines for it
-    (``EXTTF``: the plugin does not map it yet). X-Plane's active waypoint
-    has no bus key; it keeps its truth-log name, ``gps_id``."""
+    writes it to (``EXTCRS``, ``EXTCDI``, and ``EXTTF``, which it maps since
+    fix-gateway#41, after FP8 was recorded). X-Plane's active waypoint has
+    no bus key; it keeps its truth-log name, ``gps_id``."""
     out = []
     for s in samples:
         row = {key: s[k] for k, key in OUT_KEYS.items() if k in s}
