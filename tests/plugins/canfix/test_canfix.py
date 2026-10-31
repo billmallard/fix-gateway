@@ -265,3 +265,55 @@ def test_get_status(plugin):
 #
 # def test_node_id_set():
 #     pass
+
+
+# G39 (fix-gateway#42): the SHIPPED map.yaml sends ALTSEL as CAN-FIX 461
+# (0x1CD, Selected Altitude), as owner, carrying the annunciate flag.
+@pytest.fixture
+def shipped_map_plugin(config_data, database):
+    cc, cc_meta = cfg.from_yaml(
+        config_data.replace(
+            "tests/config/canfix/map.yaml", "src/fixgw/config/canfix/map.yaml"
+        ),
+        metadata=True,
+    )
+    pl = fixgw.plugins.canfix.Plugin("canfix", cc, cc_meta)
+    pl.start()
+    bus = can.Bus(cc["channel"], interface=cc["interface"])
+    time.sleep(0.1)
+    yield pl, bus
+    pl.stop()
+    bus.shutdown()
+
+
+def _next_frame(bus, canid):
+    while True:
+        msg = bus.recv(1.0)
+        assert msg is not None, f"no frame 0x{canid:X} sent"
+        if msg.arbitration_id == canid:
+            return canfix.parseMessage(msg)
+
+
+def test_shipped_map_sends_altsel_as_canfix_selected_altitude(shipped_map_plugin, database):
+    pl, bus = shipped_map_plugin
+    database.write("ALTSEL", 8500)
+
+    p = _next_frame(bus, 0x1CD)
+    assert p.name == "Selected Altitude"
+    assert p.value == 8500
+    assert p.node == 145                 # sent as owner, a normal data update
+    assert p.annunciate is False
+
+    database.write("ALTSEL", -1000)      # DINT: the negative end of the range
+    assert _next_frame(bus, 0x1CD).value == -1000
+
+
+def test_shipped_map_sends_the_altsel_annunciate_flag(shipped_map_plugin, database):
+    pl, bus = shipped_map_plugin
+    database.write("ALTSEL", 5000)
+    _next_frame(bus, 0x1CD)
+
+    database.get_raw_item("ALTSEL").annunciate = True
+    p = _next_frame(bus, 0x1CD)
+    assert p.value == 5000
+    assert p.annunciate is True

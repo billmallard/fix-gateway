@@ -876,3 +876,53 @@ def test_main_block_executes_main_setup_and_main(tmp_path):
         patch("fixgw.plugin.jobQueue.get", return_value="QUIT"),
     ):
         runpy.run_path(server.__file__, run_name="__main__")
+
+
+# G39 (fix-gateway#42): the GCU contract keys ship in database/gcu.yaml, not
+# the user's custom.yaml, so an update delivers them. Reproduce a pre-GCU
+# install -- an unedited (timestamp-stamped) database.yaml with no gcu
+# include, no gcu.yaml, and a user-edited custom.yaml without the keys --
+# then run the real update against the packaged config and load the result.
+def _pre_gcu_install(tmp_path, custom_text):
+    import fixgw.database as database
+
+    root = tmp_path / "makerplane" / "fixgw"
+    server.create_config_dir(str(root))
+    config = root / "config"
+    (config / "database" / "gcu.yaml").unlink()
+    dbyaml = config / "database.yaml"
+    dbyaml.write_text(dbyaml.read_text().replace("- include: database/gcu.yaml\n", ""))
+    server.os.utime(dbyaml, (350039106.789, 350039106.789))
+    (config / "database" / "custom.yaml").write_text(custom_text)
+
+    database.init(str(dbyaml))
+    before = database.listkeys()
+
+    server.create_config_dir(str(root))
+    database.init(str(dbyaml))
+    return before, database
+
+
+def test_update_delivers_gcu_keys_to_an_install_without_them(tmp_path):
+    before, database = _pre_gcu_install(
+        tmp_path, "items:\n- key: MYKEY\n  type: str\n  initial: mine\n"
+    )
+    assert "ALTSEL" not in before and "GCUSEL" not in before   # AER-3915's bench
+
+    altsel = database.get_raw_item("ALTSEL")
+    assert altsel.dtype is int
+    assert (altsel.min, altsel.max, altsel.units) == (-1000, 60000, "ft")
+    assert database.read("ALTSEL")[0] == 3000
+    assert database.read("GCUSEL")[0] == "NONE"
+    assert database.read("MYKEY")[0] == "mine"               # the user's key survives
+
+
+def test_hand_added_altsel_in_custom_yaml_still_loads_and_wins(tmp_path):
+    _, database = _pre_gcu_install(
+        tmp_path,
+        "items:\n- key: ALTSEL\n  description: Selected Altitude\n  type: int\n"
+        "  min: -1000\n  max: 60000\n  units: ft\n  initial: 5000\n",
+    )
+
+    assert database.read("ALTSEL")[0] == 5000
+    assert database.read("GCUSEL")[0] == "NONE"
