@@ -19,16 +19,19 @@ from fixgw.sim import checks, generator
 from fixgw.sim.cifp import Cifp
 from fixgw.sim.profile import ProfileError, load_profile
 
-from .engine_replay import replay
+from . import engine_replay, plugin_replay, profile_gate
 
 PROFILES = Path(__file__).resolve().parents[2] / "src/fixgw/sim/profiles"
 QA1 = sorted(PROFILES.glob("qa1-*.yaml"))
 
 # Open findings: the profile is right and the box disagrees with it. strict,
 # so a fix turns the test red until the mark is removed.
+# Closed: qa1-hold-teardrop-left-kded-r30 (AER-4211 F1, FPLCRS 1.6 deg off
+# on the BARBS hold's turn inbound) -- the engine builds the racetrack on
+# WGS-84 since AER-4218.
+# Closed: the qa1-gps-*-loss profiles (AER-4223 F4 and F5) -- guidance fails
+# 2 s after the fix's LAT/LONG write since fix-gateway#58 (AER-4217).
 OPEN = {
-    "qa1-hold-teardrop-left-kded-r30": "AER-4211: FPLCRS 1.6 deg off the reference on the BARBS hold's "
-                                       "outbound-end turn (5 nm legs); cross-track agrees to 0.014 nm",
 }
 
 
@@ -40,7 +43,7 @@ def flown():
         if path not in cache:
             prof = load_profile(str(path))
             run = generator.generate(prof)
-            cache[path] = (prof, run, replay(run.rows))
+            cache[path] = (prof, run, profile_gate.replay_for(prof).replay(run.rows))
         return cache[path]
     return fly
 
@@ -135,12 +138,66 @@ def test_gps_loss_publishes_what_gpsd_publishes_without_a_fix():
     assert after["GPS_FIX_TYPE"] == 3 and "LAT" in after
 
 
-def test_the_engine_flags_its_guidance_without_a_fix_and_clears_it_after(flown):
-    _, run, rows = flown(PROFILES / "qa1-gps-loss-mid-leg-ksmx-r30.yaml")
-    # headless, the engine updates on every row, so the flag follows the fix row for row
+def test_the_engine_flags_its_guidance_without_a_fix_and_clears_it_after():
+    run = generator.generate(str(PROFILES / "qa1-gps-loss-mid-leg-ksmx-r30.yaml"))
+    rows = engine_replay.replay(run.rows)
+    # the engine alone, updated on every row, so the flag follows the fix row for row
     flagged = [t for t, r in rows if isinstance(r["FPLCDI"], list)]
     no_fix = [t for t, r in run.rows if r["GPS_FIX_TYPE"] < 3]
     assert flagged == no_fix and len(no_fix) > 200
+
+
+# -- gps_link_loss_s / gps_status_loss_s: what the generator publishes (AER-4223)
+
+def _window(run, eid):
+    t_on = next(e["t"] for e in run.timeline if e.get("id") == eid and e["what"] == "event")
+    t_off = next(e["t"] for e in run.timeline if e.get("id") == eid and e["what"] == "done")
+    return t_on, t_off, [r for t, r in run.rows if t_on <= t < t_off]
+
+
+def test_a_dead_link_publishes_no_gps_key_at_all_and_leaves_the_fix_type_at_3d():
+    run = generator.generate(str(PROFILES / "qa1-gps-link-loss-mid-leg-ksmx-r30.yaml"))
+    t_on, t_off, during = _window(run, "link_terminal")
+    assert t_off - t_on == pytest.approx(30.0, abs=0.21)
+    for key in ("LAT", "LONG", "GS", "TRACK", "GPS_ACCURACY_HORIZ", "GPS_FIX_TYPE"):
+        assert during and not any(key in r for r in during), key
+    assert all(k in r for r in during for k in ("ALT", "HEAD", "REFCRS", "REFXTK"))
+    # the last fix type written before the loss is 3, and so is the first after it
+    before = [r["GPS_FIX_TYPE"] for t, r in run.rows if t < t_on]
+    after = next(r for t, r in run.rows if t >= t_off)
+    assert before[-1] == 3 and after["GPS_FIX_TYPE"] == 3 and "LAT" in after
+
+
+def test_a_status_loss_stops_the_fix_type_and_accuracy_while_position_keeps_coming():
+    run = generator.generate(str(PROFILES / "qa1-gps-status-loss-mid-leg-ksmx-r30.yaml"))
+    t_on, t_off, during = _window(run, "status_terminal")
+    assert t_off - t_on == pytest.approx(30.0, abs=0.21)
+    assert during and not any("GPS_FIX_TYPE" in r or "GPS_ACCURACY_HORIZ" in r for r in during)
+    assert all(k in r for r in during for k in ("LAT", "LONG", "GS", "TRACK"))
+
+
+def test_a_position_loss_stops_lat_long_while_the_status_keeps_saying_3d():
+    run = generator.generate(str(PROFILES / "qa1-gps-position-loss-mid-leg-ksmx-r30.yaml"))
+    t_on, t_off, during = _window(run, "position_terminal")
+    assert t_off - t_on == pytest.approx(30.0, abs=0.21)
+    assert during and not any("LAT" in r or "LONG" in r for r in during)
+    assert all(r["GPS_FIX_TYPE"] == 3 and "GPS_ACCURACY_HORIZ" in r for r in during)
+
+
+def test_outside_a_gps_event_every_sensor_key_is_written_on_every_row():
+    run = generator.generate(str(PROFILES / "qa1-gps-link-loss-mid-leg-ksmx-r30.yaml"))
+    t_on, _, _ = _window(run, "link_terminal")
+    assert all(set(generator.SENSOR_KEYS) <= set(r) for t, r in run.rows if t < t_on)
+
+
+def test_the_gate_flies_a_profile_that_takes_a_gps_input_away_through_the_plugin():
+    via = {p.stem: profile_gate.replay_for(load_profile(str(p))) for p in QA1}
+    gps = {s for s in via if "gps" in s}
+    assert gps == {"qa1-gps-loss-mid-leg-ksmx-r30", "qa1-gps-loss-across-fix-ksmx-r30",
+                   "qa1-gps-link-loss-mid-leg-ksmx-r30", "qa1-gps-status-loss-mid-leg-ksmx-r30",
+                   "qa1-gps-position-loss-mid-leg-ksmx-r30"}
+    assert all(via[s] is plugin_replay for s in gps)
+    assert all(via[s] is engine_replay for s in set(via) - gps)
 
 
 # -- the check-language pieces, on hand-made logs ------------------------------
@@ -169,6 +226,16 @@ def test_tolerate_s_forgives_one_row_and_not_two():
     r1, r2 = checks.evaluate([c], one)[0], checks.evaluate([c], two)[0]
     assert r1.passed and r1.transients == 1
     assert not r2.passed and r2.failed == 2
+
+
+def test_the_largest_error_is_over_the_rows_that_count_not_a_tolerated_transient():
+    c = {"key_pair": ["A", "B"], "tol": 0.1, "tolerate_s": 0.1, "after_s": 0}
+    log = _log([{"A": 0, "B": 0}, {"A": 150, "B": 0}, {"A": 0, "B": 0},
+                {"A": 0.5, "B": 0}, {"A": 0.5, "B": 0}, {"A": 0, "B": 0}], {"A", "B"})
+    r = checks.evaluate([c], log)[0]
+    assert r.failed == 2 and r.transients == 1
+    assert r.max_err == pytest.approx(0.5) and r.t_max == pytest.approx(0.6)
+    assert "largest 150.0000 at t=0.2s" in r.detail
 
 
 def _fix_log(fix, flags):
@@ -212,6 +279,67 @@ def test_recorder_files_carry_the_flags(tmp_path):
     assert ["FPLCDI" in f for f in log.flags] == [False, True, True]
 
 
+def test_the_log_keeps_when_each_key_was_last_written():
+    log = _log([{"A": 1.0}, {}, {}, {"A": 1.0}], {"A"})
+    assert [log.silent_s(i, "A") for i in range(4)] == pytest.approx([0.0, 0.2, 0.4, 0.0])
+    assert log.silent_s(0, "B") == float("inf")
+
+
+def test_a_recorder_snapshot_row_is_not_a_write(tmp_path):
+    # data_recorder opens every file with a row of every key's current value;
+    # a dead link must not look written at an hour boundary
+    p = tmp_path / "log.json"
+    lines = ['{"frequency":"200","starttime":"2026-01-01T00:00:00"}',
+             '{"LAT":[1.0,0,0,0,0,0]}', '{}', '{"LAT":[2.0,0,0,0,0,0]}', '{}',
+             '{"frequency":"200","starttime":"2026-01-01T01:00:00"}', '{"LAT":[2.0,0,0,0,0,0]}', '{}']
+    p.write_text("".join(line + chr(10) for line in lines))
+    log = checks.Log.from_recorder_files([str(p)], {"LAT"})
+    assert log.silent_s(0, "LAT") == float("inf")       # the first row is a snapshot too
+    assert [round(log.silent_s(i, "LAT"), 1) for i in range(2, 6)] == [0.0, 0.2, 0.4, 0.6]
+
+
+def _silent_log(written, flags):
+    # one row per 0.2 s; written: does the row carry a LAT write; flags: is X flagged
+    rows = [dict(({"LAT": 1.0} if w else {}), X=(F if g else 0.0)) for w, g in zip(written, flags)]
+    return _log(rows, {"LAT", "X"})
+
+
+SILENT = {"flagged": ["X"], "while_silent": ["LAT"], "within_s": 0.6, "clear_within_s": 0.4, "after_s": 0}
+W = [1] * 8 + [0] * 10 + [1] * 8
+
+
+def test_flagged_while_silent_passes_a_flag_inside_the_bound():
+    f = [0] * 8 + [0, 0, 1] + [1] * 7 + [1, 1, 0] + [0] * 5
+    r = checks.evaluate([SILENT], _silent_log(W, f))[0]
+    assert r.passed, r.detail
+
+
+def test_flagged_while_silent_fails_a_late_flag_a_sticky_flag_and_a_log_with_no_silence():
+    late = [0] * 8 + [0, 0, 0, 0, 1] + [1] * 5 + [0] * 8
+    sticky = [0] * 8 + [0, 0, 1] + [1] * 15
+    r = checks.evaluate([SILENT], _silent_log(W, late))[0]
+    assert not r.passed and "not flagged, inputs silent 0.6 s" in r.detail
+    assert "still flagged" in checks.evaluate([SILENT], _silent_log(W, sticky))[0].detail
+    r = checks.evaluate([SILENT], _silent_log([1] * 10, [0] * 10))[0]
+    assert not r.passed and r.detail == "no silence of 0.6 s on this log"
+
+
+def test_flagged_while_silent_ignores_the_value_left_behind():
+    # a dead link leaves a good-looking value: only the absence of writes counts
+    rows = [dict(({"LAT": 1.0} if x else {}), GPS_FIX_TYPE=3, X=0.0) for x in [1] * 5 + [0] * 10]
+    assert not checks.evaluate([SILENT], _log(rows, {"LAT", "X", "GPS_FIX_TYPE"}))[0].passed
+
+
+def test_skip_when_silent_judges_only_rows_with_a_current_input():
+    c = {"key_pair": ["A", "B"], "tol": 0.1, "skip_when_silent": {"LAT": 0.3}, "after_s": 0}
+    rows = [{"LAT": 1.0, "A": 0, "B": 0}, {"A": 0, "B": 0}, {"A": 9, "B": 0}, {"A": 9, "B": 0},
+            {"LAT": 1.0, "A": 0, "B": 0}]
+    log = _log(rows, {"LAT", "A", "B"})
+    r = checks.evaluate([c], log)[0]
+    assert r.passed and r.compared == 3 and r.silent == 2
+    assert not checks.evaluate([dict(c, skip_when_silent={"LAT": 0.5})], log)[0].passed
+
+
 # -- profile validation ---------------------------------------------------------
 
 def _profile(tmp_path, events=None, checks_=None):
@@ -227,8 +355,9 @@ def _profile(tmp_path, events=None, checks_=None):
 
 
 def test_an_event_does_exactly_one_thing(tmp_path):
-    two = [{"id": "x", "at": {"leg": "NIRLE-ELZUS"}, "do": {"gps_loss_s": 5, "hold_min": 1}}]
-    with pytest.raises(ProfileError, match="exactly one of offset_nm / hold_min / gps_loss_s"):
+    two = [{"id": "x", "at": {"leg": "NIRLE-ELZUS"}, "do": {"gps_loss_s": 5, "gps_link_loss_s": 5}}]
+    with pytest.raises(ProfileError, match="exactly one of offset_nm / hold_min / gps_loss_s / "
+                                           "gps_link_loss_s / gps_status_loss_s / gps_position_loss_s"):
         load_profile(_profile(tmp_path, events=two))
     stray = [{"id": "x", "at": {"leg": "NIRLE-ELZUS"}, "do": {"gps_loss_s": 5, "hold_s": 1}}]
     with pytest.raises(ProfileError, match="hold_s goes with offset_nm"):
@@ -240,3 +369,15 @@ def test_a_flagged_check_names_its_keys_and_its_condition(tmp_path):
         load_profile(_profile(tmp_path, checks_=[{"flagged": "FPLCDI", "while_no_fix": True}]))
     with pytest.raises(ProfileError, match="while_no_fix: true"):
         load_profile(_profile(tmp_path, checks_=[{"flagged": ["FPLCDI"]}]))
+
+
+def test_a_silence_check_names_its_inputs_and_has_one_condition(tmp_path):
+    with pytest.raises(ProfileError, match="a list of input keys"):
+        load_profile(_profile(tmp_path, checks_=[{"flagged": ["FPLCDI"], "while_silent": "LAT"}]))
+    with pytest.raises(ProfileError, match="exactly one condition"):
+        load_profile(_profile(tmp_path, checks_=[{"flagged": ["FPLCDI"], "while_silent": ["LAT"],
+                                                  "while_no_fix": True}]))
+    with pytest.raises(ProfileError, match="while_silent goes with flagged"):
+        load_profile(_profile(tmp_path, checks_=[{"key_pair": ["A", "B"], "while_silent": ["LAT"]}]))
+    with pytest.raises(ProfileError, match="skip_when_silent"):
+        load_profile(_profile(tmp_path, checks_=[{"key_pair": ["A", "B"], "skip_when_silent": ["LAT"]}]))

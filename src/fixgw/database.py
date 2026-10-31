@@ -137,15 +137,18 @@ class db_item(object):
     @property
     def value(self):
         with self.lock:
+            old = self._old
             if self.tol != 0:
-                if self.age > self.tol:
-                    self._old = True
-                else:
+                # A reader may report the expiry but must not record it:
+                # only update() sets _old True, through the old setter, so
+                # the transition always fires the callbacks (AER-4246).
+                old = self.age > self.tol
+                if not old:
                     self._old = False
             return (
                 self._value,
                 self._annunciate,
-                self._old,
+                old,
                 self._bad,
                 self._fail,
                 self._secfail,

@@ -1450,3 +1450,78 @@ def test_no_description_contains_the_netfix_delimiter(database):
                  if ";" in database.get_raw_item(key).description]
     assert not offenders, (
         f"description contains ';' (breaks netfix's @q report): {offenders}")
+
+
+@pytest.mark.parametrize("key", ["LAT", "LONG"])
+def test_shipped_position_keys_go_old_two_seconds_after_the_last_write(database, monkeypatch, key):
+    # AER-4217: a dead GPS link reads as old on every consumer (pyEfis's map
+    # greys the ownship and shows NO POS) two seconds after the last fix, not
+    # twenty. One missed epoch of a 1 Hz receiver plus one epoch of jitter.
+    now = [time.time()]
+    monkeypatch.setattr(time, "time", lambda: now[0])
+    database.write(key, 10.0)
+
+    now[0] += 1.9
+    assert database.read(key)[2] is False
+    now[0] += 0.2
+    assert database.read(key)[2] is True
+
+    database.write(key, 10.1)  # the next fix clears it at once
+    assert database.read(key)[2] is False
+
+
+# AER-4246: going old must reach the callbacks (and so netfix clients) no
+# matter who observes the expiry first. The value getter used to set _old
+# itself when read past the tol, so a read between the expiry and the next
+# maintenance update() left update()'s `item.old = True` with nothing to
+# change, and no callback ever fired.
+def test_age_out_fires_callback_when_value_read_before_update(database):
+    item = database.get_raw_item("PITCH")
+    item.tol = 100
+    item.value = 1.0
+    cb = MagicMock()
+    item.callbacks.append(("cb", cb, None))
+
+    time.sleep(0.2)
+    assert item.value[2] is True  # a reader sees the expiry first
+    database.update()
+
+    cb.assert_called_once()
+    key, value, _ = cb.call_args.args
+    assert key == "PITCH"
+    assert value[2] is True
+
+
+def test_age_out_fires_callback_when_nothing_reads_first(database):
+    item = database.get_raw_item("PITCH")
+    item.tol = 100
+    item.value = 1.0
+    cb = MagicMock()
+    item.callbacks.append(("cb", cb, None))
+
+    time.sleep(0.2)
+    database.update()
+    database.update()  # a second tick must not repeat the notification
+
+    cb.assert_called_once()
+    assert cb.call_args.args[1][2] is True
+
+
+def test_fresh_write_after_age_out_clears_old_and_next_age_out_notifies(database):
+    item = database.get_raw_item("PITCH")
+    item.tol = 100
+    item.value = 1.0
+    cb = MagicMock()
+    item.callbacks.append(("cb", cb, None))
+
+    time.sleep(0.2)
+    item.value  # noqa: B018 -- the read is the point
+    database.update()
+    item.value = 2.0
+    assert cb.call_args.args[1][2] is False
+    time.sleep(0.2)
+    item.value  # noqa: B018
+    database.update()
+
+    assert cb.call_count == 3
+    assert cb.call_args.args[1][2] is True

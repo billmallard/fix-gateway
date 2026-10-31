@@ -73,6 +73,11 @@ SLOTS_PER_ROW = 8
 # index back to a FIX key. Protocol mirrors the proven MAOS-FCS xplane_bridge.
 RREF_HEADER = b"RREF"
 RREF_BASE = 1000               # first request index (X-Plane echoes it back)
+# Smallest normal float32. X-Plane can send a not-received nav deflection as a
+# subnormal (seen: bits 0x80000004, fix-gateway#20); no real dataref value lives
+# below this, so the ingest flushes it to a clean 0.0. Cosmetic only -- it keeps
+# the value from looking like data, it does not say the signal is invalid.
+FLT32_MIN_NORMAL = 1.1754943508222875e-38
 
 # DREF: write a named dataref back to X-Plane. Packet is "DREF" + null + a
 # 4-byte float value + the 500-byte null-padded dataref path (509 bytes total).
@@ -289,6 +294,11 @@ class MainThread(threading.Thread):
             if entry is None:
                 continue
             key, _dref, scale = entry
+            # Flush before scaling: a subnormal (or -0.0) times a negative
+            # scale would otherwise land as -0.0 or a signed ~1e-45.
+            if abs(value) < FLT32_MIN_NORMAL:
+                value = 0.0
+                scale = 1.0
             try:
                 self.parent.db_write(key, float(value) * scale)
             except Exception as e:

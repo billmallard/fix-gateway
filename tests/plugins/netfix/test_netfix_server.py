@@ -20,6 +20,11 @@ import yaml
 import socket
 import logging
 
+import pytest
+
+import fixgw.plugins.netfix
+from fixgw import cfg
+
 
 
 def test_value_write(plugin,database):
@@ -465,6 +470,20 @@ def test_unknown_command(plugin):
     assert res == "@oALT!004\n"
 
 
+def test_empty_and_bare_at_frames_keep_connection_alive(plugin, database):
+    """An empty line and a bare '@' used to raise IndexError in the
+    connection thread, leaving the client deaf (#67)."""
+    database.write("IAS", 105.4)
+    plugin.sock.sendall("\n\n@\n@rIAS\n".encode())
+    res = ""
+    while res.count("\n") < 2:
+        chunk = plugin.sock.recv(1024).decode()
+        if not chunk:  # Server closed the connection
+            break
+        res += chunk
+    assert res == "@!004\n@rIAS;105.4;00000\n"
+
+
 def test_status_command(plugin):
     plugin.sock.sendall("@xstatus\n".encode())
     res = plugin.sock.recv(1024).decode()
@@ -522,3 +541,63 @@ def test_send_invalid_value_update2(plugin,caplog):
         assert 'Problem with input IAS;10;10;10;10;10: string index out of range' in caplog.text        
 
 
+
+
+def test_subscriber_gets_old_flag_when_another_reader_sees_expiry_first(plugin, database):
+    """AER-4246: a key aging out reaches the subscriber even when some other
+    reader (FLIGHTPLAN reading LAT, say) touches it before update() runs"""
+    database.get_raw_item("IAS").tol = 100
+    plugin.sock.sendall("@sIAS\n".encode())
+    assert plugin.sock.recv(1024).decode() == "@sIAS\n"
+    database.write("IAS", 120.0)
+    assert plugin.sock.recv(1024).decode() == "IAS;120.0;00000\n"
+
+    time.sleep(0.2)
+    assert database.read("IAS")[2] is True  # the other reader
+    database.update()
+
+    assert plugin.sock.recv(1024).decode() == "IAS;120.0;01000\n"
+
+
+def test_back_to_back_connections_not_refused(plugin, database):
+    """One-shot clients that connect, read and close in quick succession must
+    never be refused.  The listening socket used to be re-created after every
+    accept(), so a connect that landed in the gap before the next bind() got
+    ECONNREFUSED, and one still queued in the old socket's backlog when it
+    was closed got ECONNRESET (fix-gateway #43)."""
+    database.write("ALT", 2000)
+    refused = 0
+    for _ in range(100):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(1.0)
+        try:
+            s.connect(("127.0.0.1", 34901))
+        except ConnectionRefusedError:
+            refused += 1
+            continue
+        try:
+            s.sendall("@rALT\n".encode())
+            assert s.recv(1024).decode() == "@rALT;2000.0;00000\n"
+        finally:
+            s.close()
+    assert refused == 0
+
+
+def test_stop_releases_listening_socket(netfix_config, database):
+    """stop() still ends the server thread on the accept timeout and closes
+    the listening socket, so the port stops accepting."""
+    nc, nc_meta = cfg.from_yaml(netfix_config, metadata=True)
+    pl = fixgw.plugins.netfix.Plugin("netfix", nc, nc_meta)
+    pl.start()
+    time.sleep(0.1)
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(1.0)
+    s.connect(("127.0.0.1", 34901))
+    s.close()
+    pl.stop()
+    assert not pl.thread.is_alive()
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(1.0)
+    with pytest.raises(ConnectionRefusedError):
+        s.connect(("127.0.0.1", 34901))
+    s.close()

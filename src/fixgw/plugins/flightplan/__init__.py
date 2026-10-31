@@ -98,6 +98,12 @@ class MainThread(threading.Thread):
         self._last_update_time = 0.0
         self._restoring = False
         self._last_persisted = None
+        # Nothing is persisted until _restore() has run. LAT/LONG callbacks
+        # drive the guidance cycle (and its persist hook) from the first live
+        # position write, which on a real GPS lands inside restore_delay while
+        # the engine is still empty -- persisting then replaced the plan on
+        # disk before it was read (fix-gateway#50).
+        self._restore_done = False
         # LAT/LONG default to 0.0 and are not flagged "old" until their tol
         # elapses -- the same grace window _read_integrity relies on for
         # GPS_FIX_TYPE/GPS_ACCURACY_HORIZ. For a position input that is
@@ -108,11 +114,18 @@ class MainThread(threading.Thread):
         # write has ever landed this process, silently discarding a restored
         # Direct-To. Gate on an actual write, not just "not old".
         self._position_seen = False
+        # AER-4217: GPS_FIX_TYPE going "old" means two different things. If it
+        # has never been written this process, the installation has no
+        # fix-type source (the bench's X-Plane FMS) and the gate is skipped.
+        # If it was publishing and stopped, the receiver or its link is dead,
+        # and that is a failed input.
+        self._fix_type_seen = False
 
         self.parent.db_callback_add("FPLSEQ", self._on_fplseq)
         self.parent.db_callback_add("FPLCMD", self._on_fplcmd)
         self.parent.db_callback_add("LAT", self._on_position)
         self.parent.db_callback_add("LONG", self._on_position)
+        self.parent.db_callback_add("GPS_FIX_TYPE", self._on_fix_type)
 
     # ------------------------------------------------------------------
     # DB helpers
@@ -267,10 +280,19 @@ class MainThread(threading.Thread):
         self._last_update_time = now
         self._run_update_cycle(now)
 
+    def _on_fix_type(self, key, value, udata=None):
+        self._fix_type_seen = True
+
+    def _position_time(self):
+        # When the position was produced: the older of the two halves.
+        return min(self.parent.db_get_item("LAT").timestamp, self.parent.db_get_item("LONG").timestamp)
+
     def _read_integrity(self):
         fix_t = self._read_tuple("GPS_FIX_TYPE")
-        if fix_t[2]:  # old -- never actively published (e.g. X-Plane's FMS)
+        if fix_t[2] and not self._fix_type_seen:  # old -- never actively published (e.g. X-Plane's FMS)
             fix_type_ok = None
+        elif fix_t[2]:  # old -- was publishing and went silent (AER-4217)
+            fix_type_ok = False
         else:
             fix_type_ok = (fix_t[0] >= 3) and not fix_t[4]
 
@@ -300,7 +322,8 @@ class MainThread(threading.Thread):
         fix_type_ok, accuracy_nm = self._read_integrity()
         alt_ft = self._read_altitude()
 
-        out = self.engine.update(lat_t[0], lon_t[0], gs, magvar, position_ok, fix_type_ok, accuracy_nm, now, alt_ft)
+        out = self.engine.update(lat_t[0], lon_t[0], gs, magvar, position_ok, fix_type_ok, accuracy_nm, now, alt_ft,
+                                 position_time=self._position_time())
         self._write_outputs(out)
         self._maybe_persist()
 
@@ -350,6 +373,16 @@ class MainThread(threading.Thread):
             return None
 
     def _restore(self):
+        # Persistence opens only once the engine holds what was on disk (or
+        # there was nothing to restore): a position callback persisting
+        # between the file read and restore_from_dict() would write the empty
+        # engine and leave _last_persisted matching it.
+        try:
+            self._restore_from_file()
+        finally:
+            self._restore_done = True
+
+    def _restore_from_file(self):
         data = self._load_persisted()
         if data is None:
             return
@@ -375,6 +408,8 @@ class MainThread(threading.Thread):
         self.log.info(f"flightplan: restored plan '{self.engine.route_name}' from {self.state_file}")
 
     def _maybe_persist(self):
+        if not self._restore_done:
+            return
         snapshot = self.engine.to_persisted_dict()
         if snapshot == self._last_persisted:
             return

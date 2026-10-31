@@ -1,0 +1,92 @@
+# QA1 F4, second variant (AER-4223): the receiver's status stream stops while
+# position keeps coming -- for 30 s on NIRLE-ELZUS and for 15 s on the final
+# approach segment ANIBY-RW30. QA-authored: the scenario, checks, tolerances
+# and expected values are QA's. The mavlink plugin takes GPS_FIX_TYPE and
+# GPS_ACCURACY_HORIZ from GPS_RAW_INT and LAT/LONG from GLOBAL_POSITION_INT,
+# the autopilot's fused estimate, which carries on (dead-reckoned) when the
+# GPS behind it stops. So the box still has a position but nothing that says
+# a fix stands behind it: it has lost its integrity monitoring. Here the
+# position stays true, so any guidance error would be the box's own.
+# Format: ../PROFILE_FORMAT.md
+name: qa1-gps-status-loss-mid-leg-ksmx-r30
+description: >
+  KSMX RNAV 30 via GVO from 2 nm before NIRLE. GPS_FIX_TYPE and
+  GPS_ACCURACY_HORIZ stop for 30 s mid-way along NIRLE-ELZUS and for 15 s on
+  the final approach segment ANIBY-RW30 while LAT/LONG/GS/TRACK keep coming;
+  the run ends 30 s after the second loss, before the MAP.
+
+cifp:
+  cycle: "2611"
+  file: cifp/FAACIFP18-2611-KSMX-R30
+
+aircraft: {tas_kt: 110, climb_fpm: 700, descent_fpm: 600, bank_max_deg: 25}
+
+environment:
+  magvar_deg: -11.9                # FIX MAGVAR, positive west: CIFP E011.9 at the KSMX terminal fixes
+  wind: {from_deg: 0, kt: 0}
+
+start: {fix: NIRLE, before_nm: 2.0, alt_ft: 4400, heading: on_course}
+
+route:
+  - procedure: {airport: KSMX, approach: R30, transition: GVO, missed: false}
+
+events:
+  - id: status_terminal
+    at: {leg: NIRLE-ELZUS, after_s: 100}
+    do: {gps_status_loss_s: 30}
+  - id: status_final
+    at: {leg: ANIBY-RW30, after_s: 30}
+    do: {gps_status_loss_s: 15}
+  - id: settle
+    at: {after: status_final}
+    do: {offset_nm: 0.0, hold_s: 30}
+
+end: {after_event: settle, max_s: 3600}
+
+checks:
+  # QA-authored (AER-4223). AC 20-138D 15-3.d: "A unique annunciation of the
+  # loss of integrity monitoring should be provided", and 15-3.c, a flag or an
+  # integrity annunciation will do -- so either is accepted here: each guidance
+  # key bad (the box's integrity annunciation) or failed (its flag). The bound
+  # is the dead-link profile's, for the same reason: the status stream is a
+  # 1 Hz-or-faster receiver output, and only its stopping says it is gone.
+  #
+  #   within_s 3.4 = 1 s (AC 20-138D 15-7.3, 1 Hz) + 1 s (one output missed)
+  #                + 1 s (one 1 Hz navigator update) + 0.4 s (0.2 s log, twice)
+  #
+  # The position is true throughout, so the agreement checks judge every row
+  # the box does not flag.
+  - key_pair: [FPLCRS, REFCRS]
+    tol_deg: 1.0
+    unless_flagged: true
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+  - key_pair: [FPLXTK, REFXTK]
+    tol: 0.02
+    unless_flagged: true
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+  - key_pair: [FPLCDI, REFCDI]
+    tol: 0.05
+    same_sign: true
+    unless_flagged: true
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+  - key_pair: [WPDIS, REFDIS]
+    tol: 0.015
+    tol_rel: 0.005
+    skip_when: {REFWPT: ""}
+    unless_flagged: true
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+  - flagged: [FPLCRS, FPLXTK, FPLCDI, WPDIS]
+    while_silent: [GPS_FIX_TYPE]
+    within_s: 3.4
+    clear_within_s: 1.0
+  - key_pair: [WPNAME, REFWPT]
+    skip_when_silent: {GPS_FIX_TYPE: 0.5}
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+    tolerate_s: 1.0            # the first update after the stream returns: the flag's own 1 s clear bound
+  - sequence: [NIRLE, ELZUS, PAMJI, CIMSO, ANIBY, RW30]
+    keys: [WPNAME, REFWPT]
