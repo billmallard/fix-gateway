@@ -102,53 +102,87 @@ class TestParseGga(unittest.TestCase):
         self.assertEqual(msgs[0].gps_fix_type, 3)
 
 
+def _nmea(body):
+    """A checksummed NMEA sentence from its body (between '$' and '*')."""
+    checksum = 0
+    for ch in body:
+        checksum ^= ord(ch)
+    return f"${body}*{checksum:02X}"
+
+
+# RMB and APB are tested with real sentences only: the adapter once read
+# attributes pynmea2 does not have, and MagicMock tests with the same invented
+# names passed while every real sentence produced nothing (AER-4473).
+RMB_BODY = "GPRMB,{status},{xte},{steer},ORIG,DEST,4000.000,N,08800.000,W,5.0,090.0,120.0,V"
+APB_BODY = "GPAPB,{status},A,0.50,L,N,{perp},{perp},{dtk},{typ},DEST,095.0,{typ},092.0,{typ}"
+
+
 class TestParseRmb(unittest.TestCase):
     def setUp(self):
         self.adapter = GarminNmeaAdapter()
 
-    def _mock_rmb(self, status, cross_track_err, dir_steer):
-        msg = MagicMock()
-        msg.status = status
-        msg.cross_track_err = cross_track_err
-        msg.dir_steer = dir_steer
-        return msg
+    def _rmb(self, status="A", xte="3.00", steer="L"):
+        return self.adapter.parse_line(_nmea(RMB_BODY.format(status=status, xte=xte, steer=steer)).encode())
 
     def test_steer_left_gives_positive_xtrack(self):
         # 'L' = aircraft is RIGHT of track → positive XTE
-        raw_msg = self._mock_rmb("A", 3.0, "L")
-        result = self.adapter._parse_rmb(raw_msg)
-        self.assertAlmostEqual(result.cross_track_error_nm_signed, 3.0, places=4)
+        (msg,) = self._rmb(steer="L")
+        self.assertAlmostEqual(msg.cross_track_error_nm_signed, 3.0, places=4)
 
     def test_steer_right_gives_negative_xtrack(self):
         # 'R' = aircraft is LEFT of track → negative XTE
-        raw_msg = self._mock_rmb("A", 3.0, "R")
-        result = self.adapter._parse_rmb(raw_msg)
-        self.assertAlmostEqual(result.cross_track_error_nm_signed, -3.0, places=4)
+        (msg,) = self._rmb(steer="R")
+        self.assertAlmostEqual(msg.cross_track_error_nm_signed, -3.0, places=4)
 
-    def test_void_status_returns_none(self):
-        raw_msg = self._mock_rmb("V", 3.0, "L")
-        self.assertIsNone(self.adapter._parse_rmb(raw_msg))
+    def test_void_missing_or_bad_returns_nothing(self):
+        self.assertEqual(self._rmb(status="V"), [])
+        self.assertEqual(self._rmb(xte=""), [])
+        self.assertEqual(self._rmb(steer="X"), [])
+        self.assertEqual(self.adapter.health().parse_errors, 0)
 
     def test_zero_xte_preserved(self):
-        raw_msg = self._mock_rmb("A", 0.0, "L")
-        result = self.adapter._parse_rmb(raw_msg)
-        self.assertAlmostEqual(result.cross_track_error_nm_signed, 0.0, places=4)
+        (msg,) = self._rmb(xte="0.00")
+        self.assertAlmostEqual(msg.cross_track_error_nm_signed, 0.0, places=4)
 
 
 class TestParseApb(unittest.TestCase):
     def setUp(self):
         self.adapter = GarminNmeaAdapter()
 
-    def test_apb_returns_bearing_to_wp(self):
-        msg = MagicMock()
-        msg.bearing_present_dest = 270.0
-        result = self.adapter._parse_apb(msg)
-        self.assertAlmostEqual(result.bearing_to_wp_deg, 270.0, places=1)
+    def _apb(self, status="A", perp="V", dtk="087.0", typ="M"):
+        body = APB_BODY.format(status=status, perp=perp, dtk=dtk, typ=typ)
+        return self.adapter.parse_line(_nmea(body).encode())
 
-    def test_apb_none_bearing_returns_none(self):
-        msg = MagicMock()
-        msg.bearing_present_dest = None
-        self.assertIsNone(self.adapter._parse_apb(msg))
+    def test_desired_track_is_origin_to_destination_bearing(self):
+        # Field 8 (087, the leg DTK), not field 11 (095, bearing from here).
+        (msg,) = self._apb()
+        self.assertAlmostEqual(msg.desired_track_deg_mag, 87.0, places=3)
+        self.assertEqual(msg.to_from, 1)
+
+    def test_perpendicular_passed_is_from(self):
+        (msg,) = self._apb(perp="A")
+        self.assertEqual(msg.to_from, 2)
+
+    def test_true_desired_track_uses_rmc_variation(self):
+        self.adapter.parse_line(b"$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W*6A")
+        (msg,) = self._apb(dtk="090.0", typ="T")
+        self.assertAlmostEqual(msg.desired_track_deg_mag, 93.1, places=3)
+
+    def test_true_desired_track_without_variation_is_dropped(self):
+        (msg,) = self._apb(dtk="090.0", typ="T")
+        self.assertIsNone(msg.desired_track_deg_mag)
+        self.assertEqual(msg.to_from, 1)
+
+    def test_invalid_apb_is_off(self):
+        (msg,) = self._apb(status="V")
+        self.assertIsNone(msg.desired_track_deg_mag)
+        self.assertEqual(msg.to_from, 0)
+
+    def test_reset_drops_held_variation(self):
+        self.adapter.parse_line(b"$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W*6A")
+        self.adapter.reset("test")
+        (msg,) = self._apb(dtk="090.0", typ="T")
+        self.assertIsNone(msg.desired_track_deg_mag)
 
 
 class TestHealthAndReset(unittest.TestCase):

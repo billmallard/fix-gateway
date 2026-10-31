@@ -51,13 +51,21 @@ navigator:
 | `GPS_ELLIPSOID_ALT` | GPS altitude (feet MSL) | `position.alt_ft_msl` |
 | `GS` | Ground speed (knots) | `ground_speed_kt` |
 | `TRACK` | Track over ground (deg true) | `ground_track_deg_true` |
-| `COURSE` | Bearing to active waypoint (deg true) | `bearing_to_wp_deg` |
-| `XTRACK` | Signed cross-track error (nm) | `cross_track_error_nm_signed` |
-| `CDI` | Course deviation indicator [-1.0, +1.0] | derived from `XTRACK` |
+| `EXTCRS` | Desired track of the active leg (deg magnetic) | `desired_track_deg_mag` |
+| `EXTCDI` | Course deviation [-1.0, +1.0] | derived from `cross_track_error_nm_signed` |
+| `EXTTF` | TO/FROM: 0 off, 1 TO, 2 FROM | `to_from` |
 | `GPS_FIX_TYPE` | Contract scale: 0-1 no fix, 2 2D, 3 3D, 4 3D DGPS/WAAS, 5 3D RTK | `gps_fix_type` |
 
 Only non-`None` fields are written. Fields not populated by a sentence are left
 unchanged in the database.
+
+The navigator is an **external navigator**: its guidance goes to the `EXT*`
+inputs, and compute's `GPSSRC` select (`connections/compute.yaml`) routes them
+into `GPSCRS`/`GPSCDI`/`GPSTF`, which its `NAVSRC` select routes into
+`COURSE`/`CDI`/`TOFROM`. The plugin never writes `COURSE`, `CDI` or `XTRACK`;
+compute is their one writer (AER-4473). The navigator's own cross-track error
+has no key yet, so `XTRACK` still comes from compute's `xte`. Set `GPSSRC` to 1
+to fly the navigator's guidance.
 
 ---
 
@@ -74,8 +82,13 @@ and any NMEA 0183-compliant device outputting RMC/GGA/RMB/APB sentences.
 | `$GPRMC` | LAT, LONG, GS, TRACK |
 | `$GPGGA` | LAT, LONG, GPS_ELLIPSOID_ALT, GPS_FIX_TYPE (quality + satellites, mapped by `fixgw.nmea_fix.gps_fix_type`) |
 | `$GPGSA` | 2D/3D mode, held for the next GGA's GPS_FIX_TYPE |
-| `$GPRMB` | XTRACK, CDI |
-| `$GPAPB` | COURSE |
+| `$GPRMB` | EXTCDI (from the cross-track error and steer direction) |
+| `$GPAPB` | EXTCRS (field 8, bearing origin to destination: the leg DTK), EXTTF (field 7, perpendicular passed = FROM; field 1 not valid = off) |
+
+APB field 8 may be true or magnetic. A true bearing is made magnetic with the
+latest `$GPRMC` magnetic variation; if the navigator sends a true bearing and
+no variation, `EXTCRS` is not written rather than a true course labelled
+magnetic.
 
 Typical serial settings: 9600 baud, 8N1.
 
@@ -183,12 +196,13 @@ and use `fixGwClient.py` or pyEfis to observe the live database writes before fl
 ## XTE / CDI Sign Convention
 
 ```
-Positive XTRACK → aircraft is RIGHT of desired course → CDI needle deflects LEFT (negative CDI)
-Negative XTRACK → aircraft is LEFT of desired course  → CDI needle deflects RIGHT (positive CDI)
+Positive XTE → aircraft is RIGHT of desired course → CDI needle deflects LEFT (negative EXTCDI)
+Negative XTE → aircraft is LEFT of desired course  → CDI needle deflects RIGHT (positive EXTCDI)
 ```
 
-This matches the FIX-Gateway `compute.py` XTE function and the Garmin RMB steer-direction encoding:
-- `'L'` (steer left to return) = aircraft is RIGHT of track = **positive XTRACK**
-- `'R'` (steer right to return) = aircraft is LEFT of track = **negative XTRACK**
+This matches `FPLXTK`/`XTRACK` and the Garmin RMB steer-direction encoding:
+- `'L'` (steer left to return) = aircraft is RIGHT of track = **positive XTE**
+- `'R'` (steer right to return) = aircraft is LEFT of track = **negative XTE**
 
-CDI scaling: `CDI = clamp(-xtrack / cdi_full_scale_nm, -1.0, 1.0)`
+CDI scaling: `EXTCDI = clamp(-xte / cdi_full_scale_nm, -1.0, 1.0)`, the `FPLCDI`
+convention (`fixgw.nmea_fix.cdi_from_cross_track`).
