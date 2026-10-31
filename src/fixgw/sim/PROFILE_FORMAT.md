@@ -279,7 +279,7 @@ the recording's checks use the keys the bench writes X-Plane's navigator to:
 |---|---|
 | `EXTCRS` | `gps_crs_mag` (as `connections/xplane.yaml` maps `gps_course_degtm`) |
 | `EXTCDI` | `gps_hdef_dot` x 0.4, held to +-1 |
-| `EXTTF` | `gps_fromto` (1 TO, 2 FROM; the bench does not map it yet) |
+| `EXTTF` | `gps_fromto` (1 TO, 2 FROM; mapped since fix-gateway#41, after FP8 was recorded) |
 | `gps_id` | X-Plane's active waypoint (no bus key) |
 
 `tests/sim/test_fp8_bench_bus.py` checks that mapping against the bench's
