@@ -333,6 +333,14 @@ items:
   initial: 0
   tol: 5000
 
+- key: FPLSUSPMAP
+  description: "Suspended at the MAP (G49): 1 while FPLSTATE = 3 is the MAP auto-suspend, where FPLCMD RESUME flies the missed approach. 0 otherwise, including a pilot SUSP past the MAP. Absent on an older gateway: treat as 0"
+  type: int
+  min: 0
+  max: 1
+  initial: 0
+  tol: 5000
+
 - key: FPLACTLEG
   description: Flight plan active (TO waypoint) slot, 0 = none
   type: int

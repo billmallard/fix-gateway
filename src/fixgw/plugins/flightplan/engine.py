@@ -1280,6 +1280,7 @@ class Engine:
             out["phase"] = "HOLD"     # PA13 -- flying a published HM/HF/HA circuit
         elif out.pop("pturn", False):
             out["phase"] = "PTURN"    # PA13 -- flying a PI procedure turn
+        out["susp_map"] = self._suspended_at_map()
         if self._pending_msg is not None:
             out["msg"] = self._pending_msg
         return out
@@ -1287,6 +1288,7 @@ class Engine:
     def _fail_outputs(self):
         out = {
             "state": self._display_state(),
+            "susp_map": self._suspended_at_map(),
             "act_leg": self.act_leg,
             "phase": "",
             "apr": self.apr,
@@ -1318,6 +1320,13 @@ class Engine:
         if self.suspended:
             return STATE_SUSP
         return {"NONE": STATE_NONE, "LEG": STATE_LEG, "DIRECT": STATE_DIRECT}[self.mode]
+
+    def _suspended_at_map(self):
+        """FPLSUSPMAP (G49): 1 only while the SUSP is the MAP auto-suspend,
+        the one RESUME turns into the missed approach. A pilot SUSP is 0
+        even past the MAP: held from before the MAP (the auto-suspend never
+        fires over an existing SUSP) or after a missed with no MAHP leg."""
+        return 1 if self.suspended and self._map_suspended else 0
 
     def _turn_anticipation_for(self, to_wp, anchor, to, gs_kt):
         """d_ta for the active leg, or 0.0 (fly-over: no predictive
