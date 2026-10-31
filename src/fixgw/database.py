@@ -295,7 +295,7 @@ class db_item(object):
     @property
     def secfail(self):
         with self.lock:
-            return self._fail
+            return self._secfail
 
     @secfail.setter
     def secfail(self, x):
