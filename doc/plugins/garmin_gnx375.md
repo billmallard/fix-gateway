@@ -126,7 +126,7 @@ Read `LAT` and `LONG` — they should match the GNX 375's position display withi
 |---------|----------|-----------|
 | `LAT` | Unit's displayed latitude | ±0.001° |
 | `LONG` | Unit's displayed longitude | ±0.001° |
-| `GPS_FIX_TYPE` | 1 (GPS) or 2 (WAAS) | exact |
+| `GPS_FIX_TYPE` | 3 (3D) or 4 (3D with WAAS) | exact |
 | `GPS_ELLIPSOID_ALT` | Unit's GPS altitude in ft | ±50 ft |
 
 ### Check B — Ground speed and track
@@ -300,7 +300,7 @@ The `@skipUnless` decorator means the replay tests are silently skipped in CI (w
 
 **No active flight plan**: `$GPRMB` and `$GPAPB` are only transmitted when a waypoint is active. `XTRACK`, `CDI`, and `COURSE` will not update when flying without an active destination. `LAT`, `LONG`, `GS`, `TRACK`, and `GPS_ELLIPSOID_ALT` update continuously from `$GPRMC`/`$GPGGA` regardless.
 
-**WAAS-acquired fix**: `GPS_FIX_TYPE` will read `2` when WAAS is active. This is correct.
+**`GPS_FIX_TYPE` scale**: the plugin writes the FIX contract scale (`database/ahrs.yaml`: 0-1 no fix, 2 2D, 3 3D, 4 3D with DGPS/WAAS, 5 3D with RTK), the same scale `gpsd` and `mavlink` write -- not the raw `$GPGGA` quality code. 2D vs 3D comes from `$GPGSA` when the unit sends it, otherwise from the `$GPGGA` satellites-in-use count (4 or more is 3D). A WAAS fix reads `4`; the flight-plan engine's integrity gate needs `3` or more. The mapping is `fixgw.nmea_fix.gps_fix_type`, shared with the `navigator_adapter` Garmin parser.
 
 **CDI full scale on approach**: Switch `cdi_full_scale_nm` to `0.3` when within the terminal area on a GPS approach. This matches the GNX 375's own CDI scaling in approach mode.
 

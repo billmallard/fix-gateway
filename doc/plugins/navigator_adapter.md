@@ -54,7 +54,7 @@ navigator:
 | `COURSE` | Bearing to active waypoint (deg true) | `bearing_to_wp_deg` |
 | `XTRACK` | Signed cross-track error (nm) | `cross_track_error_nm_signed` |
 | `CDI` | Course deviation indicator [-1.0, +1.0] | derived from `XTRACK` |
-| `GPS_FIX_TYPE` | Fix quality (0=none, 1=GPS, 2=DGPS/WAAS) | `gps_fix_type` |
+| `GPS_FIX_TYPE` | Contract scale: 0-1 no fix, 2 2D, 3 3D, 4 3D DGPS/WAAS, 5 3D RTK | `gps_fix_type` |
 
 Only non-`None` fields are written. Fields not populated by a sentence are left
 unchanged in the database.
@@ -72,7 +72,8 @@ and any NMEA 0183-compliant device outputting RMC/GGA/RMB/APB sentences.
 | Sentence | Data extracted |
 |----------|----------------|
 | `$GPRMC` | LAT, LONG, GS, TRACK |
-| `$GPGGA` | LAT, LONG, GPS_ELLIPSOID_ALT, GPS_FIX_TYPE |
+| `$GPGGA` | LAT, LONG, GPS_ELLIPSOID_ALT, GPS_FIX_TYPE (quality + satellites, mapped by `fixgw.nmea_fix.gps_fix_type`) |
+| `$GPGSA` | 2D/3D mode, held for the next GGA's GPS_FIX_TYPE |
 | `$GPRMB` | XTRACK, CDI |
 | `$GPAPB` | COURSE |
 

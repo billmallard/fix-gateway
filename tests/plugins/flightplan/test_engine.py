@@ -16,6 +16,11 @@ import fixgw.plugins.flightplan.engine as engine
 
 from .routes import hold_circuit_points, load
 
+# A hold is built on WGS-84 and its course read on the sphere between the
+# points it was built with (AER-4218): within 0.193 deg of the coded course,
+# the worst case being here at the equator.
+HOLD_CRS_DEG = 0.2
+
 
 def wp(id, lat, lon, type=engine.TYPE_UNKNOWN, flags=0):
     return engine.Waypoint(id, lat, lon, type, flags=flags)
@@ -176,7 +181,7 @@ def test_hold_coded_at_the_fix_just_sequenced_starts_its_entry_at_once():
     out = e.update(0.0, b_lon + nm_to_deg_lon(0.01), 120.0, 0.0, True, None, None, 1000.0)
     assert out["act_leg"] == 3
     assert (e._leg_phase, e._hold_entry) == (engine.LEGPHASE_ENTRY, engine.HOLD_ENTRY_TEARDROP)
-    assert out["crs"] == pytest.approx(120.0, abs=0.01)
+    assert out["crs"] == pytest.approx(120.0, abs=HOLD_CRS_DEG)
     assert out["xtk"] == pytest.approx(-0.01 * math.sin(math.radians(30.0)), abs=1e-4)
     assert out.get("phase") == "HOLD"
 
@@ -1260,7 +1265,7 @@ def test_teardrop_entry_flies_30_degrees_toward_the_holding_side():
     e.handle_command("1 ACT 2", (*a, True))
     out = e.update(*geo.destination_point(0.0, 0.0, 240.0, 0.01), 120.0, 0.0, True, None, None, 1000.0)
     assert (e._leg_phase, e._hold_entry) == (engine.LEGPHASE_ENTRY, engine.HOLD_ENTRY_TEARDROP)
-    assert out["crs"] == pytest.approx(240.0, abs=0.01)
+    assert out["crs"] == pytest.approx(240.0, abs=HOLD_CRS_DEG)
     e.update(*geo.destination_point(0.0, 0.0, 240.0, 2.05), 120.0, 0.0, True, None, None, 1001.0)
     assert e._leg_phase == engine.LEGPHASE_INBOUND
 
@@ -1292,14 +1297,16 @@ def test_turn_outbound_is_guided_round_a_standard_rate_half_circle():
     load(e, _hold_route("HM"), "T", 1)
     _on_turn_out(e)
     r = 120.0 / 188.5
-    c_lat, c_lon = geo.destination_point(0.0, 0.0, 180.0, r)
-    on_lat, on_lon = geo.destination_point(c_lat, c_lon, 90.0, r)
+    c_lat, c_lon = geo.destination_point_wgs84(0.0, 0.0, 180.0, r)
+    on_lat, on_lon = geo.destination_point_wgs84(c_lat, c_lon, 90.0, r)
     out = e.update(on_lat, on_lon, 120.0, 0.0, True, None, None, 1001.0)
     assert e._leg_phase == engine.LEGPHASE_TURN_OUT
-    assert out["crs"] == pytest.approx(180.0, abs=0.01)
+    assert out["crs"] == pytest.approx(180.0, abs=HOLD_CRS_DEG)
     assert out["xtk"] == pytest.approx(0.0, abs=1e-6)
-    wide = e.update(*geo.destination_point(c_lat, c_lon, 90.0, r + 0.1), 120.0, 0.0, True, None, None, 1002.0)
-    assert wide["xtk"] == pytest.approx(-0.1, abs=1e-4)  # outside a right turn is left of track
+    wide = e.update(*geo.destination_point_wgs84(c_lat, c_lon, 90.0, r + 0.1), 120.0, 0.0, True, None, None, 1002.0)
+    # outside a right turn is left of track; read on the sphere, a WGS-84
+    # distance is up to 0.6% long or short (meridian radius 3420 nm here)
+    assert wide["xtk"] == pytest.approx(-0.1, rel=0.006)
 
 
 def test_outbound_leg_is_the_reciprocal_course_on_the_racetrack_side():
@@ -1315,11 +1322,11 @@ def test_outbound_leg_is_the_reciprocal_course_on_the_racetrack_side():
     e.update(*past_turn_out, 120.0, 0.0, True, None, None, 1001.0)
     assert e._leg_phase == engine.LEGPHASE_OUTBOUND
     r = 120.0 / 188.5
-    on_track = e.update(*geo.destination_point(0.0, 0.0, 180.0, 2.0 * r), 120.0, 0.0, True, None, None, 1002.0)
-    assert on_track["crs"] == pytest.approx(270.0, abs=0.01)
+    on_track = e.update(*geo.destination_point_wgs84(0.0, 0.0, 180.0, 2.0 * r), 120.0, 0.0, True, None, None, 1002.0)
+    assert on_track["crs"] == pytest.approx(270.0, abs=HOLD_CRS_DEG)
     assert on_track["xtk"] == pytest.approx(0.0, abs=1e-4)
     on_inbound_line = e.update(*geo.destination_point(0.0, 0.0, 270.0, 1.0), 120.0, 0.0, True, None, None, 1003.0)
-    assert on_inbound_line["xtk"] == pytest.approx(2.0 * r, abs=1e-3)
+    assert on_inbound_line["xtk"] == pytest.approx(2.0 * r, rel=0.006)  # the sphere's scale, as above
 
 
 def test_outbound_leg_ends_at_the_coded_along_track_distance_from_the_fix():
@@ -1420,9 +1427,9 @@ def test_state_file_from_before_hold_entries_resumes_the_hold():
     e2 = engine.Engine()
     e2.restore_from_dict(d)
     r = 120.0 / 188.5
-    out = e2.update(*geo.destination_point(0.0, 0.0, 180.0, 2.0 * r), 120.0, 0.0, True, None, None, 1000.0)
+    out = e2.update(*geo.destination_point_wgs84(0.0, 0.0, 180.0, 2.0 * r), 120.0, 0.0, True, None, None, 1000.0)
     assert e2._leg_phase == engine.LEGPHASE_OUTBOUND
-    assert out["crs"] == pytest.approx(270.0, abs=0.01)
+    assert out["crs"] == pytest.approx(270.0, abs=HOLD_CRS_DEG)
     assert out["xtk"] == pytest.approx(0.0, abs=1e-4)
 
 

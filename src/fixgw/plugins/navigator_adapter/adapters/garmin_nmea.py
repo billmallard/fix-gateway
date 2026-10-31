@@ -23,6 +23,8 @@ try:
 except ImportError:
     _PYNMEA2_AVAILABLE = False
 
+from fixgw.nmea_fix import gps_fix_type
+
 from ..base import AdapterHealth, NormalizedNavMessage, ParserAdapter, Position
 
 
@@ -32,12 +34,13 @@ class GarminNmeaAdapter(ParserAdapter):
     def __init__(self) -> None:
         self._parse_errors = 0
         self._last_sentence_type: str | None = None
+        self._gsa_mode: str | None = None
 
     def name(self) -> str:
         return "garmin_nmea"
 
     def supported_protocols(self) -> List[str]:
-        return ["NMEA 0183: $GPRMC, $GPGGA, $GPRMB, $GPAPB"]
+        return ["NMEA 0183: $GPRMC, $GPGGA, $GPGSA, $GPRMB, $GPAPB"]
 
     def parse_line(self, raw: bytes) -> List[NormalizedNavMessage]:
         if not _PYNMEA2_AVAILABLE:
@@ -55,6 +58,7 @@ class GarminNmeaAdapter(ParserAdapter):
         handler = {
             "RMC": self._parse_rmc,
             "GGA": self._parse_gga,
+            "GSA": self._parse_gsa,
             "RMB": self._parse_rmb,
             "APB": self._parse_apb,
         }.get(stype)
@@ -78,6 +82,7 @@ class GarminNmeaAdapter(ParserAdapter):
     def reset(self, reason: str = "") -> None:
         self._parse_errors = 0
         self._last_sentence_type = None
+        self._gsa_mode = None
 
     # ------------------------------------------------------------------
     # Sentence parsers — each returns a NormalizedNavMessage or None
@@ -94,9 +99,16 @@ class GarminNmeaAdapter(ParserAdapter):
             out.ground_track_deg_true = float(msg.true_course)
         return out
 
+    def _parse_gsa(self, msg) -> NormalizedNavMessage | None:
+        # Held for the next GGA, which carries gps_fix_type once per epoch.
+        self._gsa_mode = msg.mode_fix_type
+        return None
+
     def _parse_gga(self, msg) -> NormalizedNavMessage | None:
+        # A GSA counts only for the GGA that follows it (see garmin_gnx375).
+        gsa_mode, self._gsa_mode = self._gsa_mode, None
         qual = int(msg.gps_qual) if msg.gps_qual is not None else 0
-        out = NormalizedNavMessage(gps_fix_type=qual)
+        out = NormalizedNavMessage(gps_fix_type=gps_fix_type(msg.gps_qual, msg.num_sats, gsa_mode))
         if qual == 0:
             return out
         out.position = Position(lat_deg=msg.latitude, lon_deg=msg.longitude)

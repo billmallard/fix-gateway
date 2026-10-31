@@ -64,7 +64,8 @@ class TestParseGga(unittest.TestCase):
         msgs = self._parse(sentence)
         self.assertEqual(len(msgs), 1)
         msg = msgs[0]
-        self.assertEqual(msg.gps_fix_type, 1)
+        # GGA quality 1 with 8 satellites is a 3D fix on the GPS_FIX_TYPE scale.
+        self.assertEqual(msg.gps_fix_type, 3)
         self.assertAlmostEqual(msg.position.lat_deg, 48.1173, places=3)
         self.assertAlmostEqual(msg.position.alt_ft_msl, 545.4 * 3.28084, places=0)
 
@@ -73,16 +74,32 @@ class TestParseGga(unittest.TestCase):
         from unittest.mock import MagicMock
         msg = MagicMock()
         msg.gps_qual = "0"
+        msg.num_sats = "00"
         msg.altitude = None
         result = self.adapter._parse_gga(msg)
         self.assertIsNotNone(result)
         self.assertEqual(result.gps_fix_type, 0)
         self.assertIsNone(result.position.lat_deg)
 
-    def test_dgps_fix_type_2(self):
+    def test_waas_fix_is_3d_dgps(self):
         sentence = "$GPGGA,123519,4807.038,N,01131.000,E,2,08,0.9,545.4,M,46.9,M,,*44"
         msgs = self._parse(sentence)
+        self.assertEqual(msgs[0].gps_fix_type, 4)
+
+    def test_gsa_mode_decides_2d_for_the_next_gga(self):
+        # Real stream: GSA reports 2D, then GGA with 8 satellites. GSA wins.
+        self.assertEqual(self._parse("$GPGSA,A,2,04,05,09,,,,,,,,,,3.1,2.9,1.0*33"), [])
+        msgs = self._parse("$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47")
         self.assertEqual(msgs[0].gps_fix_type, 2)
+        # The GSA was consumed; the next GGA alone falls back to the satellite count.
+        msgs = self._parse("$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47")
+        self.assertEqual(msgs[0].gps_fix_type, 3)
+
+    def test_reset_drops_a_held_gsa(self):
+        self._parse("$GPGSA,A,2,04,05,09,,,,,,,,,,3.1,2.9,1.0*33")
+        self.adapter.reset("test")
+        msgs = self._parse("$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47")
+        self.assertEqual(msgs[0].gps_fix_type, 3)
 
 
 class TestParseRmb(unittest.TestCase):

@@ -333,15 +333,14 @@ they simply never end (the same "no data, no invented output" treatment
 publishes `ALT` on the bench, so this one has a real bench source where
 `integrity_key` does not.
 
-**Caveat for FP2, not fixed by this item:** `garmin_gnx375` writes
-`GPS_FIX_TYPE` from its own NMEA GGA `qual` field on a 0/1/2 scale (0=none,
-1=GPS, 2=DGPS/WAAS -- see the plugin's own header comment), not the
-`GPS_FIX_TYPE` key's documented 0..5 scale (0-1 no fix, 2 2-D, 3 3-D, 4 3-D
-+DGPS, 5 3-D+RTK). A gate written as "`GPS_FIX_TYPE` below 3" would never
-pass against a real GNX on this plugin as it stands today; FP2 should account
-for this (either a remap in the garmin_gnx375 connection, or a gate written
-against what the plugin actually emits) rather than assume the two scales
-agree.
+**`GPS_FIX_TYPE` scale across sources.** Every writer now uses the key's
+documented 0..5 scale (0-1 no fix, 2 2-D, 3 3-D, 4 3-D+DGPS, 5 3-D+RTK), so
+the engine's "3 or more" gate means the same thing for each. `gpsd` and
+`mavlink` write it natively. The two NMEA writers (`garmin_gnx375` and the
+`navigator_adapter` Garmin parser) used to write the raw GGA quality code
+(0/1/2), which failed the gate on every valid GNX fix; since AER-4224 they map
+GGA quality plus GSA mode (or the GGA satellite count when no GSA is sent)
+through `fixgw.nmea_fix.gps_fix_type`. A WAAS fix reads 4.
 
 ## Divergence from upstream
 
