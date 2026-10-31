@@ -79,37 +79,60 @@ class AnnunciateItem(object):
         )
         if self.cond_bypass == "None":
             self.cond_bypass = None
-        if self.cond_bypass is not None:
-            tokens = self.cond_bypass.split()
-            if len(tokens) != 3:
-                # self.plugin.log.error("Wrong number of tokens given for conditional bypass: {}".format(self.key))
-                raise ValueError(
-                    "Wrong number of tokens given for conditional bypass: {}".format(
-                        self.key
-                    )
-                )
-            self.cond_item = plugin.db_get_item(tokens[0])
-            if self.cond_item is None:
-                raise ValueError(
-                    "Unknown Key {} for conditional bypass: {}".format(
-                        tokens[0], self.key
-                    )
-                )
-            try:
-                self.cond_oper = self.operators[tokens[1]]
-            except KeyError:
-                raise ValueError(
-                    "Unknown operator {} for conditional bypass: {}".format(
-                        tokens[1], self.key
-                    )
-                )
-            self.cond_value = self.cond_item.dtype(tokens[2])
+        # cond_bypass is one condition or a list of them.  The alarm is
+        # bypassed only while every condition holds, so a list lets one
+        # failed sensor fail to bypass rather than silence the alarm
+        # (AER-4370).
+        if self.cond_bypass is None:
+            conditions = []
+        elif isinstance(self.cond_bypass, str):
+            conditions = [self.cond_bypass]
+        else:
+            conditions = list(self.cond_bypass)
+        self.conditions = [self._parse_condition(c) for c in conditions]
         # YAML gives start_bypass: no as False, which must not arm the latch
         self.start_bypass_latch = bool(self.start_bypass)
         self.low_latch = False
         self.high_latch = False
 
         plugin.db_callback_add(self.key, self.evaluate)
+
+    def _parse_condition(self, cond):
+        tokens = cond.split()
+        if len(tokens) != 3:
+            raise ValueError(
+                "Wrong number of tokens given for conditional bypass: {}".format(
+                    self.key
+                )
+            )
+        item = self.plugin.db_get_item(tokens[0])
+        if item is None:
+            raise ValueError(
+                "Unknown Key {} for conditional bypass: {}".format(tokens[0], self.key)
+            )
+        try:
+            oper = self.operators[tokens[1]]
+        except KeyError:
+            raise ValueError(
+                "Unknown operator {} for conditional bypass: {}".format(
+                    tokens[1], self.key
+                )
+            )
+        return (item, oper, item.dtype(tokens[2]))
+
+    def bypassed(self):
+        """True only when every bypass condition holds on a trusted input.
+
+        An input that is old, bad or failed never satisfies a condition, so
+        a lost or failed bypass sensor leaves the alarm armed.
+        """
+        if not self.conditions:
+            return False
+        for item, oper, value in self.conditions:
+            v, _annunc, old, bad, fail, _secfail = item.value
+            if old or bad or fail or not oper(v, value):
+                return False
+        return True
 
     def evaluate(self, k, x, udata):
         # The start bypass clears once the value is greater than the low
@@ -125,10 +148,7 @@ class AnnunciateItem(object):
                 self.start_bypass_latch = False
         else:
             self.start_bypass_latch = False
-        if self.cond_bypass is not None:
-            b = self.cond_oper(self.cond_item.value[0], self.cond_value)
-        else:
-            b = False
+        b = self.bypassed()
         # We are bypassed
         if b or self.start_bypass_latch:
             self.item.annunciate = False

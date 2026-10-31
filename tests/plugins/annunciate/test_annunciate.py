@@ -10,6 +10,8 @@ Coverage:
   - Deadband hysteresis (prevents flag oscillation at the setpoint boundary)
   - Conditional bypass: flag clears when a bypass condition is met
     (also verifies the annunicate→annunciate typo fix on the bypass path)
+  - Conditional bypass on a list of conditions: bypass only while all hold
+  - A bypass input that is old, bad or failed never bypasses (AER-4370)
   - Start bypass: no annunciation until value first rises above low setpoint
   - start_bypass: no (YAML False) does not arm the start latch
   - stop(): callbacks removed, flag no longer updated after shutdown
@@ -43,6 +45,15 @@ entries:
   min: 0.0
   max: 3600.0
   units: rpm
+  initial: 0.0
+  tol: 2000
+
+- key: IAS
+  description: Indicated Airspeed
+  type: float
+  min: 0.0
+  max: 1000.0
+  units: knots
   initial: 0.0
   tol: 2000
 """
@@ -176,6 +187,71 @@ class TestAnnunciatePlugin(unittest.TestCase):
         database.write("TACH1", 1000.0)  # bypass inactive
         database.write("OILP1", 105.0)
         self.assertTrue(p.items[0].item.annunciate)
+
+    # ------------------------------------------------------------------
+    # Bypass input quality (AER-4370): a failed tach must not silence
+    # the engine alarms on a running engine
+    # ------------------------------------------------------------------
+
+    def _low_oil_with_tach(self, p, **flags):
+        database.write("TACH1", 0.0)
+        tach = database.get_raw_item("TACH1")
+        for name, value in flags.items():
+            setattr(tach, name, value)
+        database.write("OILP1", 5.0)
+        return p.items[0].item.annunciate
+
+    def test_failed_bypass_input_does_not_bypass(self):
+        defaults = dict(_DEFAULTS, cond_bypass="TACH1 < 500")
+        p = _make_plugin([{"key": "OILP1"}], defaults=defaults)
+        self.assertTrue(self._low_oil_with_tach(p, fail=True))
+
+    def test_bad_bypass_input_does_not_bypass(self):
+        defaults = dict(_DEFAULTS, cond_bypass="TACH1 < 500")
+        p = _make_plugin([{"key": "OILP1"}], defaults=defaults)
+        self.assertTrue(self._low_oil_with_tach(p, bad=True))
+
+    def test_old_bypass_input_does_not_bypass(self):
+        defaults = dict(_DEFAULTS, cond_bypass="TACH1 < 500")
+        p = _make_plugin([{"key": "OILP1"}], defaults=defaults)
+        database.write("TACH1", 0.0)
+        database.get_raw_item("TACH1").timestamp -= 3.0  # past its 2000 ms tol
+        database.write("OILP1", 5.0)
+        self.assertTrue(p.items[0].item.annunciate)
+
+    def test_trusted_bypass_input_still_bypasses(self):
+        defaults = dict(_DEFAULTS, cond_bypass="TACH1 < 500")
+        p = _make_plugin([{"key": "OILP1"}], defaults=defaults)
+        self.assertFalse(self._low_oil_with_tach(p))
+
+    def test_condition_list_bypasses_only_when_all_hold(self):
+        defaults = dict(_DEFAULTS, cond_bypass=["TACH1 < 500", "IAS < 40"])
+        p = _make_plugin([{"key": "OILP1"}], defaults=defaults)
+
+        # On the ground, engine stopped: both hold, bypassed
+        database.write("IAS", 0.0)
+        self.assertFalse(self._low_oil_with_tach(p))
+
+        # Airborne, tach reads 0: IAS does not hold, alarm armed
+        database.write("IAS", 120.0)
+        self.assertTrue(self._low_oil_with_tach(p))
+
+        # Engine running on the ground: TACH1 does not hold, alarm armed
+        database.write("IAS", 0.0)
+        database.write("TACH1", 1000.0)
+        database.write("OILP1", 5.0)
+        self.assertTrue(p.items[0].item.annunciate)
+
+    def test_condition_list_with_failed_member_does_not_bypass(self):
+        defaults = dict(_DEFAULTS, cond_bypass=["TACH1 < 500", "IAS < 40"])
+        p = _make_plugin([{"key": "OILP1"}], defaults=defaults)
+        database.write("IAS", 0.0)
+        database.get_raw_item("IAS").fail = True
+        self.assertTrue(self._low_oil_with_tach(p))
+
+    def test_condition_list_validation_errors(self):
+        with self.assertRaisesRegex(ValueError, "Wrong number of tokens"):
+            _make_plugin([{"key": "OILP1", "cond_bypass": ["TACH1 < 500", "IAS <"]}])
 
     def test_conditional_bypass_validation_errors(self):
         with self.assertRaisesRegex(ValueError, "Wrong number of tokens"):
