@@ -1539,6 +1539,46 @@ def test_fresh_write_after_age_out_clears_old_and_next_age_out_notifies(database
     assert cb.call_args.args[1][2] is True
 
 
+# AER-4450: a compute output is written fresh and then flagged old because an
+# input is stale. The getter worked old out from the output's own age, so the
+# flag was dropped by the first read, which the old setter's own callbacks
+# make. Old set by the writer now holds, like bad and fail, until the writer
+# clears it.
+def test_old_set_by_writer_on_a_fresh_item_reaches_callbacks_and_readers(database):
+    item = database.get_raw_item("PITCH")
+    item.tol = 2000
+    item.value = 1.0
+    cb = MagicMock()
+    item.callbacks.append(("cb", cb, None))
+
+    item.old = True
+
+    cb.assert_called_once()
+    assert cb.call_args.args[1][2] is True
+    assert item.value[2] is True
+    assert item.value[2] is True  # and a second read
+    assert item.old is True
+
+
+def test_old_set_by_writer_holds_across_writes_until_cleared(database):
+    item = database.get_raw_item("PITCH")
+    item.tol = 2000
+    item.value = 1.0
+    item.old = True
+    cb = MagicMock()
+    item.callbacks.append(("cb", cb, None))
+
+    item.value = 2.0  # a recompute that is still from a stale input
+    assert cb.call_args.args[1][2] is True
+    item.old = True  # no change, no second callback
+    assert cb.call_count == 1
+
+    item.old = False
+    assert cb.call_count == 2
+    assert cb.call_args.args[1][2] is False
+    assert item.value[2] is False
+
+
 # AER-4338: raw magnetometer vector, ratified by Bill 2026-10-31.  Written as
 # received (gauss) by the dronecan plugin; a compute stage derives HEAD.
 @pytest.mark.parametrize("key", ["MAGX", "MAGY", "MAGZ"])
