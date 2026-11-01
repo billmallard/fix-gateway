@@ -215,6 +215,11 @@ Flags Command
 single letter that represents the quality flag.  It can be one of the following
 [aobfs].  Setting is either a '1' or a '0'.
 
+A flag set this way holds until it is cleared with a '0'.  This includes the
+old flag: ``@fKEY;o;1`` leaves the item old even while fresh values are written
+to it, until ``@fKEY;o;0`` is sent.  The item still also goes old on its own
+when its time to live expires, whatever the explicit flag is set to.
+
 On success the server will respond with the same command that it received.
 
 ::
