@@ -78,6 +78,7 @@ Unless an entry says otherwise:
 | [XPB-019](#xpb-019) | Pause and unpause lag after launch, and the start flips a preference | `interface` |
 | [XPB-020](#xpb-020) | LAT holds its value for seconds while the stream is alive | `interface` |
 | [XPB-021](#xpb-021) | X-Plane's nav data provider changed on 2026-10-31 | `interface` |
+| [XPB-022](#xpb-022) | On V27 GVO-GOLET, course reads 1.4 deg below ours, steady along the leg | `unknown` |
 
 ---
 
@@ -396,6 +397,28 @@ Unless an entry says otherwise:
 - **Relied on by:**
   - `tests/sim/fixtures/README.md:10` (the FP8 recording, cycle 2406, default data).
   - Any recording committed from a session flown on or after 2026-10-31 must name its provider and cycle in that README.
+
+### XPB-022
+
+**On V27 from GVO to GOLET, X-Plane's course reads 1.4 deg below the engine's and the page's, and holds steady along the leg.**
+
+- **Class:** `unknown`.
+- **Setup:** X-Plane 12, SR22, XPNavData cycle 2611 (XPB-021). Sessions `b90a1c257dd6` (2026-11-01 05:37Z) and `d419efeeea66` (07:44Z), slice 1 of the RS3 golden route (AER-4464).
+- **Observed** (AER-4464, comment a4a33c53):
+  - On the leg into GOLET, X-Plane's `gps_crs_mag` is 129.9 deg for the whole leg. The live engine's `FPLCRS` is 131.35 to 131.56, and the page's DTK (the published `FPLfCRS`) is 131.4. The difference is 1.4 deg, steady, over 1,079 rows.
+  - The FAA CIFP 2611 positions give a great-circle course of 143.1 deg true for GVO-GOLET. The bench's FIX MAGVAR over that leg is -11.7 (11.7 E), so the course is 131.4 magnetic, which is what the engine and the page show.
+  - Every other V27 leg flown agrees with X-Plane to 0.11 deg or better. That includes VTU-EXERT, which also starts at a VOR (session `9b6d523db79a`, `tests/sim/fixtures/sim2b_v27_xplane_2026-11-01.csv.gz`).
+- **Reference.** None found for which variation a GPS navigator applies to an airway leg that starts at a VOR.
+- **What is ruled out, and what is not.**
+  - It is not GVO's station declination. The FAA CIFP gives E016.0, which would put the course near 127 deg, not 129.9.
+  - It is not a general VOR-origin rule, because VTU-EXERT agrees.
+  - It is not the sphere/WGS-84 offset (XPB-002), which is about 0.1 deg.
+  - Not ruled out: provider coding (XPB-021). X-Plane's GVO or GOLET may sit elsewhere in its data, or the provider may carry a different variation for the leg. Not ruled out either: a variation model in X-Plane that differs from the bench's MAGVAR by 1.4 deg at that point.
+- **Discriminating test.**
+  - (1) Compute the GVO-GOLET course from X-Plane's own installed data and compare it with the FAA CIFP's. Record only "agrees" or "differs by N deg", never the provider's coordinates (XPB-021, licence boundary).
+  - (2) Compare X-Plane's magnetic variation dataref along the leg with the bench's MAGVAR.
+  - If (1) differs by about 1.4 deg, it is the data. If (2) does, it is the variation model. If neither, it is navigator behavior and needs a reference.
+- **Relied on by:** nothing. No committed recording includes the leg. The V27 recording is HENER-DOYLE. A course check at the FP8 tolerance (2 deg) would pass it anyway.
 
 ---
 
