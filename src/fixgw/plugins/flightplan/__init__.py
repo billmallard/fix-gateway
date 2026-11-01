@@ -205,6 +205,11 @@ class MainThread(threading.Thread):
             # value; a corrected route needs its own new FPLSEQ to retry.
             self.parent.db_write("FPLMSG", r.reason)
             self.log.warning(f"flightplan: rejected route '{name}' (FPLSEQ {seq}): {r.reason}")
+            return
+        # FPLLDSEQ (PA8): the commit the engine now flies. After a rejection
+        # it keeps the previous value, so a display can tell the slots on the
+        # bus (the refused route) from the route actually loaded.
+        self.parent.db_write("FPLLDSEQ", seq)
 
     def _republish_route(self):
         for i, wp in enumerate(self.engine.route, start=1):
@@ -236,6 +241,7 @@ class MainThread(threading.Thread):
         self.parent.db_write("FPLDBCYC", self.engine.dbcyc)
         if self.engine.seq is not None:
             self.parent.db_write("FPLSEQ", self.engine.seq)
+            self.parent.db_write("FPLLDSEQ", self.engine.seq)
 
     # ------------------------------------------------------------------
     # Commands

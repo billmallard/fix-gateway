@@ -157,6 +157,35 @@ def test_route_with_unsupported_leg_type_rejected_writes_fplmsg_keeps_previous_r
     assert database.read("FPLMSG")[0] == "UNSUPP FC ARC"
 
 
+def test_fplldseq_names_the_commit_the_engine_flies(database, tmp_path):
+    """PA8 (pyEfis #239): after a rejected commit the slots on the bus hold
+    the refused route while the engine keeps flying the one it had.
+    FPLLDSEQ tells a display which: it follows FPLSEQ on every accepted
+    commit and stays put on a rejected one."""
+    pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
+    assert database.read("FPLLDSEQ")[0] == 0
+    good = [engine.Waypoint("A", 0.0, 0.0), engine.Waypoint("B", 0.0, 1.0)]
+    write_route(database, good, name="GOOD", seq=1)
+    assert database.read("FPLLDSEQ")[0] == 1
+
+    bad = [engine.Waypoint("A", 0.0, 0.0), engine.Waypoint("ARC", 0.0, 1.0, pt="RF")]
+    write_route(database, bad, name="BAD", seq=2)      # RF with no turn: BADTURN
+    assert database.read("FPLMSG")[0].startswith("BADTURN")
+    assert database.read("FPLSEQ")[0] == 2
+    assert database.read("FPLLDSEQ")[0] == 1
+
+    write_route(database, good, name="GOOD2", seq=3)
+    assert database.read("FPLLDSEQ")[0] == 3
+
+
+def test_fplldseq_stays_zero_when_the_first_commit_is_rejected(database, tmp_path):
+    flightplan.Plugin("flightplan", make_config(tmp_path), {})
+    bad = [engine.Waypoint("A", 0.0, 0.0), engine.Waypoint("ARC", 0.0, 1.0, pt="FC")]
+    write_route(database, bad, name="BAD", seq=1)
+    assert database.read("FPLSEQ")[0] == 1
+    assert database.read("FPLLDSEQ")[0] == 0
+
+
 def test_vector_leg_annunciates_vectors_and_suspends_via_plugin(database, tmp_path):
     pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
     database.write("GPS_FIX_TYPE", 3)
@@ -330,6 +359,7 @@ def test_persistence_restore_republishes_route_block_and_fplseq(database, tmp_pa
     pl.thread._restore()
 
     assert database.read("FPLSEQ")[0] == 42
+    assert database.read("FPLLDSEQ")[0] == 42
     assert database.read("FPLCOUNT")[0] == 2
     assert database.read("FPL1ID")[0] == "A"
     assert database.read("FPL2ID")[0] == "B"
