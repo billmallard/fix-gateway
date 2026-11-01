@@ -1,4 +1,11 @@
-"""CAN-FIX input rows can scale the decoded value (AER-4477)."""
+"""CAN-FIX nav deviation is scaled onto the +/-1 needle keys (AER-4477).
+
+NAV1CDI/NAV1GSI are -1..+1, full-scale needle deflection. CAN-FIX 449
+(Glideslope Deviation) is degrees, so a frame written straight into NAV1GSI
+pegs the needle at anything past one degree. The input map's per-row `scale`
+converts it. 448 (VOR/LOC Deviation) is UINT degrees: it cannot carry a left
+deviation, so no scale makes it a needle and the shipped map leaves it out.
+"""
 
 import time
 
@@ -23,6 +30,55 @@ def _send(bus, msg):
     bus.send(msg)
     time.sleep(0.03)
 
+
+@pytest.fixture
+def shipped(config_data, database):
+    cc, cc_meta = cfg.from_yaml(
+        config_data.replace(
+            "tests/config/canfix/map.yaml", "src/fixgw/config/canfix/map.yaml"
+        ),
+        metadata=True,
+    )
+    pl = fixgw.plugins.canfix.Plugin("canfix", cc, cc_meta)
+    pl.start()
+    bus = can.Bus(cc["channel"], interface=cc["interface"])
+    time.sleep(0.1)
+    yield pl, bus
+    pl.stop()
+    bus.shutdown()
+
+
+@pytest.mark.parametrize(
+    "degrees, needle",
+    [
+        (0.35, 0.5),    # one dot of a two-dot scale: half deflection
+        (-0.35, -0.5),
+        (0.70, 1.0),    # full scale
+        (0.0, 0.0),
+        (2.0, 1.0),     # past full scale: the key's max pegs it
+    ],
+)
+def test_glideslope_degrees_scale_onto_the_needle(shipped, database, degrees, needle):
+    pl, bus = shipped
+    _send(bus, _frame("Glideslope Deviation", degrees))
+    assert database.read("NAV1GSI")[0] == pytest.approx(needle, abs=0.002)
+    assert pl.get_status()["Invalid Frames"] == 0
+
+
+def test_vor_loc_deviation_does_not_reach_the_needle(shipped, database):
+    pl, bus = shipped
+    database.write("NAV1CDI", 0.25)
+    _send(bus, _frame("VOR/LOC Deviation", 2.0))
+    assert database.read("NAV1CDI")[0] == 0.25
+
+
+def test_vor_loc_deviation_cannot_encode_left_of_course():
+    # Why 448 is unmapped: the spec type is UINT, so the library refuses it.
+    with pytest.raises(Exception):
+        _frame("VOR/LOC Deviation", -2.0)
+
+
+# The scale mechanism itself, on a map written for the test.
 
 MAP = """
 meta replacements:
