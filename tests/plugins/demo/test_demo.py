@@ -164,3 +164,24 @@ def test_refresh_does_not_turn_bad_into_fail(monkeypatch):
     _run_one_pass(monkeypatch, thread)
     _, _, old, bad, fail, _ = database.read("CDI")
     assert (bad, fail) == (True, False)
+
+
+# One writer per key (AER-4475): demo runs alongside compute in the shipped
+# default, so it must not write any key compute.yaml outputs. It used to write
+# COURSE, CDI and GSI, which compute owns through its NAVSRC select.
+def _compute_outputs():
+    import yaml
+
+    with open("src/fixgw/config/connections/compute.yaml") as f:
+        functions = yaml.safe_load(f)["compute"]["functions"]
+    return {f["output"] for f in functions if "output" in f}
+
+
+def test_demo_writes_no_compute_output():
+    thread = demo.MainThread(FakeParent())
+    written = set(thread.keylist)
+    for step in thread.script:
+        written.update(k for k in step if k != "MAVMSG")
+    outputs = _compute_outputs()
+    assert {"COURSE", "CDI", "GSI"} <= outputs
+    assert written & outputs == set()
