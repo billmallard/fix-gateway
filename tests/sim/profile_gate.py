@@ -132,7 +132,8 @@ def fly_recording(path, trace=None):
     samples, _ = xplane_replay.fly(rows, PROFILES_DIR / f"{rec['profile']}.yaml")
     bus = xplane_replay.bus_rows(samples)
     log = checks.Log.from_rows(bus, checks.keys_needed(rec["checks"]))
-    # legs are labelled by X-Plane's active waypoint: there is no reference navigator
+    # legs are labelled by X-Plane's active waypoint: there is no reference
+    # navigator, and no X-Plane cross-track or distance (XPB-006)
     results = checks.evaluate(rec["checks"], log, start_s=bus[0][0] + 1.0, leg_keys=("gps_id", None))
     return ProfileRun(rec["name"], path, rec["checks"], results, _check_lines(path),
                       len(bus), bus[-1][0] - bus[0][0], time.monotonic() - t0, "xplane_replay")

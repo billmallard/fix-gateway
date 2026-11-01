@@ -12,8 +12,8 @@ plan the bench loaded), ``ACT`` at the start fix, and the pilot commands the
 bench orchestrator issued, re-derived from the engine's own state rather
 than from wall-clock times: ``RESUME`` 10 s after the MAP auto-SUSP, ``SUSP``
 1 nm before HANNU, ``RESUME`` once the engine shows FROM past it. X-Plane publishes neither
-``GPS_FIX_TYPE`` nor ``GPS_ACCURACY_HORIZ``, so the integrity inputs are
-``None``, as on the bench.
+``GPS_FIX_TYPE`` nor ``GPS_ACCURACY_HORIZ`` (XPB-007), so the integrity inputs
+are ``None``, as on the bench.
 
 The bench's own 1 Hz bus log of the same flight (``fp8_bench_bus_*``) is the
 recorder output: the live engine's keys beside the ``EXTCRS``/``EXTCDI`` the
@@ -159,8 +159,9 @@ def bus_rows(samples):
     """The replay as bus rows for ``fixgw.sim.checks``: the engine's keys,
     and X-Plane's navigator under the keys the bench's ``xplane`` plugin
     writes it to (``EXTCRS``, ``EXTCDI``, and ``EXTTF``, which it maps since
-    fix-gateway#41, after FP8 was recorded). X-Plane's active waypoint has
-    no bus key; it keeps its truth-log name, ``gps_id``."""
+    fix-gateway#41, after FP8 was recorded: XPB-008). X-Plane's active
+    waypoint has no bus key; it keeps its truth-log name, ``gps_id``. The
+    trace has no cross-track or distance from X-Plane's navigator (XPB-006)."""
     out = []
     for s in samples:
         row = {key: s[k] for k, key in OUT_KEYS.items() if k in s}
