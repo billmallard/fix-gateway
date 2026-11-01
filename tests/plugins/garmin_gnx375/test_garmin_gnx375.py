@@ -136,6 +136,15 @@ entries:
   max: 2
   initial: 0
   tol: 5000
+
+- key: EXTXTK
+  description: External navigator cross-track error
+  type: float
+  min: -100.0
+  max: 100.0
+  units: nM
+  initial: 0.0
+  tol: 5000
 """
 
 _CDI_FULL_SCALE = 5.0  # nm, default for these tests
@@ -323,14 +332,17 @@ class TestRmbParsing(unittest.TestCase):
     def test_steer_left_is_right_of_track_and_deflects_needle_left(self):
         # 'L' (steer left) -> aircraft RIGHT of track -> +3 nm -> CDI -3/5
         _feed(self.thread, RMB_RIGHT_OF_TRACK)
+        self.assertAlmostEqual(_db_value("EXTXTK"), 3.0, places=4)
         self.assertAlmostEqual(_db_value("EXTCDI"), -3.0 / _CDI_FULL_SCALE, places=4)
 
     def test_steer_right_is_left_of_track_and_deflects_needle_right(self):
         _feed(self.thread, RMB_LEFT_OF_TRACK)
+        self.assertAlmostEqual(_db_value("EXTXTK"), -3.0, places=4)
         self.assertAlmostEqual(_db_value("EXTCDI"), 3.0 / _CDI_FULL_SCALE, places=4)
 
     def test_large_xte_clips_cdi_to_full_scale(self):
         _feed(self.thread, RMB_FAR_RIGHT)
+        self.assertAlmostEqual(_db_value("EXTXTK"), 20.0, places=4)  # not clamped
         self.assertAlmostEqual(_db_value("EXTCDI"), -1.0, places=4)
 
     def test_void_missing_or_bad_rmb_does_not_write(self):
@@ -394,7 +406,7 @@ class TestExternalNavigatorKeysOnly(unittest.TestCase):
             APB_TO_TRUE,
         )
         written = {c.args[0] for c in self.thread.parent.db_write.call_args_list}
-        self.assertTrue({"EXTCDI", "EXTCRS", "EXTTF"} <= written)
+        self.assertTrue({"EXTXTK", "EXTCDI", "EXTCRS", "EXTTF"} <= written)
         self.assertFalse({"COURSE", "CDI", "XTRACK"} & written)
 
 

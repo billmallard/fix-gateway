@@ -29,6 +29,7 @@ entries:
 - {key: EXTCRS,            type: float, min: 0.0,     max: 359.9,   units: deg,    initial: 0.0, tol: 5000}
 - {key: EXTCDI,            type: float, min: -1.0,    max: 1.0,                    initial: 0.0, tol: 5000}
 - {key: EXTTF,             type: int,   min: 0,       max: 2,                      initial: 0,   tol: 5000}
+- {key: EXTXTK,            type: float, min: -100.0,  max: 100.0,   units: nM,     initial: 0.0, tol: 5000}
 """
 
 
@@ -85,6 +86,7 @@ class TestFixMapXteAndCdi(unittest.TestCase):
         # Aircraft RIGHT of track → positive XTE → CDI needle deflects left (negative)
         msg = NormalizedNavMessage(cross_track_error_nm_signed=2.5)
         apply_to_db(msg, _write, cdi_full_scale_nm=5.0)
+        self.assertAlmostEqual(_val("EXTXTK"), 2.5, places=4)
         self.assertAlmostEqual(_val("EXTCDI"), -0.5, places=4)
 
     def test_negative_xtrack_writes_positive_cdi(self):
@@ -134,7 +136,7 @@ class TestFixMapComputeOwnedKeys(unittest.TestCase):
             gps_fix_type=3,
         )
         apply_to_db(msg, lambda key, value: written.append(key))
-        self.assertTrue({"EXTCRS", "EXTCDI", "EXTTF"} <= set(written))
+        self.assertTrue({"EXTCRS", "EXTCDI", "EXTTF", "EXTXTK"} <= set(written))
         self.assertFalse({"COURSE", "CDI", "XTRACK"} & set(written))
 
 

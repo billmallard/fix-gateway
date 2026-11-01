@@ -64,7 +64,8 @@ def gps_fix_type(gga_qual, num_sats=None, gsa_mode=None):
     return 3
 
 
-#  External-navigator guidance: NMEA RMB/APB/RMC -> EXTCDI / EXTCRS / EXTTF.
+#  External-navigator guidance: NMEA RMB/APB/RMC -> EXTXTK / EXTCDI / EXTCRS /
+#  EXTTF.
 #
 #  A serial navigator is an external navigator in the GPSSRC sense
 #  (config/connections/compute.yaml): it writes the EXT* inputs and the compute

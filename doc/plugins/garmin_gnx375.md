@@ -143,10 +143,10 @@ While taxiing or with a known ground speed input:
 | `GS` | GNX 375 groundspeed display | ±1 kt |
 | `TRACK` | GNX 375 track display | ±2° |
 
-The GNX is an **external navigator**. It writes `EXTCDI`, `EXTCRS` and
-`EXTTF`, never `CDI`, `COURSE` or `XTRACK`, which compute owns (AER-4473).
+The GNX is an **external navigator**. It writes `EXTXTK`, `EXTCDI`, `EXTCRS`
+and `EXTTF`, never `CDI`, `COURSE` or `XTRACK`, which compute owns (AER-4473).
 To see its guidance on the HSI, set `GPSSRC` = 1 (external navigator) and
-`NAVSRC` = 2 (GPS): compute then selects `EXTCRS`/`EXTCDI`/`EXTTF` through
+`NAVSRC` = 2 (GPS): compute then selects `EXTXTK` into `XTRACK`, and `EXTCRS`/`EXTCDI`/`EXTTF` through
 `GPSCRS`/`GPSCDI`/`GPSTF` into `COURSE`/`CDI`/`TOFROM`. Checks C to E read the
 `EXT*` keys directly, and then the canonical keys with those two selects set.
 
@@ -154,11 +154,11 @@ To see its guidance on the HSI, set `GPSSRC` = 1 (external navigator) and
 
 Program a direct-to waypoint **to the north of your current position**. Fly or taxi a track that puts you **south of the direct-to course** (i.e., right of the desired track when heading north).
 
-| Condition | Expected `EXTCDI` |
-|-----------|-------------------|
-| On course | ≈ 0.0 |
-| Right of course (south, steer left) | **negative** (needle left) |
-| Left of course (north, steer right) | **positive** (needle right) |
+| Condition | Expected `EXTXTK` | Expected `EXTCDI` |
+|-----------|-------------------|-------------------|
+| On course | ≈ 0.0 nm | ≈ 0.0 |
+| Right of course (south, steer left) | **positive** | **negative** (needle left) |
+| Left of course (north, steer right) | **negative** | **positive** (needle right) |
 
 If the sign is backwards, the GNX 375 may be using a non-standard `$GPRMB` steer direction. Check RMB field 3 in the raw sentence: if `'L'` actually means left-of-track on your unit, flip the sign mapping in `fixgw.nmea_fix.rmb_cross_track_nm()`.
 
@@ -173,9 +173,8 @@ EXTCDI = -2.5 / 5.0 = -0.50   (aircraft is right of course, needle left)
 
 Verify the `EXTCDI` key reads approximately −0.5.
 
-The GNX's own cross-track error is not on the bus yet: `XTRACK` comes from
-compute's `xte`, against the internal plan's active waypoint. A key for the
-navigator's cross-track (`EXTXTK`) is proposed, not built.
+`EXTXTK` should read the GNX's displayed XTK (+2.5 here, right of course), and
+`XTRACK` the same with `GPSSRC` = 1.
 
 ### Check E — Desired track and TO/FROM
 
@@ -309,8 +308,8 @@ class TestFixtureReplay(unittest.TestCase):
                     self.thread._dispatch(msg, _CDI_FULL_SCALE)
                 except pynmea2.ParseError:
                     pass
-        # XTRACK must be within database bounds
-        xtrack = _db_value("XTRACK")
+        # EXTXTK must be within database bounds
+        xtrack = _db_value("EXTXTK")
         self.assertGreaterEqual(xtrack, -100.0)
         self.assertLessEqual(xtrack, 100.0)
 ```
@@ -321,7 +320,7 @@ The `@skipUnless` decorator means the replay tests are silently skipped in CI (w
 
 ## Known Issues and Edge Cases
 
-**No active flight plan**: `$GPRMB` and `$GPAPB` are only transmitted when a waypoint is active. `XTRACK`, `CDI`, and `COURSE` will not update when flying without an active destination. `LAT`, `LONG`, `GS`, `TRACK`, and `GPS_ELLIPSOID_ALT` update continuously from `$GPRMC`/`$GPGGA` regardless.
+**No active flight plan**: `$GPRMB` and `$GPAPB` are only transmitted when a waypoint is active. `EXTXTK`, `EXTCDI`, `EXTCRS` and `EXTTF` will not update when flying without an active destination. `LAT`, `LONG`, `GS`, `TRACK`, and `GPS_ELLIPSOID_ALT` update continuously from `$GPRMC`/`$GPGGA` regardless.
 
 **`GPS_FIX_TYPE` scale**: the plugin writes the FIX contract scale (`database/ahrs.yaml`: 0-1 no fix, 2 2D, 3 3D, 4 3D with DGPS/WAAS, 5 3D with RTK), the same scale `gpsd` and `mavlink` write -- not the raw `$GPGGA` quality code. 2D vs 3D comes from `$GPGSA` when the unit sends it, otherwise from the `$GPGGA` satellites-in-use count (4 or more is 3D). A WAAS fix reads `4`; the flight-plan engine's integrity gate needs `3` or more. The mapping is `fixgw.nmea_fix.gps_fix_type`, shared with the `navigator_adapter` Garmin parser.
 

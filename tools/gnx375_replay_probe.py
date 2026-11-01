@@ -12,7 +12,7 @@ connections/compute.yaml and connections/garmin_gnx375.yaml (port pointed at
 a pty), and netfix on port 34973. Nothing touches a running fixgw service,
 its config or port 3490. The sentences are spec-formed, not a recording from
 a unit. It shows where the GNX's guidance lands: EXT* always, COURSE/CDI/
-TOFROM only through the GPSSRC and NAVSRC selects.
+TOFROM/XTRACK only through the GPSSRC and NAVSRC selects.
 """
 import os
 import pty
@@ -43,7 +43,7 @@ APB_TO_M = nmea("GPAPB,A,A,2.50,L,N,V,V,087.0,M,DEST,095.0,M,092.0,M")
 APB_TO_T = nmea("GPAPB,A,A,2.50,L,N,V,V,090.0,T,DEST,098.0,T,095.0,T")
 APB_FROM_M = nmea("GPAPB,A,A,2.50,L,N,A,A,087.0,M,DEST,267.0,M,092.0,M")
 
-KEYS = ["EXTCRS", "EXTCDI", "EXTTF", "GPSCRS", "GPSCDI", "GPSTF",
+KEYS = ["EXTCRS", "EXTCDI", "EXTTF", "EXTXTK", "GPSCRS", "GPSCDI", "GPSTF",
         "COURSE", "CDI", "TOFROM", "XTRACK", "GPS_FIX_TYPE"]
 
 

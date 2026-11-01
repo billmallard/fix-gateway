@@ -1,8 +1,8 @@
 """Maps NormalizedNavMessage fields to FIX-Gateway database keys.
 
 The navigator is an external navigator: its guidance goes to the EXT* inputs
-(EXTCRS/EXTCDI/EXTTF), which compute's GPSSRC and NAVSRC selects route into
-COURSE/CDI/TOFROM. It never writes COURSE, CDI or XTRACK, whose one writer is
+(EXTCRS/EXTCDI/EXTTF/EXTXTK), which compute's GPSSRC and NAVSRC selects route
+into COURSE/CDI/TOFROM/XTRACK. It never writes COURSE, CDI or XTRACK, whose one writer is
 compute (AER-4473).
 """
 
@@ -40,9 +40,8 @@ def apply_to_db(
     if msg.to_from is not None:
         db_write("EXTTF", msg.to_from)
 
-    # The navigator's own cross-track error has no key yet, so only the
-    # deviation it implies is written; XTRACK stays compute's.
     if msg.cross_track_error_nm_signed is not None:
+        db_write("EXTXTK", msg.cross_track_error_nm_signed)
         db_write("EXTCDI", cdi_from_cross_track(msg.cross_track_error_nm_signed, cdi_full_scale_nm))
 
     if msg.gps_fix_type is not None:

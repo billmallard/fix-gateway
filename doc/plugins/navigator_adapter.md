@@ -54,6 +54,7 @@ navigator:
 | `EXTCRS` | Desired track of the active leg (deg magnetic) | `desired_track_deg_mag` |
 | `EXTCDI` | Course deviation [-1.0, +1.0] | derived from `cross_track_error_nm_signed` |
 | `EXTTF` | TO/FROM: 0 off, 1 TO, 2 FROM | `to_from` |
+| `EXTXTK` | Signed cross-track error (nm), positive = right of track | `cross_track_error_nm_signed` |
 | `GPS_FIX_TYPE` | Contract scale: 0-1 no fix, 2 2D, 3 3D, 4 3D DGPS/WAAS, 5 3D RTK | `gps_fix_type` |
 
 Only non-`None` fields are written. Fields not populated by a sentence are left
@@ -62,10 +63,9 @@ unchanged in the database.
 The navigator is an **external navigator**: its guidance goes to the `EXT*`
 inputs, and compute's `GPSSRC` select (`connections/compute.yaml`) routes them
 into `GPSCRS`/`GPSCDI`/`GPSTF`, which its `NAVSRC` select routes into
-`COURSE`/`CDI`/`TOFROM`. The plugin never writes `COURSE`, `CDI` or `XTRACK`;
-compute is their one writer (AER-4473). The navigator's own cross-track error
-has no key yet, so `XTRACK` still comes from compute's `xte`. Set `GPSSRC` to 1
-to fly the navigator's guidance.
+`COURSE`/`CDI`/`TOFROM`; a second `GPSSRC` select routes `EXTXTK` into
+`XTRACK`. The plugin never writes `COURSE`, `CDI` or `XTRACK`; compute is their
+one writer (AER-4473). Set `GPSSRC` to 1 to fly the navigator's guidance.
 
 ---
 
@@ -82,7 +82,7 @@ and any NMEA 0183-compliant device outputting RMC/GGA/RMB/APB sentences.
 | `$GPRMC` | LAT, LONG, GS, TRACK |
 | `$GPGGA` | LAT, LONG, GPS_ELLIPSOID_ALT, GPS_FIX_TYPE (quality + satellites, mapped by `fixgw.nmea_fix.gps_fix_type`) |
 | `$GPGSA` | 2D/3D mode, held for the next GGA's GPS_FIX_TYPE |
-| `$GPRMB` | EXTCDI (from the cross-track error and steer direction) |
+| `$GPRMB` | EXTXTK and EXTCDI (from the cross-track error and steer direction) |
 | `$GPAPB` | EXTCRS (field 8, bearing origin to destination: the leg DTK), EXTTF (field 7, perpendicular passed = FROM; field 1 not valid = off) |
 
 APB field 8 may be true or magnetic. A true bearing is made magnetic with the

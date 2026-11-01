@@ -35,7 +35,7 @@ class NormalizedNavMessage:
     desired_track_deg_mag: Optional[float] = None   # active leg DTK -> EXTCRS
     to_from: Optional[int] = None          # EXTTF scale: 0 off, 1 TO, 2 FROM
     distance_to_wp_nm: Optional[float] = None
-    cross_track_error_nm_signed: Optional[float] = None  # + = right; -> EXTCDI
+    cross_track_error_nm_signed: Optional[float] = None  # + = right; -> EXTXTK, EXTCDI
     glideslope_error_dots: Optional[float] = None
     waypoint: Waypoint = field(default_factory=Waypoint)
     nav_mode: Optional[str] = None          # 'GPS', 'VLOC', 'APR', ...

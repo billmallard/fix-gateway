@@ -44,17 +44,17 @@ FIX-Gateway keys written
   GPS_FIX_TYPE        contract scale: 0-1 no fix, 2 2D, 3 3D, 4 3D DGPS/WAAS,
                       5 3D RTK. Mapped from GGA quality and GSA mode by
                       fixgw.nmea_fix.gps_fix_type, written once per GGA.
+  EXTXTK              signed cross-track error (nm), positive = right of track
   EXTCDI              course deviation [-1.0, +1.0], -XTE / cdi_full_scale_nm
   EXTCRS              desired track of the active leg (deg magnetic)
   EXTTF               TO/FROM: 0 off (APB not valid), 1 TO, 2 FROM
 
 The GNX is an external navigator: it feeds the EXT* inputs, and compute's
 GPSSRC select routes them into GPSCRS/GPSCDI/GPSTF and its NAVSRC select into
-COURSE/CDI/TOFROM. It does not write COURSE, CDI or XTRACK, which compute owns
-(AER-4473). The GNX's own cross-track error has no key yet; until it does,
-XTRACK comes from compute's xte.
+COURSE/CDI/TOFROM, and its GPSSRC select of EXTXTK into XTRACK. It does not
+write COURSE, CDI or XTRACK, which compute owns (AER-4473).
 
-Sign convention for the XTE behind EXTCDI (the FPLXTK/XTRACK convention):
+Sign convention for EXTXTK (the FPLXTK/XTRACK convention):
   Negative → aircraft is LEFT of desired course (need to steer right)
   Positive → aircraft is RIGHT of desired course (need to steer left)
 
@@ -191,6 +191,7 @@ class MainThread(threading.Thread):
         xtrack = rmb_cross_track_nm(msg)
         if xtrack is None:
             return
+        self.parent.db_write("EXTXTK", xtrack)
         self.parent.db_write("EXTCDI", cdi_from_cross_track(xtrack, cdi_scale))
 
     def _handle_apb(self, msg):
