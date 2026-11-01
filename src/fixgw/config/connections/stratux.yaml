@@ -1,3 +1,17 @@
 stratux:
   load: STRATUX
   module: fixgw.plugins.stratux
+  # GDL90 over UDP (the Stratux sends to port 4000).
+  host: ""
+  port: 4000
+  # ADS-B traffic into the TFC key block (database/traffic.yaml; contract:
+  # pyEfis docs/fix_dynamic_list_spec.md section 4).  Exactly one traffic
+  # writer per installation: set false if another source writes TFC.
+  traffic: true
+  # Seconds without a report before a target is removed.  Must exceed the
+  # slot keys' 3 s tol, so a stale target shows as old before it goes.
+  evict_s: 10
+  # Our own 24-bit ICAO address, hex, QUOTED (e.g. "A1B2C3").  Traffic with
+  # this address is never shown.  Set by the configurator from the aircraft
+  # registration; the receiver's own ownship report is filtered as well.
+  ownship_address: ""

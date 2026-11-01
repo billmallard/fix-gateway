@@ -143,7 +143,7 @@ def fly(rows=None, profile=PROFILE):
             out = after_command(r, out)
         s = dict(out)
         s.update(t=r["t"], lat=r["lat"], lon=r["lon"], xp_wpt=r["xp_wpt"], xp_crs=r["xp_crs"],
-                 xp_hdef_dot=r["xp_hdef_dot"], xp_fromto=r["xp_fromto"])
+                 xp_hdef_dot=r["xp_hdef_dot"], xp_fromto=r["xp_fromto"], leg_phase=e._leg_phase)
         samples.append(s)
         prev = out
     return samples, events
