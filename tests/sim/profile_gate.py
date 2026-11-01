@@ -31,6 +31,7 @@ lists; their owner (QA, for the qa1 profiles) edits them.
 
 import argparse
 import ast
+import json
 import sys
 import time
 from dataclasses import dataclass
@@ -129,7 +130,11 @@ def fly_recording(path, trace=None):
     path = Path(path)
     rec = yaml.safe_load(path.read_text())
     rows = trace if trace is not None else xplane_replay.load_trace(path.parent / rec["trace"])
-    samples, _ = xplane_replay.fly(rows, PROFILES_DIR / f"{rec['profile']}.yaml")
+    if "route_block" in rec:   # en-route: the editor's route block, not a profile (SIM2b)
+        block = json.loads((path.parent / rec["route_block"]).read_text())
+        samples, _ = xplane_replay.fly_route(rows, block, rec["act"], rec["magvar"])
+    else:
+        samples, _ = xplane_replay.fly(rows, **xplane_replay.recording_args(path))
     bus = xplane_replay.bus_rows(samples)
     log = checks.Log.from_rows(bus, checks.keys_needed(rec["checks"]))
     # legs are labelled by X-Plane's active waypoint: there is no reference

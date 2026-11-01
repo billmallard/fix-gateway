@@ -17,7 +17,7 @@ import pytest
 
 from fixgw.plugins.flightplan.engine import LEGPHASE_INBOUND
 
-from .xplane_replay import build_route, fly, load_bench_bus, load_trace, nm, xplane_sequences
+from .xplane_replay import build_route, fly, load_bench_bus, load_trace, nm, recording_args, xplane_sequences
 
 DOTS_FS = 2.5
 
@@ -34,7 +34,7 @@ def w180(a):
 @pytest.fixture(scope="module")
 def flown():
     rows = load_trace()
-    samples, events = fly(rows)
+    samples, events = fly(rows, **recording_args())
     wps = {w.id: w for w in build_route()[0] if w.id}
     return rows, samples, events, wps
 

@@ -281,6 +281,11 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   block" (mirrors `state_persist` restoring `NAVSRC`). The plugin's own
   `FPLSEQ` callback is suppressed during that republish so it doesn't
   immediately reset the very activation state it just restored.
+- **Which commit is loaded** (`FPLLDSEQ`, PA8): the engine writes the
+  `FPLSEQ` of every commit it accepts, and of the route it restores, to
+  `FPLLDSEQ`. A rejected commit leaves it unchanged, so after a rejection
+  `FPLLDSEQ != FPLSEQ` and a display knows the slots on the bus are the
+  refused route, not the one being flown.
 
 ## Driving it by hand
 

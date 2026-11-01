@@ -29,7 +29,7 @@ _CHECK_KINDS = {"key_pair", "sequence", "flagged"}
 _CHECK_KEYS = {"key_pair", "sequence", "flagged", "keys", "tol", "tol_deg", "tol_rel", "same_sign",
                "except_s_around_sequence", "skip_when", "after_s", "note", "unless_flagged",
                "tolerate_s", "while_no_fix", "while_silent", "within_s", "clear_within_s", "around_keys",
-               "skip_when_silent"}
+               "skip_when_silent", "skip_when_differ"}
 _DO = ("offset_nm", "hold_min", "gps_loss_s", "gps_link_loss_s", "gps_status_loss_s", "gps_position_loss_s")
 
 
@@ -163,6 +163,9 @@ def load_profile(path, cifp_override=None):
         if sws is not None and (not isinstance(sws, dict) or not sws
                                 or not all(isinstance(v, (int, float)) for v in sws.values())):
             raise ProfileError(f"checks[{n}].skip_when_silent: {{KEY: seconds, ...}}")
+        swd = c.get("skip_when_differ")
+        if swd is not None and (not isinstance(swd, list) or len(swd) < 2):
+            raise ProfileError(f"checks[{n}].skip_when_differ: [KEY, KEY, ...]")
 
     return Profile(
         name=raw["name"], path=os.path.abspath(path), description=raw.get("description", ""),

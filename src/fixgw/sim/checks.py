@@ -172,6 +172,7 @@ def keys_needed(checks):
             keys.update(c.get("while_silent") or ())
         keys.update((c.get("skip_when") or {}).keys())
         keys.update((c.get("skip_when_silent") or {}).keys())
+        keys.update(c.get("skip_when_differ") or ())
     return keys
 
 
@@ -214,6 +215,7 @@ def _eval_one(c, log, seq_times, legs, start_s):
     window = float(c.get("except_s_around_sequence", 0.0))
     skip = c.get("skip_when") or {}
     skip_silent = c.get("skip_when_silent") or {}
+    differ = c.get("skip_when_differ") or ()
     after = float(c.get("after_s", start_s))
     unless_flagged = bool(c.get("unless_flagged", False))
     tolerate = float(c.get("tolerate_s", 0.0))
@@ -231,6 +233,8 @@ def _eval_one(c, log, seq_times, legs, start_s):
         if t < after or _in_window(t, seq_times, window):
             continue
         if any(row.get(k) == v for k, v in skip.items()):
+            continue
+        if differ and len({str(row.get(k)) for k in differ}) > 1:
             continue
         if any(log.silent_s(i, k) > float(s) for k, s in skip_silent.items()):
             res.silent += 1
