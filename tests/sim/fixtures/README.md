@@ -83,7 +83,9 @@ The first recorded flight on an airway: V27 from 3 nm before HENER through
 VTU and EXERT to DOYLE, slice 2 of the RS3 golden route KSBA GVO V27 AVOLS
 KSMX (SIM2b, AER-4464, billmallard/pyEfis#324). Pilotless sim bench session
 `9b6d523db79a`, 2026-11-01 10:32Z, X-Plane 12, SR22, 7,000 ft, outcome
-`complete`. The profile was submitted inline (an en-route profile is X-Plane
+`complete`. X-Plane flew its own nav data: the session reports cycle 2611,
+which from 2026-10-31 is XPNavData in `Custom Data` (XPB-021); the route
+block is from the FAA CIFP 2611 pack. The profile was submitted inline (an en-route profile is X-Plane
 tier only until fix-gateway's loader reads en-route items, SIM3b):
 
 ```yaml
