@@ -8,6 +8,9 @@ and within 0.1 of full scale at 1 nm cross-track, sequencing point within
 the MAP, auto-SUSP, RESUME to the missed approach with TERM scaling.
 
 X-Plane's deviation is ``gps_hdef_dot``: 2.5 dots is full scale.
+
+Every allowance made here for X-Plane cites its entry in
+``src/fixgw/sim/XPLANE_BEHAVIORS.md`` (XPB-NNN).
 """
 
 import pytest
@@ -60,6 +63,11 @@ def test_replay_lands_on_the_live_bench_sequence_points(flown):
 
 
 def test_sequence_points_within_0p3_nm_of_xplane(flown):
+    # XPB-001: X-Plane switches about 0.2 nm before each of these fixes, even
+    # the collinear ones. 0.3 nm is the FP8 brief's bound, not fitted to it.
+    # Not compared: RW30 -> HANNU, where the engine sequences on the
+    # orchestrator's RESUME (XPB-005), and HANNU -> WINCH, where X-Plane
+    # switches the waypoint abeam the fix (XPB-001).
     rows, _, events, _ = flown
     seq = _seq(events)
     xp = {f"{a} -> {b}": (lat, lon) for _, a, b, lat, lon in xplane_sequences(rows)}
@@ -114,8 +122,9 @@ def test_susp_does_not_sequence_past_hannu(flown):
 
 def _shared(samples, events, rows, wps):
     """Rows where both systems guide to the same fix on the same leg: the
-    same active waypoint, not within 5 s of either system's sequence, and not
-    in the last 0.5 nm to WINCH, where X-Plane already shows its hold course."""
+    same active waypoint, not within 5 s of either system's sequence (XPB-001),
+    and not in the last 0.5 nm to WINCH, where X-Plane already shows its hold
+    course (XPB-004)."""
     seq_t = [ev[0] for ev in events if ev[1] == "sequence"] + [x[0] for x in xplane_sequences(rows)]
     w = wps["WINCH"]
     return [s for s in samples
@@ -147,14 +156,20 @@ def test_hold_inbound_leg_matches_xplane(flown):
     (121) and X-Plane is TO the fix, the two agree. X-Plane holds its hold
     course through the entry and the turns; the engine flies the AIM entry
     and turns the course with the aircraft (fix-gateway#49, Bill's call on
-    AER-4076), so those stretches are not compared."""
+    AER-4076), so those stretches are not compared (XPB-004)."""
     _, samples, _, _ = flown
+    # XPB-004: rows are picked by agreement within 5 deg, so an inbound
+    # disagreement over 5 deg is dropped, not failed; only the row count
+    # guards it (QA, AER-4375; selecting on the engine's own course is
+    # fix-gateway#89).
     inbound = [s for s in samples if s["phase"] == "HOLD" and s["xp_fromto"] == 1
                and abs(w180(s["crs"] - s["xp_crs"])) <= 5.0]
     assert len(inbound) > 500
     for s in inbound:
         assert abs(w180(s["crs"] - s["xp_crs"])) <= 2.0
         xp = s["xp_hdef_dot"] / DOTS_FS
+        # XPB-004: sign only off centre (both beyond 0.05 of full scale); the
+        # 0.1 bound below still applies to every row.
         if abs(s["cdi"]) > 0.05 and abs(xp) > 0.05:
             assert (s["cdi"] > 0) == (xp > 0)
         assert abs(s["cdi"] - xp) <= 0.1
