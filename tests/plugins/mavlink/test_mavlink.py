@@ -302,7 +302,7 @@ def test_process_sensor_attitude_gps_position_pressure_and_servo_messages(monkey
     assert_write(parent, "ROT", ("rot", 20.0, 0.5))
     assert_write(parent, "PITCH", -14.32)
     assert_write(parent, "YAW", 57.3)
-    assert_write(parent, "COURSE", 123.45)
+    assert_write(parent, "TRACK", 123.45)
     assert_write(parent, "GPS_FIX_TYPE", 3)
     assert_write(parent, "GPS_ELLIPSOID_ALT", 1000.0)
     assert_write(parent, "GPS_SATS_VISIBLE", 8)
@@ -322,14 +322,36 @@ def test_process_sensor_attitude_gps_position_pressure_and_servo_messages(monkey
     assert mav._outputYaw == 10
 
 
-def test_process_gps_course_uses_heading_when_stationary():
+def _gps_raw(cog):
+    return Msg("GPS_RAW_INT", cog=cog, fix_type=0, alt_ellipsoid=0, satellites_visible=0, vel_acc=0, h_acc=0, v_acc=0)
+
+
+def test_process_gps_cog_is_track_not_course():
+    # cog is ground track; COURSE is compute's NAVSRC select output (AER-4475).
     parent = FakeParent()
-    mav = make_mav(parent=parent, messages=[Msg("GPS_RAW_INT", cog=9000, fix_type=0, alt_ellipsoid=0, satellites_visible=0, vel_acc=0, h_acc=0, v_acc=0)])
+    mav = make_mav(parent=parent, messages=[_gps_raw(9000)])
+    mav._data["GS"].append(60.0)
+
+    mav.process()
+
+    assert_write(parent, "TRACK", 90.0)
+    assert "COURSE" not in [k for k, _ in parent.writes]
+
+
+@pytest.mark.parametrize("gs,cog", [(0.0, 9000), (60.0, 65535)])
+def test_process_gps_no_track_when_stationary_or_cog_unknown(gs, cog):
+    # No ground track below 3 kt or with cog = UINT16_MAX. The old code put the
+    # magnetic heading into COURSE here; nothing substitutes for TRACK now.
+    parent = FakeParent()
+    mav = make_mav(parent=parent, messages=[_gps_raw(cog)])
+    mav._data["GS"].append(gs)
     mav._data["HEAD"].append(271.0)
 
     mav.process()
 
-    assert_write(parent, "COURSE", 271.0)
+    written = [k for k, _ in parent.writes]
+    assert "TRACK" not in written
+    assert "COURSE" not in written
 
 
 @pytest.mark.parametrize(

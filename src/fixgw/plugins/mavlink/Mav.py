@@ -228,12 +228,15 @@ class Mav:
         #                self.parent.db_write("GPS_SATS_TRACKED", msg.satellite_used.count(1))
         elif msg_type == "GPS_RAW_INT":
             if self._ahrs:
+                # cog is course over ground, the true ground track, so it
+                # feeds TRACK (compute derives TRACKM, which the maps read).
+                # COURSE is the selected course and belongs to compute's
+                # NAVSRC select. Below 3 kt, or with cog unknown (UINT16_MAX),
+                # there is no ground track: write nothing and let TRACK go old
+                # rather than substitute the magnetic heading.
                 rgs = self.get_avg("GS", 2)
-                if rgs > 3:
-                    self.parent.db_write("COURSE", round(msg.cog / 100, 2))
-                else:
-                    # If not moving set course to heading so maps show direction you are facing
-                    self.parent.db_write("COURSE", self.get_avg("HEAD", 2))
+                if rgs > 3 and msg.cog != 65535:
+                    self.parent.db_write("TRACK", round(msg.cog / 100, 2))
             if self._gps:
                 self.parent.db_write("GPS_FIX_TYPE", msg.fix_type)
                 self.parent.db_write(
