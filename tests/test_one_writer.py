@@ -28,14 +28,7 @@ server.run(args)
 # Keys the shipped configs are known to give two writers, each with the issue
 # that removes it.  The test asserts this set exactly, so fixing one fails
 # here until its entry is deleted.
-KNOWN = {
-    # demo writes the canonical nav keys that compute's NAVSRC select owns.
-    "default.yaml": {
-        "CDI": ["demo", "compute"],  # AER-4475
-        "COURSE": ["demo", "compute"],  # AER-4475
-        "GSI": ["demo", "compute"],  # AER-4475
-    },
-}
+KNOWN = {}
 
 
 def run_gateway(config, seconds):
