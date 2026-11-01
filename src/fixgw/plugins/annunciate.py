@@ -118,19 +118,60 @@ class AnnunciateItem(object):
                     tokens[1], self.key
                 )
             )
-        return (item, oper, item.dtype(tokens[2]))
+        return (item, oper, self._parse_operand(tokens[2], item))
+
+    def _parse_operand(self, token, item):
+        """The right side of a condition: a literal, or a FIX value read at
+        each evaluation (``IAS < IAS.Vgnd``), so the setting lives in the
+        database where the configurator writes it (AER-4619).
+        """
+        name, _, aux = token.partition(".")
+        if not name[:1].isalpha():
+            return item.dtype(token)
+        try:
+            ref = self.plugin.db_get_item(name)
+        except KeyError:
+            ref = None
+        if ref is None:
+            if aux:
+                raise ValueError(
+                    "Unknown Key {} for conditional bypass: {}".format(name, self.key)
+                )
+            return item.dtype(token)  # a word literal, e.g. True
+        if aux and aux not in ref.aux:
+            raise ValueError(
+                "Unknown aux {} for conditional bypass: {}".format(token, self.key)
+            )
+        if aux and ref.get_aux_value(aux) is None:
+            self.plugin.log.warning(
+                "{} is not set: {} will not be bypassed".format(token, self.key)
+            )
+        return (ref, aux)
+
+    def _operand_value(self, operand):
+        """The operand's value, or None when it cannot be trusted: an unset
+        aux, or a key that is old, bad or failed."""
+        if not isinstance(operand, tuple):
+            return operand
+        ref, aux = operand
+        if aux:
+            return ref.get_aux_value(aux)
+        v, _annunc, old, bad, fail, _secfail = ref.value
+        return None if old or bad or fail else v
 
     def bypassed(self):
-        """True only when every bypass condition holds on a trusted input.
+        """True only when every bypass condition holds on trusted inputs.
 
-        An input that is old, bad or failed never satisfies a condition, so
-        a lost or failed bypass sensor leaves the alarm armed.
+        An input that is old, bad or failed never satisfies a condition, and
+        neither does a threshold that is unset or untrusted, so a lost
+        sensor or a missing setting leaves the alarm armed.
         """
         if not self.conditions:
             return False
-        for item, oper, value in self.conditions:
+        for item, oper, operand in self.conditions:
             v, _annunc, old, bad, fail, _secfail = item.value
-            if old or bad or fail or not oper(v, value):
+            value = self._operand_value(operand)
+            if old or bad or fail or value is None or not oper(v, value):
                 return False
         return True
 
