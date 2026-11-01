@@ -37,7 +37,10 @@ items:
   units: knots
   initial: 0.0
   tol: 2000
-  aux: [Min,Max,V1,V2,Vne,Vfe,Vmc,Va,Vno,Vs,Vs0,Vx,Vy]
+  # Vgnd: below this IAS the aircraft may be on the ground; the engine
+  # alarms' stopped-engine bypass needs IAS below it (annunciate.yaml).
+  # Not a published V-speed: set it below the slowest airborne IAS.
+  aux: [Min,Max,V1,V2,Vne,Vfe,Vmc,Va,Vno,Vs,Vs0,Vx,Vy,Vgnd]
 
 - key: IASW
   description: Indicated Airspeed Warning
