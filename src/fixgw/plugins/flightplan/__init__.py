@@ -281,6 +281,15 @@ class MainThread(threading.Thread):
         self._run_update_cycle(now)
 
     def _on_fix_type(self, key, value, udata=None):
+        # Only a write is a fix-type source. The database also calls this
+        # when the key expires -- (value, annunciate, old=True, ...) -- and
+        # a never-written key expires about 3 s after startup, which would
+        # otherwise read as "was publishing and went silent" and fail every
+        # guidance output for good on an installation with no fix-type
+        # source (the bench's X-Plane FMS; AER-4464, after fix-gateway
+        # 21d06fa made every expiry notify).
+        if isinstance(value, tuple) and len(value) > 2 and value[2]:
+            return
         self._fix_type_seen = True
 
     def _position_time(self):
