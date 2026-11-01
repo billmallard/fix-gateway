@@ -161,8 +161,17 @@ class TrafficWriter(object):
             self._set_failed(False)
 
     def ownship(self, r):
+        if self.ownship_report == (r.atype, r.address):
+            return
         self.ownship_report = (r.atype, r.address)
         self._check_mismatch()
+        # A target slotted before its identity was known to be ours goes now,
+        # not evict_s later.
+        for slot in self.slots:
+            if slot.ident != EMPTY and self.is_ownship(
+                slot.ident >> 24, slot.ident & 0xFFFFFF
+            ):
+                self._evict(slot)
 
     def _check_mismatch(self):
         pair = None
@@ -177,20 +186,20 @@ class TrafficWriter(object):
             )
         self._mismatch = pair
 
-    def is_ownship(self, r):
+    def is_ownship(self, atype, address):
         icao = set()
         if self.ownship_config is not None:
             icao.add(self.ownship_config)
         if self.ownship_report is not None:
-            atype, address = self.ownship_report
-            if atype in (0, 2):
-                icao.add(address)
-            elif atype == 1 and r.atype == 1 and r.address == address:
+            own_type, own = self.ownship_report
+            if own_type in (0, 2):
+                icao.add(own)
+            elif own_type == 1 and atype == 1 and address == own:
                 return True
-        return r.atype in (0, 2) and r.address in icao
+        return atype in (0, 2) and address in icao
 
     def report(self, r):
-        if self.is_ownship(r):
+        if self.is_ownship(r.atype, r.address):
             return
         ident = identity(r)
         now = self.clock()

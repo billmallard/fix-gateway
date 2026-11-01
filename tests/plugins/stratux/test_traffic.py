@@ -603,6 +603,13 @@ def test_t6_no_call_sign_or_geometric_filter(database, make_gw):
         assert gw.val("TFC{}ADDR".format(n)) != A
 
 
+def test_t6_ownship_learned_after_slotting_is_evicted_at_once(gw, clock):
+    gw.send(HEARTBEAT, report(t=0, addr=A), report(t=0, addr=B))
+    assert gw.occupied() == {A: 1, B: 2}
+    gw.send(ownship(t=0, addr=A))  # no clock advance: not the eviction timer
+    assert gw.occupied() == {B: 2}
+
+
 def test_t6_self_assigned(make_gw):
     gw = make_gw(ownship_address="A1B2C3")
     gw.send(HEARTBEAT, ownship(t=1, addr=B))
