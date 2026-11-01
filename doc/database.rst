@@ -35,6 +35,13 @@ descriptions of the entry, the range of the value, etc.
   the database is made the *Old* flag will be set to ``True``.  For some data this is not relevant so
   the *time to live* is set to zero and the entry will never be marked as old.
 
+  *Old* has two sources and reads ``True`` if either is set.  One is the entry's own expiry, which
+  the database records once the *time to live* has passed and clears on the next write.  The other
+  is a writer that sets the flag explicitly, such as a compute function whose output was calculated
+  from an input that is itself old.  An explicitly set *Old* holds until the writer clears it, the
+  same way *Bad* and *Fail* do.  A fresh write of the value does not clear it, and reading the
+  entry never clears either source.
+
 * Annunciate - This is a flag that would tell indicating equipment that this point needs to be
   annunciated.  This might mean that an oil pressure limit has been exceeded.  It's more appropriate
   for the sending devices to decide when to annunciate information than the display equipment.  There
