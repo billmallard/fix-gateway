@@ -33,5 +33,5 @@ def test_no_canfix_input_writes_a_compute_output():
 
 def test_nav_deviation_lands_on_the_nav1_source_keys():
     by_canid = _input_fixids()
-    assert by_canid[0x1C0] == ["NAV1CDI"]           # VOR/LOC Deviation (448)
+    assert 0x1C0 not in by_canid                    # VOR/LOC Deviation (448), AER-4477
     assert by_canid[0x1C1] == ["NAV1GSI"]           # Glideslope Deviation (449)
