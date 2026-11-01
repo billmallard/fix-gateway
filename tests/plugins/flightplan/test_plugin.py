@@ -752,6 +752,44 @@ def test_fix_type_never_published_still_skips_the_gate(database, tmp_path, monke
     assert _first_flag_after(pl, database, clock, 10.0, each_step=position_only) is None
 
 
+def test_fix_type_never_published_survives_the_databases_own_expiry(database, tmp_path, monkeypatch):
+    # The test above advances the clock without running the database's 1 s
+    # maintenance tick. On a gateway that tick runs, expires the never-written
+    # GPS_FIX_TYPE and notifies its callbacks (21d06fa). That notification is
+    # not a fix-type source: the bench's X-Plane FMS flew four V27 slices with
+    # every guidance output failed because it was read as one (AER-4464).
+    pl, clock = _flying(database, tmp_path, monkeypatch)
+
+    def position_only(elapsed):
+        database.write("LAT", 0.0)
+        database.write("LONG", 0.0001 * elapsed)
+
+    clock.t += database.get_raw_item("GPS_FIX_TYPE").tol / 1000.0 + 0.1
+    database.update()  # the maintenance tick: expire() and its callbacks
+    assert database.get_raw_item("GPS_FIX_TYPE").old is True
+    position_only(0.0)
+    pl.thread._run_update_cycle()
+    assert database.get_raw_item("FPLCRS").fail is False
+
+    assert _first_flag_after(pl, database, clock, 10.0, each_step=position_only) is None
+
+
+def test_fix_type_that_goes_silent_after_the_expiry_tick_still_flags(database, tmp_path, monkeypatch):
+    # The same tick on a key that WAS written must still fail the input.
+    pl, clock = _flying(database, tmp_path, monkeypatch)
+    _gps_epoch(database, 0.0)
+    pl.thread._run_update_cycle()
+    assert database.get_raw_item("FPLCRS").fail is False
+
+    clock.t += database.get_raw_item("GPS_FIX_TYPE").tol / 1000.0 + 0.1
+    database.write("LAT", 0.0)
+    database.write("LONG", 0.0001)
+    database.update()
+    pl.thread._run_update_cycle()
+
+    assert database.get_raw_item("FPLCRS").fail is True
+
+
 def test_dead_position_link_without_a_fix_type_source_flags_within_the_bound(database, tmp_path, monkeypatch):
     # The same dead link from a source with no fix-type key (the bench's
     # X-Plane FMS): only the position's own age can catch it.
