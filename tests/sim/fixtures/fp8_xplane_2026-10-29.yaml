@@ -18,6 +18,13 @@
 name: fp8-xplane-2026-10-29
 profile: fp8-ksmx-rnav30-missed
 trace: fp8_xplane_2026-10-29.csv.gz
+# The bench's FIX MAGVAR (median of its 1 Hz bus log), and the pilot
+# commands its orchestrator issued (xplane_replay.fly).
+magvar: -11.912
+pilot:
+  - {resume_after_map_s: 10}
+  - {susp_before: HANNU, nm: 1.0}
+  - {resume_past: HANNU, max_s: 90}
 checks:
   - key_pair: [FPLCRS, EXTCRS]
     tol_deg: 2.0

@@ -196,6 +196,10 @@ Tier-independent comparisons on the recorded bus. Each is one of:
   {KEY: s}` skips rows where KEY has not been written for more than `s`
   seconds (counted, with `silent`, in the report): guidance from an input
   that has stopped is judged by a `flagged` check instead.
+  `skip_when_differ: [KEY, KEY]` skips rows where the keys disagree, for
+  comparing two navigators only where both guide to the same fix
+  (`[WPNAME, gps_id]` on an X-Plane recording, where X-Plane changes its TO
+  fix at the turn bisector and the engine at the start of the turn).
 - `flagged: [KEY, ...]` with `while_no_fix: true`, `within_s`,
   `clear_within_s`: each key must be flagged (bad or failed) on every row
   where `GPS_FIX_TYPE` has been below 3 for at least `within_s`, and must not

@@ -123,3 +123,46 @@ commands. Regenerate on the Beelink with the AER-4464 bench follower's
 sign, plus the sequence HENER VTU EXERT DOYLE. Measured: course within 0.3
 deg and CDI within 0.011 outside 5 s of each sequence. Moving VTU 1.8 nm in
 the route block fails both pair checks; renaming EXERT fails the sequence.
+
+## `qa1_kssf_r28_xplane_2026-11-01.csv.gz`, `qa1_kded_r30_xplane_2026-11-01.csv.gz`
+
+QA1's two X-Plane sessions (AER-4219, recordings added on AER-4299): X-Plane
+12 on the pilotless sim bench, aircraft SR22, both outcome `complete`, wind
+under 4 kt, on XPNavData cycle 2611 (XPB-021):
+
+- `acdbb0757fca`, 2026-11-01 05:15Z, profile `qa1-missed-coded-turn-kssf-r28`:
+  KSSF RNAV (GPS) 28 via XTEND from 2 nm before GEARE, the missed approach
+  with its coded right turn direct GANLE, two minutes in the GANLE hold.
+- `ea108163a87d`, 2026-11-01 04:00Z, profile `qa1-hold-teardrop-left-kded-r30`:
+  KDED RNAV (GPS) 30 via OAKIE from 2 nm before CUGAK, the missed approach to
+  the left-hand BARBS hold, ten minutes in it.
+
+The profiles, their synthetic-tier checks and QA's verdicts on these
+sessions (F3, the entry) are QA's. Only the recorded session outputs are
+kept here; nothing comes from X-Plane's `Custom Data`.
+
+Same columns as the FP8 trace, regenerated the same way from each session's
+`/truth` (no trimming), except that the file is written with
+`gzip.GzipFile(..., "wb", mtime=0)` so that it is byte-for-byte reproducible.
+
+Neither session logged a bus, so there is no recorder output beside them,
+and the bench's FIX MAGVAR (X-Plane's own variation) was never recorded.
+Each `.yaml` carries it as `magvar:`, recovered from X-Plane's navigator: the
+median of X-Plane's course minus the engine's true course on the legs before
+the missed approach. On FP8, where the bus was logged, that method recovers
+the bus MAGVAR within 0.05 deg on every leg; `test_qa1_xplane_replay.py`
+asserts both. It is not the profile's `magvar_deg`, the CIFP's published
+variation: at KDED that is 5.0 and X-Plane's is 7.09, which puts every
+course 2.1 deg off. Each `.yaml` also names the pilot commands (`pilot:`, the
+profile's own RESUME 5 s after the MAP), which `xplane_replay.fly` replays.
+
+Measured with the checks in each `.yaml`: KSSF course within 0.09 deg on
+1,780 rows and CDI within 0.034 on 1,813; KDED course within 0.13 deg and CDI
+within 0.011 on 5,281 rows. The skips are listed with their reasons in each
+file. The two that are new since FP8 are listed here. In a fly-by turn of
+85-90 deg X-Plane changes its TO fix only at the bisector, 13-15 s after the
+engine (AER-4286), so rows where the two TO fixes differ are not compared
+(`skip_when_differ`). And at KSSF the driver went Direct-To GANLE past the
+CA leg, so the missed approach is not compared. A 2.5 deg course error on
+one leg, a 0.15 CDI offset on one leg, or a skipped fix fails the gate on
+either recording.

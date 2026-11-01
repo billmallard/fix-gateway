@@ -1,0 +1,50 @@
+# A recorded X-Plane flight, replayed by the simulated-flight gate (SYN4):
+# QA1's KDED RNAV (GPS) 30 missed approach to the left-hand BARBS hold
+# (AER-4219, session ea108163a87d). See README.md beside this file. The
+# profile and its synthetic-tier checks are QA's; these checks are the
+# X-Plane tier's, and QA's entry verdict stays QA's.
+#
+# magvar: X-Plane's own variation, which the bench would have written as FIX
+# MAGVAR. The session logged no bus, so it is recovered from X-Plane's
+# navigator: the median of (X-Plane's course - the engine's true course) on
+# the five legs before the hold, 6.99 to 7.19 deg. On FP8, where the bus was
+# logged, the same method lands within 0.05 deg of the bus MAGVAR on every
+# leg. It is not the profile's 5.0 (the CIFP airport record, W005): with
+# that, every course reads 2.0-2.2 deg off, over the 2 deg bound.
+# pilot: the profile's own (missed_after_map_s), RESUME 5 s after the MAP.
+#
+# Checks: the FP8 brief's acceptance, as in fp8_xplane_2026-10-29.yaml: DTK
+# within 2 deg, CDI within 0.1 of full scale and of the same sign. Skipped:
+#   FPLSTATE 3 (XPB-005): the engine is suspended at the MAP, where the
+#     pilot's command, not the leg, decides what it shows.
+#   FPLPHASE HOLD (XPB-004): the engine flies the AIM entry and turns the
+#     course with the aircraft; X-Plane shows its hold course throughout.
+#     The inbound leg is compared in test_qa1_xplane_replay.py.
+#   EXTTF 2 (XPB-001, XPB-004): X-Plane is FROM, from about 0.2 nm before
+#     each fix, and in the hold.
+#   skip_when_differ [WPNAME, gps_id]: the two navigators guide to different
+#     fixes. In the 85 deg turn at XEHMO X-Plane turns its course to BARBS's
+#     at 0.60 nm before the fix and changes its TO fix only at the bisector,
+#     13.3 s after the engine, which changes both at 0.52 nm (AER-4286). In
+#     that gap X-Plane's CDI is not referenced to the XEHMO-BARBS leg (-0.03
+#     against the engine's -0.49 as the turn begins).
+name: qa1-kded-r30-xplane-2026-11-01
+profile: qa1-hold-teardrop-left-kded-r30
+trace: qa1_kded_r30_xplane_2026-11-01.csv.gz
+magvar: 7.09
+pilot:
+  - {resume_after_map_s: 5}
+checks:
+  - key_pair: [FPLCRS, EXTCRS]
+    tol_deg: 2.0
+    except_s_around_sequence: 5  # XPB-001: X-Plane sequences ~0.2 nm (6-7 s) early
+    skip_when: {FPLSTATE: 3, FPLPHASE: HOLD, EXTTF: 2}
+    skip_when_differ: [WPNAME, gps_id]
+  - key_pair: [FPLCDI, EXTCDI]
+    tol: 0.1
+    same_sign: true
+    except_s_around_sequence: 5  # XPB-001: X-Plane sequences ~0.2 nm (6-7 s) early
+    skip_when: {FPLSTATE: 3, FPLPHASE: HOLD, EXTTF: 2}
+    skip_when_differ: [WPNAME, gps_id]
+  - sequence: [CUGAK, YEBBU, RW30, XEHMO, BARBS]
+    keys: [WPNAME, gps_id]

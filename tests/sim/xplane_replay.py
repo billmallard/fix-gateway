@@ -9,9 +9,12 @@ course, deviation, to/from) as the independent reference.
 The engine is flown exactly as the live bench session flew it: the
 profile's procedure route published by ``fixgw.sim.fplroute`` (the same
 plan the bench loaded), ``ACT`` at the start fix, and the pilot commands the
-bench orchestrator issued, re-derived from the engine's own state rather
-than from wall-clock times: ``RESUME`` 10 s after the MAP auto-SUSP, ``SUSP``
-1 nm before HANNU, ``RESUME`` once the engine shows FROM past it. X-Plane publishes neither
+bench issued, re-derived from the engine's own state rather than from
+wall-clock times. Each recording names its commands in its ``.yaml``
+(``pilot:``, see ``fly``): for FP8, ``RESUME`` 10 s after the MAP auto-SUSP,
+``SUSP`` 1 nm before HANNU, ``RESUME`` once the engine shows FROM past it;
+for the QA1 sessions (AER-4219), the profile's own ``RESUME`` 5 s after the
+MAP. X-Plane publishes neither
 ``GPS_FIX_TYPE`` nor ``GPS_ACCURACY_HORIZ`` (XPB-007), so the integrity inputs
 are ``None``, as on the bench.
 
@@ -28,6 +31,8 @@ import gzip
 import math
 from pathlib import Path
 
+import yaml
+
 from fixgw.plugins.flightplan.engine import Engine
 from fixgw.sim import fplroute
 from fixgw.sim.cifp import Cifp
@@ -38,6 +43,7 @@ from .engine_replay import ENGINE_CONFIG, OUT_KEYS, _route
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 FIXTURE = FIXTURES / "fp8_xplane_2026-10-29.csv.gz"
+FP8_RECORDING = FIXTURES / "fp8_xplane_2026-10-29.yaml"
 BENCH_BUS = FIXTURES / "fp8_bench_bus_2026-10-29.csv.gz"
 # Trace time is X-Plane network time, the bus log's is the Beelink's epoch:
 # trace t = bus t - BUS_EPOCH. Found by position, 0.002 nm mean error.
@@ -74,25 +80,56 @@ def load_bench_bus(path=BENCH_BUS):
     return rows
 
 
+def default_pilot(prof):
+    """The pilot steps a profile's own ``pilot:`` block implies: RESUME
+    ``missed_after_map_s`` after the MAP auto-SUSP."""
+    return [{"resume_after_map_s": float(prof.pilot.get("missed_after_map_s", 5.0))}]
+
+
+def recording_args(path=FP8_RECORDING):
+    """``fly``'s ``profile``, ``pilot`` and ``magvar`` from a recording's
+    ``.yaml``: the pilot commands the bench issued and its FIX MAGVAR."""
+    rec = yaml.safe_load(Path(path).read_text())
+    return {"profile": ROOT / "src/fixgw/sim/profiles" / f"{rec['profile']}.yaml",
+            "pilot": rec.get("pilot"), "magvar": rec.get("magvar")}
+
+
 def build_route(profile=PROFILE):
+    """-> (wps, segments, act, cycle, route name, profile)."""
     prof = load_profile(str(profile))
     cifp = Cifp(prof.cifp_file)
     p = prof.procedure
+    name = f"{p['airport']} {p['approach']} {p['transition']}"
     slots, segs = fplroute.procedure_slots(cifp, p["airport"], p["approach"], p["transition"], prof.magvar_deg)
-    db = dict(fplroute.route_block_writes(slots, segs, "KSMX R30 GVO", "RNAV", cifp.cycle, 1))
+    db = dict(fplroute.route_block_writes(slots, segs, name, "RNAV", cifp.cycle, 1))
     wps, segments = _route(db)
     act = next(i for i, s in enumerate(slots, start=1) if s["ID"] == prof.start["fix"] and i > 1)
-    return wps, segments, act, cifp.cycle
+    return wps, segments, act, cifp.cycle, name, prof
 
 
-def fly(rows=None, profile=PROFILE):
+def fly(rows=None, profile=PROFILE, pilot=None, magvar=None):
     """-> (samples, events). samples: one dict per trace row with the engine
-    outputs beside X-Plane's; events: (t, what, detail, lat, lon)."""
+    outputs beside X-Plane's; events: (t, what, detail, lat, lon).
+
+    ``pilot``: the commands the bench issued, as steps taken in order, each
+    armed once the one before it has been taken, and each re-derived from the
+    engine's own state rather than the wall clock:
+
+    - ``{resume_after_map_s: S}``: RESUME S s after the MAP auto-SUSP.
+    - ``{susp_before: FIX, nm: D}``: SUSP once the engine is TO FIX within D nm.
+    - ``{resume_past: FIX, max_s: S}``: RESUME once the engine shows FROM, or
+      S s after the step before it.
+
+    Default ``default_pilot``. A recording names its own in its ``.yaml``
+    (``recording_args``). ``magvar``: FIX MAGVAR during the flight, default
+    the profile's."""
     rows = rows if rows is not None else load_trace()
-    wps, segs, act, cycle = build_route(profile)
+    wps, segs, act, cycle, name, prof = build_route(profile)
+    pilot = default_pilot(prof) if pilot is None else pilot
+    magvar = prof.magvar_deg if magvar is None else magvar
     by_id = {w.id: w for w in wps if w.id}
     e = Engine(dict(ENGINE_CONFIG))
-    e.load_route(wps, "KSMX R30 GVO", 1, segs, aprtype="RNAV", dbcyc=cycle)
+    e.load_route(wps, name, 1, segs, aprtype="RNAV", dbcyc=cycle)
     cmd = [0]
     events = []
 
@@ -102,45 +139,49 @@ def fly(rows=None, profile=PROFILE):
         events.append((r["t"], "cmd", f"{verb} -> {msg or ack}", r["lat"], r["lon"]))
 
     def after_command(r, before):
-        out = e.update(r["lat"], r["lon"], r["gs_kt"], MAGVAR, True, None, None, r["t"], r["alt_ft"])
+        out = e.update(r["lat"], r["lon"], r["gs_kt"], magvar, True, None, None, r["t"], r["alt_ft"])
         if before is not None and out["act_leg"] != before["act_leg"]:
             events.append((r["t"], "sequence", f"{before['wp_name']} -> {out['wp_name']}", r["lat"], r["lon"]))
         return out
 
-    hannu = by_id["HANNU"]
-    t_map = t_susp_h = None
-    done = set()
+    step = 0        # the next pilot step to take
+    t_step = None   # when the step before it was taken
+    t_map = None
     prev = None
     samples = []
     for i, r in enumerate(rows):
         if i == 0:
             command(f"ACT {act}", r)
-        out = e.update(r["lat"], r["lon"], r["gs_kt"], MAGVAR, True, None, None, r["t"], r["alt_ft"])
+        out = e.update(r["lat"], r["lon"], r["gs_kt"], magvar, True, None, None, r["t"], r["alt_ft"])
         if prev is not None:
             if out["act_leg"] != prev["act_leg"]:
                 events.append((r["t"], "sequence", f"{prev['wp_name']} -> {out['wp_name']}", r["lat"], r["lon"]))
             for k in ("state", "phase", "apr"):
                 if out[k] != prev[k]:
                     events.append((r["t"], k, f"{prev[k]} -> {out[k]}", r["lat"], r["lon"]))
-        # the bench orchestrator's pilot actions, re-derived from engine state
         if out["state"] == 3 and e._map_suspended and t_map is None:
             t_map = r["t"]
-        if t_map is not None and "resume_map" not in done and r["t"] - t_map >= 10.0:
-            done.add("resume_map")
-            command("RESUME", r)
-            out = after_command(r, out)
-        d_h = nm(r["lat"], r["lon"], hannu.lat, hannu.lon)
-        if "resume_map" in done and "susp_h" not in done and out["wp_name"] == "HANNU" and d_h < 1.0:
-            done.add("susp_h")
-            command("SUSP", r)
-            t_susp_h = r["t"]
-        if t_susp_h is not None and "resume_h" not in done and (
-                out["tf"] == 2 or r["t"] - t_susp_h > 90):
-            done.add("resume_h")
-            events.append((r["t"], "past HANNU suspended", f"leg {out['act_leg']} tf {out['tf']} wp {out['wp_name']}",
-                           r["lat"], r["lon"]))
-            command("RESUME", r)
-            out = after_command(r, out)
+        if step < len(pilot):
+            p = pilot[step]
+            if "resume_after_map_s" in p:
+                if t_map is not None and r["t"] - t_map >= p["resume_after_map_s"]:
+                    command("RESUME", r)
+                    out = after_command(r, out)
+                    step, t_step = step + 1, r["t"]
+            elif "susp_before" in p:
+                fix = by_id[p["susp_before"]]
+                if out["wp_name"] == fix.id and nm(r["lat"], r["lon"], fix.lat, fix.lon) < p["nm"]:
+                    command("SUSP", r)
+                    step, t_step = step + 1, r["t"]
+            elif "resume_past" in p:
+                if out["tf"] == 2 or r["t"] - t_step > p["max_s"]:
+                    events.append((r["t"], f"past {p['resume_past']} suspended",
+                                   f"leg {out['act_leg']} tf {out['tf']} wp {out['wp_name']}", r["lat"], r["lon"]))
+                    command("RESUME", r)
+                    out = after_command(r, out)
+                    step, t_step = step + 1, r["t"]
+            else:
+                raise ValueError(f"pilot step {step}: unknown {p}")
         s = dict(out)
         s.update(t=r["t"], lat=r["lat"], lon=r["lon"], xp_wpt=r["xp_wpt"], xp_crs=r["xp_crs"],
                  xp_hdef_dot=r["xp_hdef_dot"], xp_fromto=r["xp_fromto"], leg_phase=e._leg_phase)
@@ -210,7 +251,7 @@ def xplane_sequences(rows):
 
 if __name__ == "__main__":
     rows = load_trace()
-    samples, events = fly(rows)
+    samples, events = fly(rows, **recording_args())
     for ev in events:
         print("%8.2f %-22s %-40s %.5f %.5f" % ev)
     print("-- X-Plane")
