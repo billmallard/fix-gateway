@@ -20,6 +20,13 @@ class FakeItem:
         self.secfail = False
         self.aux = {}
 
+    def set(self, value, old=None, bad=None, fail=None, secfail=None):
+        self.value = value
+        flags = {"old": old, "bad": bad, "fail": fail, "secfail": secfail}
+        for name, flag in flags.items():
+            if flag is not None:
+                setattr(self, name, flag)
+
     def get_aux_value(self, name):
         return self.aux.get(name)
 
@@ -33,6 +40,11 @@ class FakeParent:
 
     def db_get_item(self, key):
         return self.items.setdefault(key, FakeItem(key))
+
+    # Every input reads fresh on the bus; the flags under test are the ones
+    # passed to the function.
+    def db_read(self, key):
+        return value_tuple(0.0)
 
 
 @pytest.fixture(autouse=True)

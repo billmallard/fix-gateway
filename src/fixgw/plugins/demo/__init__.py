@@ -645,7 +645,10 @@ class MainThread(threading.Thread):
             count += 1
             script_when += 1
             time.sleep(0.1)
-            # We just read the point and write it back in to reset the TOL timer
+            # We just read the point and write it back in to reset the TOL timer.
+            # Write the value alone: a read is (value, annunc, old, bad, fail,
+            # secfail) but a tuple write is (value, annunc, bad, fail, secfail),
+            # so writing the read back moved every flag one place (AER-4471).
             for each in self.keylist:
                 x = self.parent.db_read(each)
                 if each in ["LAT", "LONG"]:
@@ -656,7 +659,7 @@ class MainThread(threading.Thread):
                         y -= 0.0000001
                     self.parent.db_write(each, y)
                 else:
-                    self.parent.db_write(each, x)
+                    self.parent.db_write(each, x[0])
             # continue
             # print(f"script_when:{script_when}, script_count:{script_count}")
             if "NO DATA" == self.script[script_count]["MAVMSG"]:
