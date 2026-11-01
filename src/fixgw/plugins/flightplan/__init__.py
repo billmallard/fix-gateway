@@ -138,9 +138,10 @@ class MainThread(threading.Thread):
 
     def _setval(self, key, value, fail=False, bad=False):
         item = self.parent.db_get_item(key)
-        item.value = value
-        item.fail = fail
-        item.bad = bad
+        # Value and flags in one write, so a subscriber never sees the new
+        # value under the old flags -- e.g. a placeholder WPLAT 0.0 still
+        # marked valid for one callback as a plan is cleared (NULLWP1).
+        item.value = (value, item.annunciate, bool(bad), bool(fail))
 
     # ------------------------------------------------------------------
     # Route block
@@ -340,6 +341,11 @@ class MainThread(threading.Thread):
         fail = out.get("fail", False)
         bad = out.get("bad", False)
         wp_ete_bad = out.get("wp_ete_bad", False)
+        # Waypoint positions are flagged on whether there IS a waypoint, not on
+        # ownship position: a fix's location does not depend on the GPS
+        # (NULLWP1).
+        wp_fail = out.get("wp_fail", False)
+        fr_fail = out.get("fr_fail", False)
 
         self._setval("FPLSTATE", out["state"])
         self._setval("FPLSUSPMAP", out["susp_map"])
@@ -352,12 +358,12 @@ class MainThread(threading.Thread):
         self._setval("FPLXTK", out["xtk"], fail=fail, bad=bad)
         self._setval("FPLCDI", out["cdi"], fail=fail, bad=bad)
         self._setval("FPLTF", out["tf"], fail=fail, bad=bad)
-        self._setval("FPLFRLAT", out["fr_lat"])
-        self._setval("FPLFRLON", out["fr_lon"])
+        self._setval("FPLFRLAT", out["fr_lat"], fail=fr_fail)
+        self._setval("FPLFRLON", out["fr_lon"], fail=fr_fail)
         self._setval("WPFROM", out["wp_from"])
         self._setval("WPNEXT", out["wp_next"])
-        self._setval("WPLAT", out["wp_lat"])
-        self._setval("WPLON", out["wp_lon"])
+        self._setval("WPLAT", out["wp_lat"], fail=wp_fail)
+        self._setval("WPLON", out["wp_lon"], fail=wp_fail)
         self._setval("WPNAME", out["wp_name"])
         self._setval("WPDIS", out["wp_dis"], fail=fail, bad=bad)
         self._setval("WPETE", out["wp_ete"], fail=fail, bad=bad or wp_ete_bad)

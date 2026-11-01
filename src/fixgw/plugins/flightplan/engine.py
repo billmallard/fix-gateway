@@ -1313,6 +1313,10 @@ class Engine:
             "seg_rem": 0.0,
             "alert": False,
             "fail": True,
+            # The waypoint positions are blanked here, so they are flagged
+            # failed too: 0.0/0.0 is not a waypoint (NULLWP1).
+            "wp_fail": True,
+            "fr_fail": True,
         }
         return out
 
@@ -1495,6 +1499,13 @@ class Engine:
                 "seg_rem": 0.0,
                 "alert": False,
                 "fail": False,
+                # No active waypoint: the 0.0/0.0 above is a placeholder, not
+                # Null Island. Flagged failed so nothing downstream (the
+                # bearing pointer via GPSBRGT, XTRACK) treats it as a fix --
+                # independent of ownship position, which may be perfectly
+                # good (NULLWP1).
+                "wp_fail": True,
+                "fr_fail": True,
             }
 
         if self._on_vector_leg():
@@ -1600,6 +1611,8 @@ class Engine:
             "seg_rem": self._segment_remaining_nm(wp_dis),
             "alert": alert,
             "fail": False,
+            "wp_fail": False,
+            "fr_fail": False,
         }
         if to_wp.pt in PT_HOLD and self._leg_phase in LEGPHASES_PATTERN:
             result["hold"] = True
@@ -1637,6 +1650,8 @@ class Engine:
             "seg_rem": 0.0,
             "alert": False,
             "fail": False,
+            "wp_fail": to is None,
+            "fr_fail": fr is None,
             "vectors": True,
         }
 
