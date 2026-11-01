@@ -56,9 +56,19 @@ their zero value -- nothing changes for that case.
 | `FPLCOUNT` | int | 0..100 | editor | Slots in use |
 | `FPLNAME` | str | <=32 chars, no `;` | editor | Route name |
 | `FPLSEQ` | int | >=0 | editor (engine on restore) | Commit counter, written last |
+| `FPLLDSEQ` | int | >=0, 0 = none loaded | engine | `FPLSEQ` of the route the engine has loaded (PA8). Follows `FPLSEQ` on every accepted commit and on restore; a rejected commit leaves it where it was |
 
 All of the above, and the segment table below, are `tol: 0`, written by the
-editor, and republished by the engine on restore.
+editor, and republished by the engine on restore -- except `FPLLDSEQ`, which
+only the engine writes.
+
+**A rejected commit leaves the refused route on the bus.** The editor's
+slots stay where it wrote them while the engine keeps flying the route it
+had, so the slot block alone cannot tell a display which route is flown.
+`FPLLDSEQ` can: when it differs from `FPLSEQ`, the slots hold a route the
+engine refused, and a display draws none of it (procedures brief guardrail
+1 on the map, pyEfis #239). A display that finds no `FPLLDSEQ` (an older
+gateway) treats the slots as loaded, as before the key existed.
 
 The rare fields a real procedure database carries (`theta`/`rho`/`rnp`/
 recommended navaid) are **not** on the wire -- resolved to geometry at load
@@ -384,7 +394,7 @@ The specific points a merge with upstream would have to reconcile:
   indexes both the slots and the segment table. Upstream could define `f`
   for something else.
 - The route block and segment table: `FPLf*` (14 fields), `FPLS1..100` (6
-  fields), `FPLSEGCNT`, `FPLCOUNT`, `FPLNAME`, `FPLSEQ`.
+  fields), `FPLSEGCNT`, `FPLCOUNT`, `FPLNAME`, `FPLSEQ`, `FPLLDSEQ`.
 - PA3 and RS1 were both breaking changes inside the fork (Bill lifted the
   compatibility constraint, procedures brief section 3.2 and route
   segments brief section 3). There is no upstream version to stay
