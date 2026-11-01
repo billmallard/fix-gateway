@@ -71,7 +71,8 @@ class db_item(object):
         self.description = ""
         self.units = ""
         self._annunciate = False
-        self._old = False
+        self._old = False  # set by the writer, like bad and fail
+        self._expired = False  # set by update() when tol runs out
         self._bad = False
         self._fail = False
         self._secfail = False
@@ -137,14 +138,18 @@ class db_item(object):
     @property
     def value(self):
         with self.lock:
-            old = self._old
-            if self.tol != 0:
-                # A reader may report the expiry but must not record it:
-                # only update() sets _old True, through the old setter, so
-                # the transition always fires the callbacks (AER-4246).
-                old = self.age > self.tol
-                if not old:
-                    self._old = False
+            # Old is the writer's flag OR the item's own expiry.  A reader
+            # may report the expiry but must not record it: only update()
+            # sets _expired, so the transition always fires the callbacks
+            # (AER-4246).  Nor may a reader clear the writer's flag: a
+            # compute output written fresh from a stale input must read old,
+            # or the flag is lost to the first callback that reads it
+            # (AER-4450).
+            old = (
+                self._old
+                or self._expired
+                or (self.tol != 0 and self.age > self.tol)
+            )
             return (
                 self._value,
                 self._annunciate,
@@ -199,6 +204,8 @@ class db_item(object):
                         pass  # ignore at this point
                     # set the timestamp to right now
             self.timestamp = time.time()
+            # A write ends the expiry, not the writer's own old flag.
+            self._expired = False
         self.send_callbacks()
 
     @property
@@ -256,14 +263,24 @@ class db_item(object):
     @property
     def old(self):
         with self.lock:
-            return self._old
+            return self._old or self._expired
 
     @old.setter
     def old(self, x):
         with self.lock:
-            last = self._old
+            last = self._old or self._expired
             self._old = bool(x)
-        if self._old != last:
+            now = self._old or self._expired
+        if now != last:
+            self.send_callbacks()
+
+    # Called by update() when the item has outlived its tol.  Fires the
+    # callbacks once, on the transition; the next write clears it.
+    def expire(self):
+        with self.lock:
+            last = self._old or self._expired
+            self._expired = True
+        if not last:
             self.send_callbacks()
 
     @property
@@ -448,5 +465,5 @@ def callback_del(name, key, function, udata):
 def update():
     for key, item in list(__database.items()):
         if item.age > item.tol and item.tol != 0:
-            log.debug(f"item.old set True for fixid {key}")
-            item.old = True
+            log.debug(f"item expired for fixid {key}")
+            item.expire()

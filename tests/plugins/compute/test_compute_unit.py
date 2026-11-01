@@ -34,6 +34,11 @@ class FakeParent:
     def db_get_item(self, key):
         return self.items.setdefault(key, FakeItem(key))
 
+    # Every input reads fresh on the bus; the flags under test are the ones
+    # passed to the function.
+    def db_read(self, key):
+        return value_tuple(0.0)
+
 
 @pytest.fixture(autouse=True)
 def leader(monkeypatch):
@@ -170,6 +175,7 @@ def test_alt_pressure_ages_out_with_alt_on_real_items(monkeypatch):
     }
     parent = MagicMock()
     parent.db_get_item.side_effect = items.__getitem__
+    parent.db_read.side_effect = lambda key: items[key].value   # database.read
     func = compute.altPressure(["BARO", "ALT"], "PALT", require_leader=False)
     for key in ("BARO", "ALT"):
         items[key].callbacks.append(("compute", func, parent))
