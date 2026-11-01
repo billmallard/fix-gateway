@@ -149,6 +149,35 @@ def fly(rows=None, profile=PROFILE):
     return samples, events
 
 
+def fly_route(rows, block, act, magvar):
+    """-> (samples, events) for a recording that carries its own route block
+    rather than a profile: an en-route flight (SIM2b, AER-4464), which
+    fix-gateway's profile loader cannot read yet. ``block`` is the route block
+    as the editor published it (``FPLf*``, ``FPLS*``, the counts), ``act`` the
+    slot the bench activated, ``magvar`` the bench's FIX MAGVAR. No pilot
+    commands: an airway is flown leg to leg on the engine's own sequencing."""
+    wps, segs = _route(block)
+    name = block.get("FPLNAME", "")
+    e = Engine(dict(ENGINE_CONFIG))
+    e.load_route(wps, name, 1, segs, dbcyc=block.get("FPLDBCYC", ""))
+    events = []
+    samples = []
+    prev = None
+    for i, r in enumerate(rows):
+        if i == 0:
+            ack, msg = e.handle_command(f"1 ACT {act}", (r["lat"], r["lon"], True), None)
+            events.append((r["t"], "cmd", f"ACT {act} -> {msg or ack}", r["lat"], r["lon"]))
+        out = e.update(r["lat"], r["lon"], r["gs_kt"], magvar, True, None, None, r["t"], r["alt_ft"])
+        if prev is not None and out["act_leg"] != prev["act_leg"]:
+            events.append((r["t"], "sequence", f"{prev['wp_name']} -> {out['wp_name']}", r["lat"], r["lon"]))
+        s = dict(out)
+        s.update(t=r["t"], lat=r["lat"], lon=r["lon"], xp_wpt=r["xp_wpt"], xp_crs=r["xp_crs"],
+                 xp_hdef_dot=r["xp_hdef_dot"], xp_fromto=r["xp_fromto"])
+        samples.append(s)
+        prev = out
+    return samples, events
+
+
 def ext_cdi(hdef_dot):
     """EXTCDI as the bench writes it: ``gps_hdef_dot`` x 0.4
     (``connections/xplane.yaml``), held to the key's -1..1 range."""
