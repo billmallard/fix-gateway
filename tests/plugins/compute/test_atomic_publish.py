@@ -167,6 +167,29 @@ def test_old_onset_publishes_only_the_old_state(clock, case):
         assert database.read(o)[2], (o, database.read(o))
 
 
+# ALT fails, then stops arriving and its fail flag clears while it is old.
+# PALT goes from failed straight to old-not-failed through the flags-only
+# path, and still holds the 0.0 placeholder from the fail write.  A BARO write
+# in between re-publishes the failed state, so PALT's own timestamp is still
+# inside its tol when ALT ages out.  No callback on the way may carry that 0.0
+# with every flag good (AER-4459).
+def test_altp_fail_to_old_never_publishes_the_placeholder_as_good(clock):
+    inputs, good, target, seen = wire("altp")
+    database.write("I2", (good["I2"], False, False, True))
+    assert database.read("O1")[4]
+    clock.now += 1.0
+    database.write("I1", good["I1"])
+    seen["O1"].clear()
+    clock.now += 1.5
+    database.get_raw_item("I2").fail = False
+    assert database.read("I2")[2] and not database.read("I2")[4]
+    final = database.read("O1")
+    assert final[2] and not final[4], final
+    assert seen["O1"], "O1 published nothing"
+    for t in seen["O1"]:
+        assert any(t[2:5]), f"O1 published {t} with old, bad and fail all clear"
+
+
 # --- db_item.set itself ---------------------------------------------------
 
 

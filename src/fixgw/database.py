@@ -15,6 +15,7 @@
 #  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 import logging
+import sys
 import threading
 import time
 import copy
@@ -24,6 +25,33 @@ __database = {}
 _update_thread = globals().get("_update_thread")
 _update_thread_stop = globals().get("_update_thread_stop")
 
+
+# One key, one writer (AER-4476).  A writer-held flag like old only means
+# something if a single plugin owns the key; a second writer silently
+# overwrites the first one's value and flags.  Plugins do not declare the keys
+# they write (canfix, netfix and mgl_serial build them at runtime) and several
+# reach items through get_raw_item rather than the plugin base, so the writer
+# is found at write time instead: the innermost fixgw.plugins module on the
+# stack.  Innermost matters -- a compute function runs inside the callbacks of
+# whatever wrote its input, and the write is compute's, not that plugin's.
+# Writes from outside any plugin (database init, the server's ini files) are
+# not attributed, and nor is state_persist: it restores a saved setting once at
+# start, an initial value like the ini files, and the pilot's later change
+# through netfix is the real write.  The name is the plugin module, so two
+# instances of one module count as one writer.
+_PLUGIN_PREFIX = "fixgw.plugins."
+_NOT_WRITERS = {"state_persist"}
+
+
+def _writer():
+    f = sys._getframe(1)
+    while f is not None:
+        name = f.f_globals.get("__name__", "")
+        if name.startswith(_PLUGIN_PREFIX):
+            plugin = name[len(_PLUGIN_PREFIX) :].split(".")[0]
+            return None if plugin in _NOT_WRITERS else plugin
+        f = f.f_back
+    return None
 
 
 class UpdateThread(threading.Thread):
@@ -82,6 +110,7 @@ class db_item(object):
         self.timestamp = time.time()
         self.aux = {}
         self.callbacks = []
+        self.writers = []  # plugins that have written this key, in order
         self.lock = threading.Lock()
 
     # initialize the auxiliary data dictionary.  aux should be a comma delimited
@@ -89,6 +118,24 @@ class db_item(object):
     def init_aux(self, aux):
         for each in aux:
             self.aux[each.strip()] = None
+
+    # Record the plugin making this write and warn, once per new writer, when
+    # it is not the first.  Caller holds the lock.  Value and quality-flag
+    # writes count; aux and annunciate do not -- aux is configuration any
+    # client may set, and the annunciate plugin flags keys it does not own by
+    # design.
+    def _note_writer(self):
+        w = _writer()
+        if w is None or w in self.writers:
+            return
+        self.writers.append(w)
+        if len(self.writers) > 1:
+            log.warning(
+                "FIX key {} has a second writer: {} now writes it, {} "
+                "already did".format(
+                    self.key, w, ", ".join(self.writers[:-1])
+                )
+            )
 
     def get_aux_list(self):
         return list(self.aux.keys())
@@ -164,6 +211,7 @@ class db_item(object):
     @value.setter
     def value(self, x):
         with self.lock:
+            self._note_writer()
             if isinstance(x, tuple):
                 if len(x) < 4:
                     raise ValueError("Tuple too small for {}".format(self.key))
@@ -184,6 +232,7 @@ class db_item(object):
     # A flag left as None keeps its current state.
     def set(self, value, old=None, bad=None, fail=None, secfail=None):
         with self.lock:
+            self._note_writer()
             self._store(value)
             if old is not None:
                 self._old = bool(old)
@@ -289,6 +338,7 @@ class db_item(object):
     @old.setter
     def old(self, x):
         with self.lock:
+            self._note_writer()
             last = self._old or self._expired
             self._old = bool(x)
             now = self._old or self._expired
@@ -312,6 +362,7 @@ class db_item(object):
     @bad.setter
     def bad(self, x):
         with self.lock:
+            self._note_writer()
             last = self._bad
             self._bad = bool(x)
         if self._bad != last:
@@ -325,6 +376,7 @@ class db_item(object):
     @fail.setter
     def fail(self, x):
         with self.lock:
+            self._note_writer()
             last = self._fail
             self._fail = bool(x)
         if self._fail != last:
@@ -338,6 +390,7 @@ class db_item(object):
     @secfail.setter
     def secfail(self, x):
         with self.lock:
+            self._note_writer()
             last = self._secfail
             self._secfail = bool(x)
         if self._secfail != last:
@@ -452,6 +505,11 @@ def read(key):
 
 def get_raw_item(key):
     return __database[key]
+
+
+# The plugins that have written each key, for keys written by any plugin.
+def writers():
+    return {k: list(i.writers) for k, i in __database.items() if i.writers}
 
 
 def listkeys():
