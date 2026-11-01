@@ -30,16 +30,21 @@ compute:
     - function: altd
       inputs: ["PALT","TALT","OAT"]
       output: DALT
-    # Fed GPSCRS (the post-GPSSRC-select canonical GPS course) rather than
-    # COURSE (the post-NAVSRC-select canonical course) so XTRACK/GPSBRG stay
-    # correct against the active plan/external navigator even while NAVSRC has
-    # the HSI showing a VOR (FP1, fix-gateway#22).
-    - function: xte
-      inputs: ["LAT", "LONG", "WPLAT", "WPLON", "GPSCRS"]
+    # XTRACK follows GPSSRC exactly like GPSCDI below, so the cross-track and
+    # the needle always come from the same source: the internal plan's FPLXTK
+    # or the external navigator's own EXTXTK (AER-4473). This replaces the
+    # xte function, which measured against the internal plan's WPLAT/WPLON
+    # even with GPSSRC=1, and with GPSSRC=0 was a second computation of what
+    # the engine already publishes as FPLXTK.
+    - function: select
+      inputs: ["GPSSRC", "FPLXTK", "EXTXTK"]
       output: XTRACK
+      require_leader: false
     # HSI bearing pointers (P5b.1). GPS bearing-to-active-waypoint: the great-
     # circle initial bearing from the aircraft (LAT/LONG) to the active waypoint
-    # (WPLAT/WPLON), degrees TRUE. Same inputs the xte block already consumes.
+    # (WPLAT/WPLON), degrees TRUE. These are the internal plan's, so with
+    # GPSSRC=1 the pointer still aims at the plan's waypoint, not the external
+    # navigator's (a noted follow-on, AER-4473).
     - function: bearing
       inputs: ["LAT", "LONG", "WPLAT", "WPLON"]
       output: GPSBRGT
