@@ -235,6 +235,32 @@ def test_command_channel_rejects_bad_slot_with_reason(database, tmp_path):
     assert database.read("FPLMSG")[0] == "BAD SLOT"
 
 
+def test_no_plan_direct_to_is_flown_and_dtox_clears_it(database, tmp_path):
+    # fix-gateway #81, as seen on the bench: DTO with no plan loaded, then
+    # DTOX came back -seq / NO PLAN with FPLSTATE stuck at DIRECT.
+    pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
+    database.write("GPS_FIX_TYPE", 3)
+    database.write("LAT", 0.0)
+    database.write("LONG", 0.0)
+    database.write("GS", 120.0)
+    database.write("MAGVAR", 0.0)
+    database.write("DTOID", "XYZ")
+    database.write("DTOLAT", 1.0)
+    database.write("DTOLON", 0.0)
+    database.write("DTOTYPE", engine.TYPE_FIX)
+
+    database.write("FPLCMD", "1 DTO")
+    assert database.read("FPLCMDACK")[0] == 1
+    pl.thread._run_update_cycle()
+    assert database.read("FPLSTATE")[0] == engine.STATE_DIRECT
+    assert database.read("WPNAME")[0] == "XYZ"
+
+    database.write("FPLCMD", "2 DTOX")
+    assert database.read("FPLCMDACK")[0] == 2
+    assert database.read("FPLSTATE")[0] == engine.STATE_NONE
+    assert pl.thread.engine.mode == "NONE"
+
+
 def test_position_updates_write_guidance_outputs(database, tmp_path):
     pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
     # A freshly-initialized GPS_FIX_TYPE defaults to 0 and has not gone "old"

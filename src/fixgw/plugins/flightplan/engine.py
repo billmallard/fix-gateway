@@ -1131,6 +1131,12 @@ class Engine:
 
     def _cmd_dtox(self, position):
         if self.count == 0:
+            # A bare DTO is accepted with no plan loaded, so DIRECT-with-no-
+            # plan is reachable. With no leg to rejoin, cancelling it just
+            # drops navigation back to NONE (fix-gateway #81).
+            if self.mode == "DIRECT":
+                self._reset_activation()
+                return
             raise _Reject("NO PLAN")
         ac_lat, ac_lon = self._require_position(position)
 

@@ -291,6 +291,30 @@ def test_dtox_falls_back_to_nearest_waypoint_when_no_leg_window_contains_aircraf
     assert e.from_point.lat == 0.0 and e.from_point.lon == pytest.approx(-nm_to_deg_lon(50))
 
 
+def test_dtox_cancels_a_direct_to_flown_with_no_plan_loaded():
+    # fix-gateway #81: a bare DTO is accepted with no plan, and DTOX used to
+    # reject it with NO PLAN, leaving DIRECT stuck until a new plan.
+    e = engine.Engine()
+    ack, msg = e.handle_command("1 DTO", (0.0, 0.0, True), dto_staged=("XYZ", 1.0, 1.0, engine.TYPE_FIX))
+    assert ack == 1
+    assert e.mode == "DIRECT"
+    out = e.update(0.0, 0.0, 120.0, 0.0, True, True, 0.01, 1000.0)
+    assert out["state"] == engine.STATE_DIRECT
+
+    ack, msg = e.handle_command("2 DTOX", (0.0, 0.0, True))
+    assert (ack, msg) == (2, "")
+    assert e.mode == "NONE"
+    assert e.to_point is None and e.from_point is None
+    out = e.update(0.0, 0.0, 120.0, 0.0, True, True, 0.01, 1001.0)
+    assert out["state"] == engine.STATE_NONE
+
+
+def test_dtox_with_no_plan_and_nothing_active_is_still_rejected():
+    e = engine.Engine()
+    assert e.handle_command("1 DTOX", (0.0, 0.0, True)) == (-1, "NO PLAN")
+    assert e.mode == "NONE"
+
+
 def test_susp_freezes_sequencing_and_dtk():
     e = engine.Engine()
     route = straight_route(3)
