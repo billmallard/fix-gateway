@@ -129,6 +129,8 @@ Every FIX key has exactly one writer. Two writers on one key overwrite each othe
 | `PALT` | derived from the altimeter setting | `dynon` | delete the compute function whose output is `PALT` |
 | `FUELQT` | sum of `FUELQ1`-`FUELQ3` | `shadin`; `mgl_serial` (a fuel-level channel) | delete the compute function whose output is `FUELQT` |
 
+The gateway checks this at runtime. The first time a second plugin writes a key, it logs `FIX key <KEY> has a second writer: <plugin> now writes it, <plugin> already did` at WARNING, and `database.writers()` lists every key's writers. If that warning names `PALT` or `FUELQT`, the compute function in the table above is still in place.
+
 Navigation keys are different: `COURSE`, `CDI` and `GSI` belong to compute's `NAVSRC` select in every configuration. A navigator or receiver writes the source inputs (`NAV1CRS`, `EXTCRS` and so on), never the canonical key.
 
 ## Important Disclaimer
