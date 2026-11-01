@@ -261,7 +261,7 @@ circuit/turn; `HA` exits automatically once the coded altitude is reached.
 | `FPLXTK` | float | +-100 nm, positive = right of track | Cross-track error, same sign convention as `XTRACK` |
 | `FPLCDI` | float | -1..+1 | `-FPLXTK / CDISCALE`, clamped -- the sign convention `garmin_gnx375/__init__.py:167-169` uses, so the HSI needle behaves identically for the internal plan and an external navigator |
 | `FPLTF` | int | 0/1/2 | TO/FROM |
-| `FPLFRLAT` / `FPLFRLON` | float | deg | FROM point of the active leg (previous waypoint, or the direct-to activation point) |
+| `FPLFRLAT` / `FPLFRLON` | float | deg | FROM point of the active leg (previous waypoint, or the direct-to activation point). Flagged `fail` whenever there is no FROM point (NULLWP1): no plan active, and during failed guidance, where the engine blanks it to 0.0 |
 | `WPFROM` / `WPNEXT` | str | <=6 chars | FROM and NEXT waypoint idents |
 | `WPDIS` | float | nm | Distance to the TO waypoint |
 | `WPETE` | int | s, `bad` when GS < 30 kt | Time to the TO waypoint |
@@ -276,6 +276,17 @@ engine becomes their writer when the `flightplan` plugin is enabled (FP2).
 key, one writer. This item only fixes `WPLON`'s range: it was clamped to
 +-90 (a latent bug for longitudes past 90 deg), now +-180, matching
 longitude's actual domain.
+
+`WPLAT`/`WPLON` are flagged `fail` whenever there is no active TO waypoint
+(NULLWP1): no plan active, a vector leg with no TO point, and during failed
+guidance, where the engine blanks them to 0.0. The flag says whether there
+IS a waypoint; it is not the ownship-position `fail` the distance outputs
+carry, since a fix's location does not depend on the GPS. With no plan the
+published 0.0/0.0 is a placeholder, and before this flag the compute chain
+(`bearing` -> `GPSBRGT` -> `GPSBRG` -> `BRG1`) turned it into a valid bearing
+to 0N 0E. `WPNAME`/`WPFROM`/`WPNEXT` read `""` with no waypoint and carry no
+flag. Value and flags land in one database write, so a subscriber never sees
+the placeholder under the previous cycle's valid flag.
 
 ## GPS guidance source selection
 
