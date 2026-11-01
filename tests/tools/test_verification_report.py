@@ -176,11 +176,20 @@ def _page_text(record, tmp_path, **kw):
 def test_page_carries_standing_text_and_empty_states(record, tmp_path):
     page = _page_text(record, tmp_path)
     assert vr.STANDING_TEXT.replace("'", "&#x27;") in page
-    assert "Use it at your own risk" in page
+    assert "any use of it is at your own risk" in page
     assert "No hardware reports are published yet" in page
     assert "No simulator results are published yet" in page
     assert "<b>fix-gateway</b>: no published result yet" in page
     assert (tmp_path / "site" / "demo.json").is_file()
+
+
+def test_notice_is_the_box_alone_with_no_reliance_clause(record, tmp_path):
+    # Bill, 2026-11-01 (AER-4531): no h2 over the notice box, and no "primary
+    # flight or navigation reference" clause -- own-risk wording only.
+    page = _page_text(record, tmp_path)
+    assert "<h2 id=notice>" not in page
+    assert "What this page is and is not" not in page
+    assert "primary" not in vr.STANDING_TEXT.lower()
 
 
 def test_page_never_uses_banned_words_outside_the_standing_text(record, tmp_path):
