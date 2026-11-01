@@ -2,11 +2,13 @@ import threading
 from collections import OrderedDict
 import fixgw.plugin as plugin
 from fixgw.plugins.stratux import gdl90
+from fixgw.plugins.stratux.traffic import TrafficWriter, parse_ownship_address
 import socket
 import struct
 import math
 
-# The receive timeout lets the loop notice stop() without waiting for input.
+# The receive timeout paces the traffic writer's once-a-second tick when no
+# datagrams arrive (eviction and liveness must not wait for input).
 RECV_TIMEOUT = 0.25
 
 
@@ -23,6 +25,25 @@ class MainThread(threading.Thread):
         self.s.bind((config.get("host", ""), int(config.get("port", 4000))))
         self.s.settimeout(RECV_TIMEOUT)
 
+        self.traffic = None
+        if config.get("traffic", True):
+            try:
+                parent.db_get_item("TFC1TGT")
+            except KeyError:
+                self.log.error(
+                    "traffic: true but the database has no TFC block "
+                    "(database/traffic.yaml); not writing traffic"
+                )
+            else:
+                self.traffic = TrafficWriter(
+                    parent.db_get_item,
+                    self.log,
+                    evict_s=config.get("evict_s", 10),
+                    ownship_address=parse_ownship_address(
+                        config.get("ownship_address"), self.log
+                    ),
+                )
+
     def run(self):
 
         while not self.getout:
@@ -32,6 +53,8 @@ class MainThread(threading.Thread):
                 datagram = b""
             for msg in gdl90.decode_datagram(datagram):
                 self.dispatch(msg)
+            if self.traffic is not None:
+                self.traffic.tick()
 
         self.s.close()
         self.running = False
@@ -66,6 +89,9 @@ class MainThread(threading.Thread):
             # GS goes stale instead of reading 4095 kt
             if gnd_speed != 0xFFF:
                 self.parent.db_write("GS", gnd_speed)
+
+        if self.traffic is not None:
+            self.traffic.handle(msg)
 
     def stop(self):
         self.getout = True

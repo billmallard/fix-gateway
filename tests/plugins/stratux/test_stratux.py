@@ -5,6 +5,8 @@ Covers:
   1. gdl90.decode_datagram — framing, byte-stuffing, CRC validation
   2. Stratux MainThread — AHRS (0x4C) and ownship (0x0A) message dispatch
 
+Traffic (0x14) and the TFC block are covered in test_traffic.py.
+
 The socket is never opened; we call the parse logic directly.
 """
 import io
@@ -183,6 +185,7 @@ def _make_thread():
     thread.parent = parent
     thread.log = parent.log
     thread.s = parent_socket
+    thread.traffic = None
     parent.db_write = lambda key, val: database.write(key, val)
     return thread
 
@@ -334,7 +337,7 @@ class FakeSocket:
 def test_main_thread_initializes_socket_and_stop(monkeypatch, capsys):
     fake_socket = FakeSocket()
     parent = MagicMock()
-    parent.config = {}
+    parent.config = {"traffic": False}
     parent.log = MagicMock()
     monkeypatch.setattr(stratux.socket, "socket", lambda *_args: fake_socket)
 
@@ -359,6 +362,8 @@ def test_run_decodes_ahrs_ownship_and_skips_invalid_frames(monkeypatch):
     parent.log = MagicMock()
     parent.config = {}
     parent.db_write = lambda key, value: database.write(key, value)
+    # This database has no TFC block, so the traffic writer stays off.
+    parent.db_get_item = database.get_raw_item
     monkeypatch.setattr(stratux.socket, "socket", lambda *_args: fake_socket)
     thread = MainThread(parent)
     original_recvfrom = fake_socket.recvfrom
@@ -380,6 +385,7 @@ def test_run_decodes_ahrs_ownship_and_skips_invalid_frames(monkeypatch):
     assert _db("VS") == -123
     assert _db("GS") == 321
     assert _db("IAS") == 0
+    assert thread.traffic is None
     assert fake_socket.closed is True
 
 
