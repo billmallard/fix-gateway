@@ -173,40 +173,61 @@ class db_item(object):
                 if len(x) >= 5:
                     self._secfail = x[4]
                 x = x[0]
-            if self.dtype is bool:
-                self._value = (
-                    x == True
-                    or (isinstance(x, str) and x.lower() in ["yes", "true", "1"])
-                    or (isinstance(x, int) and x != 0)
-                )
-            else:
-                try:
-                    if self.dtype is str and x is None:
-                        self._value = ""
-                    else:
-                        self._value = self.dtype(x)
-                except ValueError:
-                    log.error(
-                        "Bad value '" + str(x) + "' given for " + self.description
-                    )
-                    raise
-                if self.dtype is not str:
-                    # bounds check and cap
-                    try:
-                        if self._value < self._min:
-                            self._value = self._min
-                    except:  # Probably only fails if min has not been set
-                        pass  # ignore at this point
-                    try:
-                        if self._value > self._max:
-                            self._value = self._max
-                    except:  # Probably only fails if max has not been set
-                        pass  # ignore at this point
-                    # set the timestamp to right now
-            self.timestamp = time.time()
-            # A write ends the expiry, not the writer's own old flag.
-            self._expired = False
+            self._store(x)
         self.send_callbacks()
+
+    # Write the value and any of its quality flags as one update: everything
+    # changes under the lock and the callbacks fire once, after.  Setting the
+    # value and then each flag through its own setter fires the callbacks
+    # between steps, so a consumer sees the new value with the previous
+    # flags -- a value computed from a failed input, flagged good (AER-4470).
+    # A flag left as None keeps its current state.
+    def set(self, value, old=None, bad=None, fail=None, secfail=None):
+        with self.lock:
+            self._store(value)
+            if old is not None:
+                self._old = bool(old)
+            if bad is not None:
+                self._bad = bool(bad)
+            if fail is not None:
+                self._fail = bool(fail)
+            if secfail is not None:
+                self._secfail = bool(secfail)
+        self.send_callbacks()
+
+    # Coerce, bound and store a bare value and stamp it.  Caller holds the lock.
+    def _store(self, x):
+        if self.dtype is bool:
+            self._value = (
+                x == True
+                or (isinstance(x, str) and x.lower() in ["yes", "true", "1"])
+                or (isinstance(x, int) and x != 0)
+            )
+        else:
+            try:
+                if self.dtype is str and x is None:
+                    self._value = ""
+                else:
+                    self._value = self.dtype(x)
+            except ValueError:
+                log.error("Bad value '" + str(x) + "' given for " + self.description)
+                raise
+            if self.dtype is not str:
+                # bounds check and cap
+                try:
+                    if self._value < self._min:
+                        self._value = self._min
+                except:  # Probably only fails if min has not been set
+                    pass  # ignore at this point
+                try:
+                    if self._value > self._max:
+                        self._value = self._max
+                except:  # Probably only fails if max has not been set
+                    pass  # ignore at this point
+        # set the timestamp to right now
+        self.timestamp = time.time()
+        # A write ends the expiry, not the writer's own old flag.
+        self._expired = False
 
     @property
     def min(self):

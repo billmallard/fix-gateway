@@ -51,6 +51,14 @@ def _refresh_old(vals, parent):
             if parent.db_read(each)[2]:
                 vals[each] = cached[:2] + (True,) + cached[3:]
 
+
+# Write a computed value and its flags as one update, so no callback pairs a
+# value computed from a failed or stale input with good flags (AER-4470).  A
+# failed output reads 0.0.
+def _publish(o, value, old, bad, fail, secfail):
+    o.set(0.0 if fail else value, old=old, bad=bad, fail=fail, secfail=secfail)
+
+
 # Determine pressure altitude
 # inputs: BARO, ALTMSL
 # Pressure Altitude = Elevation  in FT + (145442.2 * ( 1 - ( altimeter setting in inhg/29.92126)^.190261))
@@ -95,13 +103,7 @@ def altPressure(inputs, output, require_leader):
         baro = list(vals)[0]
         msl = list(vals)[1]
         pa = vals[msl][0] + (145442.2 * (1 - (vals[baro][0] / 29.92126) ** 0.190261))
-        o.value = pa
-        o.fail = flag_fail
-        if o.fail:
-            o.value = 0.0
-        o.bad = flag_bad
-        o.old = flag_old
-        o.secfail = flag_secfail
+        _publish(o, pa, flag_old, flag_bad, flag_fail, flag_secfail)
 
     return func
 
@@ -150,13 +152,7 @@ def altDensity(inputs, output, require_leader):
         oat = list(vals)[2]
         st = 15 - (1.98 * (vals[talt][0]) / 1000)
         da = vals[palt][0] + (120 * (vals[oat][0] - st))
-        o.value = da
-        o.fail = flag_fail
-        if o.fail:
-            o.value = 0.0
-        o.bad = flag_bad
-        o.old = flag_old
-        o.secfail = flag_secfail
+        _publish(o, da, flag_old, flag_bad, flag_fail, flag_secfail)
 
     return func
 
@@ -199,13 +195,7 @@ def averageFunction(inputs, output, require_leader):
                 flag_fail = True
             if vals[each][5]:
                 flag_secfail = True
-        o.value = arrsum / len(vals)
-        o.fail = flag_fail
-        if o.fail:
-            o.value = 0.0
-        o.bad = flag_bad
-        o.old = flag_old
-        o.secfail = flag_secfail
+        _publish(o, arrsum / len(vals), flag_old, flag_bad, flag_fail, flag_secfail)
 
     return func
 
@@ -281,13 +271,7 @@ def sumFunction(inputs, output, require_leader):
                 print("WTF {} {}".format(key, value))
                 raise
         o = parent.db_get_item(output)
-        o.value = arrsum
-        o.fail = flag_fail
-        if o.fail:
-            o.value = 0.0
-        o.bad = flag_bad
-        o.old = flag_old
-        o.secfail = flag_secfail
+        _publish(o, arrsum, flag_old, flag_bad, flag_fail, flag_secfail)
 
     return func
 
@@ -333,13 +317,7 @@ def maxFunction(inputs, output, require_leader):
                 flag_fail = True
             if vals[each][5]:
                 flag_secfail = True
-        o.value = vmax
-        o.fail = flag_fail
-        if o.fail:
-            o.value = 0.0
-        o.bad = flag_bad
-        o.old = flag_old
-        o.secfail = flag_secfail
+        _publish(o, vmax, flag_old, flag_bad, flag_fail, flag_secfail)
 
     return func
 
@@ -385,13 +363,7 @@ def minFunction(inputs, output, require_leader):
                 flag_fail = True
             if vals[each][5]:
                 flag_secfail = True
-        o.value = vmin
-        o.fail = flag_fail
-        if o.fail:
-            o.value = 0.0
-        o.bad = flag_bad
-        o.old = flag_old
-        o.secfail = flag_secfail
+        _publish(o, vmin, flag_old, flag_bad, flag_fail, flag_secfail)
 
     return func
 
@@ -437,13 +409,7 @@ def spanFunction(inputs, output, require_leader):
             if vals[each][5]:
                 flag_secfail = True
         o = parent.db_get_item(output)
-        o.value = vmax - vmin
-        o.fail = flag_fail
-        if o.fail:
-            o.value = 0.0
-        o.bad = flag_bad
-        o.old = flag_old
-        o.secfail = flag_secfail
+        _publish(o, vmax - vmin, flag_old, flag_bad, flag_fail, flag_secfail)
 
     return func
 
@@ -544,7 +510,7 @@ def AOAFunction(inputs, output, require_leader):
             AOA_pitch_0 = read("AOA.0g")
             # Alpha (AOA) = lift_constant * acc[NORMAL/Z axis] / ias^2 -
             #               AOA_pitch_0
-            o.value = (
+            alpha = (
                 AOA_lift_constant * AOA_acc_history[-1] / (ias * ias) - AOA_pitch_0
             )
             flag_old = False
@@ -562,17 +528,25 @@ def AOAFunction(inputs, output, require_leader):
                     flag_fail = True
                 if vals[each][5]:
                     flag_secfail = True
-            o.old = flag_old
-            o.bad = flag_bad
-            o.fail = flag_fail
-            o.secfail = flag_secfail
+            o.set(
+                alpha,
+                old=flag_old,
+                bad=flag_bad,
+                fail=flag_fail,
+                secfail=flag_secfail,
+            )
             if flag_old or flag_bad or flag_fail or flag_secfail:
                 AOA_hist_count = 0
         elif ias < Vs and vals["PITCH"] is not None:
             # Give an answer for taxi'ing and/or takeoff roll
             pitch = vals["PITCH"]
-            o.value = AOA_pitch_root + pitch[0]
-            o.old, o.bad, o.fail, o.secfail = pitch[2:]
+            o.set(
+                AOA_pitch_root + pitch[0],
+                old=pitch[2],
+                bad=pitch[3],
+                fail=pitch[4],
+                secfail=pitch[5],
+            )
             # Since we're taxi'ing, we might have just refueled,
             # or changed the weight and balance, which drastically changes
             # the lift constant. Mark it as unknown to re-estimate
@@ -582,10 +556,7 @@ def AOAFunction(inputs, output, require_leader):
             # Flying, but the lift constant is not yet established.
             # Give a guesstimate
             pitch = vals["PITCH"]
-            o.value = AOA_pitch_root + pitch[0]
-            o.old = pitch[2]
-            o.bad = True
-            o.fail = pitch[4]
+            o.set(AOA_pitch_root + pitch[0], old=pitch[2], bad=True, fail=pitch[4])
         else:
             # We're not getting any basic data. Fail out.
             o.fail = True
@@ -722,11 +693,7 @@ def xteFunction(inputs, output, require_leader):
 
         o = parent.db_get_item(output)
         if flag_fail:
-            o.value = 0.0
-            o.fail = True
-            o.bad = flag_bad
-            o.old = flag_old
-            o.secfail = flag_secfail
+            _publish(o, 0.0, flag_old, flag_bad, True, flag_secfail)
             return
 
         own_lat = vals[inputs[0]][0]
@@ -746,11 +713,7 @@ def xteFunction(inputs, output, require_leader):
             earth_radius_nm = 3440.065
             xte_nm = xte_rad * earth_radius_nm
 
-        o.value = xte_nm
-        o.fail = False
-        o.bad = flag_bad
-        o.old = flag_old
-        o.secfail = flag_secfail
+        _publish(o, xte_nm, flag_old, flag_bad, False, flag_secfail)
 
     return func
 
@@ -802,11 +765,7 @@ def bearingFunction(inputs, output, require_leader):
 
         o = parent.db_get_item(output)
         if flag_fail:
-            o.value = 0.0
-            o.fail = True
-            o.bad = flag_bad
-            o.old = flag_old
-            o.secfail = flag_secfail
+            _publish(o, 0.0, flag_old, flag_bad, True, flag_secfail)
             return
 
         own_lat = vals[inputs[0]][0]
@@ -815,11 +774,8 @@ def bearingFunction(inputs, output, require_leader):
         wp_lon = vals[inputs[3]][0]
 
         bearing_rad = _initial_bearing_rad(own_lat, own_lon, wp_lat, wp_lon)
-        o.value = math.degrees(bearing_rad) % 360.0
-        o.fail = False
-        o.bad = flag_bad
-        o.old = flag_old
-        o.secfail = flag_secfail
+        bearing = math.degrees(bearing_rad) % 360.0
+        _publish(o, bearing, flag_old, flag_bad, False, flag_secfail)
 
     return func
 
@@ -866,13 +822,7 @@ def selectFunction(inputs, output, require_leader):
         # bad or failed source reads honestly downstream (the HSI greys/flags
         # instead of showing a frozen or sourceless needle). Mirrors
         # wrap360Function's flag handling.
-        o.value = src[0]
-        o.fail = src[4]
-        if o.fail:
-            o.value = 0.0
-        o.bad = src[3]
-        o.old = src[2]
-        o.secfail = src[5]
+        _publish(o, src[0], src[2], src[3], src[4], src[5])
 
     return func
 
@@ -927,13 +877,7 @@ def wrap360Function(inputs, output, require_leader):
             if vals[each][5]:
                 flag_secfail = True
         o = parent.db_get_item(output)
-        o.value = arrsum % 360.0
-        o.fail = flag_fail
-        if o.fail:
-            o.value = 0.0
-        o.bad = flag_bad
-        o.old = flag_old
-        o.secfail = flag_secfail
+        _publish(o, arrsum % 360.0, flag_old, flag_bad, flag_fail, flag_secfail)
 
     return func
 
@@ -978,10 +922,8 @@ def windTriangle(inputs, output, require_leader):
         o_dir = parent.db_get_item(output[1])
 
         if flag_fail:
-            o_spd.value = 0.0
-            o_spd.fail = True
-            o_dir.value = 0.0
-            o_dir.fail = True
+            _publish(o_spd, 0.0, flag_old, flag_bad, True, flag_secfail)
+            _publish(o_dir, 0.0, flag_old, flag_bad, True, flag_secfail)
             return
 
         gs = vals[inputs[0]][0]
@@ -1005,17 +947,8 @@ def windTriangle(inputs, output, require_leader):
         # Wind FROM direction = atan2 of wind-to vector + 180
         winddir = (math.degrees(math.atan2(wv_e, wv_n)) + 180.0) % 360.0
 
-        o_spd.value = windspd
-        o_spd.fail = False
-        o_spd.bad = flag_bad
-        o_spd.old = flag_old
-        o_spd.secfail = flag_secfail
-
-        o_dir.value = winddir
-        o_dir.fail = False
-        o_dir.bad = flag_bad
-        o_dir.old = flag_old
-        o_dir.secfail = flag_secfail
+        _publish(o_spd, windspd, flag_old, flag_bad, False, flag_secfail)
+        _publish(o_dir, winddir, flag_old, flag_bad, False, flag_secfail)
 
     return func
 
@@ -1061,10 +994,8 @@ def windComponents(inputs, output, require_leader):
         o_xw = parent.db_get_item(output[1])
 
         if flag_fail:
-            o_hw.value = 0.0
-            o_hw.fail = True
-            o_xw.value = 0.0
-            o_xw.fail = True
+            _publish(o_hw, 0.0, flag_old, flag_bad, True, flag_secfail)
+            _publish(o_xw, 0.0, flag_old, flag_bad, True, flag_secfail)
             return
 
         windspd = vals[inputs[0]][0]
@@ -1079,17 +1010,8 @@ def windComponents(inputs, output, require_leader):
         hwind = windspd * math.cos(relative_rad)
         xwind = windspd * math.sin(relative_rad)
 
-        o_hw.value = hwind
-        o_hw.fail = False
-        o_hw.bad = flag_bad
-        o_hw.old = flag_old
-        o_hw.secfail = flag_secfail
-
-        o_xw.value = xwind
-        o_xw.fail = False
-        o_xw.bad = flag_bad
-        o_xw.old = flag_old
-        o_xw.secfail = flag_secfail
+        _publish(o_hw, hwind, flag_old, flag_bad, False, flag_secfail)
+        _publish(o_xw, xwind, flag_old, flag_bad, False, flag_secfail)
 
     return func
 
