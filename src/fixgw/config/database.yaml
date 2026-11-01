@@ -32,6 +32,7 @@ entries:
 - include: database/custom.yaml
 
 - include: database/flightplan.yaml
+- include: database/traffic.yaml
 - include: database/sim.yaml
 
 # The last.yaml must always be the last one.
