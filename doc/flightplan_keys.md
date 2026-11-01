@@ -225,6 +225,10 @@ arg, direct-to that plan waypoint), `DTOX`, `SUSP`, `RESUME`,
 procedure/airway loading (section 3.2) -- this engine does not dispatch them
 yet; unknown verbs are rejected (`PARSE`), never ignored.
 
+**`DTOX` with no plan loaded** cancels a bare `DTO` flown with no plan
+(state `DIRECT`): there is no leg to rejoin, so navigation drops to `NONE`
+and the command is acked. With nothing active it is rejected `NO PLAN`.
+
 **`RESUME` off a vector leg (PA4)** is not the MAP's "sequence to the
 MAHP" -- there is no track to rejoin, since the box never flew one. It
 activates the *next* slot direct from wherever the aircraft actually is at
