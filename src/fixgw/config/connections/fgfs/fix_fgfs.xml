@@ -1,5 +1,26 @@
 <?xml version="1.0"?>
 
+<!--
+  FlightGear generic protocol for fix-gateway's fgfs plugin.
+
+  FlightGear and fix-gateway must both read THIS file. FlightGear finds it
+  in $FG_ROOT/Protocol/; fix-gateway finds
+  it through fg_root / xml_file in connections/flight_gear_simulator.yaml.
+  A copy that differs by one chunk puts every later value on the wrong key,
+  so the plugin drops any sentence whose field count does not match.
+
+  <name> is "FIX_KEY: description". FlightGear ignores it; the plugin reads
+  the key before the colon. Chunks that name the same key are summed by the
+  plugin, which is how NAVxTF and VORxBRG are built below.
+
+  <output> writes the same keys, units and signs as the xplane plugin
+  (connections/xplane.yaml), so pyEfis cannot tell the simulators apart.
+  Property paths, units and signs were checked against FlightGear 2024.1
+  source: src/FDM/flight.cxx, src/Main/fg_props.cxx,
+  src/Instrumentation/navradio.cxx and gps.cxx, src/Network/generic.cxx.
+  The generic protocol computes  value * factor + offset  per field.
+-->
+
 <PropertyList>
 
  <generic>
@@ -8,214 +29,466 @@
    <line_separator>newline</line_separator>
    <var_separator>,</var_separator>
 
+   <!-- Air data. TAS, GS and VS come from the flight model so they work on
+        any aircraft; IAS is the airspeed instrument, as the pilot reads it. -->
    <chunk>
-    <name>IAS: Indicated-speed-kt</name>
+    <name>IAS: Indicated airspeed (kt)</name>
     <type>double</type>
     <format>%.1f</format>
     <node>/instrumentation/airspeed-indicator/indicated-speed-kt</node>
    </chunk>
 
    <chunk>
-    <name>TAS: True Airspeed</name>
+    <name>TAS: True airspeed (kt)</name>
     <type>double</type>
     <format>%.1f</format>
-    <node>/instrumentation/airspeed-indicator/true-speed-kt</node>
+    <node>/velocities/airspeed-kt</node>
    </chunk>
 
    <chunk>
-    <name>PITCH: pitch att (deg)</name>
-    <type>float</type>
+    <name>GS: Ground speed (kt)</name>
+    <type>double</type>
     <format>%.1f</format>
+    <node>/velocities/groundspeed-kt</node>
+   </chunk>
+
+   <chunk>
+    <name>VS: Vertical speed (ft/min)</name>
+    <type>double</type>
+    <format>%.0f</format>
+    <node>/velocities/vertical-speed-fps</node>
+    <factor>60</factor>
+   </chunk>
+
+   <!-- Attitude and heading -->
+   <chunk>
+    <name>PITCH: Pitch (deg)</name>
+    <type>double</type>
+    <format>%.2f</format>
     <node>/orientation/pitch-deg</node>
    </chunk>
 
    <chunk>
-    <name>ROLL: Roll att (deg)</name>
-    <type>float</type>
-    <format>%.1f</format>
+    <name>ROLL: Roll (deg)</name>
+    <type>double</type>
+    <format>%.2f</format>
     <node>/orientation/roll-deg</node>
    </chunk>
 
    <chunk>
     <name>HEAD: Magnetic heading (deg)</name>
-    <type>float</type>
-    <format>%.1f</format>
+    <type>double</type>
+    <format>%.2f</format>
     <node>/orientation/heading-magnetic-deg</node>
    </chunk>
 
+   <!-- FlightGear's variation is east-positive (heading-magnetic = heading -
+        variation, fg_props.cxx). FIX MAGVAR is west-positive. -->
    <chunk>
-    <name>ALT: Altitude</name>
+    <name>MAGVAR: Magnetic variation (deg, west positive)</name>
     <type>double</type>
-    <format>%.0f</format>
-    <node>/instrumentation/altimeter/indicated-altitude-ft</node>
+    <format>%.2f</format>
+    <node>/environment/magnetic-variation-deg</node>
+    <factor>-1</factor>
    </chunk>
 
    <chunk>
-    <name>VS: VSI</name>
-    <type>float</type>
-    <format>%.1f</format>
-    <node>/instrumentation/vertical-speed-indicator/indicated-speed-fpm</node>
-   </chunk>
-
-    <chunk>
-     <name>ROT: Rate of Turn</name>
-     <type>float</type>
-     <format>%.5f</format>
-     <node>/orientation/yaw-rate-degps</node>
-   </chunk>
-
-   <chunk>
-    <name>ALAT: AccelerationLateral</name>
+    <name>ROT: Yaw rate (deg/s)</name>
     <type>double</type>
-    <format>%.11f</format>
+    <format>%.3f</format>
+    <node>/orientation/yaw-rate-degps</node>
+   </chunk>
+
+   <!-- Lateral specific force at the pilot, ft/s^2 -> g (1 / 32.174) -->
+   <chunk>
+    <name>ALAT: Lateral acceleration (g)</name>
+    <type>double</type>
+    <format>%.4f</format>
     <node>/accelerations/pilot/y-accel-fps_sec</node>
-    <factor>0.031070336391437</factor>
+    <factor>0.031081</factor>
    </chunk>
 
    <chunk>
-    <name>TRACK: Current Aircraft Bearing</name>
+    <name>AOA: Angle of attack (deg)</name>
+    <type>double</type>
+    <format>%.2f</format>
+    <node>/orientation/alpha-deg</node>
+   </chunk>
+
+   <chunk>
+    <name>TRACK: Ground track, true (deg)</name>
     <type>double</type>
     <format>%.1f</format>
     <node>/orientation/track-deg</node>
    </chunk>
 
    <chunk>
-    <name>TRACKM: Current Aircraft Magnetic Bearing</name>
+    <name>TRACKM: Ground track, magnetic (deg)</name>
     <type>double</type>
     <format>%.1f</format>
     <node>/orientation/track-magnetic-deg</node>
    </chunk>
 
+   <!-- Flight path angle, negative descending -->
    <chunk>
-    <name>VOLT: Voltage</name>
+    <name>VPATH: Vertical flight path angle (deg)</name>
+    <type>double</type>
+    <format>%.2f</format>
+    <node>/orientation/path-deg</node>
+   </chunk>
+
+   <!-- Position. ALT is the aircraft's MSL altitude, as X-Plane sends it. -->
+   <chunk>
+    <name>LAT: Latitude (deg)</name>
+    <type>double</type>
+    <format>%.8f</format>
+    <node>/position/latitude-deg</node>
+   </chunk>
+
+   <chunk>
+    <name>LONG: Longitude (deg)</name>
+    <type>double</type>
+    <format>%.8f</format>
+    <node>/position/longitude-deg</node>
+   </chunk>
+
+   <chunk>
+    <name>ALT: Altitude MSL (ft)</name>
+    <type>double</type>
+    <format>%.0f</format>
+    <node>/position/altitude-ft</node>
+   </chunk>
+
+   <chunk>
+    <name>AGL: Altitude above ground (ft)</name>
+    <type>double</type>
+    <format>%.0f</format>
+    <node>/position/altitude-agl-ft</node>
+   </chunk>
+
+   <!-- Autopilot heading bug. Like the xplane plugin, this makes the sim the
+        writer of HEADBUG, so it overrides the EFIS HDG knob. -->
+   <chunk>
+    <name>HEADBUG: Selected heading (deg)</name>
+    <type>double</type>
+    <format>%.1f</format>
+    <node>/autopilot/settings/heading-bug-deg</node>
+   </chunk>
+
+   <!-- GPS navigator -> EXT* keys, the bench's external navigator, which the
+        compute GPSSRC select routes into GPSCRS/GPSCDI/GPSTF.
+        cdi-deflection is +/-10 at full scale, needle-right positive. -->
+   <chunk>
+    <name>EXTCRS: GPS desired course, magnetic (deg)</name>
+    <type>double</type>
+    <format>%.1f</format>
+    <node>/instrumentation/gps/desired-course-deg</node>
+   </chunk>
+
+   <chunk>
+    <name>EXTCDI: GPS course deviation (-1..1)</name>
+    <type>double</type>
+    <format>%.3f</format>
+    <node>/instrumentation/gps/cdi-deflection</node>
+    <factor>0.1</factor>
+   </chunk>
+
+   <!-- EXTTF = to-flag + 2 * from-flag: 0 off, 1 TO, 2 FROM -->
+   <chunk>
+    <name>EXTTF: GPS TO flag</name>
+    <type>float</type>
+    <format>%.0f</format>
+    <node>/instrumentation/gps/wp/wp[1]/to-flag</node>
+   </chunk>
+
+   <chunk>
+    <name>EXTTF: GPS FROM flag (x2)</name>
+    <type>float</type>
+    <format>%.0f</format>
+    <node>/instrumentation/gps/wp/wp[1]/from-flag</node>
+    <factor>2</factor>
+   </chunk>
+
+   <!-- FlightGear's stock GPS has no vertical guidance, so publish "no valid
+        glidepath" (GPSGSF 1, GPSGSI 0) rather than leave the keys to go stale.
+        Any always-present property times 0, plus the offset, is a constant. -->
+   <chunk>
+    <name>GPSGSI: GPS glidepath deviation (none)</name>
+    <type>float</type>
+    <format>%.0f</format>
+    <node>/sim/time/elapsed-sec</node>
+    <factor>0</factor>
+   </chunk>
+
+   <chunk>
+    <name>GPSGSF: GPS glidepath flag (always 1, no glidepath)</name>
+    <type>float</type>
+    <format>%.0f</format>
+    <node>/sim/time/elapsed-sec</node>
+    <factor>0</factor>
+    <offset>1</offset>
+   </chunk>
+
+   <!-- NAV1. Needle deflections are normalised -1..1 by FlightGear:
+        CDI positive = needle right; GSI positive = below the glideslope,
+        diamond up. Both are the FIX conventions already. -->
+   <chunk>
+    <name>NAV1CRS: NAV1 OBS (deg)</name>
+    <type>double</type>
+    <format>%.1f</format>
+    <node>/instrumentation/nav[0]/radials/selected-deg</node>
+   </chunk>
+
+   <chunk>
+    <name>NAV1CDI: NAV1 course deviation (-1..1)</name>
+    <type>double</type>
+    <format>%.3f</format>
+    <node>/instrumentation/nav[0]/heading-needle-deflection-norm</node>
+   </chunk>
+
+   <chunk>
+    <name>NAV1GSI: NAV1 glideslope deviation (-1..1)</name>
+    <type>double</type>
+    <format>%.3f</format>
+    <node>/instrumentation/nav[0]/gs-needle-deflection-norm</node>
+   </chunk>
+
+   <!-- GSF is X-Plane's flag sense: 1 = no valid glideslope -->
+   <chunk>
+    <name>NAV1GSF: NAV1 glideslope flag</name>
+    <type>float</type>
+    <format>%.0f</format>
+    <node>/instrumentation/nav[0]/gs-in-range</node>
+    <factor>-1</factor>
+    <offset>1</offset>
+   </chunk>
+
+   <chunk>
+    <name>NAV1DH: NAV1 lateral signal valid</name>
+    <type>float</type>
+    <format>%.0f</format>
+    <node>/instrumentation/nav[0]/in-range</node>
+   </chunk>
+
+   <chunk>
+    <name>NAV1TF: NAV1 TO flag</name>
+    <type>float</type>
+    <format>%.0f</format>
+    <node>/instrumentation/nav[0]/to-flag</node>
+   </chunk>
+
+   <chunk>
+    <name>NAV1TF: NAV1 FROM flag (x2)</name>
+    <type>float</type>
+    <format>%.0f</format>
+    <node>/instrumentation/nav[0]/from-flag</node>
+    <factor>2</factor>
+   </chunk>
+
+   <!-- VOR1BRG = true bearing to the station - east variation = magnetic.
+        The plugin wraps the sum into 0..360. -->
+   <chunk>
+    <name>VOR1BRG: NAV1 bearing to station, true part</name>
+    <type>double</type>
+    <format>%.2f</format>
+    <node>/instrumentation/nav[0]/heading-deg</node>
+   </chunk>
+
+   <chunk>
+    <name>VOR1BRG: NAV1 bearing to station, variation part</name>
+    <type>double</type>
+    <format>%.2f</format>
+    <node>/environment/magnetic-variation-deg</node>
+    <factor>-1</factor>
+   </chunk>
+
+   <!-- NAV2, same as NAV1 -->
+   <chunk>
+    <name>NAV2CRS: NAV2 OBS (deg)</name>
+    <type>double</type>
+    <format>%.1f</format>
+    <node>/instrumentation/nav[1]/radials/selected-deg</node>
+   </chunk>
+
+   <chunk>
+    <name>NAV2CDI: NAV2 course deviation (-1..1)</name>
+    <type>double</type>
+    <format>%.3f</format>
+    <node>/instrumentation/nav[1]/heading-needle-deflection-norm</node>
+   </chunk>
+
+   <chunk>
+    <name>NAV2GSI: NAV2 glideslope deviation (-1..1)</name>
+    <type>double</type>
+    <format>%.3f</format>
+    <node>/instrumentation/nav[1]/gs-needle-deflection-norm</node>
+   </chunk>
+
+   <chunk>
+    <name>NAV2GSF: NAV2 glideslope flag</name>
+    <type>float</type>
+    <format>%.0f</format>
+    <node>/instrumentation/nav[1]/gs-in-range</node>
+    <factor>-1</factor>
+    <offset>1</offset>
+   </chunk>
+
+   <chunk>
+    <name>NAV2DH: NAV2 lateral signal valid</name>
+    <type>float</type>
+    <format>%.0f</format>
+    <node>/instrumentation/nav[1]/in-range</node>
+   </chunk>
+
+   <chunk>
+    <name>NAV2TF: NAV2 TO flag</name>
+    <type>float</type>
+    <format>%.0f</format>
+    <node>/instrumentation/nav[1]/to-flag</node>
+   </chunk>
+
+   <chunk>
+    <name>NAV2TF: NAV2 FROM flag (x2)</name>
+    <type>float</type>
+    <format>%.0f</format>
+    <node>/instrumentation/nav[1]/from-flag</node>
+    <factor>2</factor>
+   </chunk>
+
+   <chunk>
+    <name>VOR2BRG: NAV2 bearing to station, true part</name>
+    <type>double</type>
+    <format>%.2f</format>
+    <node>/instrumentation/nav[1]/heading-deg</node>
+   </chunk>
+
+   <chunk>
+    <name>VOR2BRG: NAV2 bearing to station, variation part</name>
+    <type>double</type>
+    <format>%.2f</format>
+    <node>/environment/magnetic-variation-deg</node>
+    <factor>-1</factor>
+   </chunk>
+
+   <!-- Beyond X-Plane parity: engine, fuel, electrical and OAT, from the
+        original plugin. These paths are the default piston single's
+        (c172p); on an aircraft without them FlightGear sends 0. -->
+   <chunk>
+    <name>OAT: Outside air temperature (C)</name>
+    <type>double</type>
+    <format>%.1f</format>
+    <node>/environment/temperature-degc</node>
+   </chunk>
+
+   <chunk>
+    <name>VOLT: Bus voltage</name>
     <type>float</type>
     <format>%.1f</format>
     <node>/systems/electrical/volts</node>
    </chunk>
 
    <chunk>
-    <name>TACH1: RPM Engine 1</name>
-    <type>integer</type>
-    <format>%i</format>
-    <node>/engines/engine/rpm</node>
+    <name>TACH1: Engine 1 RPM</name>
+    <type>double</type>
+    <format>%.0f</format>
+    <node>/engines/engine[0]/rpm</node>
    </chunk>
 
    <chunk>
-    <name>MAP1: Manifold Pressure</name>
+    <name>MAP1: Engine 1 manifold pressure (inHg)</name>
     <type>float</type>
     <format>%.2f</format>
-    <node>/engines/engine/mp-inhg</node>
+    <node>/engines/engine[0]/mp-inhg</node>
    </chunk>
 
    <chunk>
-     <name>OILT1: Oil Temp F</name>
-     <type>float</type>
-     <format>%.1f</format>
-     <node>/engines/engine[0]/oil-temperature-degf</node>
-     <offset>-32</offset>
-     <factor>0.55555555555555555</factor>
+    <name>OILT1: Engine 1 oil temperature (C)</name>
+    <type>float</type>
+    <format>%.1f</format>
+    <node>/engines/engine[0]/oil-temperature-degf</node>
+    <offset>-17.7777778</offset>
+    <factor>0.5555556</factor>
    </chunk>
 
    <chunk>
-    <name>OILP1: Oil Pressure</name>
+    <name>OILP1: Engine 1 oil pressure (psi)</name>
     <type>float</type>
     <format>%.1f</format>
     <node>/engines/engine[0]/oil-pressure-psi</node>
    </chunk>
 
    <chunk>
-     <name>EGT11: Exhaust Gas Temperature</name>
-     <type>double</type>
-     <format>%.1f</format>
-     <node>/engines/engine/egt-degf</node>
-     <offset>-32</offset>
-     <factor>0.55555555555555555</factor>
-   </chunk>
-
-   <chunk>
-     <name>CHT11: Cylinder Head Temperature</name>
-     <type>double</type>
-     <format>%.1f</format>
-     <node>/engines/engine/cht-degf</node>
-     <offset>-32</offset>
-     <factor>0.55555555555555555</factor>
-   </chunk>
-
-   <chunk>
-    <name>FUELF1: Fuel Flow</name>
+    <name>EGT11: Engine 1 EGT (C)</name>
     <type>double</type>
     <format>%.1f</format>
-    <node>/engines/engine/fuel-flow-gph</node>
+    <node>/engines/engine[0]/egt-degf</node>
+    <offset>-17.7777778</offset>
+    <factor>0.5555556</factor>
    </chunk>
 
    <chunk>
-    <name>FUELQ1: Fuel Tank 0</name>
+    <name>CHT11: Engine 1 CHT (C)</name>
+    <type>double</type>
+    <format>%.1f</format>
+    <node>/engines/engine[0]/cht-degf</node>
+    <offset>-17.7777778</offset>
+    <factor>0.5555556</factor>
+   </chunk>
+
+   <chunk>
+    <name>FUELF1: Engine 1 fuel flow (gal/h)</name>
+    <type>double</type>
+    <format>%.1f</format>
+    <node>/engines/engine[0]/fuel-flow-gph</node>
+   </chunk>
+
+   <chunk>
+    <name>FUELQ1: Fuel tank 0 (gal)</name>
     <type>float</type>
     <format>%.2f</format>
     <node>/consumables/fuel/tank[0]/level-gal_us</node>
    </chunk>
 
    <chunk>
-    <name>FUELQ2: Fuel Tank 1</name>
+    <name>FUELQ2: Fuel tank 1 (gal)</name>
     <type>float</type>
     <format>%.2f</format>
     <node>/consumables/fuel/tank[1]/level-gal_us</node>
    </chunk>
 
-   <chunk>
-    <name>GS: Ground Speed</name>
-    <type>double</type>
-    <format>%.1f</format>
-    <node>/instrumentation/gps/indicated-ground-speed-kt</node>
-   </chunk>
-
-   <chunk>
-    <name>LAT: Latitude</name>
-    <type>double</type>
-    <format>%.14f</format>
-    <node>/instrumentation/gps/indicated-latitude-deg</node>
-   </chunk>
-
-   <chunk>
-    <name>LONG: Longitude</name>
-    <type>double</type>
-    <format>%.14f</format>
-    <node>/instrumentation/gps/indicated-longitude-deg</node>
-   </chunk>
-
-   <chunk>
-    <name>OAT: Outside Air Temperature</name>
-    <type>double</type>
-    <format>%.1f</format>
-    <node>/environment/temperature-degc</node>
-   </chunk>
-
   </output>
 
+  <!-- FIX -> FlightGear. Sent only when the plugin config has send: true.
+       Every chunk here is sent at the plugin's rate, whether or not anything
+       publishes the key: an unpublished key sends its initial value. Add a
+       control (throttle, mixture) only when real hardware publishes it. -->
+  <input>
+   <line_separator>newline</line_separator>
+   <var_separator>,</var_separator>
 
-<input>
-    <line_separator>newline</line_separator>
-    <var_separator>,</var_separator>
-    <chunk>
-        <name>BARO: Altimeter Setting</name>
-        <type>double</type>
-        <format>%.2f</format>
-        <node>/instrumentation/altimeter/setting-inhg</node>
-    </chunk>
-    <!-- <chunk>
-        <name>THR1: Throttle Control Engine 1</name>
-        <type>double</type>
-        <format>%.2f</format>
-        <node>/controls/engines/engine/throttle</node>
-    </chunk>
-    <chunk>
-        <name>MIX1: Mixture Control Engine 1</name>
-        <type>double</type>
-        <format>%.2f</format>
-        <node>/controls/engines/engine/mixture</node>
-    </chunk> -->
-</input>
+   <chunk>
+    <name>BARO: Altimeter setting (inHg)</name>
+    <type>double</type>
+    <format>%.2f</format>
+    <node>/instrumentation/altimeter/setting-inhg</node>
+   </chunk>
 
-</generic>
+   <!--
+   <chunk>
+    <name>THR1: Throttle Control Engine 1</name>
+    <type>double</type>
+    <format>%.2f</format>
+    <node>/controls/engines/engine/throttle</node>
+   </chunk>
+   <chunk>
+    <name>MIX1: Mixture Control Engine 1</name>
+    <type>double</type>
+    <format>%.2f</format>
+    <node>/controls/engines/engine/mixture</node>
+   </chunk>
+   -->
+  </input>
+
+ </generic>
 
 </PropertyList>

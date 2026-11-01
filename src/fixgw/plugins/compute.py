@@ -136,10 +136,13 @@ def altPressure(inputs, output, require_leader):
         else:
             # Old, not failed: flags only.  set() would stamp the value and
             # keep PALT fresh from a dead input (see the quality notes above).
-            o.fail = flag_fail
+            # Each setter fires the callbacks, so old goes first and fail
+            # clears last: coming straight from failed, PALT still holds the
+            # 0.0 placeholder, and no step may show it with every flag good.
+            o.old = flag_old
             o.bad = flag_bad
             o.secfail = flag_secfail
-            o.old = flag_old
+            o.fail = flag_fail
 
     return func
 
