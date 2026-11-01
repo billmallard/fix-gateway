@@ -85,7 +85,7 @@ def test_xplanes_course_off_by_2p5_deg_on_one_leg_fails_the_course_check():
     fails = profile_gate.failure_lines(run)
     assert len(fails) == 1 and fails[0].startswith("fp8-xplane-2026-10-29: FPLCRS vs EXTCRS (+-2.0 deg) FAILED")
     errors = profile_gate.github_errors(run)
-    assert errors[0].startswith("::error file=tests/sim/fixtures/fp8_xplane_2026-10-29.yaml,line=22,")
+    assert errors[0].startswith("::error file=tests/sim/fixtures/fp8_xplane_2026-10-29.yaml,line=29,")
 
 
 def test_xplanes_deflection_reversed_on_the_offsets_fails_the_cdi_check():

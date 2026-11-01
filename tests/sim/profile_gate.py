@@ -134,7 +134,7 @@ def fly_recording(path, trace=None):
         block = json.loads((path.parent / rec["route_block"]).read_text())
         samples, _ = xplane_replay.fly_route(rows, block, rec["act"], rec["magvar"])
     else:
-        samples, _ = xplane_replay.fly(rows, PROFILES_DIR / f"{rec['profile']}.yaml")
+        samples, _ = xplane_replay.fly(rows, **xplane_replay.recording_args(path))
     bus = xplane_replay.bus_rows(samples)
     log = checks.Log.from_rows(bus, checks.keys_needed(rec["checks"]))
     # legs are labelled by X-Plane's active waypoint: there is no reference
