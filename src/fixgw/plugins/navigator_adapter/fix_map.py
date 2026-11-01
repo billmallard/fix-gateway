@@ -1,8 +1,16 @@
-"""Maps NormalizedNavMessage fields to FIX-Gateway database keys."""
+"""Maps NormalizedNavMessage fields to FIX-Gateway database keys.
+
+The navigator is an external navigator: its guidance goes to the EXT* inputs
+(EXTCRS/EXTCDI/EXTTF/EXTXTK), which compute's GPSSRC and NAVSRC selects route
+into COURSE/CDI/TOFROM/XTRACK. It never writes COURSE, CDI or XTRACK, whose one writer is
+compute (AER-4473).
+"""
 
 from __future__ import annotations
 
 from typing import Callable
+
+from fixgw.nmea_fix import cdi_from_cross_track
 
 from .base import NormalizedNavMessage
 
@@ -27,16 +35,14 @@ def apply_to_db(
         db_write("GS", msg.ground_speed_kt)
     if msg.ground_track_deg_true is not None:
         db_write("TRACK", msg.ground_track_deg_true)
-    if msg.selected_course_deg is not None:
-        db_write("COURSE", msg.selected_course_deg)
-    if msg.bearing_to_wp_deg is not None:
-        db_write("COURSE", msg.bearing_to_wp_deg)
+    if msg.desired_track_deg_mag is not None:
+        db_write("EXTCRS", msg.desired_track_deg_mag)
+    if msg.to_from is not None:
+        db_write("EXTTF", msg.to_from)
 
     if msg.cross_track_error_nm_signed is not None:
-        xtrack = msg.cross_track_error_nm_signed
-        db_write("XTRACK", xtrack)
-        cdi = max(-1.0, min(1.0, -xtrack / cdi_full_scale_nm))
-        db_write("CDI", cdi)
+        db_write("EXTXTK", msg.cross_track_error_nm_signed)
+        db_write("EXTCDI", cdi_from_cross_track(msg.cross_track_error_nm_signed, cdi_full_scale_nm))
 
     if msg.gps_fix_type is not None:
         db_write("GPS_FIX_TYPE", msg.gps_fix_type)

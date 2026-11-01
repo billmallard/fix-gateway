@@ -1379,6 +1379,7 @@ def test_flight_plan_keys_exist_with_specified_types_and_ranges(database):
         "EXTCRS": ("float", 0.0, 359.9),
         "EXTCDI": ("float", -1.0, 1.0),
         "EXTTF": ("int", 0, 2),
+        "EXTXTK": ("float", -100.0, 100.0),
     }
     for key, (typestring, minval, maxval) in expectations.items():
         item = database.get_raw_item(key)
@@ -1591,3 +1592,90 @@ def test_magnetometer_vector_keys(database, key):
     assert item.units == "gauss"
     assert item.tol == 2000
     assert item.value[0] == 0.0
+
+
+# AER-4476: one key, one writer.  The writer is the innermost fixgw.plugins
+# module on the stack, so a write is attributed however the plugin reached the
+# item (db_write, db_get_item, or database.get_raw_item as canfix does).
+def _plugin(module):
+    g = {"__name__": "fixgw.plugins." + module}
+    exec(
+        "def write(item, v):\n"
+        "    item.value = v\n"
+        "def set_old(item, v):\n"
+        "    item.set(v, old=True)\n"
+        "def flag_fail(item):\n"
+        "    item.fail = True\n"
+        "def write_aux(item, v):\n"
+        "    item.set_aux_value('Min', v)\n"
+        "def annunciate(item):\n"
+        "    item.annunciate = True\n",
+        g,
+    )
+    return g
+
+
+def test_second_plugin_writing_a_key_warns_once_naming_both(database):
+    item = database.get_raw_item("PITCH")
+    canfix, demo = _plugin("canfix"), _plugin("demo")
+    with patch.object(database, "log") as log:
+        canfix["write"](item, 1.0)
+        canfix["write"](item, 2.0)
+        log.warning.assert_not_called()
+        demo["write"](item, 3.0)
+        demo["write"](item, 4.0)
+        canfix["write"](item, 5.0)
+    log.warning.assert_called_once()
+    msg = log.warning.call_args.args[0]
+    assert "PITCH" in msg and "canfix" in msg and "demo" in msg
+    assert item.writers == ["canfix", "demo"]
+    assert database.writers()["PITCH"] == ["canfix", "demo"]
+
+
+def test_a_third_writer_warns_again(database):
+    item = database.get_raw_item("PITCH")
+    with patch.object(database, "log") as log:
+        for m in ["canfix", "demo", "netfix", "demo"]:
+            _plugin(m)["write"](item, 1.0)
+    assert log.warning.call_count == 2
+    assert item.writers == ["canfix", "demo", "netfix"]
+
+
+def test_set_and_quality_flag_writes_count_as_writes(database):
+    a, b = database.get_raw_item("PITCH"), database.get_raw_item("ROLL")
+    with patch.object(database, "log") as log:
+        _plugin("compute")["set_old"](a, 1.0)
+        _plugin("canfix")["flag_fail"](a)
+        _plugin("compute")["write"](b, 1.0)
+        _plugin("canfix")["flag_fail"](b)
+    assert a.writers == ["compute", "canfix"]
+    assert b.writers == ["compute", "canfix"]
+    assert log.warning.call_count == 2
+
+
+def test_aux_annunciate_and_non_plugin_writes_are_not_attributed(database):
+    item = database.get_raw_item("OILP1")
+    _plugin("canfix")["write"](item, 50.0)
+    _plugin("netfix")["write_aux"](item, 10.0)
+    _plugin("annunciate")["annunciate"](item)
+    _plugin("state_persist")["write"](item, 55.0)  # a restored setting
+    item.value = 60.0  # database init, the server's ini files, a test
+    database.write("OILP1", 70.0)
+    assert item.writers == ["canfix"]
+
+
+def test_submodule_counts_as_its_plugin(database):
+    item = database.get_raw_item("PITCH")
+    _plugin("canfix.mapping")["write"](item, 1.0)
+    assert item.writers == ["canfix"]
+
+
+def test_compute_writing_from_inside_another_plugins_callback_is_compute(database):
+    inp, out = database.get_raw_item("PITCH"), database.get_raw_item("ROLL")
+    compute = {"__name__": "fixgw.plugins.compute", "out": out}
+    exec("def cb(key, value, udata):\n    out.value = value[0]\n", compute)
+    inp.callbacks.append(("compute", compute["cb"], None))
+    _plugin("canfix")["write"](inp, 3.0)
+    assert out.value[0] == 3.0
+    assert inp.writers == ["canfix"]
+    assert out.writers == ["compute"]

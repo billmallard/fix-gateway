@@ -10,6 +10,7 @@
 Tests exercise the NMEA sentence parsers (_handle_rmc, _handle_gga,
 _handle_rmb, _handle_apb) by bypassing the serial port entirely and
 driving MainThread._dispatch() directly with parsed pynmea2 objects.
+RMB and APB are only ever tested with real sentences, never mocks.
 """
 
 import io
@@ -110,6 +111,40 @@ entries:
   units: deg
   initial: 0.0
   tol: 2000
+
+- key: EXTCRS
+  description: External navigator course (magnetic)
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 5000
+
+- key: EXTCDI
+  description: External navigator course deviation
+  type: float
+  min: -1.0
+  max: 1.0
+  initial: 0.0
+  tol: 5000
+
+- key: EXTTF
+  description: "External navigator TO/FROM (0 off, 1 TO, 2 FROM)"
+  type: int
+  min: 0
+  max: 2
+  initial: 0
+  tol: 5000
+
+- key: EXTXTK
+  description: External navigator cross-track error
+  type: float
+  min: -100.0
+  max: 100.0
+  units: nM
+  initial: 0.0
+  tol: 5000
 """
 
 _CDI_FULL_SCALE = 5.0  # nm, default for these tests
@@ -259,99 +294,67 @@ class TestFixTypeFromSentenceStream(unittest.TestCase):
         self.assertEqual(self._feed(self.GNGSA_3D, self.GGA_GPS_3), 3)
 
 
+def _nmea(body):
+    """A checksummed NMEA sentence from its body (between '$' and '*')."""
+    checksum = 0
+    for ch in body:
+        checksum ^= ord(ch)
+    return f"${body}*{checksum:02X}"
+
+
+# Real sentences, parsed by pynmea2 with the checksum checked. The plugin once
+# read RMB/APB attributes pynmea2 does not have, and tests that fed MagicMocks
+# with the same invented names passed while every real sentence wrote nothing.
+RMB_RIGHT_OF_TRACK = _nmea("GPRMB,A,3.00,L,ORIG,DEST,4000.000,N,08800.000,W,5.0,090.0,120.0,V")
+RMB_LEFT_OF_TRACK = _nmea("GPRMB,A,3.00,R,ORIG,DEST,4000.000,N,08800.000,W,5.0,090.0,120.0,V")
+RMB_FAR_RIGHT = _nmea("GPRMB,A,20.00,L,ORIG,DEST,4000.000,N,08800.000,W,5.0,090.0,120.0,V")
+RMB_VOID = _nmea("GPRMB,V,3.00,L,ORIG,DEST,4000.000,N,08800.000,W,5.0,090.0,120.0,V")
+RMB_NO_XTE = _nmea("GPRMB,A,,L,ORIG,DEST,4000.000,N,08800.000,W,5.0,090.0,120.0,V")
+RMB_BAD_STEER = _nmea("GPRMB,A,3.00,X,ORIG,DEST,4000.000,N,08800.000,W,5.0,090.0,120.0,V")
+# Leg DTK 087 M; present-position bearing 095 M, so the two are told apart.
+APB_TO_MAG = _nmea("GPAPB,A,A,0.50,L,N,V,V,087.0,M,DEST,095.0,M,092.0,M")
+APB_FROM_MAG = _nmea("GPAPB,A,A,0.50,L,N,A,A,087.0,M,DEST,267.0,M,092.0,M")
+APB_TO_TRUE = _nmea("GPAPB,A,A,0.50,L,N,V,V,090.0,T,DEST,098.0,T,095.0,T")
+APB_INVALID = _nmea("GPAPB,V,A,0.50,L,N,V,V,087.0,M,DEST,095.0,M,092.0,M")
+RMC_VAR_3W = _nmea("GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W")
+
+
+def _feed(thread, *sentences):
+    for s in sentences:
+        thread._dispatch(pynmea2.parse(s, check=True), _CDI_FULL_SCALE)
+
+
 class TestRmbParsing(unittest.TestCase):
     def setUp(self):
         database.init(io.StringIO(DB_CONFIG))
         self.thread = _make_thread()
 
-    def _dispatch_rmb(self, sentence):
-        msg = pynmea2.parse(sentence)
-        self.thread._handle_rmb(msg, _CDI_FULL_SCALE)
+    def test_steer_left_is_right_of_track_and_deflects_needle_left(self):
+        # 'L' (steer left) -> aircraft RIGHT of track -> +3 nm -> CDI -3/5
+        _feed(self.thread, RMB_RIGHT_OF_TRACK)
+        self.assertAlmostEqual(_db_value("EXTXTK"), 3.0, places=4)
+        self.assertAlmostEqual(_db_value("EXTCDI"), -3.0 / _CDI_FULL_SCALE, places=4)
 
-    def test_steer_left_gives_positive_xtrack(self):
-        # dir_steer='L' → aircraft is RIGHT of track → positive XTRACK
-        sentence = "$GPRMB,A,3.000,L,ORIG,DEST,4000.000,N,08800.000,W,5.0,090.0,5.0,V*XX"
-        try:
-            self._dispatch_rmb(sentence)
-        except pynmea2.ParseError:
-            # Build msg manually if checksum fails in test
-            msg = MagicMock()
-            msg.status = "A"
-            msg.cross_track_err = 3.0
-            msg.dir_steer = "L"
-            self.thread._handle_rmb(msg, _CDI_FULL_SCALE)
-        self.assertAlmostEqual(_db_value("XTRACK"), 3.0, places=3)
-        self.assertAlmostEqual(_db_value("CDI"), -3.0 / _CDI_FULL_SCALE, places=4)
+    def test_steer_right_is_left_of_track_and_deflects_needle_right(self):
+        _feed(self.thread, RMB_LEFT_OF_TRACK)
+        self.assertAlmostEqual(_db_value("EXTXTK"), -3.0, places=4)
+        self.assertAlmostEqual(_db_value("EXTCDI"), 3.0 / _CDI_FULL_SCALE, places=4)
 
-    def test_steer_right_gives_negative_xtrack(self):
-        # dir_steer='R' → aircraft is LEFT of track → negative XTRACK
-        msg = MagicMock()
-        msg.status = "A"
-        msg.cross_track_err = 3.0
-        msg.dir_steer = "R"
-        self.thread._handle_rmb(msg, _CDI_FULL_SCALE)
-        self.assertAlmostEqual(_db_value("XTRACK"), -3.0, places=3)
-        self.assertAlmostEqual(_db_value("CDI"), 3.0 / _CDI_FULL_SCALE, places=4)
+    def test_large_xte_clips_cdi_to_full_scale(self):
+        _feed(self.thread, RMB_FAR_RIGHT)
+        self.assertAlmostEqual(_db_value("EXTXTK"), 20.0, places=4)  # not clamped
+        self.assertAlmostEqual(_db_value("EXTCDI"), -1.0, places=4)
 
-    def test_zero_xte_gives_zero_xtrack_and_cdi(self):
-        msg = MagicMock()
-        msg.status = "A"
-        msg.cross_track_err = 0.0
-        msg.dir_steer = "L"
-        self.thread._handle_rmb(msg, _CDI_FULL_SCALE)
-        self.assertAlmostEqual(_db_value("XTRACK"), 0.0, places=4)
-        self.assertAlmostEqual(_db_value("CDI"), 0.0, places=4)
-
-    def test_large_xte_clips_cdi_to_one(self):
-        msg = MagicMock()
-        msg.status = "A"
-        msg.cross_track_err = 20.0  # >> 5 nm full scale
-        msg.dir_steer = "L"
-        self.thread._handle_rmb(msg, _CDI_FULL_SCALE)
-        self.assertAlmostEqual(_db_value("XTRACK"), 20.0, places=3)
-        self.assertAlmostEqual(_db_value("CDI"), -1.0, places=4)
-
-    def test_void_status_does_not_update(self):
-        msg = MagicMock()
-        msg.status = "V"
-        msg.cross_track_err = 5.0
-        msg.dir_steer = "L"
-        self.thread._handle_rmb(msg, _CDI_FULL_SCALE)
-        self.assertEqual(_db_value("XTRACK"), 0.0)
-
-    def test_missing_or_bad_rmb_cross_track_inputs_do_not_update(self):
-        for cross_track_err, dir_steer in [(None, "L"), (1.0, "X")]:
+    def test_void_missing_or_bad_rmb_does_not_write(self):
+        for sentence in (RMB_VOID, RMB_NO_XTE, RMB_BAD_STEER):
             database.init(io.StringIO(DB_CONFIG))
             self.thread = _make_thread()
-            msg = MagicMock()
-            msg.status = "A"
-            msg.cross_track_err = cross_track_err
-            msg.dir_steer = dir_steer
+            _feed(self.thread, sentence)
+            self.thread.parent.db_write.assert_not_called()
 
-            self.thread._handle_rmb(msg, _CDI_FULL_SCALE)
-
-            self.assertEqual(_db_value("XTRACK"), 0.0)
-
-    def test_nmea_sign_convention_north_of_eastbound_is_negative(self):
-        """Consistency check: aircraft north of east-bound course should → negative XTRACK.
-
-        North of eastbound = pilot's left = needs to steer right to return → 'R' in NMEA.
-        """
-        msg = MagicMock()
-        msg.status = "A"
-        msg.cross_track_err = 3.0
-        msg.dir_steer = "R"  # steer right to return
-        self.thread._handle_rmb(msg, _CDI_FULL_SCALE)
-        self.assertLess(_db_value("XTRACK"), 0.0)  # must be negative
-
-    def test_nmea_sign_convention_south_of_eastbound_is_positive(self):
-        """Consistency check: aircraft south of east-bound course should → positive XTRACK."""
-        msg = MagicMock()
-        msg.status = "A"
-        msg.cross_track_err = 3.0
-        msg.dir_steer = "L"  # steer left to return
-        self.thread._handle_rmb(msg, _CDI_FULL_SCALE)
-        self.assertGreater(_db_value("XTRACK"), 0.0)  # must be positive
+    def test_configured_scale_is_used(self):
+        self.thread._dispatch(pynmea2.parse(RMB_RIGHT_OF_TRACK, check=True), 6.0)
+        self.assertAlmostEqual(_db_value("EXTCDI"), -0.5, places=4)
 
 
 class TestApbParsing(unittest.TestCase):
@@ -359,18 +362,52 @@ class TestApbParsing(unittest.TestCase):
         database.init(io.StringIO(DB_CONFIG))
         self.thread = _make_thread()
 
-    def test_apb_writes_course(self):
-        msg = MagicMock()
-        msg.bearing_present_dest = 270.0
-        self.thread._handle_apb(msg)
-        self.assertAlmostEqual(_db_value("COURSE"), 270.0, places=1)
+    def test_course_is_leg_desired_track_not_bearing_to_destination(self):
+        _feed(self.thread, APB_TO_MAG)
+        self.assertAlmostEqual(_db_value("EXTCRS"), 87.0, places=3)
+        self.assertEqual(_db_value("EXTTF"), 1)
 
-    def test_apb_none_bearing_does_not_write(self):
-        msg = MagicMock()
-        msg.bearing_present_dest = None
-        initial = _db_value("COURSE")
-        self.thread._handle_apb(msg)
-        self.assertEqual(_db_value("COURSE"), initial)
+    def test_perpendicular_passed_is_from(self):
+        _feed(self.thread, APB_FROM_MAG)
+        self.assertAlmostEqual(_db_value("EXTCRS"), 87.0, places=3)
+        self.assertEqual(_db_value("EXTTF"), 2)
+
+    def test_true_desired_track_is_made_magnetic_with_rmc_variation(self):
+        # 090 T with 3.1 W variation is 093.1 M.
+        _feed(self.thread, RMC_VAR_3W, APB_TO_TRUE)
+        self.assertAlmostEqual(_db_value("EXTCRS"), 93.1, places=3)
+
+    def test_true_desired_track_without_variation_is_not_written(self):
+        _feed(self.thread, APB_TO_TRUE)
+        self.assertEqual(_db_value("EXTCRS"), 0.0)
+        self.assertEqual(_db_value("EXTTF"), 1)
+
+    def test_invalid_apb_sets_off_and_leaves_course(self):
+        _feed(self.thread, APB_TO_MAG, APB_INVALID)
+        self.assertEqual(_db_value("EXTTF"), 0)
+        self.assertAlmostEqual(_db_value("EXTCRS"), 87.0, places=3)
+
+
+class TestExternalNavigatorKeysOnly(unittest.TestCase):
+    """AER-4473: compute owns COURSE/CDI/XTRACK; the GNX feeds only EXT*."""
+
+    def setUp(self):
+        database.init(io.StringIO(DB_CONFIG))
+        self.thread = _make_thread()
+
+    def test_full_sentence_stream_never_writes_compute_owned_keys(self):
+        _feed(
+            self.thread,
+            RMC_VAR_3W,
+            "$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47",
+            RMB_RIGHT_OF_TRACK,
+            APB_TO_MAG,
+            APB_FROM_MAG,
+            APB_TO_TRUE,
+        )
+        written = {c.args[0] for c in self.thread.parent.db_write.call_args_list}
+        self.assertTrue({"EXTXTK", "EXTCDI", "EXTCRS", "EXTTF"} <= written)
+        self.assertFalse({"COURSE", "CDI", "XTRACK"} & written)
 
 
 class TestDispatch(unittest.TestCase):

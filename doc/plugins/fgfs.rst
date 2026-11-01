@@ -2,124 +2,162 @@
 FlightGear Flight Simulator Plugin
 ===================================
 
-FlightGear is the name of a very popular open source flight simulator.
-This plugin is used to allow FIX-Gateway to communicate with this simulator.
+FlightGear is a free, open-source flight simulator that runs on Linux, macOS
+and Windows. This plugin connects it to FIX-Gateway, so pyEfis can be flown
+end to end without buying a simulator.
 
 http://www.flightgear.org/
 
-The plugin uses FlightGear's *Generic* protocol.  This protocol is customizable
-by the user by way of an XML file.  We've included an XML file for this purpose.
-The file included is called ``fix_fgfs.xml``  The fix_fgfs.xml file should be
-linked or copied to the FG_ROOT/Protocols directory which should be in one of
-the following locations...
+It writes the same FIX keys, in the same units and with the same signs, as
+the X-Plane plugin, so pyEfis and the rest of FIX-Gateway do not know which
+simulator is running.
 
-- LINUX: ``/usr/share/games/flightgear/Protocol/``
-- OSX: ``/Applications/FlightGear.app/Contents/Resources/data/``
-- WINDOWS: ``c:\Program Files\FlightGear\data\``
+.. warning::
 
-This is the location where FlightGear will search for the XML file.
+   **One key, one writer.** Do not enable this plugin together with the
+   ``xplane`` or ``demo`` plugins. They all write attitude, air data and
+   position, and FIX-Gateway does not choose between sources. The plugin
+   refuses to start, and logs why, if either is loaded. ``DEMO`` is enabled in
+   the stock ``preferences.yaml``, so disable it in ``preferences.yaml.custom``
+   when you enable ``FLIGHT_GEAR``.
 
-To launch FlightGear using this protocol file use the following command
+Why the generic protocol
+------------------------
 
-::
+FlightGear offers three ways to get data out:
 
-  >fgfs --generic=socket,out,10,localhost,5500,udp,fix_fgfs --generic=socket,in,1,,5501,udp,fix_fgfs
+- **Generic protocol** (used here). A user-supplied XML file defines a text
+  sentence: which properties, in what order, scaled how. We control the wire
+  format, so each field maps straight onto a FIX key, and FlightGear pushes
+  sentences at a fixed rate over UDP.
+- **Native FDM / controls protocols** (``--native-fdm``, ``--native-ctrls``).
+  Fixed binary structures meant for linking FlightGear instances together.
+  The layout is versioned with FlightGear and carries no nav radio or GPS
+  data, which the HSI needs.
+- **Property tree over telnet or HTTP** (``--telnet``, ``--httpd``). Any
+  property can be read, but it is request/response over TCP: one round trip
+  per poll. Fine for a dashboard, not for attitude at 10 Hz or more.
 
-The first `--generic` argument defines the output connection from FlightGear to
-FIX-Gateway.  This corresponds to the <output> group in the XML file.  The `10`
-is the update rate in updates / second, `localhost` and `5500` are the ip address and port that
-FlightGear will send to and FIX-Gateway will listen on.  `udp` is the protocol
-to be used and this should not be changed.  FIX-Gateway only usese udp at
-this point.  The last argument in the list is the name of the XML file that
-would have the <output> group to tell both programs how the output sentence will
-be formed.  This can change but it must match for both programs.
+The generic protocol is the only one that is both push-based and covers
+every key the X-Plane plugin writes.
 
-The second `--generic` argument contains similar data.  The update rate has no
-meaning and if the host address is left off FlightGear will listen on all
-available interfaces.
+Setup
+-----
 
-This plugin also needs to know the location of this file so there is a directive in the
-configuration file for setting this location.  It is very important that both FlightGear
-and this plugin are looking to the exact same file otherwise FIX-Gateway is going to be
-very confused.
+The protocol file is ``connections/fgfs/fix_fgfs.xml`` in the FIX-Gateway
+config folder. FlightGear and FIX-Gateway must both read the same file.
 
-It is also very important that the host and port information given in the above
-command line match what is in the main configuration file.
+1. Copy or link ``fix_fgfs.xml`` into FlightGear's ``Protocol`` directory:
 
-For more information on FlightGear's Generic Protocol see
-http://wiki.flightgear.org/Generic_protocol
+   - Linux: ``/usr/share/games/flightgear/Protocol/``
+   - macOS: ``/Applications/FlightGear.app/Contents/Resources/data/Protocol/``
+   - Windows: ``C:\Program Files\FlightGear\data\Protocol\``
+
+2. Enable the plugin (and disable ``DEMO`` and ``XPLANE``) in
+   ``preferences.yaml.custom``::
+
+     enabled:
+       FLIGHT_GEAR: true
+       DEMO: false
+       XPLANE: false
+
+3. Start FlightGear::
+
+     fgfs --generic=socket,out,10,localhost,5500,udp,fix_fgfs
+
+   ``10`` is sentences per second; raise it for smoother attitude.
+   ``localhost`` and ``5500`` must match ``recv_host`` / ``recv_port``. Use
+   the FIX-Gateway machine's address if FlightGear runs on another computer,
+   and set ``recv_host`` to ``0.0.0.0`` there.
+
+If the two programs read different copies of the XML, every sentence is
+dropped and the log says how many fields arrived and how many were expected.
 
 Configuration
---------------
+-------------
 
 ::
 
   fgfs:
-    load: yes
+    load: FLIGHT_GEAR
     module: fixgw.plugins.fgfs
-    # This should be the same as $FG_ROOT on your system.  It is used to help
-    # fixgw find the xml configuration files
-    fg_root: /usr/share/games/flightgear/
-    # fg_root: /Applications/FlightGear.app/Contents/Resources/data/
-    # fg_root: c:\Program Files\FlightGear\data\
-
-    # This is the name of the protocol config file that fixgw and fgfs will use to
-    # define the protocol. It is very important that both programs are looking at
-    # the same file.
+    # Searched in this order: fg_root/Protocol/, fg_root/, then the copy
+    # shipped with FIX-Gateway.
+    fg_root: ~/makerplane/fixgw/config/connections/fgfs
     xml_file: fix_fgfs.xml
-    # UDP Address and Ports used for communication to FlightGear.
-    # Host address to listen on
     recv_host: localhost
-    # port used for the -out argument to FlightGear
     recv_port: 5500
-    # host address where FlightGear is running
+    # FIX -> FlightGear. Off by default; see below.
+    send: false
     send_host: localhost
-    # port used for the -in argument to FlightGear
     send_port: 5501
-    # Update rate for sending data to FlightGear
-    rate: 10  # updates / second
+    rate: 10
 
-Both FIX-Gateway and FlightGear should be looking at the same XML file to
-determine how the data will be formatted and sent.  There are two main sections
-in the FlightGear XML file.  One is <output> and the other <input>.  The <output>
-section defines the data that is output from FlightGear and sent to FIX-Gateway.
-The <input> section is what FIX-Gateway sends to FlightGear.  This seems
-backwards in FIX-Gateway but the XML file design is driven by FlightGear.
+Sending to FlightGear
+---------------------
 
-Within each <output> or <input> group each piece of data that we want to
-send or receive is contained in a <chunk>.  Within each chunk are elements that
-define the protocol.  The following is an example chunk.
+``send: true`` sends the XML's ``<input>`` section to FlightGear at ``rate``
+sentences per second. Start FlightGear with a second connection to receive
+it::
 
-::
+  --generic=socket,in,10,,5501,udp,fix_fgfs
+
+It is off by default for a reason. Every ``<input>`` chunk is sent, every
+time, whether or not anything publishes the key, and an unpublished key sends
+its initial value. The X-Plane plugin's send path commanded the engine's
+throttle closed the first time it reached a real port. The shipped file sends
+only ``BARO`` (the altimeter setting); only add a control such as a throttle
+when real hardware is publishing it. If an ``<input>`` key is not in the
+database, the plugin turns sending off and logs it.
+
+The protocol file
+-----------------
+
+Each ``<chunk>`` is one field::
 
   <chunk>
-       <name>OAT: Outside Air Temperature</name>
-       <type>double</type>
-       <format>%.1f</format>
-       <node>/environment/temperature-degf</node>
-       <offset>-32</offset>
-       <factor>0.55555555555555555</factor>
+    <name>OILT1: Engine 1 oil temperature (C)</name>
+    <type>float</type>
+    <format>%.1f</format>
+    <node>/engines/engine[0]/oil-temperature-degf</node>
+    <offset>-17.7777778</offset>
+    <factor>0.5555556</factor>
   </chunk>
 
+- ``<name>``: FlightGear ignores it. The plugin takes the FIX key from the
+  text before the ``:``.
+- ``<node>``: the FlightGear property. Browse them in FlightGear under
+  Debug > Browse Internal Properties.
+- ``<factor>`` and ``<offset>``: FlightGear sends ``value * factor + offset``.
+  The example converts Fahrenheit to Celsius.
+- ``<format>``: a C ``printf`` format; it must print a number.
 
-FlightGear ignores the <name> element so we use it to define the database key
-within the FIX-Gateway database that we are wanting to read or write. The first
-characters up to the `:` are the key.  Everything after the `:` is ignored and
-is there for clarity. The <format> element defines how the data will be
-represented in the sentence. These are C language style formatting directives.
-Both FIX-Gateway and FlightGear use these to encode and decode the data.
-FIX-Gateway expects a format that can be directly converted into the data type
-of the individual parameter.
+Two plugin rules extend what one chunk can do:
 
-The <node> element defines the property within FlightGear that we are going
-to read or write.  You can see all the properties that are available with the
-Property Browser of FlightGear. (See the Browse Internal Properties menu item
-within the Debug menu)
+- **Chunks that name the same key are summed.** The TO/FROM keys are
+  ``to-flag + 2 * from-flag`` (0 off, 1 TO, 2 FROM, the X-Plane encoding), and
+  a VOR bearing is the true bearing plus a second chunk of
+  ``-1 * magnetic-variation``.
+- **Compass keys are wrapped into 0-360.** A key whose database range is 0 to
+  just under 360 is reduced modulo 360 before it is written, so the bearing
+  sum 5 - 13 lands on 352 instead of being clamped to 0.
 
-The <offset> and <factor> elements define a way to do unit conversions in
-FlightGear.  The <factor> element is a number that FlightGear will multiply
-the value by before sending it and <offset> is a number that will be added to
-the value.  This example is because FlightGear sends this property in degrees
-Farenheit and FIX-Gateway expects the value in Degrees Centigrade.  This is
-a bit of a contrived example because there is also a property that's in
-degrees C but we wanted something to show how this works.
+What the shipped file sends
+---------------------------
+
+Every key the X-Plane plugin writes, plus FlightGear-only extras:
+
+- **Air data**: IAS (airspeed instrument), TAS, GS, VS (from the flight model).
+- **Attitude**: PITCH, ROLL, HEAD (magnetic), MAGVAR (west positive, as in
+  the database), ROT, ALAT, AOA, VPATH, TRACK (true), TRACKM.
+- **Position**: LAT, LONG, ALT (MSL, as X-Plane sends it), AGL.
+- **Nav**: NAV1/NAV2 course, deviation, glideslope deviation and flags,
+  TO/FROM and bearing to the station; the GPS course, deviation and TO/FROM
+  as the EXT* keys; HEADBUG. FlightGear's stock GPS has no vertical guidance,
+  so GPSGSF is always 1 (no glidepath).
+- **Extras**: OAT, VOLT and one engine's RPM, manifold pressure, oil, EGT,
+  CHT, fuel flow and two tanks. These are the default piston single's
+  property paths; on an aircraft without them FlightGear sends 0.
+
+Like X-Plane, FlightGear becomes the writer of HEADBUG, so the sim's heading
+bug overrides pyEfis's HDG knob.

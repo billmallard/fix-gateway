@@ -47,3 +47,9 @@ Where:
 <CR> carriage-return character (0x0d)
 <LF> line-feed character (0x0a)
 <+/-> sign indicator (0x2b["+"] or 0x2d["-"]) <ETX> end-transmit character (0x03)
+
+FUELQT ownership
+----------------
+This plugin writes FUELQT (fuel remaining). The shipped ``compute.yaml`` also
+writes FUELQT, by summing FUELQ1-FUELQ3. FIX keys have one writer each, so
+when a Shadin is fitted, delete the compute function whose output is FUELQT.

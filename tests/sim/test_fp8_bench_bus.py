@@ -55,7 +55,7 @@ def test_extcdi_on_the_bus_is_xplanes_deflection_times_0p4(paired):
 
 
 def test_the_bench_never_wrote_exttf():
-    # This log predates the EXTTF row in connections/xplane.yaml
+    # XPB-008. This log predates the EXTTF row in connections/xplane.yaml
     # (fix-gateway#41), so the gate fills EXTTF from the trace's gps_fromto.
     # A recording made since should compare it with gps_fromto like EXTCRS.
     assert {b["EXTTF"] for b in load_bench_bus()} == {"0"}
