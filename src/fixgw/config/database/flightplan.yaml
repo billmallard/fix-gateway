@@ -196,6 +196,14 @@ items:
   initial: 0
   tol: 0
 
+- key: FPLLDSEQ
+  description: FPLSEQ of the route the engine has loaded (engine-written, PA8). It differs from FPLSEQ after a rejected commit (0 = none loaded)
+  type: int
+  min: 0
+  max: 2147483647
+  initial: 0
+  tol: 0
+
 # --- Route segment table (RS1; editor writes, engine on restore; tol: 0) ---
 # Written with the slots, before FPLSEQ. Segment k owns slots
 # FPLSkFIRST..FPLSkLAST, and every one of those slots has FPLfSGI = k.
