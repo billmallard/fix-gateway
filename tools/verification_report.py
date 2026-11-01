@@ -49,9 +49,8 @@ STANDING_TEXT = (
     "and its last result. It is evidence, not a warranty and not a certification. "
     "No authority has reviewed or approved this software or these tests. A passing "
     "test does not mean the software is correct, complete or fit for any purpose. "
-    "This software is for Experimental / Amateur-Built use, is provided as-is with no "
-    "warranty of any kind, and must not be used as a primary flight or navigation "
-    "reference. Use it at your own risk."
+    "This software is for Experimental / Amateur-Built use. It is provided as-is with "
+    "no warranty, and any use of it is at your own risk."
 )
 
 # Words the page never uses about a result (plan 3.1, 4.7). Checked over the page's own
@@ -460,7 +459,6 @@ def render_page(records, missing=()):
          f'<p class=muted>Generated {_e(gen)} from the CI test runs listed below. '
          "Every row is produced from the test suite and its JUnit results; nothing here is "
          "written by hand.</p>",
-         '<h2 id=notice>What this page is and is not</h2>',
          f'<div class=notice id=standing-text><p>{_e(STANDING_TEXT)}</p></div>',
          "<h2 id=sources>Sources</h2><ul>"]
     h += [_source_block(r) for r in records]

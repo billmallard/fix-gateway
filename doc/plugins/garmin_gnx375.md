@@ -77,6 +77,11 @@ $GPAPB,A,A,0.00,L,N,V,V,090.0,T,    ,090.0,T,090.0,T,A*XX
 $GPVTG,090.0,T,,M,100.0,N,185.2,K,A*XX
 ```
 
+This listing is illustrative, not a capture from a unit (the `*XX` checksums are
+placeholders). Note what your unit actually sends in APB field 9 (`T` or `M`)
+and whether RMC carries a magnetic variation: a true APB bearing with no RMC
+variation leaves `EXTCRS` unwritten (see Check E).
+
 If you see nothing: check wiring (pin 5 → RXD), verify Aviation Output 1 is configured, confirm the unit is in normal flight mode (not demo or test mode).
 
 If you see garbage characters: baud rate is wrong. Try 4800 — some older Garmin firmware defaults to 4800.
@@ -138,36 +143,52 @@ While taxiing or with a known ground speed input:
 | `GS` | GNX 375 groundspeed display | ±1 kt |
 | `TRACK` | GNX 375 track display | ±2° |
 
+The GNX is an **external navigator**. It writes `EXTXTK`, `EXTCDI`, `EXTCRS`
+and `EXTTF`, never `CDI`, `COURSE` or `XTRACK`, which compute owns (AER-4473).
+To see its guidance on the HSI, set `GPSSRC` = 1 (external navigator) and
+`NAVSRC` = 2 (GPS): compute then selects `EXTXTK` into `XTRACK`, and `EXTCRS`/`EXTCDI`/`EXTTF` through
+`GPSCRS`/`GPSCDI`/`GPSTF` into `COURSE`/`CDI`/`TOFROM`. Checks C to E read the
+`EXT*` keys directly, and then the canonical keys with those two selects set.
+
 ### Check C — XTE sign convention (critical)
 
 Program a direct-to waypoint **to the north of your current position**. Fly or taxi a track that puts you **south of the direct-to course** (i.e., right of the desired track when heading north).
 
-| Condition | Expected `XTRACK` | Expected `CDI` |
-|-----------|------------------|----------------|
+| Condition | Expected `EXTXTK` | Expected `EXTCDI` |
+|-----------|-------------------|-------------------|
 | On course | ≈ 0.0 nm | ≈ 0.0 |
-| Right of course (south, steer left) | **positive** | **negative** |
-| Left of course (north, steer right) | **negative** | **positive** |
+| Right of course (south, steer left) | **positive** | **negative** (needle left) |
+| Left of course (north, steer right) | **negative** | **positive** (needle right) |
 
-If the sign is backwards, the GNX 375 may be using a non-standard `$GPRMB` steer direction. Check the raw sentence `dir_steer` field: if `'L'` actually means left-of-track on your unit, flip the sign mapping in `_handle_rmb()`.
+If the sign is backwards, the GNX 375 may be using a non-standard `$GPRMB` steer direction. Check RMB field 3 in the raw sentence: if `'L'` actually means left-of-track on your unit, flip the sign mapping in `fixgw.nmea_fix.rmb_cross_track_nm()`.
 
 ### Check D — CDI scaling
 
-With a known XTE from the GNX 375 display (e.g., 2.5 nm):
+With a known XTE from the GNX 375 display (e.g., 2.5 nm right of course):
 
 ```
-CDI = -XTRACK / cdi_full_scale_nm
-CDI = -2.5 / 5.0 = -0.50   (aircraft is right of course, needle left)
+EXTCDI = -XTE / cdi_full_scale_nm
+EXTCDI = -2.5 / 5.0 = -0.50   (aircraft is right of course, needle left)
 ```
 
-Verify the `CDI` key reads approximately −0.5.
+Verify the `EXTCDI` key reads approximately −0.5.
 
-### Check E — Destination course
+`EXTXTK` should read the GNX's displayed XTK (+2.5 here, right of course), and
+`XTRACK` the same with `GPSSRC` = 1.
+
+### Check E — Desired track and TO/FROM
 
 With an active flight plan leg:
 
 | FIX key | Expected | Tolerance |
 |---------|----------|-----------|
-| `COURSE` | GNX 375 DTK (desired track) display | ±2° |
+| `EXTCRS` | GNX 375 DTK (desired track) display, magnetic | ±2° |
+| `EXTTF` | 1 (TO) before the active waypoint, 2 (FROM) once past it | exact |
+
+`EXTCRS` is the leg's desired track (APB field 8, bearing origin to
+destination), not the bearing from the aircraft to the waypoint, so it holds
+steady as you drift off the leg. If it never changes from 0, the unit is
+sending a true bearing without an RMC magnetic variation.
 
 ---
 
@@ -180,7 +201,7 @@ cd /path/to/fix-gateway
 .venv/bin/python -m pytest tests/plugins/garmin_gnx375/ -v
 ```
 
-All 14 tests must pass before committing changes.
+All tests must pass before committing changes.
 
 ---
 
@@ -195,7 +216,7 @@ The bench workflow validates everything the plugin is responsible for:
 - Serial port opens and receives data from the GNX 375
 - All four NMEA sentence types are parsed correctly
 - Correct values land in the FIX-Gateway database
-- XTE sign convention matches the compute.py XTE function
+- XTE sign convention matches `FPLXTK`/`XTRACK`
 
 ### What requires a live EFIS later
 
@@ -204,7 +225,7 @@ Two things are deferred to a full EFIS integration test:
 | Item | Why deferred |
 |------|-------------|
 | CDI needle direction on pyEfis display | pyEfis concern, not a plugin concern |
-| XTRACK driving MAOS-FCS lateral guidance | Requires FCS SIL or flight test |
+| `CDI`/`COURSE` (through `GPSSRC`/`NAVSRC`) driving MAOS-FCS lateral guidance | Requires FCS SIL or flight test |
 
 ### Bench setup (Windows + VSCode)
 
@@ -246,7 +267,8 @@ $lines | Set-Content tests\plugins\garmin_gnx375\fixtures\gnx375_sample.nmea
 Aim to capture at least 30 seconds with:
 - A GPS fix active (WAAS preferred)
 - An active direct-to waypoint with measurable XTE (fly/place the unit 2–3 nm off course)
-- A course change mid-capture to exercise the `COURSE` key
+- A course change mid-capture to exercise the `EXTCRS` key
+- Passing the active waypoint, to exercise `EXTTF` going TO to FROM
 
 **Replay test** — add this to `test_garmin_gnx375.py`:
 
@@ -286,8 +308,8 @@ class TestFixtureReplay(unittest.TestCase):
                     self.thread._dispatch(msg, _CDI_FULL_SCALE)
                 except pynmea2.ParseError:
                     pass
-        # XTRACK must be within database bounds
-        xtrack = _db_value("XTRACK")
+        # EXTXTK must be within database bounds
+        xtrack = _db_value("EXTXTK")
         self.assertGreaterEqual(xtrack, -100.0)
         self.assertLessEqual(xtrack, 100.0)
 ```
@@ -298,7 +320,7 @@ The `@skipUnless` decorator means the replay tests are silently skipped in CI (w
 
 ## Known Issues and Edge Cases
 
-**No active flight plan**: `$GPRMB` and `$GPAPB` are only transmitted when a waypoint is active. `XTRACK`, `CDI`, and `COURSE` will not update when flying without an active destination. `LAT`, `LONG`, `GS`, `TRACK`, and `GPS_ELLIPSOID_ALT` update continuously from `$GPRMC`/`$GPGGA` regardless.
+**No active flight plan**: `$GPRMB` and `$GPAPB` are only transmitted when a waypoint is active. `EXTXTK`, `EXTCDI`, `EXTCRS` and `EXTTF` will not update when flying without an active destination. `LAT`, `LONG`, `GS`, `TRACK`, and `GPS_ELLIPSOID_ALT` update continuously from `$GPRMC`/`$GPGGA` regardless.
 
 **`GPS_FIX_TYPE` scale**: the plugin writes the FIX contract scale (`database/ahrs.yaml`: 0-1 no fix, 2 2D, 3 3D, 4 3D with DGPS/WAAS, 5 3D with RTK), the same scale `gpsd` and `mavlink` write -- not the raw `$GPGGA` quality code. 2D vs 3D comes from `$GPGSA` when the unit sends it, otherwise from the `$GPGGA` satellites-in-use count (4 or more is 3D). A WAAS fix reads `4`; the flight-plan engine's integrity gate needs `3` or more. The mapping is `fixgw.nmea_fix.gps_fix_type`, shared with the `navigator_adapter` Garmin parser.
 
