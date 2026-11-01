@@ -7,6 +7,8 @@ on:
   push:
     branches: [ "master", "dev", "qa" ]
   pull_request:
+  # weekly.yml dispatches this on dev (see there).
+  workflow_dispatch:
 
 
 jobs:
@@ -72,6 +74,8 @@ jobs:
 
     - name: Coverage comment
       id: coverage_comment
+      # A dispatched run has no PR to comment on and is not the badge source.
+      if: github.event_name != 'workflow_dispatch'
       uses: py-cov-action/python-coverage-comment-action@v3
       with:
         GITHUB_TOKEN: ${{ github.token }}
