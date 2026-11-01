@@ -18,8 +18,14 @@ compute:
     - function: sum
       inputs: ["FUELQ1", "FUELQ2", "FUELQ3"]
       output: FUELQT
+    # PALT, the one pressure-altitude writer (P3c): indicated altitude read
+    # back to the standard setting. ADS-B traffic altitude is pressure
+    # altitude, so relative altitude reads this. ALT, not TALT: pressure
+    # altitude is what the altimeter shows at 29.92, and nothing in this stack
+    # writes TALT. The dynon plugin also writes PALT (and TALT); do not enable
+    # it alongside this block.
     - function: altp
-      inputs: ["BARO", "TALT"]
+      inputs: ["BARO", "ALT"]
       output: PALT
     - function: altd
       inputs: ["PALT","TALT","OAT"]
