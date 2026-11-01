@@ -290,23 +290,29 @@ selects into `COURSE`/`CDI`/`TOFROM` for the HSI:
 | `EXTCRS` | float | 0..359.9 deg magnetic | external navigator plugin | External navigator course |
 | `EXTCDI` | float | -1..+1 | external navigator plugin | External navigator course deviation |
 | `EXTTF` | int | 0/1/2 | external navigator plugin | External navigator TO/FROM |
+| `EXTXTK` | float | +-100 nm, positive = right of track | external navigator plugin | External navigator cross-track error |
 | `GPSCRS` / `GPSCDI` / `GPSTF` | (existing) | | compute `select` on `GPSSRC` | `{FPLCRS,EXTCRS}`, `{FPLCDI,EXTCDI}`, `{FPLTF,EXTTF}` |
+| `XTRACK` | (existing) | | compute `select` on `GPSSRC` | `{FPLXTK,EXTXTK}` |
 
 On the bench, `xplane.yaml`'s nav RREF rows now write `EXTCRS`/`EXTCDI`
 (previously `GPSCRS`/`GPSCDI` directly) so X-Plane's FMS is the external
 navigator. `garmin_gnx375` and `navigator_adapter` write `EXTCRS` (APB
-field 8, the leg's desired track, magnetic), `EXTCDI` (RMB cross-track,
-`-XTE / cdi_full_scale_nm`) and `EXTTF` (APB perpendicular passed) too
-(AER-4473). Before that they wrote `COURSE`, `CDI` and `XTRACK` directly,
+field 8, the leg's desired track, magnetic), `EXTXTK` (RMB cross-track),
+`EXTCDI` (`-EXTXTK / cdi_full_scale_nm`) and `EXTTF` (APB perpendicular
+passed) too (AER-4473). Before that they wrote `COURSE`, `CDI` and `XTRACK` directly,
 racing compute's `NAVSRC` selects and `xte` for the same keys, and their
 `COURSE` was the bearing from the aircraft to the waypoint, not the desired
-track. The navigator's own cross-track error has no key yet, so `XTRACK`
-stays compute's `xte`, which measures against `WPLAT`/`WPLON` from the
-internal plan even when `GPSSRC` = 1.
+track.
 
-The `xte` compute (`connections/compute.yaml`) is re-fed `GPSCRS` instead of
-`COURSE`, so `XTRACK`/`GPSBRG` track the active plan/external navigator
-correctly even while `NAVSRC` has the HSI showing a VOR.
+`XTRACK` is a `GPSSRC` select of `FPLXTK` and `EXTXTK`, exactly like
+`GPSCDI`, so the cross-track always comes from the same source as the needle
+(AER-4473, accepted by Bill 2026-11-01). It replaced the `xte` compute, which
+measured against `WPLAT`/`WPLON` -- the internal plan's waypoint -- even when
+`GPSSRC` = 1, and with `GPSSRC` = 0 was a second computation of what the
+engine already publishes as `FPLXTK`. X-Plane's rows map no `EXTXTK`, so on
+the bench `XTRACK` reads 0 with `GPSSRC` = 1. `GPSBRGT`/`GPSBRG` still use
+`WPLAT`/`WPLON`, so with `GPSSRC` = 1 the GPS bearing pointer aims at the
+internal plan's waypoint; that is a noted follow-on.
 
 ## Integrity key for FP2
 
