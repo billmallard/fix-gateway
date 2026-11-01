@@ -8,6 +8,9 @@ sim bench, session `cbbeafe57646`, 2026-10-29 05:32Z, profile
 `complete`. The KSMX RNAV (GPS) RWY 30 from 2 nm before PAMJI, the missed
 approach, +1 / -1 nm offsets on HANNU-WINCH, five minutes in the WINCH hold.
 X-Plane flew its own nav data (cycle 2406) and live weather (wind under 5 kt).
+That was X-Plane's default data provider; sessions from 2026-10-31 use another
+(XPB-021 in `src/fixgw/sim/XPLANE_BEHAVIORS.md`), so name the provider and cycle
+for every recording added here.
 
 Columns, 5 Hz, X-Plane's own state (the bench's `truth.jsonl`):
 `t` (s), `lat`, `lon`, `alt_ft`, `gs_kt`, `trk` (true), and X-Plane's GPS
