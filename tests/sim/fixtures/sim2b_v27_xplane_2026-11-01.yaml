@@ -1,0 +1,37 @@
+# A recorded X-Plane flight on an airway, replayed by the simulated-flight
+# gate (SYN4): V27 from HENER through VTU and EXERT to DOYLE, slice 2 of the
+# RS3 golden route KSBA GVO V27 AVOLS KSMX (SIM2b, AER-4464). See README.md
+# beside this file.
+#
+# An en-route flight has no profile fix-gateway's loader can read yet (SIM3b),
+# so the recording carries the route block itself: v27_route_block.json, as
+# pyEfis's FixBridge.publish wrote it on the bench, and the slot the bench
+# activated (6, the leg into HENER). magvar is the bench bus's FIX MAGVAR,
+# median over the flight.
+#
+# Checks: the FP8 brief's acceptance, as in fp8_xplane_2026-10-29.yaml: DTK
+# within 2 deg, CDI within 0.1 of full scale and of the same sign, compared
+# where both navigators guide to the same fix, plus the sequence. Skipped:
+#   EXTTF 2: X-Plane is FROM, from about 0.2 nm before each fix (XPB-001).
+# The trace stops at 1442.8 s, the row before X-Plane switched to PAROL: the
+# session ended there (end.after_fix DOYLE), 0.2 nm short of where the engine
+# sequences (XPB-001), so only X-Plane would have shown PAROL.
+# Measured on this trace, outside 5 s of each sequence: FPLCRS within 0.3 deg
+# of EXTCRS, FPLCDI within 0.011 of EXTCDI.
+name: sim2b-v27-xplane-2026-11-01
+route_block: v27_route_block.json
+act: 6
+magvar: -11.449
+trace: sim2b_v27_xplane_2026-11-01.csv.gz
+checks:
+  - key_pair: [FPLCRS, EXTCRS]
+    tol_deg: 2.0
+    except_s_around_sequence: 5
+    skip_when: {EXTTF: 2}
+  - key_pair: [FPLCDI, EXTCDI]
+    tol: 0.1
+    same_sign: true
+    except_s_around_sequence: 5
+    skip_when: {EXTTF: 2}
+  - sequence: [HENER, VTU, EXERT, DOYLE]
+    keys: [WPNAME, gps_id]

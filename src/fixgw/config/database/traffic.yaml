@@ -1,0 +1,188 @@
+# ADS-B traffic FIX key contract (AER-4579, BACKLOG P3a, CAP-401).
+#
+# The contract is pyEfis docs/fix_dynamic_list_spec.md section 4 (pyEfis
+# #344, AER-4336): implemented here, not redesigned.  Traffic crosses the bus
+# as an indexed key block, TFC1..32 on the index letter k (variables.yaml;
+# 32 is the minimum target count GDL90 guarantees, G§3.5).  Every slot field
+# is a GDL90 Traffic Report field or a sub-field of one; the only additions
+# are the empty-slot value TFCkTGT = -1 and the two block-level counters.
+#
+# Slot commit: the writer writes a slot's fields, then TFCkTGT last, on every
+# report.  A reader acts on the TFCkTGT write.  A slot holds an entry exactly
+# when TFCkTGT != -1 and TFCkTGT is neither old nor fail.  Slot numbers carry
+# no meaning; key display state by TFCkTGT.  A field marked bad is
+# unavailable at the source: dash it.
+#
+# One writer: the stratux plugin's traffic writer (plugins/stratux/traffic.py,
+# `traffic: true` in connections/stratux.yaml).  Exactly one traffic writer is
+# enabled per installation; a second ADS-B source writes this same block
+# instead, never both (spec 2.9, 4.10).
+#
+# Ranges cover the full GDL90 encoding so the database never clamps a real
+# value into a plausible wrong one (spec 2.10): altitude goes to 101,350 ft.
+#
+# All slot keys: tol 3000 ms, three missed 1 Hz reports.  The writer evicts a
+# target after evict_s (default 10 s) with no report, so a stale target reads
+# old before it disappears.
+
+items:
+- key: TFCkTGT
+  description: Traffic slot %k identity (address type << 24 | address), -1 = empty slot, the slot's commit key, written last
+  type: int
+  min: -1
+  max: 268435455
+  initial: -1
+  tol: 3000
+
+- key: TFCkADDR
+  description: Traffic slot %k participant address (24-bit)
+  type: int
+  min: 0
+  max: 16777215
+  initial: 0
+  tol: 3000
+
+- key: TFCkATYP
+  description: Traffic slot %k address type (0 ADS-B ICAO, 1 ADS-B self-assigned, 2 TIS-B ICAO, 3 TIS-B track file, 4 surface vehicle, 5 ground station beacon)
+  type: int
+  min: 0
+  max: 15
+  initial: 0
+  tol: 3000
+
+- key: TFCkLAT
+  description: Traffic slot %k latitude, bad = no valid position
+  type: float
+  min: -90
+  max: 90
+  units: deg
+  initial: 0.0
+  tol: 3000
+
+- key: TFCkLON
+  description: Traffic slot %k longitude, bad = no valid position
+  type: float
+  min: -180
+  max: 180
+  units: deg
+  initial: 0.0
+  tol: 3000
+
+- key: TFCkALT
+  description: Traffic slot %k pressure altitude, 29.92 inHg reference, bad = unavailable
+  type: float
+  min: -1000
+  max: 101350
+  units: ft
+  initial: 0.0
+  tol: 3000
+
+- key: TFCkGS
+  description: Traffic slot %k ground speed, bad = unavailable
+  type: float
+  min: 0
+  max: 4094
+  units: knots
+  initial: 0.0
+  tol: 3000
+
+- key: TFCkVS
+  description: Traffic slot %k vertical speed, positive up, bad = unavailable
+  type: float
+  min: -32640
+  max: 32640
+  units: fpm
+  initial: 0.0
+  tol: 3000
+
+- key: TFCkTRK
+  description: Traffic slot %k track or heading, per TFC%kTTYP, bad = not valid
+  type: float
+  min: 0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 3000
+
+- key: TFCkTTYP
+  description: Traffic slot %k what TFC%kTRK is (0 not valid, 1 true track, 2 magnetic heading, 3 true heading)
+  type: int
+  min: 0
+  max: 3
+  initial: 0
+  tol: 3000
+
+- key: TFCkEXTR
+  description: Traffic slot %k report is extrapolated by the source
+  type: bool
+  initial: false
+  tol: 3000
+
+- key: TFCkAIR
+  description: Traffic slot %k airborne (false = on ground)
+  type: bool
+  initial: false
+  tol: 3000
+
+- key: TFCkNIC
+  description: Traffic slot %k navigation integrity category
+  type: int
+  min: 0
+  max: 15
+  initial: 0
+  tol: 3000
+
+- key: TFCkNACP
+  description: Traffic slot %k navigation accuracy category for position
+  type: int
+  min: 0
+  max: 15
+  initial: 0
+  tol: 3000
+
+- key: TFCkCAT
+  description: Traffic slot %k emitter category
+  type: int
+  min: 0
+  max: 39
+  initial: 0
+  tol: 3000
+
+- key: TFCkCS
+  description: Traffic slot %k call sign, trailing spaces trimmed (not a unique identifier)
+  type: str
+  initial: ""
+  tol: 3000
+
+- key: TFCkALRT
+  description: Traffic slot %k source traffic alert status (0 no alert, 1 traffic alert)
+  type: int
+  min: 0
+  max: 15
+  initial: 0
+  tol: 3000
+
+- key: TFCkEMRG
+  description: Traffic slot %k emergency/priority code
+  type: int
+  min: 0
+  max: 15
+  initial: 0
+  tol: 3000
+
+# --- Block level (traffic writer, once per second) -------------------------
+- key: TFCCOUNT
+  description: Traffic slots occupied (informational, check each TFCkTGT), fail = source failed
+  type: int
+  min: 0
+  max: 32  # k in variables.yaml; raise the two together
+  initial: 0
+  tol: 3000
+
+- key: TFCDROP
+  description: Traffic targets reported in the last second that got no slot (block full)
+  type: int
+  min: 0
+  max: 1000
+  initial: 0
+  tol: 3000

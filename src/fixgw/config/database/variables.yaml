@@ -13,3 +13,4 @@ variables:
   d: 4  # MGL V16 Radios
   w: 3  # Wheels
   f: 100 # Flight plan route slots AND segment-table rows (PA3: raised from 50, matches the GNX's 100-waypoint limit; RS1 indexes FPLSf* on it too)
+  k: 32 # ADS-B traffic slots, TFC1..32 (AER-4579; GDL90's guaranteed minimum target count, G§3.5)

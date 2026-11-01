@@ -76,3 +76,50 @@ with gzip.GzipFile("fp8_bench_bus_2026-10-29.csv.gz", "wb", mtime=0) as g:
     g.write(s.getvalue().encode())
 PY
 ```
+
+## `sim2b_v27_xplane_2026-11-01.csv.gz`
+
+The first recorded flight on an airway: V27 from 3 nm before HENER through
+VTU and EXERT to DOYLE, slice 2 of the RS3 golden route KSBA GVO V27 AVOLS
+KSMX (SIM2b, AER-4464, billmallard/pyEfis#324). Pilotless sim bench session
+`9b6d523db79a`, 2026-11-01 10:32Z, X-Plane 12, SR22, 7,000 ft, outcome
+`complete`. X-Plane flew its own nav data: the session reports cycle 2611,
+which from 2026-10-31 is XPNavData in `Custom Data` (XPB-021); the route
+block is from the FAA CIFP 2611 pack. The profile was submitted inline (an en-route profile is X-Plane
+tier only until fix-gateway's loader reads en-route items, SIM3b):
+
+```yaml
+name: sim2b-v27-s2-hener-doyle
+departure: KSBA
+destination: KSMX
+cifp: {cycle: "2611"}
+aircraft: {tas_kt: 110}
+start: {fix: HENER, before_nm: 3.0, alt_ft: 7000, heading: on_course}
+route:
+  - waypoint: GVO
+  - airway: {id: V27, exit: AVOLS}
+end: {after_fix: DOYLE, max_s: 2100}
+```
+
+Same columns as the FP8 trace. Regenerated the same way, from session
+`9b6d523db79a`, then trimmed at `t < 1442.8`: the row after it is X-Plane
+switching to PAROL 0.2 nm before DOYLE (XPB-001) as the session ends, which
+the engine, on the same position, has not yet done.
+
+## `v27_route_block.json`
+
+The route block the bench loaded for that flight: KSBA, V27 GVO..AVOLS as
+one airway segment (slots 2-12), KSMX, written by pyEfis's own
+`FixBridge.publish` (pyEfis dev `79b9e5c`, the bench's AIRAC 2611
+procedures pack) into a dict instead of the bus, with MAGVAR -11.45. A
+recording names it with `route_block:` and the activated slot with `act:`
+instead of a `profile:`; `xplane_replay.fly_route` flies it with no pilot
+commands. Regenerate on the Beelink with the AER-4464 bench follower's
+`publish_golden` against a recording client (agent scratch
+`scratch/sim2b/v27_follow.py`; the commands are on AER-4464).
+
+`sim2b_v27_xplane_2026-11-01.yaml` carries the X-Plane tier's checks,
+`FPLCRS`/`EXTCRS` within 2 deg and `FPLCDI`/`EXTCDI` within 0.1 of the same
+sign, plus the sequence HENER VTU EXERT DOYLE. Measured: course within 0.3
+deg and CDI within 0.011 outside 5 s of each sequence. Moving VTU 1.8 nm in
+the route block fails both pair checks; renaming EXERT fails the sequence.
