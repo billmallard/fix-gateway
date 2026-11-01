@@ -15,6 +15,8 @@ Every allowance made here for X-Plane cites its entry in
 
 import pytest
 
+from fixgw.plugins.flightplan.engine import LEGPHASE_INBOUND
+
 from .xplane_replay import build_route, fly, load_bench_bus, load_trace, nm, xplane_sequences
 
 DOTS_FS = 2.5
@@ -152,18 +154,13 @@ def test_cdi_matches_xplane_at_1_nm_cross_track(flown):
 
 
 def test_hold_inbound_leg_matches_xplane(flown):
-    """Inside the WINCH hold, wherever the engine shows the inbound course
-    (121) and X-Plane is TO the fix, the two agree. X-Plane holds its hold
+    """Inside the WINCH hold, wherever the engine is on the inbound leg
+    (course 121) and X-Plane is TO the fix, the two agree. X-Plane holds its hold
     course through the entry and the turns; the engine flies the AIM entry
     and turns the course with the aircraft (fix-gateway#49, Bill's call on
     AER-4076), so those stretches are not compared (XPB-004)."""
     _, samples, _, _ = flown
-    # XPB-004: rows are picked by agreement within 5 deg, so an inbound
-    # disagreement over 5 deg is dropped, not failed; only the row count
-    # guards it (QA, AER-4375; selecting on the engine's own course is
-    # fix-gateway#89).
-    inbound = [s for s in samples if s["phase"] == "HOLD" and s["xp_fromto"] == 1
-               and abs(w180(s["crs"] - s["xp_crs"])) <= 5.0]
+    inbound = _hold_inbound(samples)
     assert len(inbound) > 500
     for s in inbound:
         assert abs(w180(s["crs"] - s["xp_crs"])) <= 2.0
@@ -173,3 +170,20 @@ def test_hold_inbound_leg_matches_xplane(flown):
         if abs(s["cdi"]) > 0.05 and abs(xp) > 0.05:
             assert (s["cdi"] > 0) == (xp > 0)
         assert abs(s["cdi"] - xp) <= 0.1
+
+
+def _hold_inbound(samples):
+    """Hold rows on the engine's own inbound leg, X-Plane TO the fix. Picked
+    on the engine's leg phase, never on agreement with X-Plane, so a course
+    disagreement on the inbound leg fails the comparison instead of dropping
+    out of it (XPB-004; QA on AER-4375, fix-gateway#89)."""
+    return [s for s in samples if s["phase"] == "HOLD" and s["leg_phase"] == LEGPHASE_INBOUND
+            and s["xp_fromto"] == 1]
+
+
+def test_hold_inbound_selection_keeps_a_course_disagreement(flown):
+    # The previous selection (agreement within 5 deg) dropped these rows and
+    # still passed on the row count.
+    _, samples, _, _ = flown
+    skewed = [dict(s, crs=s["crs"] + 8.0) for s in samples]
+    assert len(_hold_inbound(skewed)) == len(_hold_inbound(samples))
