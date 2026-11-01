@@ -122,9 +122,9 @@ Unless an entry says otherwise:
   - The engine sequences at turn start, where the Garmin guides switch at the bisector.
   - Both are open questions for Bill on AER-4286, not settled behavior.
 - **Relied on by:**
-  - `tests/sim/test_fp8_xplane_replay.py:65`: the sequence points are within 0.3 nm of X-Plane's. 0.3 nm is the FP8 brief's bound (AER-809), not fitted to this.
-  - `tests/sim/test_fp8_xplane_replay.py:74`: HANNU -> WINCH is not compared, because X-Plane switches that waypoint abeam the fix.
-  - `tests/sim/test_fp8_xplane_replay.py:123`: `_shared` excludes 5 s around either system's sequence.
+  - `tests/sim/test_fp8_xplane_replay.py:67`: the sequence points are within 0.3 nm of X-Plane's. 0.3 nm is the FP8 brief's bound (AER-809), not fitted to this.
+  - `tests/sim/test_fp8_xplane_replay.py:76`: HANNU -> WINCH is not compared, because X-Plane switches that waypoint abeam the fix.
+  - `tests/sim/test_fp8_xplane_replay.py:125`: `_shared` excludes 5 s around either system's sequence.
   - `tests/sim/fixtures/fp8_xplane_2026-10-29.yaml:24,29`: `except_s_around_sequence: 5`.
   - `tests/sim/fixtures/fp8_xplane_2026-10-29.yaml:16`: the EXTTF 2 skip, for the FROM before WINCH.
   - The synthetic tier's 5 s `WPNAME`/`REFWPT` window would not hold against X-Plane: the lead is 6.1 to 6.6 s (AER-4286, AER-4283).
@@ -169,7 +169,7 @@ Unless an entry says otherwise:
 - **Observed** (AER-4283, fix-gateway#77; written into the recording's skips):
   - X-Plane shows the hold's inbound course throughout the hold, including the entry and the turns.
   - It goes FROM from 0.2 nm before WINCH, where it already shows that course. The early FROM is likely the same lead as XPB-001, which would make it a consequence of that entry rather than a separate behavior.
-  - Wherever the engine shows the inbound course (121) and X-Plane is TO, the two agree within 2 deg and 0.1 CDI.
+  - Wherever the engine is on the inbound leg (course 121) and X-Plane is TO, the two agree within 2 deg and 0.1 CDI.
 - **Our side:**
   - The engine flies the AIM 5-3-8 entry chosen by sector, and turns the course with the aircraft. That is Bill's call on AER-4076, implemented in fix-gateway#49.
   - Outbound, the needle is centred on the racetrack's outbound side, not pegged on the inbound course extended (AER-4076, comment 3392586d).
@@ -181,10 +181,10 @@ Unless an entry says otherwise:
   - For the display through the entry: the hold section of a Garmin pilot's guide (G1000 or GNS 530W), or a real unit flown through an entry.
 - **Relied on by:**
   - `tests/sim/fixtures/fp8_xplane_2026-10-29.yaml:13,16,25,30`: the skips `FPLPHASE: HOLD` and `EXTTF: 2`.
-  - `tests/sim/test_fp8_xplane_replay.py:123`: `_shared` drops the last 0.5 nm to WINCH.
-  - `tests/sim/test_fp8_xplane_replay.py:154`: `test_hold_inbound_leg_matches_xplane` compares only the inbound leg.
-  - `tests/sim/test_fp8_xplane_replay.py:166`: that test picks its rows by agreement within 5 deg, so an inbound disagreement over 5 deg is dropped, not failed, and only `len(inbound) > 500` guards it. Selecting on the engine's own course is a separate, behavior-changing fix (fix-gateway#89).
-  - `tests/sim/test_fp8_xplane_replay.py:173`: the CDI sign is checked only where both deflections exceed 0.05 of full scale. The 0.1 magnitude bound applies to every row.
+  - `tests/sim/test_fp8_xplane_replay.py:125`: `_shared` drops the last 0.5 nm to WINCH.
+  - `tests/sim/test_fp8_xplane_replay.py:156`: `test_hold_inbound_leg_matches_xplane` compares only the inbound leg.
+  - `tests/sim/test_fp8_xplane_replay.py:170`: the CDI sign is checked only where both deflections exceed 0.05 of full scale. The 0.1 magnitude bound applies to every row.
+  - `tests/sim/test_fp8_xplane_replay.py:175`: `_hold_inbound` picks that leg's rows on the engine's own leg phase (`INBOUND`) with X-Plane TO, not on agreement with X-Plane, so an inbound course disagreement fails the 2 deg bound instead of dropping out (fix-gateway#89). `test_hold_inbound_selection_keeps_a_course_disagreement` (line 184) pins that.
 
 ## Interface
 
@@ -197,7 +197,7 @@ Unless an entry says otherwise:
   - The replay re-derives these commands from engine state (`tests/sim/xplane_replay.py:9-14`).
   - While suspended, the pilot's commands decide what the engine shows, not the leg. So there is nothing on X-Plane's side to compare.
 - **Reference:** not applicable; this is the comparison's setup.
-- **Relied on by:** `tests/sim/fixtures/fp8_xplane_2026-10-29.yaml:11,25,30` (the skip `FPLSTATE: 3`); `tests/sim/test_fp8_xplane_replay.py:74` (RW30 -> HANNU is not compared, because the engine sequences there on the orchestrator's RESUME). The engine's own SUSP behavior is checked without X-Plane in `tests/sim/test_fp8_xplane_replay.py` (`test_no_sequence_at_the_map_auto_susp_then_from`, `test_susp_does_not_sequence_past_hannu`).
+- **Relied on by:** `tests/sim/fixtures/fp8_xplane_2026-10-29.yaml:11,25,30` (the skip `FPLSTATE: 3`); `tests/sim/test_fp8_xplane_replay.py:76` (RW30 -> HANNU is not compared, because the engine sequences there on the orchestrator's RESUME). The engine's own SUSP behavior is checked without X-Plane in `tests/sim/test_fp8_xplane_replay.py` (`test_no_sequence_at_the_map_auto_susp_then_from`, `test_susp_does_not_sequence_past_hannu`).
 
 ### XPB-006
 

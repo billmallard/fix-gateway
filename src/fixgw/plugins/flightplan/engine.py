@@ -1131,6 +1131,12 @@ class Engine:
 
     def _cmd_dtox(self, position):
         if self.count == 0:
+            # A bare DTO is accepted with no plan loaded, so DIRECT-with-no-
+            # plan is reachable. With no leg to rejoin, cancelling it just
+            # drops navigation back to NONE (fix-gateway #81).
+            if self.mode == "DIRECT":
+                self._reset_activation()
+                return
             raise _Reject("NO PLAN")
         ac_lat, ac_lon = self._require_position(position)
 
@@ -1512,9 +1518,16 @@ class Engine:
             self.suspended = True
             return self._vector_guidance()
 
-        to_wp = self.route[self.act_leg - 1]
         fr = self.from_point
         to = self.to_point
+        if self.act_leg:
+            to_wp = self.route[self.act_leg - 1]
+        else:
+            # Off-route direct-to: the target is not a plan slot, so it is a
+            # plain TF from the aircraft. route[-1] here borrowed the last
+            # slot's leg (a CF course, a hold) and, with no plan loaded,
+            # raised IndexError (fix-gateway #81).
+            to_wp = Waypoint(to.id, to.lat, to.lon)
         self._cycle_gs_kt, self._cycle_magvar_deg = gs_kt, magvar_deg
         if to_wp.pt in PT_HOLD and self._leg_phase in LEGPHASES_PATTERN:
             self._ensure_hold_dims(gs_kt)   # restored mid-hold from a pre-#45 state file
