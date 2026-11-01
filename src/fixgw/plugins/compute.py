@@ -60,8 +60,28 @@ def _publish(o, value, old, bad, fail, secfail):
 
 
 # Determine pressure altitude
-# inputs: BARO, ALTMSL
-# Pressure Altitude = Elevation  in FT + (145442.2 * ( 1 - ( altimeter setting in inhg/29.92126)^.190261))
+# inputs: BARO, ALT (indicated altitude, read against that BARO setting)
+# Pressure Altitude = Indicated Altitude in FT + (145442.2 * ( 1 - ( altimeter setting in inhg/29.92126)^.190261))
+#
+# This is the stack's one PALT writer (P3c, AER-4459). Quality:
+#   - an input failed: PALT fails and reads 0.0.
+#   - an input old (ALT stopped arriving): PALT is not recomputed, so it ages
+#     out on its own tol at the same moment ALT does, and is flagged old. A
+#     recompute would refresh PALT's timestamp and keep it reading fresh for
+#     another tol from a dead input.
+#   - an input bad, or BARO outside BARO_PLAUSIBLE: PALT is bad.
+#   - ALT never published: PALT is never written and reads its initial 0.0,
+#     old once its tol expires.
+# BARO is a setting, not a measurement: it is written only when someone turns
+# the knob, so an untouched BARO never fires a callback. Its current database
+# value (the schema initial, 29.92, until set) is what every consumer shows,
+# so it is read from the database when it has not been written. ALT is never
+# read that way: its schema initial is not an altitude.
+
+# Altimeter settings no sea-level pressure on record falls outside (the
+# extremes are about 25.69 and 32.03 inHg). Anything beyond is a bad input,
+# not weather.
+BARO_PLAUSIBLE = (25.0, 33.0)
 
 
 def altPressure(inputs, output, require_leader):
@@ -82,12 +102,17 @@ def altPressure(inputs, output, require_leader):
                     o.set_aux_value(x[1], value)
             return
         vals[key] = value
+        baro = inputs[0]
+        alt = inputs[1]
+        if vals[baro] is None:
+            current = parent.db_get_item(baro).value
+            if isinstance(current, tuple):
+                vals[baro] = current
         _refresh_old(vals, parent)
         flag_old = False
         flag_bad = False
         flag_fail = False
         flag_secfail = False
-        pa = None
         for each in vals:
             if vals[each] is None:
                 return  # We don't have one of each yet
@@ -99,11 +124,22 @@ def altPressure(inputs, output, require_leader):
                 flag_fail = True
             if vals[each][5]:
                 flag_secfail = True
+        setting = vals[baro][0]
+        if not BARO_PLAUSIBLE[0] <= setting <= BARO_PLAUSIBLE[1]:
+            flag_bad = True
 
-        baro = list(vals)[0]
-        msl = list(vals)[1]
-        pa = vals[msl][0] + (145442.2 * (1 - (vals[baro][0] / 29.92126) ** 0.190261))
-        _publish(o, pa, flag_old, flag_bad, flag_fail, flag_secfail)
+        if flag_fail or not flag_old:
+            pa = 0.0
+            if not flag_fail:
+                pa = vals[alt][0] + (145442.2 * (1 - (setting / 29.92126) ** 0.190261))
+            _publish(o, pa, flag_old, flag_bad, flag_fail, flag_secfail)
+        else:
+            # Old, not failed: flags only.  set() would stamp the value and
+            # keep PALT fresh from a dead input (see the quality notes above).
+            o.fail = flag_fail
+            o.bad = flag_bad
+            o.secfail = flag_secfail
+            o.old = flag_old
 
     return func
 
