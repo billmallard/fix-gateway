@@ -1,5 +1,8 @@
+import io
+
 import pytest
 
+import fixgw.database as database
 import fixgw.plugin as plugin_base
 import fixgw.plugins.demo as demo
 
@@ -103,3 +106,61 @@ def test_plugin_lifecycle_status_and_failure(monkeypatch):
     failing.thread.alive = True
     with pytest.raises(plugin_base.PluginFail):
         failing.stop()
+
+
+# The refresh loop reads each point and writes it back.  A read returns
+# (value, annunc, old, bad, fail, secfail), but a tuple write is taken as
+# (value, annunc, bad, fail, secfail), so writing the read back moved every
+# flag one place: old became bad and bad became fail.  Under the writer-held
+# old flag (AER-4450) a compute output that demo also writes (CDI, COURSE in
+# the shipped default config) went old, then BAD, then FAILED (AER-4471).
+# These run on the real database because the shift is in its tuple setter.
+DB = """
+entries:
+- {key: CDI, type: float, min: -1.0, max: 1.0, initial: 0.0, tol: 2000}
+- {key: MAVMSG, type: str, initial: '', tol: 0}
+"""
+
+
+class DbParent:
+    def db_write(self, key, value):
+        database.write(key, value)
+
+    def db_read(self, key):
+        return database.read(key)
+
+
+def _demo_on_real_db():
+    database.init(io.StringIO(DB))
+    database._stop_update_thread()
+    thread = demo.MainThread(FakeParent())
+    thread.parent = DbParent()
+    thread.keylist = {"CDI": 0.0}
+    thread.script = [{"MAVMSG": "x"}]
+    return thread
+
+
+def _run_one_pass(monkeypatch, thread):
+    def stop_after_sleep(_seconds):
+        thread.getout = True
+
+    monkeypatch.setattr(demo.time, "sleep", stop_after_sleep)
+    thread.run()
+
+
+def test_refresh_does_not_turn_another_writers_old_into_bad(monkeypatch):
+    thread = _demo_on_real_db()
+    database.write("CDI", 0.0)
+    database.get_raw_item("CDI").old = True  # compute: input stale
+    _run_one_pass(monkeypatch, thread)
+    _, _, old, bad, fail, _ = database.read("CDI")
+    assert (bad, fail) == (False, False)
+
+
+def test_refresh_does_not_turn_bad_into_fail(monkeypatch):
+    thread = _demo_on_real_db()
+    database.write("CDI", 0.0)
+    database.get_raw_item("CDI").bad = True
+    _run_one_pass(monkeypatch, thread)
+    _, _, old, bad, fail, _ = database.read("CDI")
+    assert (bad, fail) == (True, False)
