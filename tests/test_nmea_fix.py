@@ -7,7 +7,7 @@
 import pynmea2
 import pytest
 
-from fixgw.nmea_fix import gps_fix_type
+from fixgw.nmea_fix import apb_guidance, cdi_from_cross_track, gps_fix_type, rmc_magvar_east
 
 GGA_GPS_8 = "$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47"
 GGA_WAAS_8 = "$GPGGA,123519,4807.038,N,01131.000,E,2,08,0.9,545.4,M,46.9,M,,*44"
@@ -66,3 +66,46 @@ def test_missing_or_garbled_quality_is_no_fix(qual, sats):
 def test_missing_satellite_count_is_2d():
     assert gps_fix_type(1, None) == 2
     assert gps_fix_type(1, "") == 2
+
+
+# External-navigator guidance helpers (AER-4473), from real sentences.
+
+
+def _nmea(body):
+    checksum = 0
+    for ch in body:
+        checksum ^= ord(ch)
+    return pynmea2.parse(f"${body}*{checksum:02X}", check=True)
+
+
+def _rmc(var, var_dir):
+    return _nmea(f"GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,{var},{var_dir}")
+
+
+def _apb(dtk, typ, status="A", perp="V"):
+    return _nmea(f"GPAPB,{status},A,0.50,L,N,{perp},{perp},{dtk},{typ},DEST,095.0,{typ},092.0,{typ}")
+
+
+def test_rmc_variation_is_east_positive_and_absent_is_none():
+    assert rmc_magvar_east(_rmc("003.1", "W")) == pytest.approx(-3.1)
+    assert rmc_magvar_east(_rmc("011.9", "E")) == pytest.approx(11.9)
+    assert rmc_magvar_east(_rmc("", "")) is None
+
+
+def test_true_desired_track_wraps_through_north():
+    # 001 T with 3 E variation is 358 M; 359 T with 3 W is 002 M.
+    assert apb_guidance(_apb("001.0", "T"), 3.0)[0] == pytest.approx(358.0)
+    assert apb_guidance(_apb("359.0", "T"), -3.0)[0] == pytest.approx(2.0)
+
+
+def test_magnetic_desired_track_ignores_variation():
+    assert apb_guidance(_apb("087.0", "M"), 20.0) == (pytest.approx(87.0), 1)
+
+
+def test_unknown_bearing_type_is_not_a_course():
+    assert apb_guidance(_apb("087.0", ""), 3.0) == (None, 1)
+
+
+def test_cdi_is_fplcdi_convention_and_clamped():
+    assert cdi_from_cross_track(0.15, 0.3) == pytest.approx(-0.5)
+    assert cdi_from_cross_track(-9.0, 5.0) == 1.0

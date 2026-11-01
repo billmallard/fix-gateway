@@ -502,8 +502,8 @@ items:
   tol: 5000
 
 # --- GPS guidance source selection ------------------------------------------
-# 0 = internal plan (FPLCRS/FPLCDI/FPLTF), 1 = external navigator
-# (EXTCRS/EXTCDI/EXTTF). Persisted by state_persist, the BRGnSRC/NAVSRC
+# 0 = internal plan (FPLCRS/FPLCDI/FPLTF/FPLXTK), 1 = external navigator
+# (EXTCRS/EXTCDI/EXTTF/EXTXTK). Persisted by state_persist, the BRGnSRC/NAVSRC
 # precedent.
 - key: GPSSRC
   description: "GPS guidance source (0 = internal plan, 1 = external navigator)"
@@ -536,4 +536,15 @@ items:
   min: 0
   max: 2
   initial: 0
+  tol: 5000
+
+# The navigator's own cross-track, so XTRACK follows GPSSRC like the needle
+# does (AER-4473; Bill accepted 2026-11-01). Same sign as FPLXTK/XTRACK.
+- key: EXTXTK
+  description: External navigator cross-track error, positive = right of track
+  type: float
+  min: -100.0
+  max: 100.0
+  units: nM
+  initial: 0.0
   tol: 5000
