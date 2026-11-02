@@ -185,10 +185,23 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   altitude data (guardrail 1's "never invent" extended to altitude). The
   new FROM point is the aircraft's own position at that moment (no fix to
   hand off to), so the sequencing message reads `"SEQ ALT -> <next ident>"`.
-- **Sequencing**: fly-by turn anticipation, `d_ta = R_turn * tan(delta/2)`,
-  `R_turn = GS_kt / 188.5` nm, `delta` capped at 120 deg, `d_ta` floored at
-  0.1 nm and capped at 5 nm — or the abeam backstop (along-track distance
-  goes negative). The last waypoint, and any waypoint marked MAP, never
+- **Sequencing** (AER-4675, Bill's ruling on AER-4671): a fly-by fix is two
+  events. At turn start, `d_ta = R_turn * tan(delta/2)` before the fix
+  (`R_turn = GS_kt / 188.5` nm, `delta` capped at 120 deg, `d_ta` capped at
+  5 nm, no floor), `FPLCRS`, `FPLXTK` and `FPLCDI` move to the next leg and
+  `FPLALERT` ends. At the turn bisector — the line through the fix square to
+  the mean of the two courses — the waypoint sequences: `WPNAME`, `WPDIS`,
+  `FPLTF`, `FPLACTLEG`, `WPFROM`/`FPLFRLAT`/`FPLFRLON` and the `FPLMSG`
+  `"SEQ A -> B"`. At standard rate that is `delta/2 / 3` s later, 15 s for
+  90 deg. Once started, the turn holds even if the groundspeed shrinks
+  `d_ta`, and it survives a restart. The abeam backstop (along-track
+  distance goes negative) sequences either way; at a straight-through fix
+  `d_ta` is 0 and the bisector is the abeam line, so both events happen at
+  the fix. `SUSP` in the turn keeps the TO waypoint and so its leg: the
+  course returns to the leg into the fix, and `RESUME` re-enters the turn
+  if it is still ahead. Any activation (`ACT`, `DTO`, `DTOX`) drops it. Into
+  a vector leg there is no next track, so the hand-off stays one event, at
+  turn start. The last waypoint, and any waypoint marked MAP, never
   auto-sequences. A fix coded fly-over (`FPLfFLAGS` `0x01`), the FAF and
   every fix between the FAF and the MAP are
   fly-over: abeam-only, no turn anticipation (`d_ta = 0`) — and (PA13) so is

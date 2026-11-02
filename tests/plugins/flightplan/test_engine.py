@@ -53,8 +53,11 @@ def test_turn_anticipation_caps_delta_at_120():
     assert engine.turn_anticipation_nm(150, 170) == engine.turn_anticipation_nm(150, 120)
 
 
-def test_turn_anticipation_floor_and_cap():
-    assert engine.turn_anticipation_nm(1, 1) == pytest.approx(0.1)
+def test_turn_anticipation_has_no_floor_and_a_5nm_cap():
+    # AER-4675: no 0.1 nm floor -- a straight-through fix has nothing to
+    # anticipate. The floor made it sequence 0.1 nm early at every one.
+    assert engine.turn_anticipation_nm(120, 0) == 0.0
+    assert engine.turn_anticipation_nm(1, 1) == pytest.approx(4.63e-5, rel=1e-2)
     assert engine.turn_anticipation_nm(100000, 120) == pytest.approx(5.0)
 
 
@@ -70,7 +73,10 @@ def straight_route(n=4, spacing_nm=60.04):
     return [wp(names[i], 0.0, i * step) for i in range(n)]
 
 
-def test_sequencing_within_turn_anticipation_distance_advances_leg():
+def test_collinear_fix_changes_course_and_waypoint_together_at_the_fix():
+    # AER-4675: a straight-through fix has no turn, so d_ta is 0 and both
+    # events -- the course change and the waypoint sequence -- happen at the
+    # fix. With the old 0.1 nm floor this sequenced 0.05 nm before B.
     e = engine.Engine()
     route = straight_route(3)
     load(e, route, "T", 1)
@@ -78,23 +84,27 @@ def test_sequencing_within_turn_anticipation_distance_advances_leg():
     assert ack == 1
     assert e.mode == "LEG" and e.act_leg == 2
 
-    step = nm_to_deg_lon(60.04)
     b_lon = route[1].lon
     # First cycle also posts the once-per-activation "no accuracy source"
     # message (no integrity_key data supplied here) -- consume it before
     # asserting on sequencing-specific messages below.
     e.update(0.0, 0.0, 120.0, 0.0, True, None, None, 999.0)
 
-    # 0.5 nm before B: straight route -> delta=0 -> d_ta floor 0.1nm -> no seq
-    out = e.update(0.0, b_lon - nm_to_deg_lon(0.5), 120.0, 0.0, True, None, None, 1000.0)
+    # 0.05 nm (1.5 s at 120 kt) before B, a bit off track: still B's leg.
+    out = e.update(0.001, b_lon - nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1000.0)
     assert out["act_leg"] == 2
+    assert out["wp_name"] == "B"
+    assert out["tf"] == engine.TF_TO
+    assert out["crs"] == pytest.approx(90.0, abs=0.01)
     assert out.get("msg") is None
 
-    # 0.05 nm before B: inside d_ta -> sequence to C
-    out = e.update(0.0, b_lon - nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1001.0)
+    # 0.01 nm past B: sequenced to C.
+    out = e.update(0.001, b_lon + nm_to_deg_lon(0.01), 120.0, 0.0, True, None, None, 1001.0)
     assert out["act_leg"] == 3
     assert out["wp_from"] == "B"
     assert out["wp_name"] == "C"
+    assert out["tf"] == engine.TF_TO
+    assert out["crs"] == pytest.approx(90.0, abs=0.01)
     assert out.get("msg") == "SEQ B -> C"
 
 
@@ -122,17 +132,186 @@ def _turn_route(b_flags=0):
     return [wp("A", 0.0, 0.0), wp("B", 0.0, b_lon, flags=b_flags), wp("C", 1.0, b_lon)]
 
 
-@pytest.mark.parametrize("b_flags,seq_early", [(0, True), (engine.FLAG_FLYOVER, False)])
-def test_coded_flyover_fix_is_not_turn_anticipated(b_flags, seq_early):
+@pytest.mark.parametrize("b_flags,turned_crs", [(0, 0.0), (engine.FLAG_FLYOVER, 90.0)])
+def test_coded_flyover_fix_is_not_turn_anticipated(b_flags, turned_crs):
     # fix-gateway#44: FPLfFLAGS 0x01 outside the FAF..MAP run is fly-over --
     # abeam-only, like the FAF. The fly-by row is the control: same route,
-    # same position, inside its 0.637 nm d_ta.
+    # same position, inside its 0.637 nm d_ta, where the course has turned
+    # to C's leg (AER-4675: the waypoint waits for the bisector).
     e = engine.Engine()
     route = _turn_route(b_flags)
     load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
     out = e.update(0.0, route[1].lon - nm_to_deg_lon(0.3), 120.0, 0.0, True, None, None, 1000.0)
-    assert out["act_leg"] == (3 if seq_early else 2)
+    assert out["act_leg"] == 2
+    assert out["crs"] == pytest.approx(turned_crs, abs=0.01)
+
+
+def _fly_turn(e, lat, lon, t0, seconds, gs_kt=120.0, dt=0.25, rate_deg_s=3.0):
+    """Fly an aircraft that steers onto the engine's FPLCRS at up to
+    rate_deg_s, from (lat, lon) heading east. Returns one (t, lat, lon,
+    out) per cycle."""
+    hdg = 90.0
+    rows = []
+    t = t0
+    while t < t0 + seconds:
+        out = e.update(lat, lon, gs_kt, 0.0, True, None, None, t)
+        rows.append((t, lat, lon, out))
+        turn = (out["crs"] - hdg + 180.0) % 360.0 - 180.0
+        hdg = geo.wrap360(hdg + max(-rate_deg_s * dt, min(rate_deg_s * dt, turn)))
+        lat, lon = geo.destination_point(lat, lon, hdg, gs_kt * dt / 3600.0)
+        t += dt
+    return rows
+
+
+def test_flyby_turn_changes_track_at_turn_start_and_waypoint_at_the_bisector():
+    # AER-4675 (Bill's ruling on AER-4671): a 90 deg fly-by at 120 kt. The
+    # desired track moves to the B->C leg at turn start, d_ta = 0.637 nm
+    # before B. The waypoint stays B -- name, distance, TO, active leg and
+    # the map's FROM anchor -- until the turn bisector, half the turn later:
+    # 45 deg at 3 deg/s = 15 s. Before AER-4675 both changed at turn start.
+    e = engine.Engine()
+    route = _turn_route()
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+    b = route[1]
+    e.update(0.0, b.lon - nm_to_deg_lon(3.0), 120.0, 0.0, True, None, None, 999.0)  # posts NO INTEGRITY DATA
+
+    rows = _fly_turn(e, 0.0, b.lon - nm_to_deg_lon(3.0), 1000.0, 120.0)
+    i_turn = next(i for i, r in enumerate(rows) if r[3]["crs"] < 45.0)
+    i_seq = next(i for i, r in enumerate(rows) if r[3]["act_leg"] == 3)
+    t_turn, lat_turn, lon_turn, _ = rows[i_turn]
+    t_seq, lat_seq, lon_seq, seq_out = rows[i_seq]
+
+    # Turn start: 0.637 nm before B, within one 0.25 s step (0.008 nm).
+    assert geo.distance_nm(lat_turn, lon_turn, b.lat, b.lon) == pytest.approx(0.637, abs=0.01)
+    # The waypoint changes 15 s later, at the bisector, R(sqrt 2 - 1) from B.
+    assert t_seq - t_turn == pytest.approx(15.0, abs=0.5)
+    assert geo.distance_nm(lat_seq, lon_seq, b.lat, b.lon) == pytest.approx(0.637 * (2 ** 0.5 - 1), abs=0.02)
+    assert seq_out["wp_name"] == "C" and seq_out["wp_from"] == "B"
+    assert seq_out.get("msg") == "SEQ B -> C"
+
+    # FPLALERT runs up to turn start and stops there.
+    assert rows[i_turn - 1][3]["alert"] is True
+    window = [r[3] for r in rows[i_turn:i_seq]]
+    assert len(window) >= 55
+    for out in window:
+        assert out["act_leg"] == 2
+        assert out["wp_name"] == "B" and out["wp_next"] == "C"
+        assert out["tf"] == engine.TF_TO
+        assert out["alert"] is False
+        assert out.get("msg") is None
+        # The FROM anchor stays A, so the map's active leg stays A->B.
+        assert (out["fr_lat"], out["fr_lon"]) == (0.0, 0.0)
+        # Course and deviation are the B->C leg's: due north, with the
+        # aircraft west of that line in the turn, so left of track.
+        assert out["crs"] == pytest.approx(0.0, abs=0.5)
+        assert out["xtk"] < 0.0
+    dists = [out["wp_dis"] for out in window]
+    assert all(b2 < b1 for b1, b2 in zip(dists, dists[1:]))
+
+
+def _in_turn_window(e, route):
+    """Engine on the _turn_route A->B leg, 0.3 nm before B: past turn start
+    (0.637 nm), short of the bisector. Returns that position."""
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+    pos = (0.0, route[1].lon - nm_to_deg_lon(0.3))
+    out = e.update(*pos, 120.0, 0.0, True, None, None, 1000.0)
+    assert out["act_leg"] == 2 and out["crs"] == pytest.approx(0.0, abs=0.01)
+    return pos
+
+
+def test_susp_in_the_turn_window_keeps_the_waypoint_and_its_leg():
+    # AER-4675: SUSP keeps the TO waypoint, so it keeps that waypoint's leg.
+    # A SUSP between turn start and the bisector takes the course back to
+    # A->B and nothing names C. RESUME re-enters the turn while it is ahead,
+    # and the bisector then sequences.
+    e = engine.Engine()
+    route = _turn_route()
+    pos = _in_turn_window(e, route)
+    assert e.handle_command("2 SUSP", (*pos, True))[0] == 2
+
+    out = e.update(*pos, 120.0, 0.0, True, None, None, 1001.0)
+    assert out["state"] == engine.STATE_SUSP
+    assert out["act_leg"] == 2 and out["wp_name"] == "B"
+    assert out["crs"] == pytest.approx(90.0, abs=0.01)
+    assert out["xtk"] == pytest.approx(0.0, abs=1e-6)
+    assert out["tf"] == engine.TF_TO
+
+    # Suspended past B: no sequence, FROM B on the A->B course.
+    out = e.update(0.0, route[1].lon + nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1002.0)
+    assert out["act_leg"] == 2 and out["tf"] == engine.TF_FROM
+    assert out["crs"] == pytest.approx(90.0, abs=0.01)
+
+    # Still suspended, back at the window position; RESUME there.
+    out = e.update(*pos, 120.0, 0.0, True, None, None, 1003.0)
+    assert out["act_leg"] == 2 and out["crs"] == pytest.approx(90.0, abs=0.01)
+    assert e.handle_command("3 RESUME", (*pos, True))[0] == 3
+    out = e.update(*pos, 120.0, 0.0, True, None, None, 1004.0)
+    assert out["state"] == engine.STATE_LEG
+    assert out["act_leg"] == 2 and out["wp_name"] == "B"
+    assert out["crs"] == pytest.approx(0.0, abs=0.01)
+
+    # Across the bisector (here 0.2 nm north of the A->B line, 0.1 nm short
+    # of B: past the 45 deg line through B), the waypoint sequences.
+    lat, lon = geo.destination_point(0.0, route[1].lon - nm_to_deg_lon(0.1), 0.0, 0.2)
+    out = e.update(lat, lon, 120.0, 0.0, True, None, None, 1005.0)
+    assert out["act_leg"] == 3 and out["wp_name"] == "C"
+    assert out.get("msg") == "SEQ B -> C"
+
+
+def test_resume_past_the_fix_after_a_susp_in_the_turn_window_sequences():
+    e = engine.Engine()
+    route = _turn_route()
+    pos = _in_turn_window(e, route)
+    e.handle_command("2 SUSP", (*pos, True))
+    past = (0.0, route[1].lon + nm_to_deg_lon(0.05))
+    e.update(*past, 120.0, 0.0, True, None, None, 1001.0)
+    e.handle_command("3 RESUME", (*past, True))
+    out = e.update(*past, 120.0, 0.0, True, None, None, 1002.0)
+    assert out["act_leg"] == 3 and out["wp_name"] == "C"
+    assert out.get("msg") == "SEQ B -> C"
+
+
+def test_direct_to_in_the_turn_window_drops_the_turn():
+    # AER-4675: a Direct-To between turn start and the bisector is a fresh
+    # activation; nothing of the B turn carries over.
+    e = engine.Engine()
+    route = _turn_route()
+    pos = _in_turn_window(e, route)
+    assert e.handle_command("2 DTO 3", (*pos, True))[0] == 2
+    out = e.update(*pos, 120.0, 0.0, True, None, None, 1001.0)
+    assert out["state"] == engine.STATE_DIRECT
+    assert out["act_leg"] == 3 and out["wp_name"] == "C"
+    assert (out["fr_lat"], out["fr_lon"]) == pytest.approx(pos)
+    assert out["crs"] == pytest.approx(geo.bearing_deg(*pos, route[2].lat, route[2].lon), abs=0.01)
+    assert out["xtk"] == pytest.approx(0.0, abs=1e-6)
+
+    # Direct-To B itself from inside the window: B from present position,
+    # and the B->C turn is anticipated again from there.
+    e2 = engine.Engine()
+    pos = _in_turn_window(e2, route)
+    e2.handle_command("2 DTO 2", (*pos, True))
+    assert e2._turning is False
+    out = e2.update(*pos, 120.0, 0.0, True, None, None, 1001.0)
+    assert out["state"] == engine.STATE_DIRECT
+    assert out["act_leg"] == 2 and out["wp_name"] == "B"
+    assert (out["fr_lat"], out["fr_lon"]) == pytest.approx(pos)
+    assert out["crs"] == pytest.approx(0.0, abs=0.01)
+
+
+def test_turn_window_survives_a_restart():
+    e = engine.Engine()
+    route = _turn_route()
+    pos = _in_turn_window(e, route)
+    restored = engine.Engine()
+    restored.restore_from_dict(e.to_persisted_dict())
+    # Slower now: d_ta shrinks to 0.21 nm, inside 0.3, but the turn has
+    # already started.
+    out = restored.update(*pos, 40.0, 0.0, True, None, None, 1001.0)
+    assert out["act_leg"] == 2 and out["wp_name"] == "B"
+    assert out["crs"] == pytest.approx(0.0, abs=0.01)
 
     out = e.update(0.0, route[1].lon + nm_to_deg_lon(0.01), 120.0, 0.0, True, None, None, 1001.0)
     assert out["act_leg"] == 3
@@ -222,7 +401,7 @@ def test_direct_to_slot_resumes_normal_sequencing_on_arrival():
     assert e.mode == "DIRECT" and e.act_leg == 2
 
     b_lon = route[1].lon
-    out = e.update(0.0, b_lon - nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1000.0)
+    out = e.update(0.0, b_lon + nm_to_deg_lon(0.01), 120.0, 0.0, True, None, None, 1000.0)
     assert out["act_leg"] == 3
     assert out["state"] == engine.STATE_LEG  # DIRECT -> LEG once resumed into the plan
 
@@ -1063,7 +1242,7 @@ def test_sequencing_onto_a_vector_leg_mid_flight_also_suspends():
     e.update(0.0, 0.0, 120.0, 0.0, True, None, None, 999.0)
 
     b_lon = route[1].lon
-    out = e.update(0.0, b_lon - nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1000.0)
+    out = e.update(0.0, b_lon + nm_to_deg_lon(0.01), 120.0, 0.0, True, None, None, 1000.0)
     assert out["act_leg"] == 3
     assert out["state"] == engine.STATE_SUSP
     assert out["phase"] == "VECTORS"

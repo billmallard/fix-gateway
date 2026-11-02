@@ -282,7 +282,7 @@ circuit/turn; `HA` exits automatically once the coded altitude is reached.
 | `FPLREMDIS` / `FPLREMETE` | float / int | nm / s | Remaining distance/time to the end of the plan |
 | `FPLACTSEG` | int | 0..100 | Active segment (RS1): `FPLfSGI` of the active TO slot `FPLACTLEG`. 0 with no plan active or on an off-route direct-to. Kept during failed guidance (it is identification, like `FPLACTLEG`). A `DTO` to a fix inside an airway keeps the airway: the engine never rewrites the table, and the remaining slots are still that segment |
 | `FPLSEGREM` | float | 0..9999.9 nm | Distance remaining in the active segment (RS1): to the TO fix, then along the plan to the segment's `LAST` slot. 0 with no active segment, on a vector leg, and during failed guidance (flagged `fail`/`bad` with the other distance outputs) |
-| `FPLALERT` | bool | | Waypoint sequencing alert (10 s or 1 nm before sequencing, whichever is longer) |
+| `FPLALERT` | bool | | Waypoint sequencing alert (10 s or 1 nm before turn start, whichever is longer; at a fly-by fix the waypoint itself sequences later, at the turn bisector) |
 
 `WPLAT`/`WPLON`/`WPNAME` (`database/mavlink.yaml`) are pre-existing keys; the
 engine becomes their writer when the `flightplan` plugin is enabled (FP2).

@@ -540,11 +540,14 @@ def turn_anticipation_nm(gs_kt, delta_deg, turn_rate_deg_s=TURN_RATE_DEG_S_DEFAU
     The spec's constant 188.5 corresponds to a standard-rate (3 deg/s) turn;
     scale it if a different turn_rate_deg_s is configured (rate scales R_turn
     inversely: a faster turn has a smaller radius).
+
+    No floor (AER-4675): a straight-through fix has no turn to anticipate,
+    so its course changes at the fix, where its waypoint does.
     """
     delta_deg = min(abs(delta_deg), 120.0)
     r_turn = (gs_kt / 188.5) * (TURN_RATE_DEG_S_DEFAULT / turn_rate_deg_s)
     d_ta = r_turn * math.tan(math.radians(delta_deg) / 2.0)
-    return max(0.1, min(5.0, d_ta))
+    return min(5.0, d_ta)
 
 
 def hold_turn_radius_nm(gs_kt, turn_rate_deg_s=TURN_RATE_DEG_S_DEFAULT):
@@ -617,6 +620,10 @@ class Engine:
 
         self._integrity_msg_posted = True  # nothing active yet -> nothing to post
         self._prev_atd = None
+        # In a fly-by turn (AER-4675): past turn start, the desired track is
+        # the next leg's, but the waypoint does not sequence until the turn
+        # bisector. See _compute_guidance.
+        self._turning = False
 
         self._last_good_time = None
         self._last_lat = None
@@ -662,6 +669,7 @@ class Engine:
         self._approach_suppressed = False
         self._integrity_msg_posted = True
         self._prev_atd = None
+        self._turning = False
         self._clear_leg_phase()
 
     # ------------------------------------------------------------------
@@ -692,6 +700,7 @@ class Engine:
             "hold_entry": self._hold_entry,
             "hold_r_nm": self._hold_r_nm,
             "hold_entry_nm": self._hold_entry_nm,
+            "turning": self._turning,
         }
 
     def restore_from_dict(self, d):
@@ -733,6 +742,7 @@ class Engine:
         self._hold_entry = d.get("hold_entry")
         self._hold_r_nm = d.get("hold_r_nm")
         self._hold_entry_nm = d.get("hold_entry_nm")
+        self._turning = d.get("turning", False)
         self._prev_atd = None
 
     # ------------------------------------------------------------------
@@ -1062,6 +1072,7 @@ class Engine:
         if was_none:
             self._integrity_msg_posted = False
         self._prev_atd = None
+        self._turning = False
         # A fresh activation always starts a leg's "approach the fix" phase
         # (PA13) -- never mid-hold or past-the-fix-on-course from whatever
         # leg was previously active.
@@ -1175,6 +1186,10 @@ class Engine:
         if self.mode == "NONE":
             raise _Reject("NO PLAN")
         self.suspended = True
+        # SUSP keeps the TO waypoint, so it keeps that waypoint's leg too:
+        # a SUSP in a fly-by turn takes the desired track back from the
+        # next leg. RESUME re-enters the turn if it is still ahead.
+        self._turning = False
 
     def _cmd_resume(self, position):
         if self._map_suspended:
@@ -1357,10 +1372,39 @@ class Engine:
         next_wp = self.route[self.act_leg] if self.act_leg < self.count else None
         if next_wp is None or next_wp.pt in PT_TIER2:
             return 0.0
-        cur_course = geo.bearing_deg(anchor.lat, anchor.lon, to.lat, to.lon)
-        next_course = geo.bearing_deg(to.lat, to.lon, next_wp.lat, next_wp.lon)
-        delta = _course_change_deg(cur_course, next_course)
+        in_course, out_course = self._turn_courses(anchor, to, next_wp)
+        delta = _course_change_deg(in_course, out_course)
         return turn_anticipation_nm(gs_kt, delta, self.turn_rate_deg_s)
+
+    @staticmethod
+    def _turn_courses(anchor, to, next_wp):
+        """True courses at the fix `to`: arriving on the great circle from
+        anchor, and leaving toward next_wp. The arrival course is taken at
+        the fix, not at anchor, so a long leg's convergence is not read as
+        a turn."""
+        in_course = geo.wrap360(geo.bearing_deg(to.lat, to.lon, anchor.lat, anchor.lon) + 180.0)
+        out_course = geo.bearing_deg(to.lat, to.lon, next_wp.lat, next_wp.lon)
+        return in_course, out_course
+
+    def _past_turn_bisector(self, anchor, to, ac_lat, ac_lon):
+        """True once the aircraft has crossed the bisector of the turn at
+        the fix `to` (AER-4675): the line through the fix at right angles
+        to the mean of the arrival and departure courses. The arc of a
+        fly-by turn crosses it at its midpoint. At a straight-through fix
+        it is the abeam line."""
+        in_course, out_course = self._turn_courses(anchor, to, self.route[self.act_leg])
+        mean = geo.wrap360(in_course + ((out_course - in_course + 180.0) % 360.0 - 180.0) / 2.0)
+        back_lat, back_lon = geo.destination_point(to.lat, to.lon, geo.wrap360(mean + 180.0), 1.0)
+        return geo.along_track_distance_to_waypoint_nm(back_lat, back_lon, to.lat, to.lon, ac_lat, ac_lon) <= 0.0
+
+    def _next_leg_geometry(self, to, ac_lat, ac_lon, magvar_deg):
+        """atd, xtk and true DTK on the leg after the TO fix `to`, flown
+        from that fix: the desired track in a fly-by turn (AER-4675). Only
+        reached for a next leg turn anticipation applies to (not Tier 2)."""
+        next_wp = self.route[self.act_leg]
+        next_to = Point.from_waypoint(next_wp)
+        anchor = self._leg_from_anchor(next_wp, to, next_to, magvar_deg)
+        return self._line_geometry(anchor, next_to, ac_lat, ac_lon)
 
     def _sequence(self, reached_to):
         prev_from = self.from_point
@@ -1372,6 +1416,7 @@ class Engine:
         label = reached_to.id or "ALT"  # PA13: CA/FA-course terminate at the aircraft's position, no ident
         self._pending_msg = f"SEQ {label} -> {new_to.id}"
         self._prev_atd = None
+        self._turning = False
         self._clear_leg_phase()
         new_wp = self.route[self.act_leg - 1]
         if (
@@ -1543,10 +1588,24 @@ class Engine:
             if alt_terminated:
                 reached = alt_ft is not None and _alt_reached_wp(to_wp, alt_ft)
             else:
+                # A fly-by fix is two events (AER-4675). At turn start
+                # (atd <= d_ta) the desired track moves to the next leg; at
+                # the turn bisector the waypoint sequences. In between,
+                # _turning holds the turn even if d_ta shrinks with the GS.
+                # The abeam backstop (atd <= 0) sequences either way. Into a
+                # vector leg there is no next track to turn onto, so it
+                # stays one event, at turn start.
                 d_ta = self._turn_anticipation_for(to_wp, anchor, to, gs_kt)
                 alert_dist = d_ta + max(gs_kt * self.alert_s / 3600.0, 1.0)
-                alert = 0.0 <= atd <= alert_dist
-                reached = atd <= d_ta
+                if (not self._turning and 0.0 < atd <= d_ta
+                        and self.route[self.act_leg].pt not in PT_VECTOR):
+                    self._turning = True
+                alert = not self._turning and 0.0 <= atd <= alert_dist
+                reached = (
+                    atd <= 0.0
+                    or (self._turning and self._past_turn_bisector(anchor, to, ac_lat, ac_lon))
+                    or (not self._turning and atd <= d_ta)
+                )
 
             if reached:
                 self._advance_leg(to_wp, to, alt_ft, ac_lat, ac_lon)
@@ -1579,6 +1638,13 @@ class Engine:
             if atd <= 0.0:
                 self._advance_hold_or_pt(to_wp, to, alt_ft, can_exit=False)
                 anchor, atd, xtk, dtk_true = self._leg_geometry(to_wp, fr, to, ac_lat, ac_lon, magvar_deg)
+
+        if self._turning:
+            # Turn start passed, bisector not yet: the course and deviation
+            # are the next leg's. Everything that names the waypoint (and
+            # the FROM anchor, which the map draws the active leg from)
+            # stays on the fix being turned at until it sequences.
+            _, xtk, dtk_true = self._next_leg_geometry(to, ac_lat, ac_lon, magvar_deg)
 
         self._prev_atd = atd
 
