@@ -101,6 +101,19 @@ Unless an entry says otherwise:
   | HANNU -> WINCH, waypoint | `cbbeafe57646` | fly-by, 22 deg | 94.2 | 0.00 (abeam) | 0 |
   | RW30 -> HANNU | `cbbeafe57646` | MAP, fly-over | 101.4 | 0.029 | 1.0 |
   | ELZUS | AER-809 session 1 | fly-by, 16 deg | not recorded | 0.254 | not recorded |
+  | PAMJI -> CIMSO | `ba51cf5e0d3b` / `d4dee8e34bdf` | fly-by, 0 deg | 111.2 / 111.7 | 0.205 / 0.204 | 6.6 |
+  | CIMSO -> ANIBY | `ba51cf5e0d3b` / `d4dee8e34bdf` | FAF, fly-by, 0 deg | 113.5 / 113.4 | 0.203 / 0.201 | 6.4 |
+  | ANIBY -> RW30 | `ba51cf5e0d3b` / `d4dee8e34bdf` | fly-by, 0 deg | 107.2 / 107.0 | 0.203 / 0.202 | 6.8 |
+  | HANNU, course change | `ba51cf5e0d3b` / `d4dee8e34bdf` | fly-by, 22 deg | 99.2 / 99.2 | 0.243 / 0.242 | 8.8 |
+  | PAMJI -> CIMSO | `3a2caebb1de7` (C172) | fly-by, 0 deg | 105.1 | 0.200 | 6.9 |
+  | CIMSO -> ANIBY | `3a2caebb1de7` (C172) | FAF, fly-by, 0 deg | 103.4 | 0.205 | 7.1 |
+  | **ANIBY -> RW30** | `3a2caebb1de7` (C172) | fly-by, 0 deg | **86.7** | **0.203** | **8.4** |
+  | HANNU, course change | `3a2caebb1de7` (C172) | fly-by, 22 deg | 78.0 | 0.216 | 10.0 |
+  | GEARE, course change | QA1 KSSF R28 (AER-4219) | fly-by, 90 deg | 121 | 0.81 | |
+  | XEHMO, course change | QA1 KDED R30 (AER-4219) | fly-by, 85 deg | 101 | 0.63 | |
+
+  - Rows from `ba51cf5e0d3b`, `d4dee8e34bdf` and `3a2caebb1de7` (AER-4286, 2026-11-01 and 2026-11-02) are the distance to the fix (`gps_dme_nm`) in the last sample before the switch; cross-track was 0.000 there. The first two were queued as 90 and 140 KTAS, but the driver takes its speeds from its aircraft table, not the profile's `aircraft.tas_kt`, so both flew the SR22's ~110 kt. They are repeats. `3a2caebb1de7` flew the C172 (100 KIAS cruise, 85 KIAS from the FAF), which is what put ANIBY at 86.7 kt.
+  - GEARE and XEHMO are straight-line distances from the aircraft to the fix on `tests/sim/fixtures/qa1_{kssf_r28,kded_r30}_xplane_2026-11-01.csv.gz` (AER-4286, comment 0ee62d0f). At both, the waypoint switched later, at the turn bisector: 0.33 nm before GEARE and 0.25 nm before XEHMO.
 
   - At HANNU, the one real fly-by turn on the recording, X-Plane changed the course 0.225 nm early but the waypoint only abeam the fix.
   - At the MAP, a fly-over, there is no 0.2 nm lead. The behavior is bounded to fly-by fixes so far.
@@ -114,10 +127,11 @@ Unless an entry says otherwise:
 - **Hypotheses ruled out** (comment 4d4661bb):
   - Y = V^2/g with groundspeed, from DO-236C's bank rule (proposed in comment 22584c01). ANIBY is the slowest collinear fix but has the largest lead, and V^2/g predicts 0.132 nm at HANNU.
   - A fixed time: 6.1 to 6.5 s at the approach fixes, but 8.5 s at HANNU.
-- **Current hypothesis.** A fixed distance fits best, but only over 94 to 115 kt. The shape would be a floor on turn start, `max(~0.2 nm, R tan(delta/2))`, with the waypoint switching at the bisector.
+  - Both again, decisively, at ANIBY on `3a2caebb1de7`: 86.7 kt, lead 0.203 nm. V^2/g predicts 0.110 nm and the 6.5 s fixed time 0.157 nm.
+- **Current hypothesis.** The course switches at turn start with a floor of about 0.2 nm: `max(~0.2 nm, R tan(delta/2))`. At collinear fixes the lead is 0.195 to 0.205 nm from 86.7 to 115 kt on all four sessions, so the floor is a fixed distance, not a speed or time term. At GEARE and XEHMO the turn term is the larger one. R tan(delta/2) at 15 deg of bank gives 0.80 nm at GEARE and 0.51 nm at XEHMO against 0.81 and 0.63 measured; that is one bank fitted to two points. The waypoint switches at the bisector where there is a turn. At a collinear fix it switches with the course, at the floor.
 - **Discriminating test** (AER-4286):
-  - The same approach at 90 KTAS (`ba51cf5e0d3b`) and 140 KTAS (`d4dee8e34bdf`), queued. At CIMSO and ANIBY, a fixed distance predicts 0.2 nm at both speeds. V^2/g predicts 0.118 and 0.286 nm, and a fixed time predicts 0.16 and 0.25 nm.
-  - Then, if still needed, a turn whose R tan(delta/2) is well over 0.2 nm. Where that happens depends on the bank assumed: at 110 kt, about 34 deg of turn at 15 deg of bank and about 56 deg at 25 deg. A session should assume 25 deg and use a turn well over 56 deg. That needs another procedure. (46 deg is where DO-236C's bank cap ends, which matters only to the V^2/g hypothesis that is ruled out.)
+  - Speed: done (above). A faster run is not needed to separate the floor from V^2/g or a fixed time. It would need a per-session speed setting in xplane-bench, which the driver does not have.
+  - Turn size: GEARE and XEHMO supply the large-turn case. A third turn would test the bank assumed in the turn term. That is not needed to classify the floor.
 - **Our side, for contrast** (comment 4d4661bb, step 4):
   - The engine's turn anticipation has a 0.1 nm floor: `src/fixgw/plugins/flightplan/engine.py:547`, `max(0.1, min(5.0, d_ta))`.
   - The engine sequences at turn start, where the Garmin guides switch at the bisector.
@@ -128,7 +142,7 @@ Unless an entry says otherwise:
   - `tests/sim/test_fp8_xplane_replay.py:125`: `_shared` excludes 5 s around either system's sequence.
   - `tests/sim/fixtures/fp8_xplane_2026-10-29.yaml:24,29`: `except_s_around_sequence: 5`.
   - `tests/sim/fixtures/fp8_xplane_2026-10-29.yaml:16`: the EXTTF 2 skip, for the FROM before WINCH.
-  - The synthetic tier's 5 s `WPNAME`/`REFWPT` window would not hold against X-Plane: the lead is 6.1 to 6.6 s (AER-4286, AER-4283).
+  - The synthetic tier's 5 s `WPNAME`/`REFWPT` window would not hold against X-Plane: the lead is 6.1 to 6.9 s at the SR22's speeds and 8.4 s at 86.7 kt (AER-4286, AER-4283).
 
 ### XPB-002
 
