@@ -57,7 +57,7 @@ Unless an entry says otherwise:
 
 | Id | Behavior | Class |
 |---|---|---|
-| [XPB-001](#xpb-001) | Switches to the next waypoint about 0.2 nm early, even at collinear fixes | `unknown` |
+| [XPB-001](#xpb-001) | Switches to the next waypoint about 0.2 nm early, even at collinear fixes | `sim-quirk` |
 | [XPB-002](#xpb-002) | Course reads about 0.11 deg above the WGS-84 reference on straight legs | `unknown` |
 | [XPB-003](#xpb-003) | G1000 SVS terrain horizon tilts less than the attitude horizon in a bank | `unknown` |
 | [XPB-004](#xpb-004) | Hold: shows the hold course through the entry and turns, FROM 0.2 nm before the hold fix | `unknown` |
@@ -88,7 +88,7 @@ Unless an entry says otherwise:
 
 **X-Plane switches to the next waypoint about 0.2 nm early, even at collinear fixes.**
 
-- **Class:** `unknown`.
+- **Class:** `sim-quirk` (Bill, AER-4286, card `bc4e2e7d`, 2026-11-02). The quirk is the fixed ~0.2 nm floor: X-Plane switches about 0.2 nm before a fix even when there is no turn. No standard or Garmin guide sets a minimum lead, so we do not model it, and the X-Plane comparison allows for it (0.3 nm, below). The rest of the shape, the course changing at turn start and the waypoint at the bisector, matches the Garmin guides. Whether our engine should follow that is a separate question, AER-4671. It is not part of this classification.
 - **Setup:** X-Plane 12, SR22 G1000, cycle 2406, session `cbbeafe57646`.
 - **Observed** (AER-4286, comment 4d4661bb, 2026-10-31, except where a row says otherwise). The lead is the along-track distance before the fix where X-Plane's active waypoint (or, for HANNU's first row, its course) changed. Time is lead / groundspeed.
 
