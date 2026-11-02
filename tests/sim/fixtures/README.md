@@ -120,8 +120,9 @@ commands. Regenerate on the Beelink with the AER-4464 bench follower's
 
 `sim2b_v27_xplane_2026-11-01.yaml` carries the X-Plane tier's checks,
 `FPLCRS`/`EXTCRS` within 2 deg and `FPLCDI`/`EXTCDI` within 0.1 of the same
-sign, plus the sequence HENER VTU EXERT DOYLE. Measured: course within 0.3
-deg and CDI within 0.011 outside 5 s of each sequence. Moving VTU 1.8 nm in
+sign, plus the sequence HENER VTU EXERT DOYLE. Measured since AER-4675:
+course within 0.12 deg and CDI within 0.001 on 5,770 rows, outside 6 s of
+each sequence and of the engine's turn start. Moving VTU 1.8 nm in
 the route block fails both pair checks; renaming EXERT fails the sequence.
 
 ## `qa1_kssf_r28_xplane_2026-11-01.csv.gz`, `qa1_kded_r30_xplane_2026-11-01.csv.gz`
@@ -156,13 +157,20 @@ variation: at KDED that is 5.0 and X-Plane's is 7.09, which puts every
 course 2.1 deg off. Each `.yaml` also names the pilot commands (`pilot:`, the
 profile's own RESUME 5 s after the MAP), which `xplane_replay.fly` replays.
 
-Measured with the checks in each `.yaml`: KSSF course within 0.09 deg on
-1,780 rows and CDI within 0.034 on 1,813; KDED course within 0.13 deg and CDI
-within 0.011 on 5,281 rows. The skips are listed with their reasons in each
-file. The two that are new since FP8 are listed here. In a fly-by turn of
-85-90 deg X-Plane changes its TO fix only at the bisector, 13-15 s after the
-engine (AER-4286), so rows where the two TO fixes differ are not compared
-(`skip_when_differ`). And at KSSF the driver went Direct-To GANLE past the
+Measured with the checks in each `.yaml` since AER-4675: KSSF course within
+0.09 deg on 1,628 rows and CDI within 0.034 on 1,614; KDED course within 0.13
+deg on 5,023 rows and CDI within 0.011 on 5,017. The skips are listed with
+their reasons in each file. Three are new since FP8. In a fly-by turn X-Plane
+turns its course 4.6-5.1 s before the engine, a wider turn than standard
+rate (XPB-001), so rows within 6 s of the engine's turn start (`FPLALERT`
+dropping) are not compared. In the turn, until the bisector, the engine's
+cross-track is from the next leg's straight line and X-Plane's deviation
+is not, so the CDI is not compared there (`eng_turning`); the course is,
+and agrees within 0.09 deg. Both now change the TO fix at the bisector, in
+the same row at GEARE, XEHMO and HENER (AER-4675; before it the engine
+changed it 13-15 s earlier), so `skip_when_differ` only skips rows at
+straight-through fixes, where X-Plane changes it 0.2 nm early. And at KSSF
+the driver went Direct-To GANLE past the
 CA leg, so the missed approach is not compared. A 2.5 deg course error on
 one leg, a 0.15 CDI offset on one leg, or a skipped fix fails the gate on
 either recording.

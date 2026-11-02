@@ -23,11 +23,20 @@
 #   EXTTF 2 (XPB-001, XPB-004): X-Plane is FROM, from about 0.2 nm before
 #     each fix, and in the hold.
 #   skip_when_differ [WPNAME, gps_id]: the two navigators guide to different
-#     fixes. In the 85 deg turn at XEHMO X-Plane turns its course to BARBS's
-#     at 0.60 nm before the fix and changes its TO fix only at the bisector,
-#     13.3 s after the engine, which changes both at 0.52 nm (AER-4286). In
-#     that gap X-Plane's CDI is not referenced to the XEHMO-BARBS leg (-0.03
-#     against the engine's -0.49 as the turn begins).
+#     fixes. At a straight-through fix X-Plane changes its TO fix about
+#     0.2 nm early (XPB-001). In the 85 deg turn at XEHMO both now change it
+#     at the bisector, in the same row, and at CUGAK (17 deg) one row apart
+#     (AER-4675).
+#   within 6 s of the engine's turn start (around_keys FPLALERT, which the
+#     engine drops at turn start, beside the TO-fix keys): X-Plane turns its
+#     course at 0.63 nm before XEHMO, 4.9 s before the engine does at
+#     0.49 nm, and 4.7 s before it at CUGAK (XPB-001: X-Plane's turn is
+#     wider than standard rate).
+#   eng_turning 1, CDI only: the engine's fly-by turn window, from turn start
+#     to the bisector. The engine's cross-track there is from the next leg's
+#     straight line (AER-4675), so it starts at the turn's anticipation
+#     distance and shrinks through the turn; X-Plane's deviation stays near
+#     zero, not referenced to that line. The course is compared there.
 name: qa1-kded-r30-xplane-2026-11-01
 profile: qa1-hold-teardrop-left-kded-r30
 trace: qa1_kded_r30_xplane_2026-11-01.csv.gz
@@ -37,14 +46,16 @@ pilot:
 checks:
   - key_pair: [FPLCRS, EXTCRS]
     tol_deg: 2.0
-    except_s_around_sequence: 5  # XPB-001: X-Plane sequences ~0.2 nm (6-7 s) early
+    except_s_around_sequence: 6  # XPB-001: X-Plane turns 4.7-4.9 s before the engine (above)
+    around_keys: [WPNAME, gps_id, FPLALERT]
     skip_when: {FPLSTATE: 3, FPLPHASE: HOLD, EXTTF: 2}
     skip_when_differ: [WPNAME, gps_id]
   - key_pair: [FPLCDI, EXTCDI]
     tol: 0.1
     same_sign: true
-    except_s_around_sequence: 5  # XPB-001: X-Plane sequences ~0.2 nm (6-7 s) early
-    skip_when: {FPLSTATE: 3, FPLPHASE: HOLD, EXTTF: 2}
+    except_s_around_sequence: 6  # XPB-001: X-Plane turns 4.7-4.9 s before the engine (above)
+    around_keys: [WPNAME, gps_id, FPLALERT]
+    skip_when: {FPLSTATE: 3, FPLPHASE: HOLD, EXTTF: 2, eng_turning: 1}
     skip_when_differ: [WPNAME, gps_id]
   - sequence: [CUGAK, YEBBU, RW30, XEHMO, BARBS]
     keys: [WPNAME, gps_id]

@@ -173,6 +173,7 @@ def keys_needed(checks):
         keys.update((c.get("skip_when") or {}).keys())
         keys.update((c.get("skip_when_silent") or {}).keys())
         keys.update(c.get("skip_when_differ") or ())
+        keys.update(c.get("around_keys") or ())
     return keys
 
 

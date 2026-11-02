@@ -26,13 +26,19 @@
 #     a disagreement about one. The hold is skipped for XPB-004, as in FP8.
 #   EXTTF 2 (XPB-001): X-Plane is FROM, from about 0.2 nm before each fix.
 #   skip_when_differ [WPNAME, gps_id]: the two navigators guide to different
-#     fixes. In the 90 deg turn at GEARE X-Plane turns its course to BEFOR's
-#     at 0.81 nm before the fix and changes its TO fix only at the bisector,
-#     15.2 s after the engine, which changes both at 0.67 nm (AER-4286). In
-#     that gap X-Plane's CDI is not referenced to the GEARE-BEFOR leg (0.01
-#     against the engine's 0.63 as the turn begins).
-#   except_s_around_sequence 6 on the course: X-Plane's course turns 5.1 s
-#     before the engine's sequence at GEARE, one row outside 5 s.
+#     fixes. At a straight-through fix X-Plane changes its TO fix about
+#     0.2 nm early (XPB-001). In the 90 deg turn at GEARE both now change it
+#     at the bisector, in the same row (AER-4675), so no row there is
+#     skipped by this.
+#   within 6 s of the engine's turn start (around_keys FPLALERT, which the
+#     engine drops at turn start, beside the TO-fix keys): X-Plane turns its
+#     course to BEFOR's at 0.81 nm before GEARE, 5.1 s before the engine
+#     does at 0.63 nm (XPB-001: X-Plane's turn is wider than standard rate).
+#   eng_turning 1, CDI only: the engine's fly-by turn window, from turn start
+#     to the bisector. The engine's cross-track there is from the next leg's
+#     straight line (AER-4675), so it starts at the turn's anticipation
+#     distance and shrinks through the turn; X-Plane's deviation stays near
+#     zero, not referenced to that line. The course is compared there.
 # The turn direction at GANLE (QA's F3) is not judged here: no FPL key
 # carries it.
 name: qa1-kssf-r28-xplane-2026-11-01
@@ -45,13 +51,15 @@ checks:
   - key_pair: [FPLCRS, EXTCRS]
     tol_deg: 2.0
     except_s_around_sequence: 6  # X-Plane turns its course 5.1 s before the engine at GEARE (above)
+    around_keys: [WPNAME, gps_id, FPLALERT]
     skip_when: {FPLSTATE: 3, WPNAME: GANLE, EXTTF: 2}
     skip_when_differ: [WPNAME, gps_id]
   - key_pair: [FPLCDI, EXTCDI]
     tol: 0.1
     same_sign: true
-    except_s_around_sequence: 5  # XPB-001: X-Plane sequences ~0.2 nm (6-7 s) early
-    skip_when: {FPLSTATE: 3, WPNAME: GANLE, EXTTF: 2}
+    except_s_around_sequence: 6  # X-Plane turns its course 5.1 s before the engine at GEARE (above)
+    around_keys: [WPNAME, gps_id, FPLALERT]
+    skip_when: {FPLSTATE: 3, WPNAME: GANLE, EXTTF: 2, eng_turning: 1}
     skip_when_differ: [WPNAME, gps_id]
   - sequence: [GEARE, BEFOR, LANDD, RW28, GANLE]
     keys: [WPNAME, gps_id]

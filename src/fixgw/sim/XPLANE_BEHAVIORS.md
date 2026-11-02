@@ -132,14 +132,14 @@ Unless an entry says otherwise:
 - **Discriminating test** (AER-4286):
   - Speed: done (above). A faster run is not needed to separate the floor from V^2/g or a fixed time. It would need a per-session speed setting in xplane-bench, which the driver does not have.
   - Turn size: GEARE and XEHMO supply the large-turn case. A third turn would test the bank assumed in the turn term. That is not needed to classify the floor.
-- **Our side, for contrast** (comment 4d4661bb, step 4):
-  - The engine's turn anticipation has a 0.1 nm floor: `src/fixgw/plugins/flightplan/engine.py:547`, `max(0.1, min(5.0, d_ta))`.
-  - The engine sequences at turn start, where the Garmin guides switch at the bisector.
-  - Both are open questions for Bill on AER-4286, not settled behavior.
+- **Our side, for contrast:**
+  - Until AER-4675 the engine changed course and waypoint together at turn start, with a 0.1 nm floor on the turn anticipation (comment 4d4661bb, step 4). Bill ruled on AER-4671 (2026-11-02): the course changes at turn start, the waypoint at the turn bisector, and there is no floor.
+  - Since AER-4675 the engine and X-Plane change the waypoint in the same 0.2 s row at GEARE, XEHMO and HENER, and 0.2 s apart at CUGAK. X-Plane still turns its course 4.6 to 5.1 s before the engine at those fixes: its turn term fits about 15 deg of bank, ours is standard rate. At straight-through fixes the engine now switches at the fix, so the whole ~0.2 nm lead (5.9 to 6.8 s) is X-Plane's.
 - **Relied on by:**
-  - `tests/sim/test_fp8_xplane_replay.py:67`: the sequence points are within 0.3 nm of X-Plane's. 0.3 nm is the FP8 brief's bound (AER-809), not fitted to this.
-  - `tests/sim/test_fp8_xplane_replay.py:76`: HANNU -> WINCH is not compared, because X-Plane switches that waypoint abeam the fix.
-  - `tests/sim/test_fp8_xplane_replay.py:125`: `_shared` excludes 5 s around either system's sequence.
+  - `tests/sim/test_fp8_xplane_replay.py:75`: the sequence points are within 0.3 nm of X-Plane's. 0.3 nm is the FP8 brief's bound (AER-809), not fitted to this.
+  - `tests/sim/test_fp8_xplane_replay.py:79`: HANNU -> WINCH is not compared, because X-Plane switches that waypoint abeam the fix.
+  - `tests/sim/test_fp8_xplane_replay.py:133`: `_shared` excludes 5 s around either system's sequence.
+  - `tests/sim/fixtures/qa1_kssf_r28_xplane_2026-11-01.yaml`, `qa1_kded_r30_xplane_2026-11-01.yaml`, `sim2b_v27_xplane_2026-11-01.yaml`: `except_s_around_sequence: 6` with `around_keys` `FPLALERT` for X-Plane's earlier turn start, and `skip_when_differ: [WPNAME, gps_id]` for its early switch at straight-through fixes.
   - `tests/sim/fixtures/fp8_xplane_2026-10-29.yaml:24,29`: `except_s_around_sequence: 5`.
   - `tests/sim/fixtures/fp8_xplane_2026-10-29.yaml:16`: the EXTTF 2 skip, for the FROM before WINCH.
   - The synthetic tier's 5 s `WPNAME`/`REFWPT` window would not hold against X-Plane: the lead is 6.1 to 6.9 s at the SR22's speeds and 8.4 s at 86.7 kt (AER-4286, AER-4283).
