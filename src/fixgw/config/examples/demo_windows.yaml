@@ -45,11 +45,11 @@ connections:
     items:
       - key: OILT1
         start_bypass: yes
-        cond_bypass: [TACH1 < 500, IAS < 40]
+        cond_bypass: [TACH1 < 500, IAS < IAS.Vgnd]
         deadband: 4
       - key: OILP1
         start_bypass: yes
-        cond_bypass: [TACH1 < 500, IAS < 40]
+        cond_bypass: [TACH1 < 500, IAS < IAS.Vgnd]
         deadband: 2
       - key: CHT11
       - key: CHT12
@@ -57,7 +57,7 @@ connections:
       - key: CHT14
       - key: CURRNT
       - key: VOLT
-        cond_bypass: [TACH1 < 500, IAS < 40]
+        cond_bypass: [TACH1 < 500, IAS < IAS.Vgnd]
       - key: FUELP1
       - key: FUELQ1
       - key: FUELQ2

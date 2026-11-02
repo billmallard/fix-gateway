@@ -18,8 +18,10 @@ annunciate:
     # must all hold.  A condition whose input is old, bad or failed never
     # holds, so a lost bypass sensor leaves the alarm armed.  Do not bypass
     # an alarm on one input: a single failed sensor would silence it.
+    # The right side is a number or a FIX value (IAS.Vgnd), read each time;
+    # an unset or untrusted value never holds.
     cond_bypass: None
-    #cond_bypass: [TACH1 < 1000, IAS < 40]
+    #cond_bypass: [TACH1 < 1000, IAS < IAS.Vgnd]
     # Once triggered the annunication will not clear until the value clears
     # the setpoint plus the deadband.  This cuts down "flashing" annunications
     # that are caused by values that are very near the set point.  The value
@@ -28,15 +30,17 @@ annunciate:
   items:
     # The engine alarms are bypassed only with the engine stopped AND the
     # aircraft slow enough to be on the ground.  A tach that fails and reads
-    # 0 in flight leaves them armed (AER-4370).
+    # 0 in flight leaves them armed (AER-4370).  "Slow enough" is the
+    # aircraft's IAS.Vgnd, set in init_data (default 40 kt) or the
+    # configurator: keep it below the slowest airborne IAS (AER-4619).
     - key: OILT1
       start_bypass: yes
-      cond_bypass: [TACH1 < 500, IAS < 40]
+      cond_bypass: [TACH1 < 500, IAS < IAS.Vgnd]
       deadband: 4
 
     - key: OILP1
       start_bypass: yes
-      cond_bypass: [TACH1 < 500, IAS < 40]
+      cond_bypass: [TACH1 < 500, IAS < IAS.Vgnd]
       deadband: 2
 
     - key: CHT11
@@ -51,7 +55,7 @@ annunciate:
 
     - key: CURRNT
     - key: VOLT
-      cond_bypass: [TACH1 < 500, IAS < 40]
+      cond_bypass: [TACH1 < 500, IAS < IAS.Vgnd]
 
     - key: FUELP1
     - key: FUELQ1

@@ -85,7 +85,7 @@ connections:
       start_bypass: no
       # Bypasses the value on a condition
       cond_bypass: None
-      #cond_bypass: [TACH1 < 1000, IAS < 40]
+      #cond_bypass: [TACH1 < 1000, IAS < IAS.Vgnd]
       # Once triggered the annunication will not clear until the value clears
       # the setpoint plus the deadband.  This cuts down "flashing" annunications
       # that are caused by values that are very near the set point.  The value
@@ -94,12 +94,12 @@ connections:
     items:
       - key: OILT1
         start_bypass: yes
-        cond_bypass: [TACH1 < 500, IAS < 40]
+        cond_bypass: [TACH1 < 500, IAS < IAS.Vgnd]
         deadband: 4
 
       - key: OILP1
         start_bypass: yes
-        cond_bypass: [TACH1 < 500, IAS < 40]
+        cond_bypass: [TACH1 < 500, IAS < IAS.Vgnd]
         deadband: 2
 
       - key: CHT11
@@ -109,7 +109,7 @@ connections:
 
       - key: CURRNT
       - key: VOLT
-        cond_bypass: [TACH1 < 500, IAS < 40]
+        cond_bypass: [TACH1 < 500, IAS < IAS.Vgnd]
 
       - key: FUELP1
       - key: FUELQ1

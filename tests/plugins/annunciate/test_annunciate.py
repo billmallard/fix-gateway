@@ -12,6 +12,8 @@ Coverage:
     (also verifies the annunicate→annunciate typo fix on the bypass path)
   - Conditional bypass on a list of conditions: bypass only while all hold
   - A bypass input that is old, bad or failed never bypasses (AER-4370)
+  - A condition compared against a FIX value (IAS < IAS.Vgnd) reads it at
+    each evaluation; an unset value never bypasses (AER-4619)
   - Start bypass: no annunciation until value first rises above low setpoint
   - start_bypass: no (YAML False) does not arm the start latch
   - stop(): callbacks removed, flag no longer updated after shutdown
@@ -57,6 +59,7 @@ entries:
   units: knots
   initial: 0.0
   tol: 2000
+  aux: [Vgnd]
 """
 
 _DEFAULTS = {
@@ -249,6 +252,60 @@ class TestAnnunciatePlugin(unittest.TestCase):
         database.write("IAS", 0.0)
         database.get_raw_item("IAS").fail = True
         self.assertTrue(self._low_oil_with_tach(p))
+
+    # ------------------------------------------------------------------
+    # A condition compared against a FIX value, not a literal (AER-4619):
+    # the ground/air airspeed split is the builder's IAS.Vgnd setting
+    # ------------------------------------------------------------------
+
+    def _ground_split(self):
+        defaults = dict(_DEFAULTS, cond_bypass=["TACH1 < 500", "IAS < IAS.Vgnd"])
+        return _make_plugin([{"key": "OILP1"}], defaults=defaults)
+
+    def test_threshold_from_a_fix_value_keeps_a_slow_aircraft_armed(self):
+        p = self._ground_split()
+        database.write("IAS.Vgnd", 25.0)
+        # A slow type airborne at 30 kt, tach reading 0: alarm armed
+        database.write("IAS", 30.0)
+        self.assertTrue(self._low_oil_with_tach(p))
+        # Below its threshold, engine stopped: bypassed
+        database.write("IAS", 20.0)
+        self.assertFalse(self._low_oil_with_tach(p))
+
+    def test_a_changed_threshold_applies_at_the_next_evaluation(self):
+        p = self._ground_split()
+        database.write("IAS", 30.0)
+        database.write("IAS.Vgnd", 40.0)
+        self.assertFalse(self._low_oil_with_tach(p))
+        database.write("IAS.Vgnd", 25.0)
+        self.assertTrue(self._low_oil_with_tach(p))
+
+    def test_an_unset_threshold_never_bypasses(self):
+        p = self._ground_split()
+        self.assertIsNone(database.read("IAS.Vgnd"))
+        database.write("IAS", 0.0)
+        self.assertTrue(self._low_oil_with_tach(p))
+
+    def test_a_threshold_key_that_is_failed_never_bypasses(self):
+        defaults = dict(_DEFAULTS, cond_bypass=["TACH1 < 500", "TACH1 < IAS"])
+        p = _make_plugin([{"key": "OILP1"}], defaults=defaults)
+        database.write("IAS", 600.0)
+        self.assertFalse(self._low_oil_with_tach(p))
+        database.get_raw_item("IAS").fail = True
+        self.assertTrue(self._low_oil_with_tach(p))
+
+    def test_a_literal_still_parses_as_a_literal(self):
+        p = _make_plugin(
+            [{"key": "OILP1", "cond_bypass": ["TACH1 < 500", "IAS < 40.5"]}]
+        )
+        database.write("IAS", 40.0)
+        self.assertFalse(self._low_oil_with_tach(p))
+
+    def test_an_unknown_threshold_aux_is_a_config_error(self):
+        with self.assertRaisesRegex(ValueError, "Unknown aux IAS.Vfoo"):
+            _make_plugin(
+                [{"key": "OILP1", "cond_bypass": ["TACH1 < 500", "IAS < IAS.Vfoo"]}]
+            )
 
     def test_condition_list_validation_errors(self):
         with self.assertRaisesRegex(ValueError, "Wrong number of tokens"):
