@@ -76,7 +76,7 @@ def _plugin(**config):
 
 def _fed(plugin, *lines):
     """Feed lines after an opening partial line (always discarded)."""
-    plugin.thread.feed(b"partial" + CRLF + b"".join(l + CRLF for l in lines))
+    plugin.thread.feed(b"partial" + CRLF + b"".join(line + CRLF for line in lines))
     return plugin
 
 
