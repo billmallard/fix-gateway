@@ -21,7 +21,8 @@
 #   In the turn the engine's cross-track is from the turn's arc, to the
 #     arc's end (AER-4715), and the CDI is compared there. X-Plane's follows
 #     an arc until the bisector and the next leg's straight line after it
-#     (XPB-001).
+#     (XPB-023). The step that leaves at the bisector is largest inside the
+#     6 s window above, so this check does not see it (XPB-023).
 # The trace stops at 1442.8 s, the row before X-Plane switched to PAROL: the
 # session ended there (end.after_fix DOYLE), 0.2 nm short of where the engine
 # sequences (XPB-001), so only X-Plane would have shown PAROL.

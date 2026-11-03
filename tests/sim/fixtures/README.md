@@ -167,8 +167,10 @@ rate (XPB-001), so rows within 6 s of the engine's turn start (`FPLALERT`
 dropping) are not compared. In the turn the engine's cross-track is from
 the turn's arc, to the arc's end (AER-4715), and the CDI is compared
 there. X-Plane's own deviation follows an arc too until the bisector, and
-the next leg's straight line after it (XPB-001), so through the second half
-of the turn the two differ by up to the arc's offset from that line. That,
+the next leg's straight line after it (XPB-023), so through the second half
+of the turn the two differ by up to the arc's offset from that line. The
+largest part of that step falls in the 6 s window after the switch, which
+is not compared: 0.129 at GEARE there (XPB-023). That,
 and X-Plane's wider arc, is the 0.059 at GEARE and 0.093 at XEHMO. The
 course agrees within 0.09 deg in the turn. Both now change the TO fix at the bisector, in
 the same row at GEARE, XEHMO and HENER (AER-4675; before it the engine

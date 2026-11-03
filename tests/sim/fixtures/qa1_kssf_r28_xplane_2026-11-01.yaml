@@ -37,7 +37,8 @@
 #   In the turn the engine's cross-track is from the turn's arc, to the
 #     arc's end (AER-4715), and the CDI is compared there. X-Plane's follows
 #     an arc until the bisector and the next leg's straight line after it
-#     (XPB-001). The second half of the GEARE
+#     (XPB-023). The step that leaves at the bisector is largest inside the
+#     6 s window above, so this check does not see it (XPB-023). The second half of the GEARE
 #     turn puts the CDIs 0.059 apart, the largest difference on the trace.
 # The turn direction at GANLE (QA's F3) is not judged here: no FPL key
 # carries it.
