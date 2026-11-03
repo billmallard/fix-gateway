@@ -31,6 +31,13 @@ Behaviour, as a navigator built to TSO-C129/C146 and DO-229 would show it:
   abeam line). A fly-by turn over 120 degrees is refused
   (:class:`ReferenceError_`), as an unsupported leg type is: neither guide
   says where such a turn starts or sequences.
+- Between turn start and the bisector, cross-track and CDI are measured
+  from the next leg's straight line. **That is a convention this reference
+  shares with the engine, not a sourced fact:** neither Garmin guide says
+  what the CDI shows during the turn. Agreement between the two in the turn
+  shows only that both follow the same convention, never that the CDI is
+  right there. Whether it should be referenced to the turn's arc instead is
+  an open question on fix-gateway#120.
 - The MAP never sequences on its own. Guidance continues FROM the MAP on
   the final course until the pilot initiates the missed approach
   (:meth:`ReferenceNavigator.go_missed`).
