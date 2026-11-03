@@ -28,7 +28,9 @@ Behaviour, as a navigator built to TSO-C129/C146 and DO-229 would show it:
   through the fix square to the mean of the two courses, the TO waypoint
   and distance sequence. A fly-over fix, and a fix with nothing after it,
   sequence abeam, as does a straight-through fix (its bisector is the
-  abeam line).
+  abeam line). A fly-by turn over 120 degrees is refused
+  (:class:`ReferenceError_`), as an unsupported leg type is: neither guide
+  says where such a turn starts or sequences.
 - The MAP never sequences on its own. Guidance continues FROM the MAP on
   the final course until the pilot initiates the missed approach
   (:meth:`ReferenceNavigator.go_missed`).
@@ -56,6 +58,9 @@ G_MPS2 = 9.80665
 KT_TO_MPS = M_PER_NM / 3600.0
 
 SUPPORTED = ("IF", "TF", "DF", "CA", "HM")
+# Neither Garmin guide says where a larger fly-by turn starts or sequences
+# (QA's review of fix-gateway#120, AER-4688), so the reference refuses one.
+MAX_FLYBY_TURN_DEG = 120.0
 
 
 class ReferenceError_(Exception):
@@ -494,8 +499,12 @@ class ReferenceNavigator:
         flyby = not leg.flyover and nxt_course is not None
         lead = 0.0
         if flyby:
+            turn = abs(wrap180(nxt_course - self._turn_inbound_azi()))
+            if turn > MAX_FLYBY_TURN_DEG:
+                raise ReferenceError_(f"fly-by turn of {turn:.1f} deg at {leg.ident}: over "
+                                      f"{MAX_FLYBY_TURN_DEG:g} deg, not supported by the reference")
             delta = abs(wrap180(nxt_course - azi))
-            lead = turn_radius_nm(gs_kt, self.rate, self.bank) * math.tan(math.radians(min(delta, 120.0) / 2.0))
+            lead = turn_radius_nm(gs_kt, self.rate, self.bank) * math.tan(math.radians(delta / 2.0))
         if 0.0 < remaining <= lead:
             self._start_turn(lat, lon, self._turn_inbound_azi(), nxt_course)
             return self._turn_done(t, lat, lon)

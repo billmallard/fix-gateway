@@ -139,6 +139,37 @@ def test_fly_by_fix_turns_at_anticipation_sequences_at_bisector_fly_over_abeam(l
     assert (o.wpt, o.pt) == ("WINCH", "HM")
 
 
+def _turn_legs(turn_deg, flyover=False):
+    # A 10 nm leg north into B, then 10 nm on, turning turn_deg right at B.
+    b = (34.8, -120.4)
+    a = refnav.direct(*b, 180.0, 10.0)
+    c = refnav.direct(*b, turn_deg, 10.0)
+    return [refnav.RefLeg("IF", "A", *a), refnav.RefLeg("TF", "B", *b, flyover=flyover),
+            refnav.RefLeg("TF", "C", *c)]
+
+
+@pytest.mark.parametrize("turn_deg", [121.0, 150.0, 179.0])
+def test_fly_by_turn_over_120_deg_is_refused(turn_deg):
+    # Turn anticipation used to cap the turn at 120 deg, so a larger turn
+    # started late and crossed the bisector early: 9.6 deg into a 179 deg
+    # turn (QA, AER-4688). Neither guide covers it, so the reference refuses.
+    lg = _turn_legs(turn_deg)
+    nav = refnav.ReferenceNavigator(lg, MV, (lg[1].lat, lg[1].lon), 1, 110.0)
+    lat, lon, azi = _on_leg(lg, 1, 5.0)
+    with pytest.raises(refnav.ReferenceError_, match=r"fly-by turn of 1\d\d\.\d deg at B"):
+        nav.update(0.0, lat, lon, 3000.0, 110.0, azi)
+
+
+@pytest.mark.parametrize("turn_deg, flyover", [(119.0, False), (150.0, True)], ids=["fly-by-119", "fly-over-150"])
+def test_a_fly_by_turn_to_120_deg_or_a_fly_over_turn_is_still_flown(turn_deg, flyover):
+    lg = _turn_legs(turn_deg, flyover)
+    nav = refnav.ReferenceNavigator(lg, MV, (lg[1].lat, lg[1].lon), 1, 110.0)
+    lat, lon, azi = _on_leg(lg, 1, 5.0)
+    assert nav.update(0.0, lat, lon, 3000.0, 110.0, azi).wpt == "B"
+    lat, lon, azi = _on_leg(lg, 1, -0.05)     # just past abeam B: sequenced either way
+    assert nav.update(1.0, lat, lon, 3000.0, 110.0, azi).wpt == "C"
+
+
 def test_map_suspends_until_the_pilot_goes_missed(legs):
     nav = _nav(legs, "RW30")
     k = nav.i
