@@ -24,11 +24,16 @@ Behaviour, as a navigator built to TSO-C129/C146 and DO-229 would show it:
 - A fly-by fix is two events (DO-236 section 3.2.5.4.1; the Garmin
   guides). At the start of the turn (turn anticipation ``R * tan(delta/2)``,
   rate-one or 25 degree bank, whichever is the wider turn) the course and
-  cross-track move to the next leg. At the turn bisector, the geodesic
+  course moves to the next leg. At the turn bisector, the geodesic
   through the fix square to the mean of the two courses, the TO waypoint
   and distance sequence. A fly-over fix, and a fix with nothing after it,
   sequence abeam, as does a straight-through fix (its bisector is the
   abeam line).
+- In a fly-by turn the cross-track is from the turn's arc, from turn start
+  until the aircraft is abeam the arc's end, on both sides of the bisector
+  (the Garmin guides: the CDI is referenced to the curved path). The arc
+  is tangent to both legs, ``lead`` from the fix on each, so its radius is
+  ``lead / tan(delta/2)``.
 - The MAP never sequences on its own. Guidance continues FROM the MAP on
   the final course until the pilot initiates the missed approach
   (:meth:`ReferenceNavigator.go_missed`).
@@ -345,6 +350,7 @@ class ReferenceNavigator:
         self._hold = None
         self._line = None
         self._turn = None             # (bisector, inbound line) between turn start and the bisector
+        self._arc = None              # the fly-by turn's arc, turn start to its end (_TurnArc)
         self._start_leg(position)
         self._faf = next((k for k, lg in enumerate(legs) if lg.faf), None)
         self._map = next((k for k, lg in enumerate(legs) if lg.map), None)
@@ -375,6 +381,7 @@ class ReferenceNavigator:
         leg = self.legs[self.i]
         self._hold = None
         self._turn = None
+        self._arc = None
         if leg.pt in ("TF", "IF", "DF", "CA"):
             self._line = self._line_for(self.i, position)
         elif leg.pt == "HM":
@@ -402,12 +409,14 @@ class ReferenceNavigator:
         self._start_leg(position, arrival_track)
         self.sequences.append(Sequence(t, frm, self.legs[self.i].ident, self.i))
 
-    def _start_turn(self, lat, lon, inbound_azi_at_fix, next_course):
+    def _start_turn(self, lat, lon, inbound_azi_at_fix, next_course, lead):
         """Turn start at a fly-by fix: guidance moves to the next leg, flown
-        from here if it is a DF; the TO waypoint stays until the bisector."""
+        from here if it is a DF; the TO waypoint stays until the bisector.
+        The cross-track is from the turn's arc until it ends."""
         fix = self.legs[self.i]
         mean = wrap360(inbound_azi_at_fix + wrap180(next_course - inbound_azi_at_fix) / 2.0)
         self._turn = (GeoLine(fix.lat, fix.lon, mean), self._line)
+        self._arc = _TurnArc.at(fix, self._line, inbound_azi_at_fix, next_course, lead, self.i)
         self._line = self._line_for(self.i + 1, (lat, lon))
 
     def _sequence_in_turn(self, t):
@@ -454,6 +463,9 @@ class ReferenceNavigator:
             phase = "HOLD " + self._hold.phase
         else:
             _, xtk, dtk_true = self._line.project(lat, lon)
+            arc_xtk = self._arc_xtk(lat, lon)
+            if arc_xtk is not None:
+                xtk = arc_xtk
             phase = ""
         scale, sphase = self._scale(lat, lon)
         dis = inverse(lat, lon, leg.lat, leg.lon)[0] if leg.lat is not None else 0.0
@@ -497,7 +509,7 @@ class ReferenceNavigator:
             delta = abs(wrap180(nxt_course - azi))
             lead = turn_radius_nm(gs_kt, self.rate, self.bank) * math.tan(math.radians(min(delta, 120.0) / 2.0))
         if 0.0 < remaining <= lead:
-            self._start_turn(lat, lon, self._turn_inbound_azi(), nxt_course)
+            self._start_turn(lat, lon, self._turn_inbound_azi(), nxt_course, lead)
             return self._turn_done(t, lat, lon)
         if remaining <= 0.0:
             self._sequence(t, (lat, lon), track_true)
@@ -516,3 +528,58 @@ class ReferenceNavigator:
             self._sequence_in_turn(t)
             return True
         return False
+
+    def _arc_xtk(self, lat, lon):
+        """Cross-track from the fly-by arc, or None outside it. The arc
+        belongs to the turn at legs[k]: it applies while legs[k] is the TO
+        leg (turn start to the bisector) or legs[k + 1] is (the bisector to
+        the arc's end), and is dropped once the aircraft is past its end."""
+        arc = self._arc
+        if arc is None or self.i not in (arc.k, arc.k + 1):
+            self._arc = None
+            return None
+        where, xtk = arc.measure(lat, lon)
+        if where > 0 and self.i == arc.k + 1:
+            self._arc = None
+        return xtk if where == 0 else None
+
+
+class _TurnArc:
+    """The arc of a fly-by turn: tangent to the inbound geodesic ``lead``
+    before the fix and to the outbound course ``lead`` after it. Built from
+    the inbound tangent point: its centre is ``radius`` square to the
+    inbound geodesic there. ``test_refnav`` checks it against a centre built
+    from the fix on the bisector, and against the outbound tangent point."""
+
+    def __init__(self, lat, lon, radius_nm, right, start_az, sweep_deg, k):
+        self.lat, self.lon, self.radius, self.right = lat, lon, radius_nm, right
+        self.start_az, self.sweep, self.k = start_az, sweep_deg, k
+
+    @classmethod
+    def at(cls, fix, inbound, inbound_azi_at_fix, next_course, lead, k):
+        delta = wrap180(next_course - inbound_azi_at_fix)
+        if abs(delta) < 0.5 or lead <= 0.0:
+            return None
+        right = delta > 0.0
+        radius = lead / math.tan(math.radians(abs(delta)) / 2.0)
+        s_lat, s_lon, s_azi = inbound.position(inbound.length_nm - lead)
+        c_lat, c_lon = direct(s_lat, s_lon, s_azi + (90.0 if right else -90.0), radius)
+        e_lat, e_lon = direct(fix.lat, fix.lon, next_course, lead)
+        start_az = inverse(c_lat, c_lon, s_lat, s_lon)[1]
+        end_az = inverse(c_lat, c_lon, e_lat, e_lon)[1]
+        sweep = (end_az - start_az) % 360.0 if right else (start_az - end_az) % 360.0
+        return cls(c_lat, c_lon, radius, right, start_az, sweep, k)
+
+    def measure(self, lat, lon):
+        """(where, xtk): where is -1 short of the arc's start radial, 0
+        between its ends, 1 past its end; xtk is right-positive from the
+        arc (outside a right turn is left of the path)."""
+        r, az, _ = inverse(self.lat, self.lon, lat, lon)
+        gone = (az - self.start_az) % 360.0 if self.right else (self.start_az - az) % 360.0
+        if gone <= self.sweep:
+            where = 0
+        elif gone - self.sweep < (360.0 - self.sweep) / 2.0:
+            where = 1
+        else:
+            where = -1
+        return where, (self.radius - r) if self.right else (r - self.radius)

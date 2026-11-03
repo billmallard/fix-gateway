@@ -235,7 +235,8 @@ recorder file is a snapshot of every key and does not count as a write.
 
 How the reference flies, briefly (details in `refnav.py`): at a fly-by fix
 the course moves to the next leg at the start of the turn (`R tan(delta/2)`)
-and the TO fix sequences at the turn bisector; fly-over fixes and the MAP
+and the TO fix sequences at the turn bisector, with the cross-track from
+the turn's arc from turn start to the arc's end; fly-over fixes and the MAP
 abeam; the MAP suspends until the pilot goes missed; a `CA` ends on
 altitude; an `HM` is the published racetrack with a standard entry (direct,
 teardrop or parallel by the AIM sectors). CDI full scale 2.0 nm en route,

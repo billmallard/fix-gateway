@@ -139,6 +139,54 @@ def test_fly_by_fix_turns_at_anticipation_sequences_at_bisector_fly_over_abeam(l
     assert (o.wpt, o.pt) == ("WINCH", "HM")
 
 
+def test_fly_by_cross_track_is_from_the_turn_arc_until_its_end(legs):
+    # AER-4715: from turn start at HANNU to the end of the turn's arc, on
+    # both sides of the bisector, cross-track is from the arc tangent to
+    # both legs `lead` from the fix. The arc here is built from the fix, on
+    # the bisector, not from the tangent point as refnav builds it.
+    nav = _nav(legs, "HANNU", position=(34.90, -120.44))
+    hannu, winch = legs[8], legs[9]
+    line = nav._line
+    d_out = refnav.inverse(hannu.lat, hannu.lon, winch.lat, winch.lon)[1]
+    _, _, az_in = line.position(line.length_nm)
+    delta = refnav.wrap180(d_out - az_in)
+    half = math.radians(abs(delta)) / 2
+    lead = refnav.turn_radius_nm(110.0) * math.tan(half)
+    radius = lead / math.tan(half)
+    inside = refnav.wrap360(az_in + 180.0 + refnav.wrap180(d_out - az_in - 180.0) / 2.0)
+    c_lat, c_lon = refnav.direct(hannu.lat, hannu.lon, inside, lead / math.sin(half))
+    # Tangent to the outbound course at its end, too: the centre is radius
+    # abeam the exit point.
+    e_lat, e_lon = refnav.direct(hannu.lat, hannu.lon, d_out, lead)
+    assert refnav.inverse(c_lat, c_lon, e_lat, e_lon)[0] == pytest.approx(radius, abs=1e-4)
+
+    lat, lon, _ = line.position(line.length_nm - lead + 0.005)
+    o = nav.update(0.0, lat, lon, 3000.0, 110.0, az_in)
+    assert o.wpt == "HANNU" and o.dtk_true == pytest.approx(d_out, abs=0.1)
+    assert o.xtk_nm == pytest.approx(0.0, abs=0.002)
+    s_az = refnav.inverse(c_lat, c_lon, lat, lon)[1]
+    sign = 1.0 if delta > 0 else -1.0
+    seen = set()
+    for k, f in enumerate((0.1, 0.3, 0.5, 0.7, 0.9)):
+        az = s_az + sign * f * abs(delta)
+        lat, lon = refnav.direct(c_lat, c_lon, az, radius)
+        o = nav.update(1.0 + k, lat, lon, 3000.0, 110.0, az + sign * 90.0)
+        seen.add(o.wpt)
+        assert o.xtk_nm == pytest.approx(0.0, abs=0.002), f
+        assert o.dtk_true == pytest.approx(d_out, abs=0.5)
+    assert seen == {"HANNU", "WINCH"}   # both sides of the bisector
+    # Outside the arc by 0.1 nm, in its second half: outside a right turn
+    # is left of the path, and the other way round.
+    lat, lon = refnav.direct(c_lat, c_lon, s_az + sign * 0.8 * abs(delta), radius + 0.1)
+    o = nav.update(6.0, lat, lon, 3000.0, 110.0, d_out)
+    assert o.xtk_nm == pytest.approx(-0.1 * sign, abs=0.002)
+    # Past the arc's end, the WINCH leg's own line again.
+    lat, lon = refnav.direct(hannu.lat, hannu.lon, d_out, lead + 0.2)
+    o = nav.update(7.0, lat, lon, 3000.0, 110.0, d_out)
+    assert nav._arc is None
+    assert o.xtk_nm == pytest.approx(nav._line.project(lat, lon)[1], abs=1e-9)
+
+
 def test_map_suspends_until_the_pilot_goes_missed(legs):
     nav = _nav(legs, "RW30")
     k = nav.i
