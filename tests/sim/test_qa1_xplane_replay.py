@@ -146,3 +146,30 @@ def test_skip_when_differ_needs_two_keys(tmp_path):
     p.write_text(yaml.safe_dump(raw))
     with pytest.raises(ProfileError, match="skip_when_differ"):
         load_profile(str(p))
+
+
+def test_min_compared_share_fails_a_check_that_excuses_too_many_rows():
+    c = {"key_pair": ["A", "B"], "tol": 0.1, "skip_when": {"S": 1}, "after_s": 0}
+    rows = [(i * 0.2, {"A": 0, "B": 0, "S": int(i >= 6)}) for i in range(10)]
+    log = checks.Log.from_rows(rows, checks.keys_needed([c]))
+    r = checks.evaluate([dict(c, min_compared_share=0.6)], log, start_s=0)[0]
+    assert r.passed and (r.compared, r.judged) == (6, 10)
+    r = checks.evaluate([dict(c, min_compared_share=0.7)], log, start_s=0)[0]
+    assert not r.passed and r.failed == 0
+    assert "compared 6 of 10 rows (60.0%), floor 70%" in r.detail
+    assert checks.evaluate([c], log, start_s=0)[0].passed
+
+
+@pytest.mark.parametrize("check", [
+    {"key_pair": ["FPLCRS", "REFCRS"], "tol_deg": 1, "min_compared_share": 0},
+    {"key_pair": ["FPLCRS", "REFCRS"], "tol_deg": 1, "min_compared_share": 1.5},
+    {"sequence": ["CUGAK"], "min_compared_share": 0.5},
+], ids=["zero", "over-one", "not-a-pair"])
+def test_min_compared_share_is_a_share_on_a_key_pair(tmp_path, check):
+    raw = yaml.safe_load((profile_gate.PROFILES_DIR / "qa1-hold-teardrop-left-kded-r30.yaml").read_text())
+    raw["cifp"]["file"] = str(profile_gate.PROFILES_DIR / raw["cifp"]["file"])
+    raw["checks"] = [check]
+    p = tmp_path / "p.yaml"
+    p.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ProfileError, match="min_compared_share"):
+        load_profile(str(p))
