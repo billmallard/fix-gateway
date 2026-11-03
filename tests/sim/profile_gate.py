@@ -152,6 +152,8 @@ def failure_line(name, r):
         return f"{name}: {r.label} FAILED: {r.detail}"
     if r.compared == 0:
         return f"{name}: {r.label} FAILED: nothing compared"
+    if r.failed == 0:   # every compared row agreed, but too few were compared (min_compared_share)
+        return f"{name}: {r.label} FAILED: {r.detail}"
     line = f"{name}: {r.label} FAILED on {r.failed} of {r.compared} rows; first at {r.detail}"
     if r.max_err is not None:
         line += f"; max error {r.max_err:.4f} at t={r.t_max:.1f}s"

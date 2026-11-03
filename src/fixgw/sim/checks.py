@@ -116,6 +116,7 @@ class CheckResult:
     flagged: int = 0             # rows skipped because the engine key was flagged (unless_flagged)
     transients: int = 0          # failing runs no longer than tolerate_s, not counted as failures
     silent: int = 0              # rows skipped because an input had gone silent (skip_when_silent)
+    judged: int = 0              # rows at or after after_s: the share floor's denominator (min_compared_share)
 
 
 def _fmt(v):
@@ -220,6 +221,11 @@ def _eval_one(c, log, seq_times, legs, start_s):
     after = float(c.get("after_s", start_s))
     unless_flagged = bool(c.get("unless_flagged", False))
     tolerate = float(c.get("tolerate_s", 0.0))
+    # Every skip above excuses rows, and some are opened by the engine's own
+    # keys (around_keys FPLALERT, skip_when_differ WPNAME). A floor on the
+    # share of rows compared fails the check when the excused share grows, so
+    # an engine that excuses itself does not pass on a handful of rows.
+    min_share = c.get("min_compared_share")
     label = f"{a_key} vs {b_key}"
     if tol_deg is not None:
         label += f" (+-{tol_deg} deg)"
@@ -231,7 +237,10 @@ def _eval_one(c, log, seq_times, legs, start_s):
     bad_rows = []      # (index among compared rows, t, a, b, leg)
     errs = []          # per compared row: (t, error or None, leg)
     for i, (t, row, leg, flags) in enumerate(zip(log.t, log.rows, legs, log.flags)):
-        if t < after or _in_window(t, seq_times, window):
+        if t < after:
+            continue
+        res.judged += 1
+        if _in_window(t, seq_times, window):
             continue
         if any(row.get(k) == v for k, v in skip.items()):
             continue
@@ -303,6 +312,10 @@ def _eval_one(c, log, seq_times, legs, start_s):
     if res.compared == 0:
         res.detail = "nothing compared"
     extra = []
+    if min_share is not None and res.compared < float(min_share) * res.judged:
+        res.passed = False
+        extra.append(f"compared {res.compared} of {res.judged} rows ({res.compared / max(res.judged, 1):.1%}), "
+                     f"floor {float(min_share):.0%}")
     if res.flagged:
         extra.append(f"{res.flagged} rows flagged")
     if res.transients:

@@ -49,12 +49,14 @@ pilot:
   - {resume_after_map_s: 5}
 checks:
   - key_pair: [FPLCRS, EXTCRS]
+    min_compared_share: 0.25  # 32% of rows compared on this trace (AER-4693)
     tol_deg: 2.0
     except_s_around_sequence: 6  # X-Plane turns its course 5.1 s before the engine at GEARE (above)
     around_keys: [WPNAME, gps_id, FPLALERT]
     skip_when: {FPLSTATE: 3, WPNAME: GANLE, EXTTF: 2}
     skip_when_differ: [WPNAME, gps_id]
   - key_pair: [FPLCDI, EXTCDI]
+    min_compared_share: 0.25  # 32% of rows compared on this trace (AER-4693)
     tol: 0.1
     same_sign: true
     except_s_around_sequence: 6  # X-Plane turns its course 5.1 s before the engine at GEARE (above)

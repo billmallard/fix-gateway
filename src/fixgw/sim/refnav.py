@@ -28,12 +28,14 @@ Behaviour, as a navigator built to TSO-C129/C146 and DO-229 would show it:
   through the fix square to the mean of the two courses, the TO waypoint
   and distance sequence. A fly-over fix, and a fix with nothing after it,
   sequence abeam, as does a straight-through fix (its bisector is the
-  abeam line).
+  abeam line). A fly-by turn over 120 degrees is refused
+  (:class:`ReferenceError_`), as an unsupported leg type is: neither guide
+  says where such a turn starts or sequences.
 - In a fly-by turn the cross-track is from the turn's arc, from turn start
   until the aircraft is abeam the arc's end, on both sides of the bisector
-  (the Garmin guides: the CDI is referenced to the curved path). The arc
-  is tangent to both legs, ``lead`` from the fix on each, so its radius is
-  ``lead / tan(delta/2)``.
+  (the Garmin GNC 250XL guide, p. 84: "CDI guidance along a curved path
+  segment" during the transition). The arc is tangent to both legs,
+  ``lead`` from the fix on each, so its radius is ``lead / tan(delta/2)``.
 - The MAP never sequences on its own. Guidance continues FROM the MAP on
   the final course until the pilot initiates the missed approach
   (:meth:`ReferenceNavigator.go_missed`).
@@ -61,6 +63,9 @@ G_MPS2 = 9.80665
 KT_TO_MPS = M_PER_NM / 3600.0
 
 SUPPORTED = ("IF", "TF", "DF", "CA", "HM")
+# Neither Garmin guide says where a larger fly-by turn starts or sequences
+# (QA's review of fix-gateway#120, AER-4688), so the reference refuses one.
+MAX_FLYBY_TURN_DEG = 120.0
 
 
 class ReferenceError_(Exception):
@@ -506,8 +511,13 @@ class ReferenceNavigator:
         flyby = not leg.flyover and nxt_course is not None
         lead = 0.0
         if flyby:
-            delta = abs(wrap180(nxt_course - azi))
-            lead = turn_radius_nm(gs_kt, self.rate, self.bank) * math.tan(math.radians(min(delta, 120.0) / 2.0))
+            turn = abs(wrap180(nxt_course - self._turn_inbound_azi()))
+            if turn > MAX_FLYBY_TURN_DEG:
+                raise ReferenceError_(f"fly-by turn of {turn:.1f} deg at {leg.ident}: over "
+                                      f"{MAX_FLYBY_TURN_DEG:g} deg, not supported by the reference")
+            # The turn at the fix, the one the refusal above measures and the
+            # arc is built on, not at the abeam point (QA on #122).
+            lead = turn_radius_nm(gs_kt, self.rate, self.bank) * math.tan(math.radians(turn / 2.0))
         if 0.0 < remaining <= lead:
             self._start_turn(lat, lon, self._turn_inbound_azi(), nxt_course, lead)
             return self._turn_done(t, lat, lon)

@@ -29,7 +29,7 @@ _CHECK_KINDS = {"key_pair", "sequence", "flagged"}
 _CHECK_KEYS = {"key_pair", "sequence", "flagged", "keys", "tol", "tol_deg", "tol_rel", "same_sign",
                "except_s_around_sequence", "skip_when", "after_s", "note", "unless_flagged",
                "tolerate_s", "while_no_fix", "while_silent", "within_s", "clear_within_s", "around_keys",
-               "skip_when_silent", "skip_when_differ"}
+               "skip_when_silent", "skip_when_differ", "min_compared_share"}
 _DO = ("offset_nm", "hold_min", "gps_loss_s", "gps_link_loss_s", "gps_status_loss_s", "gps_position_loss_s")
 
 
@@ -166,6 +166,10 @@ def load_profile(path, cifp_override=None):
         swd = c.get("skip_when_differ")
         if swd is not None and (not isinstance(swd, list) or len(swd) < 2):
             raise ProfileError(f"checks[{n}].skip_when_differ: [KEY, KEY, ...]")
+        mcs = c.get("min_compared_share")
+        if mcs is not None and ("key_pair" not in c or isinstance(mcs, bool)
+                                or not isinstance(mcs, (int, float)) or not 0.0 < mcs <= 1.0):
+            raise ProfileError(f"checks[{n}].min_compared_share: a share, 0 < share <= 1, on a key_pair check")
 
     return Profile(
         name=raw["name"], path=os.path.abspath(path), description=raw.get("description", ""),

@@ -178,3 +178,12 @@ the driver went Direct-To GANLE past the
 CA leg, so the missed approach is not compared. A 2.5 deg course error on
 one leg, a 0.15 CDI offset on one leg, or a skipped fix fails the gate on
 either recording.
+
+Every course and CDI check on an X-Plane recording carries a floor,
+`min_compared_share`, a little below the share of rows it compares today
+(KSSF 32%, KDED 60%, FP8 66%, SIM2b 92%). The `FPLALERT` window is opened by
+the engine's own output, so an engine that toggles it constantly excuses
+most of the flight: with that fault the KSSF and KDED checks compared 4% and
+8% of their rows and still passed, caught only by the sensitivity tests
+(QA, AER-4688). With the floor they fail on the share
+(`test_an_engine_toggling_fplalert_fails_the_fixture_checks`, AER-4693).

@@ -35,11 +35,13 @@ magvar: -11.449
 trace: sim2b_v27_xplane_2026-11-01.csv.gz
 checks:
   - key_pair: [FPLCRS, EXTCRS]
+    min_compared_share: 0.8  # 92% of rows compared on this trace (AER-4693)
     tol_deg: 2.0
     except_s_around_sequence: 6
     around_keys: [WPNAME, gps_id, FPLALERT]
     skip_when: {EXTTF: 2}
   - key_pair: [FPLCDI, EXTCDI]
+    min_compared_share: 0.8  # 92% of rows compared on this trace (AER-4693)
     tol: 0.1
     same_sign: true
     except_s_around_sequence: 6
