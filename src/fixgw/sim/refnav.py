@@ -23,8 +23,8 @@ Behaviour, as a navigator built to TSO-C129/C146 and DO-229 would show it:
   and ends when the altitude is reached.
 - A fly-by fix is two events (DO-236 section 3.2.5.4.1; the Garmin
   guides). At the start of the turn (turn anticipation ``R * tan(delta/2)``,
-  rate-one or 25 degree bank, whichever is the wider turn) the course and
-  course moves to the next leg. At the turn bisector, the geodesic
+  ``R`` the radius of a nominal 15 degree bank, the Garmin guides' figure:
+  TURN1, AER-4759) the course moves to the next leg. At the turn bisector, the geodesic
   through the fix square to the mean of the two courses, the TO waypoint
   and distance sequence. A fly-over fix, and a fix with nothing after it,
   sequence abeam, as does a straight-through fix (its bisector is the
@@ -92,11 +92,20 @@ def direct(lat, lon, azimuth, dist_nm):
 
 
 def turn_radius_nm(gs_kt, rate_deg_s=3.0, bank_max_deg=25.0):
-    """Rate-one turn radius, or the bank-limited one if that is wider."""
+    """Rate-one turn radius, or the bank-limited one if that is wider: a
+    hold's turns (AIM 5-3-8, whichever needs the least bank)."""
     v = max(gs_kt, 1.0) * KT_TO_MPS
     r_rate = v / math.radians(rate_deg_s)
     r_bank = v * v / (G_MPS2 * math.tan(math.radians(bank_max_deg)))
     return max(r_rate, r_bank) / M_PER_NM
+
+
+def flyby_turn_radius_nm(gs_kt, bank_deg=15.0):
+    """A fly-by turn's radius: a nominal bank, 15 degrees in the Garmin
+    guides ("smooths adjacent leg transitions based upon a nominal 15 deg
+    bank angle", GNS 430 / 400W / G1000 NXi), not rate one (TURN1)."""
+    v = max(gs_kt, 1.0) * KT_TO_MPS
+    return v * v / (G_MPS2 * math.tan(math.radians(bank_deg))) / M_PER_NM
 
 
 class GeoLine:
@@ -338,7 +347,8 @@ class ReferenceNavigator:
     """
 
     def __init__(self, legs, magvar_deg, destination, active, tas_kt,
-                 turn_rate_deg_s=3.0, bank_max_deg=25.0, terminal_nm=30.0, position=None):
+                 turn_rate_deg_s=3.0, bank_max_deg=25.0, terminal_nm=30.0, position=None,
+                 flyby_bank_deg=15.0):
         if not 0 < active < len(legs):
             raise ReferenceError_(f"active leg {active} out of range")
         self.legs = legs
@@ -347,6 +357,7 @@ class ReferenceNavigator:
         self.tas = tas_kt
         self.rate = turn_rate_deg_s
         self.bank = bank_max_deg
+        self.flyby_bank = flyby_bank_deg
         self.terminal_nm = terminal_nm
         self.i = active
         self.missed = False
@@ -517,7 +528,7 @@ class ReferenceNavigator:
                                       f"{MAX_FLYBY_TURN_DEG:g} deg, not supported by the reference")
             # The turn at the fix, the one the refusal above measures and the
             # arc is built on, not at the abeam point (QA on #122).
-            lead = turn_radius_nm(gs_kt, self.rate, self.bank) * math.tan(math.radians(turn / 2.0))
+            lead = flyby_turn_radius_nm(gs_kt, self.flyby_bank) * math.tan(math.radians(turn / 2.0))
         if 0.0 < remaining <= lead:
             self._start_turn(lat, lon, self._turn_inbound_azi(), nxt_course, lead)
             return self._turn_done(t, lat, lon)

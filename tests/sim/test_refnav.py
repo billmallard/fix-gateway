@@ -103,6 +103,18 @@ def test_cdi_scale_ramps_over_the_two_miles_before_the_faf(legs, d_faf, scale):
     assert o.wpt == "CIMSO" and o.scale_nm == pytest.approx(scale, abs=1e-4)
 
 
+# TURN1 (AER-4759): a fly-by turn is sized from a nominal 15 deg bank, the
+# Garmin guides' figure, not rate one: at 110 kt,
+# (110 * 1852 / 3600 m/s)^2 / (9.80665 tan 15) = 1218.7 m = 0.6580 nm
+# (rate one, 0.5836 nm, until then). Holds keep rate one or 25 deg.
+FLYBY_R_110 = 0.6580
+
+
+def test_fly_by_turn_radius_is_a_15_deg_bank_and_the_hold_radius_rate_one():
+    assert refnav.flyby_turn_radius_nm(110.0) == pytest.approx(FLYBY_R_110, abs=1e-4)
+    assert refnav.turn_radius_nm(110.0) == pytest.approx(110.0 / 188.5, abs=1e-3)
+
+
 def test_fly_by_fix_turns_at_anticipation_sequences_at_bisector_fly_over_abeam(legs):
     # HANNU is fly-by into HANNU-WINCH. Turn start, R*tan(delta/2) early:
     # course and cross-track move to HANNU-WINCH, the TO waypoint stays
@@ -115,7 +127,7 @@ def test_fly_by_fix_turns_at_anticipation_sequences_at_bisector_fly_over_abeam(l
     _, _, az_in = line.position(line.length_nm)
     delta = abs(refnav.wrap180(d_out - az_in))
     assert delta > 10.0
-    lead = refnav.turn_radius_nm(110.0) * math.tan(math.radians(delta / 2))
+    lead = FLYBY_R_110 * math.tan(math.radians(delta / 2))
     lat, lon, _ = line.position(line.length_nm - lead - 0.01)
     o = nav.update(0.0, lat, lon, 3000.0, 110.0, az_in)
     assert o.wpt == "HANNU" and o.dtk_true == pytest.approx(az_in, abs=0.1)
@@ -151,7 +163,7 @@ def test_fly_by_cross_track_is_from_the_turn_arc_until_its_end(legs):
     _, _, az_in = line.position(line.length_nm)
     delta = refnav.wrap180(d_out - az_in)
     half = math.radians(abs(delta)) / 2
-    lead = refnav.turn_radius_nm(110.0) * math.tan(half)
+    lead = FLYBY_R_110 * math.tan(half)
     radius = lead / math.tan(half)
     inside = refnav.wrap360(az_in + 180.0 + refnav.wrap180(d_out - az_in - 180.0) / 2.0)
     c_lat, c_lon = refnav.direct(hannu.lat, hannu.lon, inside, lead / math.sin(half))
@@ -224,7 +236,7 @@ def test_turn_start_lead_between_90_and_120_deg_is_r_tan_half_the_turn_at_the_fi
     # range. The lead is R tan(delta/2) with delta the turn at the fix.
     lg = _turn_legs(turn_deg)
     nav = refnav.ReferenceNavigator(lg, MV, (lg[1].lat, lg[1].lon), 1, 110.0)
-    lead = refnav.turn_radius_nm(110.0) * math.tan(math.radians(turn_deg / 2.0))
+    lead = FLYBY_R_110 * math.tan(math.radians(turn_deg / 2.0))
     lat, lon, azi = _on_leg(lg, 1, lead + 0.003)
     assert nav.update(0.0, lat, lon, 3000.0, 110.0, azi).dtk_true == pytest.approx(0.0, abs=0.1)
     lat, lon, azi = _on_leg(lg, 1, lead - 0.003)

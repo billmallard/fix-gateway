@@ -185,7 +185,7 @@ def fly(rows=None, profile=PROFILE, pilot=None, magvar=None):
         s = dict(out)
         s.update(t=r["t"], lat=r["lat"], lon=r["lon"], xp_wpt=r["xp_wpt"], xp_crs=r["xp_crs"],
                  xp_hdef_dot=r["xp_hdef_dot"], xp_fromto=r["xp_fromto"], leg_phase=e._leg_phase,
-                 turning=e._turning)
+                 turning=e._turning, arc_after_bisector=not e._turning and e._turn_arc is not None)
         samples.append(s)
         prev = out
     return samples, events
@@ -214,7 +214,8 @@ def fly_route(rows, block, act, magvar):
             events.append((r["t"], "sequence", f"{prev['wp_name']} -> {out['wp_name']}", r["lat"], r["lon"]))
         s = dict(out)
         s.update(t=r["t"], lat=r["lat"], lon=r["lon"], xp_wpt=r["xp_wpt"], xp_crs=r["xp_crs"],
-                 xp_hdef_dot=r["xp_hdef_dot"], xp_fromto=r["xp_fromto"], turning=e._turning)
+                 xp_hdef_dot=r["xp_hdef_dot"], xp_fromto=r["xp_fromto"], turning=e._turning,
+                 arc_after_bisector=not e._turning and e._turn_arc is not None)
         samples.append(s)
         prev = out
     return samples, events
@@ -233,13 +234,16 @@ def bus_rows(samples):
     fix-gateway#41, after FP8 was recorded: XPB-008). X-Plane's active
     waypoint has no bus key; it keeps its truth-log name, ``gps_id``. The
     engine's fly-by turn window (AER-4675: past turn start, short of the
-    bisector) has none either; it is ``eng_turning``, 1 inside it. The
+    bisector) has none either; it is ``eng_turning``, 1 inside it. Past the
+    bisector, while the engine still measures from the turn's arc (AER-4715),
+    is ``eng_arc_after_bisector``: there X-Plane measures from the next leg's
+    straight line (XPB-023), so the two CDIs measure different paths. The
     trace has no cross-track or distance from X-Plane's navigator (XPB-006)."""
     out = []
     for s in samples:
         row = {key: s[k] for k, key in OUT_KEYS.items() if k in s}
         row.update(EXTCRS=s["xp_crs"], EXTCDI=ext_cdi(s["xp_hdef_dot"]), EXTTF=s["xp_fromto"], gps_id=s["xp_wpt"],
-                   eng_turning=int(s["turning"]))
+                   eng_turning=int(s["turning"]), eng_arc_after_bisector=int(s["arc_after_bisector"]))
         out.append((s["t"], row))
     return out
 

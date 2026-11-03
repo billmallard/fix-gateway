@@ -79,7 +79,8 @@ flightplan:
   # state_file: "{CONFIG}/flightplan_state.json"   # optional; default shown
   restore_delay: 2.0        # seconds before restoring the persisted plan
   rate_hz: 5                # LAT/LONG-driven guidance update rate cap
-  turn_rate_deg_s: 3.0      # standard-rate turn, for turn-anticipation d_ta
+  turn_bank_deg: 15.0       # fly-by turn radius, for d_ta and the arc (TURN1)
+  turn_rate_deg_s: 3.0      # hold turns: standard rate, at most 25 deg of bank
   terminal_nm: 30           # ENR/TERM threshold, distance from dep/dest
   approach_ramp_nm: 2.0     # LNAV ramp starts this far before the FAF
   alert_s: 10               # FPLALERT lead time (or 1 nm, whichever is longer)
@@ -154,7 +155,7 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   then turn back onto the inbound course to the fix. Every other arrival
   is a **direct** entry. The racetrack is then fixed to the ground at the
   fix: a 180° standard-rate turn (radius `GS / 188.5` nm at the GS the fix
-  was reached at) to two radii abeam the fix on the holding side, the
+  was reached at, or the 25° bank radius if wider: AIM 5-3-8) to two radii abeam the fix on the holding side, the
   outbound leg on the reciprocal course, a 180° turn back onto the inbound
   course, and the inbound leg into the fix. `FPLCRS`/`FPLXTK` follow the
   turns as they do an `RF` arc. The outbound leg ends when the along-track
@@ -187,7 +188,8 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   hand off to), so the sequencing message reads `"SEQ ALT -> <next ident>"`.
 - **Sequencing** (AER-4675, Bill's ruling on AER-4671): a fly-by fix is two
   events. At turn start, `d_ta = R_turn * tan(delta/2)` before the fix
-  (`R_turn = GS_kt / 188.5` nm, `delta` capped at 120 deg, `d_ta` capped at
+  (`R_turn = GS_kt^2 / (68625.4 tan 15 deg)` nm, a nominal 15 deg bank
+  as in the Garmin guides (TURN1, AER-4759), `delta` capped at 120 deg, `d_ta` capped at
   5 nm, no floor), `FPLCRS` moves to the next leg and `FPLALERT` ends.
   From turn start to the end of the turn's arc, on both sides of the
   bisector, `FPLXTK` and `FPLCDI` are measured from that arc (AER-4715),

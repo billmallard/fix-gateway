@@ -26,6 +26,7 @@ connections:
     module: fixgw.plugins.flightplan
     restore_delay: 2.0
     rate_hz: 5
+    turn_bank_deg: 15.0
     turn_rate_deg_s: 3.0
     terminal_nm: 30
     approach_ramp_nm: 2.0

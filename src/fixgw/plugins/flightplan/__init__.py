@@ -39,7 +39,8 @@ Config (``connections/flightplan.yaml``)::
       state_file: "{CONFIG}/flightplan_state.json"   # optional; default shown
       restore_delay: 2.0
       rate_hz: 5
-      turn_rate_deg_s: 3.0
+      turn_bank_deg: 15.0      # fly-by turns (TURN1)
+      turn_rate_deg_s: 3.0     # hold turns
       terminal_nm: 30
       approach_ramp_nm: 2.0
       alert_s: 10
@@ -77,6 +78,7 @@ class MainThread(threading.Thread):
                 "terminal_nm": cfg.get("terminal_nm", 30.0),
                 "approach_ramp_nm": cfg.get("approach_ramp_nm", 2.0),
                 "turn_rate_deg_s": cfg.get("turn_rate_deg_s", 3.0),
+                "turn_bank_deg": cfg.get("turn_bank_deg", 15.0),
                 "alert_s": cfg.get("alert_s", 10.0),
                 "hal_nm": cfg.get("hal_nm", {"enr": 2.0, "term": 1.0, "lnav": 0.3}),
             }
