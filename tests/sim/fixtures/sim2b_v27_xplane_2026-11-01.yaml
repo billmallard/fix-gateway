@@ -18,17 +18,16 @@
 #   at HENER X-Plane turns its course 4.6 s before the engine (XPB-001: its
 #   turn is wider than standard rate). Both change the TO fix at the
 #   bisector, in the same row (AER-4675).
-#   eng_turning 1, CDI only: the engine's fly-by turn window, from turn start
-#     to the bisector. The engine's cross-track there is from the next leg's
-#     straight line (AER-4675), so it starts at the turn's anticipation
-#     distance and shrinks through the turn; X-Plane's deviation stays near
-#     zero, not referenced to that line. The course is compared there.
+#   In the turn the engine's cross-track is from the turn's arc, to the
+#     arc's end (AER-4715), and the CDI is compared there. X-Plane's follows
+#     an arc until the bisector and the next leg's straight line after it
+#     (XPB-001).
 # The trace stops at 1442.8 s, the row before X-Plane switched to PAROL: the
 # session ended there (end.after_fix DOYLE), 0.2 nm short of where the engine
 # sequences (XPB-001), so only X-Plane would have shown PAROL.
 # Measured on this trace, outside 6 s of each sequence and of the engine's
 # turn start (AER-4675): FPLCRS within 0.12 deg of EXTCRS, FPLCDI within
-# 0.001 of EXTCDI, on 5,770 rows.
+# 0.005 of EXTCDI, on 5,770 rows (AER-4715).
 name: sim2b-v27-xplane-2026-11-01
 route_block: v27_route_block.json
 act: 6
@@ -45,6 +44,6 @@ checks:
     same_sign: true
     except_s_around_sequence: 6
     around_keys: [WPNAME, gps_id, FPLALERT]
-    skip_when: {EXTTF: 2, eng_turning: 1}
+    skip_when: {EXTTF: 2}
   - sequence: [HENER, VTU, EXERT, DOYLE]
     keys: [WPNAME, gps_id]
