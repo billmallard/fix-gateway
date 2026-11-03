@@ -272,7 +272,7 @@ circuit/turn; `HA` exits automatically once the coded altitude is reached.
 | `FPLINTEG` | bool | | Integrity gate satisfied for the current phase |
 | `CDISCALE` | float | 0.3..2.0 nm | Full-scale deflection (ramps 1.0 -> 0.3 nm over the 2 nm before the FAF) |
 | `FPLCRS` | float | 0..359.9 deg magnetic | Desired track (DTK) |
-| `FPLXTK` | float | +-100 nm, positive = right of track | Cross-track error, same sign convention as `XTRACK` |
+| `FPLXTK` | float | +-100 nm, positive = right of track | Cross-track error, same sign convention as `XTRACK`. In a fly-by turn, from turn start to the end of the turn's arc, it is measured from that arc (AER-4715) |
 | `FPLCDI` | float | -1..+1 | `-FPLXTK / CDISCALE`, clamped -- the sign convention `garmin_gnx375/__init__.py:167-169` uses, so the HSI needle behaves identically for the internal plan and an external navigator |
 | `FPLTF` | int | 0/1/2 | TO/FROM |
 | `FPLFRLAT` / `FPLFRLON` | float | deg | FROM point of the active leg (previous waypoint, or the direct-to activation point). Flagged `fail` whenever there is no FROM point (NULLWP1): no plan active, and during failed guidance, where the engine blanks it to 0.0 |
