@@ -184,7 +184,8 @@ def fly(rows=None, profile=PROFILE, pilot=None, magvar=None):
                 raise ValueError(f"pilot step {step}: unknown {p}")
         s = dict(out)
         s.update(t=r["t"], lat=r["lat"], lon=r["lon"], xp_wpt=r["xp_wpt"], xp_crs=r["xp_crs"],
-                 xp_hdef_dot=r["xp_hdef_dot"], xp_fromto=r["xp_fromto"], leg_phase=e._leg_phase)
+                 xp_hdef_dot=r["xp_hdef_dot"], xp_fromto=r["xp_fromto"], leg_phase=e._leg_phase,
+                 turning=e._turning)
         samples.append(s)
         prev = out
     return samples, events
@@ -213,7 +214,7 @@ def fly_route(rows, block, act, magvar):
             events.append((r["t"], "sequence", f"{prev['wp_name']} -> {out['wp_name']}", r["lat"], r["lon"]))
         s = dict(out)
         s.update(t=r["t"], lat=r["lat"], lon=r["lon"], xp_wpt=r["xp_wpt"], xp_crs=r["xp_crs"],
-                 xp_hdef_dot=r["xp_hdef_dot"], xp_fromto=r["xp_fromto"])
+                 xp_hdef_dot=r["xp_hdef_dot"], xp_fromto=r["xp_fromto"], turning=e._turning)
         samples.append(s)
         prev = out
     return samples, events
@@ -231,11 +232,14 @@ def bus_rows(samples):
     writes it to (``EXTCRS``, ``EXTCDI``, and ``EXTTF``, which it maps since
     fix-gateway#41, after FP8 was recorded: XPB-008). X-Plane's active
     waypoint has no bus key; it keeps its truth-log name, ``gps_id``. The
+    engine's fly-by turn window (AER-4675: past turn start, short of the
+    bisector) has none either; it is ``eng_turning``, 1 inside it. The
     trace has no cross-track or distance from X-Plane's navigator (XPB-006)."""
     out = []
     for s in samples:
         row = {key: s[k] for k, key in OUT_KEYS.items() if k in s}
-        row.update(EXTCRS=s["xp_crs"], EXTCDI=ext_cdi(s["xp_hdef_dot"]), EXTTF=s["xp_fromto"], gps_id=s["xp_wpt"])
+        row.update(EXTCRS=s["xp_crs"], EXTCDI=ext_cdi(s["xp_hdef_dot"]), EXTTF=s["xp_fromto"], gps_id=s["xp_wpt"],
+                   eng_turning=int(s["turning"]))
         out.append((s["t"], row))
     return out
 

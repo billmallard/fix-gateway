@@ -21,9 +21,14 @@ Behaviour, as a navigator built to TSO-C129/C146 and DO-229 would show it:
   from the previous fix, ``DF`` from the position where the leg became
   active, ``CA`` along its coded course from the end of the previous leg
   and ends when the altitude is reached.
-- A fly-by fix sequences at the start of the turn (turn anticipation
-  ``R * tan(delta/2)``, rate-one or 25 degree bank, whichever is the wider
-  turn); a fly-over fix, and a fix with nothing after it, sequence abeam.
+- A fly-by fix is two events (DO-236 section 3.2.5.4.1; the Garmin
+  guides). At the start of the turn (turn anticipation ``R * tan(delta/2)``,
+  rate-one or 25 degree bank, whichever is the wider turn) the course and
+  cross-track move to the next leg. At the turn bisector, the geodesic
+  through the fix square to the mean of the two courses, the TO waypoint
+  and distance sequence. A fly-over fix, and a fix with nothing after it,
+  sequence abeam, as does a straight-through fix (its bisector is the
+  abeam line).
 - The MAP never sequences on its own. Guidance continues FROM the MAP on
   the final course until the pilot initiates the missed approach
   (:meth:`ReferenceNavigator.go_missed`).
@@ -339,6 +344,7 @@ class ReferenceNavigator:
         self.sequences = []
         self._hold = None
         self._line = None
+        self._turn = None             # (bisector, inbound line) between turn start and the bisector
         self._start_leg(position)
         self._faf = next((k for k, lg in enumerate(legs) if lg.faf), None)
         self._map = next((k for k, lg in enumerate(legs) if lg.map), None)
@@ -350,19 +356,27 @@ class ReferenceNavigator:
                 return self.legs[j]
         return None
 
+    def _line_for(self, k, position):
+        """The geodesic leg k is flown along (TF/IF/DF/CA), else None."""
+        leg = self.legs[k]
+        if leg.pt in ("TF", "IF"):
+            prev = self._prev_fix(k)
+            return GeoLine.between(prev.lat, prev.lon, leg.lat, leg.lon)
+        if leg.pt == "DF":
+            if position is None:
+                raise ReferenceError_("cannot start on a DF leg without a position")
+            return GeoLine.between(position[0], position[1], leg.lat, leg.lon)
+        if leg.pt == "CA":
+            prev = self._prev_fix(k)
+            return GeoLine(prev.lat, prev.lon, leg.course_true)
+        return None
+
     def _start_leg(self, position, arrival_track=None):
         leg = self.legs[self.i]
         self._hold = None
-        if leg.pt in ("TF", "IF"):
-            prev = self._prev_fix(self.i)
-            self._line = GeoLine.between(prev.lat, prev.lon, leg.lat, leg.lon)
-        elif leg.pt == "DF":
-            if position is None:
-                raise ReferenceError_("cannot start on a DF leg without a position")
-            self._line = GeoLine.between(position[0], position[1], leg.lat, leg.lon)
-        elif leg.pt == "CA":
-            prev = self._prev_fix(self.i)
-            self._line = GeoLine(prev.lat, prev.lon, leg.course_true)
+        self._turn = None
+        if leg.pt in ("TF", "IF", "DF", "CA"):
+            self._line = self._line_for(self.i, position)
         elif leg.pt == "HM":
             self._line = None
             radius = turn_radius_nm(self.tas, self.rate, self.bank)
@@ -386,6 +400,22 @@ class ReferenceNavigator:
         frm = self.legs[self.i].ident
         self.i += 1
         self._start_leg(position, arrival_track)
+        self.sequences.append(Sequence(t, frm, self.legs[self.i].ident, self.i))
+
+    def _start_turn(self, lat, lon, inbound_azi_at_fix, next_course):
+        """Turn start at a fly-by fix: guidance moves to the next leg, flown
+        from here if it is a DF; the TO waypoint stays until the bisector."""
+        fix = self.legs[self.i]
+        mean = wrap360(inbound_azi_at_fix + wrap180(next_course - inbound_azi_at_fix) / 2.0)
+        self._turn = (GeoLine(fix.lat, fix.lon, mean), self._line)
+        self._line = self._line_for(self.i + 1, (lat, lon))
+
+    def _sequence_in_turn(self, t):
+        """The bisector: the waypoint catches up with the guidance, which
+        has been on the next leg since turn start."""
+        frm = self.legs[self.i].ident
+        self.i += 1
+        self._turn = None
         self.sequences.append(Sequence(t, frm, self.legs[self.i].ident, self.i))
 
     def go_missed(self, t, position):
@@ -445,6 +475,8 @@ class ReferenceNavigator:
         leg = self.legs[self.i]
         if self._hold is not None or self.map_suspended:
             return False
+        if self._turn is not None:
+            return self._turn_done(t, lat, lon)
         if leg.pt == "CA":
             if alt_ft is not None and alt_ft >= leg.alt_ft:
                 self._sequence(t, (lat, lon), track_true)
@@ -464,7 +496,23 @@ class ReferenceNavigator:
         if flyby:
             delta = abs(wrap180(nxt_course - azi))
             lead = turn_radius_nm(gs_kt, self.rate, self.bank) * math.tan(math.radians(min(delta, 120.0) / 2.0))
-        if remaining <= lead:
+        if 0.0 < remaining <= lead:
+            self._start_turn(lat, lon, self._turn_inbound_azi(), nxt_course)
+            return self._turn_done(t, lat, lon)
+        if remaining <= 0.0:
             self._sequence(t, (lat, lon), track_true)
+            return True
+        return False
+
+    def _turn_inbound_azi(self):
+        """Azimuth of the current leg's geodesic where it reaches its fix."""
+        return self._line.position(self._line.length_nm)[2]
+
+    def _turn_done(self, t, lat, lon):
+        """In a turn: sequence once past the bisector, or abeam the fix on
+        the inbound leg (the backstop for a turn not flown)."""
+        bisector, inbound = self._turn
+        if bisector.project(lat, lon)[0] >= 0.0 or inbound.project(lat, lon)[0] >= inbound.length_nm:
+            self._sequence_in_turn(t)
             return True
         return False

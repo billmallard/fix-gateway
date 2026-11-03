@@ -13,11 +13,22 @@
 # within 2 deg, CDI within 0.1 of full scale and of the same sign, compared
 # where both navigators guide to the same fix, plus the sequence. Skipped:
 #   EXTTF 2: X-Plane is FROM, from about 0.2 nm before each fix (XPB-001).
+#   Within 6 s of the engine's turn start (around_keys FPLALERT, which the
+#   engine drops at turn start, beside the TO-fix keys): in the 61 deg turn
+#   at HENER X-Plane turns its course 4.6 s before the engine (XPB-001: its
+#   turn is wider than standard rate). Both change the TO fix at the
+#   bisector, in the same row (AER-4675).
+#   eng_turning 1, CDI only: the engine's fly-by turn window, from turn start
+#     to the bisector. The engine's cross-track there is from the next leg's
+#     straight line (AER-4675), so it starts at the turn's anticipation
+#     distance and shrinks through the turn; X-Plane's deviation stays near
+#     zero, not referenced to that line. The course is compared there.
 # The trace stops at 1442.8 s, the row before X-Plane switched to PAROL: the
 # session ended there (end.after_fix DOYLE), 0.2 nm short of where the engine
 # sequences (XPB-001), so only X-Plane would have shown PAROL.
-# Measured on this trace, outside 5 s of each sequence: FPLCRS within 0.3 deg
-# of EXTCRS, FPLCDI within 0.011 of EXTCDI.
+# Measured on this trace, outside 6 s of each sequence and of the engine's
+# turn start (AER-4675): FPLCRS within 0.12 deg of EXTCRS, FPLCDI within
+# 0.001 of EXTCDI, on 5,770 rows.
 name: sim2b-v27-xplane-2026-11-01
 route_block: v27_route_block.json
 act: 6
@@ -26,12 +37,14 @@ trace: sim2b_v27_xplane_2026-11-01.csv.gz
 checks:
   - key_pair: [FPLCRS, EXTCRS]
     tol_deg: 2.0
-    except_s_around_sequence: 5
+    except_s_around_sequence: 6
+    around_keys: [WPNAME, gps_id, FPLALERT]
     skip_when: {EXTTF: 2}
   - key_pair: [FPLCDI, EXTCDI]
     tol: 0.1
     same_sign: true
-    except_s_around_sequence: 5
-    skip_when: {EXTTF: 2}
+    except_s_around_sequence: 6
+    around_keys: [WPNAME, gps_id, FPLALERT]
+    skip_when: {EXTTF: 2, eng_turning: 1}
   - sequence: [HENER, VTU, EXERT, DOYLE]
     keys: [WPNAME, gps_id]

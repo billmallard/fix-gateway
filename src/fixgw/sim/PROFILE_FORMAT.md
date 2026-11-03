@@ -199,7 +199,7 @@ Tier-independent comparisons on the recorded bus. Each is one of:
   `skip_when_differ: [KEY, KEY]` skips rows where the keys disagree, for
   comparing two navigators only where both guide to the same fix
   (`[WPNAME, gps_id]` on an X-Plane recording, where X-Plane changes its TO
-  fix at the turn bisector and the engine at the start of the turn).
+  fix about 0.2 nm early at a straight-through fix, XPB-001).
 - `flagged: [KEY, ...]` with `while_no_fix: true`, `within_s`,
   `clear_within_s`: each key must be flagged (bad or failed) on every row
   where `GPS_FIX_TYPE` has been below 3 for at least `within_s`, and must not
@@ -233,9 +233,10 @@ recorder file is a snapshot of every key and does not count as a write.
 | `REFWPT` | TO fix ident (`""` on a `CA` leg) |
 | `REFPT` | the reference's active leg type (`TF`, `CA`, `HM`...) |
 
-How the reference flies, briefly (details in `refnav.py`): fly-by fixes
-sequence at the start of the turn (`R tan(delta/2)`); fly-over fixes and
-the MAP abeam; the MAP suspends until the pilot goes missed; a `CA` ends on
+How the reference flies, briefly (details in `refnav.py`): at a fly-by fix
+the course moves to the next leg at the start of the turn (`R tan(delta/2)`)
+and the TO fix sequences at the turn bisector; fly-over fixes and the MAP
+abeam; the MAP suspends until the pilot goes missed; a `CA` ends on
 altitude; an `HM` is the published racetrack with a standard entry (direct,
 teardrop or parallel by the AIM sectors). CDI full scale 2.0 nm en route,
 1.0 nm within 30 nm of the airport, a linear ramp to 0.3 nm over the 2 nm

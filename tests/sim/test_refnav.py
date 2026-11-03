@@ -103,25 +103,39 @@ def test_cdi_scale_ramps_over_the_two_miles_before_the_faf(legs, d_faf, scale):
     assert o.wpt == "CIMSO" and o.scale_nm == pytest.approx(scale, abs=1e-4)
 
 
-def test_fly_by_fix_sequences_at_turn_anticipation_fly_over_abeam(legs):
-    # HANNU is fly-by into HANNU-WINCH: sequences R*tan(delta/2) early
+def test_fly_by_fix_turns_at_anticipation_sequences_at_bisector_fly_over_abeam(legs):
+    # HANNU is fly-by into HANNU-WINCH. Turn start, R*tan(delta/2) early:
+    # course and cross-track move to HANNU-WINCH, the TO waypoint stays
+    # HANNU (AER-4675). Past the turn bisector -- here just past HANNU on
+    # the outbound leg -- the waypoint sequences.
     nav = _nav(legs, "HANNU", position=(34.90, -120.44))
     hannu, winch = legs[8], legs[9]
     line = nav._line
     d_out = refnav.inverse(hannu.lat, hannu.lon, winch.lat, winch.lon)[1]
     _, _, az_in = line.position(line.length_nm)
-    lead = refnav.turn_radius_nm(110.0) * math.tan(math.radians(abs(refnav.wrap180(d_out - az_in)) / 2))
+    delta = abs(refnav.wrap180(d_out - az_in))
+    assert delta > 10.0
+    lead = refnav.turn_radius_nm(110.0) * math.tan(math.radians(delta / 2))
     lat, lon, _ = line.position(line.length_nm - lead - 0.01)
-    assert nav.update(0.0, lat, lon, 3000.0, 110.0, az_in).wpt == "HANNU"
+    o = nav.update(0.0, lat, lon, 3000.0, 110.0, az_in)
+    assert o.wpt == "HANNU" and o.dtk_true == pytest.approx(az_in, abs=0.1)
     lat, lon, _ = line.position(line.length_nm - lead + 0.01)
-    assert nav.update(1.0, lat, lon, 3000.0, 110.0, az_in).wpt == "WINCH"
+    o = nav.update(1.0, lat, lon, 3000.0, 110.0, az_in)
+    assert o.wpt == "HANNU" and o.pt == "DF"
+    assert o.dtk_true == pytest.approx(d_out, abs=0.1)
+    assert o.dis_nm == pytest.approx(lead - 0.01, abs=0.005)
+    assert not nav.sequences
+    lat, lon = refnav.direct(hannu.lat, hannu.lon, d_out, 0.01)
+    o = nav.update(2.0, lat, lon, 3000.0, 110.0, d_out)
+    assert o.wpt == "WINCH"
+    assert [(sq.from_ident, sq.to_ident) for sq in nav.sequences] == [("HANNU", "WINCH")]
     # WINCH (TF) is coded fly-over: still WINCH TF 0.05 nm before, the hold only once abeam
     k = nav.i
     lat, lon, azi = _on_leg(legs, k, 0.05)
-    o = nav.update(2.0, lat, lon, 4000.0, 110.0, azi)
+    o = nav.update(3.0, lat, lon, 4000.0, 110.0, azi)
     assert (o.wpt, o.pt) == ("WINCH", "TF")
     lat, lon, azi = _on_leg(legs, k, -0.01)
-    o = nav.update(3.0, lat, lon, 4000.0, 110.0, azi)
+    o = nav.update(4.0, lat, lon, 4000.0, 110.0, azi)
     assert (o.wpt, o.pt) == ("WINCH", "HM")
 
 

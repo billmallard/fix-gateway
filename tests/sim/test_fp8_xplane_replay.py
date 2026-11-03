@@ -55,13 +55,21 @@ def live_bench_sequences():
 
 def test_replay_lands_on_the_live_bench_sequence_points(flown):
     # The replay must sequence where the live engine did: that is what makes
-    # the trace a faithful stand-in for the flight.
-    _, _, events, _ = flown
+    # the trace a faithful stand-in for the flight. Except at PAMJI, the one
+    # straight-through fly-by fix: the live engine had the 0.1 nm turn
+    # anticipation floor that AER-4675 removed, so it sequenced 0.1 nm
+    # before PAMJI, and the replay now sequences at it.
+    _, _, events, wps = flown
     seq = _seq(events)
     live = live_bench_sequences()
     for name in AUTO_SEQUENCES:
         # 0.04 nm: the bus log is 1 Hz (0.03 nm at 110 kt), the trace 5 Hz
-        assert nm(*live[name], *seq[name][:2]) <= 0.04, name
+        if name == "PAMJI -> CIMSO":
+            pamji = wps["PAMJI"]
+            assert nm(*live[name], pamji.lat, pamji.lon) == pytest.approx(0.1, abs=0.04)
+            assert nm(*seq[name][:2], pamji.lat, pamji.lon) <= 0.04
+        else:
+            assert nm(*live[name], *seq[name][:2]) <= 0.04, name
 
 
 def test_sequence_points_within_0p3_nm_of_xplane(flown):
