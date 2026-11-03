@@ -1,0 +1,48 @@
+# TURN4 (AER-4761): a FAF coded fly-by with a turn onto final. KMIC RNAV
+# (GPS) RWY 32 via WAKUD: CATLE -> ZUSGA (the FAF) on 261 T, then 291 T to
+# FICGO, the MAP, a 30.1 deg turn at the FAF (the LNAV maximum, Order
+# 8260.58D 3-1-4.b). The engine follows the coding at the FAF, as the
+# reference always has.
+#
+# No skip around the sequences. The difference this profile exists to catch
+# lives inside the usual 5 s skip: at 120 kt the turn starts 0.17 nm, about
+# 5 s, before ZUSGA. With a 5 s skip, the engine that forced the FAF
+# fly-over passed. With none, it failed FPLCRS by 30 deg for 5.2 s, and
+# FPLCDI, FPLXTK and WPNAME too. Format: ../PROFILE_FORMAT.md
+name: turn4-kmic-r32-faf30
+description: >
+  KMIC RNAV 32 via WAKUD from 3 nm before CATLE, through the 30 deg turn at
+  the FAF ZUSGA, to the MAP.
+
+cifp:
+  cycle: "2611"
+  file: cifp/FAACIFP18-2611-KMIC-R32
+
+aircraft: {tas_kt: 120, climb_fpm: 700, descent_fpm: 600, bank_max_deg: 25}
+
+environment:
+  magvar_deg: -2.0                 # FIX MAGVAR, positive west: CIFP airport record E0020
+  wind: {from_deg: 0, kt: 0}
+
+start: {fix: CATLE, before_nm: 3.0, alt_ft: 3000, heading: on_course}
+
+route:
+  - procedure: {airport: KMIC, approach: R32, transition: WAKUD, missed: false}
+
+end: {max_s: 1800}
+
+checks:
+  - key_pair: [FPLCRS, REFCRS]
+    tol_deg: 0.5
+    except_s_around_sequence: 0
+  - key_pair: [FPLXTK, REFXTK]
+    tol: 0.02
+    except_s_around_sequence: 0
+  - key_pair: [FPLCDI, REFCDI]
+    tol: 0.05
+    same_sign: true
+    except_s_around_sequence: 0
+  - key_pair: [WPNAME, REFWPT]
+    except_s_around_sequence: 0
+  - sequence: [CATLE, ZUSGA, FICGO]
+    keys: [WPNAME, REFWPT]

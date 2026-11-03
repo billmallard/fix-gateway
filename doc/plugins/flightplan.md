@@ -209,8 +209,10 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   if it is still ahead. Any activation (`ACT`, `DTO`, `DTOX`) drops it. Into
   a vector leg there is no next track, so the hand-off stays one event, at
   turn start. The last waypoint, and any waypoint marked MAP, never
-  auto-sequences. A fix coded fly-over (`FPLfFLAGS` `0x01`), the FAF and
-  every fix between the FAF and the MAP are
+  auto-sequences. The FAF and the fixes between it and the MAP follow
+  their coding like any other fix (TURN4): the procedure design criteria
+  allow a turn at the FAF, up to 30 deg for LNAV, only when it is fly-by.
+  A fix coded fly-over (`FPLfFLAGS` `0x01`) is
   fly-over: abeam-only, no turn anticipation (`d_ta = 0`) — and (PA13) so is
   every Tier-2 leg type, in both directions: an arc's exit tangent, a
   hold/PT's entry, turns and legs and a `CA`/`FA`'s open-ended course are

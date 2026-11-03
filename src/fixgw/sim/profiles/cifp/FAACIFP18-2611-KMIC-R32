@@ -1,0 +1,19 @@
+HDR01FAACIFP18      001P013203973042611  07-OCT-202615:55:03  U.S.A. DOT FAA                                                9D60747B
+SUSAP KMICK3AMIC     0     037YHN45034489W093211428E002000869         1800018000C    MNAR    CRYSTAL                       594722014
+SUSAP KMICK3CCATLE K30    W     N45021520W093120955                       W0002     NAR           CATLE                    594732605
+SUSAP KMICK3CEPADE K30    W     N45024160W093075844                       W0002     NAR           EPADE                    594742403
+SUSAP KMICK3CFICGO K30    W     N45025493W093201840                       W0001     NAR           FICGO                    594752605
+SUSAP KMICK3COYNOP K30    W     N45123078W093310871                       E0001     NAR           OYNOP                    594772403
+SUSAP KMICK3CWAKUD K30    W     N45083421W093061626                       W0003     NAR           WAKUD                    594782605
+SUSAP KMICK3CZUSGA K30    W     N45014864W093162060                       W0001     NAR           ZUSGA                    594802403
+SUSAP KMICK3FR32   AEPADE 010EPADEK3PC0EE AR   HF                     25960040    + 03500     18000                 B PS   595352014
+SUSAP KMICK3FR32   AWAKUD 010WAKUDK3PC0E  A    IF                                             18000                 B PS   595362014
+SUSAP KMICK3FR32   AWAKUD 020EPADEK3PC0EE B 010TF                                 + 03500                           B PS   595372014
+SUSAP KMICK3FR32   R      010EPADEK3PC0E  I    IF                                 + 03500     18000                 B PS   595382014
+SUSAP KMICK3FR32   R      011CATLEK3PC0E    010TF                                 + 03000                           B PS   595392014
+SUSAP KMICK3FR32   R      020ZUSGAK3PC1E  F 010TF                                 + 02500                 RW32  K3PGB PS   595402014
+SUSAP KMICK3FR32   R      020ZUSGAK3PC2WN          N          ALNAV                                                   PS   595412014
+SUSAP KMICK3FR32   R      030FICGOK3PC0EY M 031TF                                   01217             -400          B PS   595422014
+SUSAP KMICK3FR32   R      040         0  M     CA                     2895        + 01269                           B PS   595432014
+SUSAP KMICK3FR32   R      050OYNOPK3PC0EY   010DF                                 + 03000                           B PS   595442014
+SUSAP KMICK3FR32   R      060OYNOPK3PC0EE  R   HM                     13930040    + 03000                           B PS   595452014
