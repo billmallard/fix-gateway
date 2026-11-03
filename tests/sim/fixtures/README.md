@@ -120,9 +120,10 @@ commands. Regenerate on the Beelink with the AER-4464 bench follower's
 
 `sim2b_v27_xplane_2026-11-01.yaml` carries the X-Plane tier's checks,
 `FPLCRS`/`EXTCRS` within 2 deg and `FPLCDI`/`EXTCDI` within 0.1 of the same
-sign, plus the sequence HENER VTU EXERT DOYLE. Measured since AER-4675:
-course within 0.12 deg and CDI within 0.001 on 5,770 rows, outside 6 s of
-each sequence and of the engine's turn start. Moving VTU 1.8 nm in
+sign, plus the sequence HENER VTU EXERT DOYLE. Measured since TURN1
+(AER-4759): course within 0.12 deg on 5,758 rows and CDI within 0.001 on
+5,733, outside 6 s of each sequence and of the engine's turn start, and
+for the CDI outside the second half of the turn's arc (XPB-023). Moving VTU 1.8 nm in
 the route block fails both pair checks; renaming EXERT fails the sequence.
 
 ## `qa1_kssf_r28_xplane_2026-11-01.csv.gz`, `qa1_kded_r30_xplane_2026-11-01.csv.gz`
@@ -157,21 +158,23 @@ variation: at KDED that is 5.0 and X-Plane's is 7.09, which puts every
 course 2.1 deg off. Each `.yaml` also names the pilot commands (`pilot:`, the
 profile's own RESUME 5 s after the MAP), which `xplane_replay.fly` replays.
 
-Measured with the checks in each `.yaml` since AER-4675: KSSF course within
-0.09 deg on 1,628 rows and CDI within 0.059 on 1,628; KDED course within 0.13
-deg on 5,023 rows and CDI within 0.093 on 5,023 (AER-4715; before it, CDI
-within 0.034 on 1,614 and 0.011 on 5,017, with the turn skipped). The skips are listed with
-their reasons in each file. Three are new since FP8. In a fly-by turn X-Plane
-turns its course 4.6-5.1 s before the engine, a wider turn than standard
-rate (XPB-001), so rows within 6 s of the engine's turn start (`FPLALERT`
-dropping) are not compared. In the turn the engine's cross-track is from
+Measured with the checks in each `.yaml` since TURN1 (AER-4759, fly-by
+turns on a 15 deg bank): KSSF course within 0.09 deg on 1,644 rows and CDI
+within 0.075 on 1,588; KDED course within 0.13 deg on 5,021 rows and CDI
+within 0.099 on 4,988 (at standard rate, AER-4715: CDI within 0.059 on
+1,628 and 0.093 on 5,023; before AER-4715, 0.034 on 1,614 and 0.011 on
+5,017, with the turn skipped). The skips are listed with
+their reasons in each file. Four are new since FP8. In a fly-by turn X-Plane
+turns its course before the engine: 0.4 s at GEARE, 2.3 s at HENER, 4.0 s
+at XEHMO since TURN1 (4.6-5.1 s at standard rate; XPB-001), so rows within
+6 s of the engine's turn start (`FPLALERT` dropping) are not compared. In the turn the engine's cross-track is from
 the turn's arc, to the arc's end (AER-4715), and the CDI is compared
 there. X-Plane's own deviation follows an arc too until the bisector, and
 the next leg's straight line after it (XPB-023), so through the second half
-of the turn the two differ by up to the arc's offset from that line. The
-largest part of that step falls in the 6 s window after the switch, which
-is not compared: 0.129 at GEARE there (XPB-023). That,
-and X-Plane's wider arc, is the 0.059 at GEARE and 0.093 at XEHMO. The
+of the turn the two differ by up to the arc's offset from that line. They
+measure different paths there, so from the bisector to the arc's end
+(`eng_arc_after_bisector`) the CDI is not compared (XPB-023). X-Plane's
+wider arc before the bisector is the 0.075 at GEARE and 0.099 at XEHMO. The
 course agrees within 0.09 deg in the turn. Both now change the TO fix at the bisector, in
 the same row at GEARE, XEHMO and HENER (AER-4675; before it the engine
 changed it 13-15 s earlier), so `skip_when_differ` only skips rows at
