@@ -35,14 +35,21 @@ def nm_to_deg_lon(nm):
 # Turn anticipation table (spec section 3.3)
 # ---------------------------------------------------------------------------
 
+# TURN1 (AER-4759): a fly-by turn is sized from a nominal 15 deg bank, the
+# Garmin guides' figure: R = GS^2 / (68625.4 tan 15), 0.783 nm at 120 kt,
+# flown at 120 / 3600 / 0.783 rad/s = 2.439 deg/s. Standard rate (0.637 nm,
+# 3 deg/s) until then. Holds keep standard rate (AIM 5-3-8).
+R_120 = 0.7831
+RATE_120 = 2.4389
+
 
 @pytest.mark.parametrize(
     "gs,delta,expected",
     [
-        (120, 90, 0.637),
-        (90, 90, 0.477),
-        (120, 45, 0.264),
-        (150, 120, 1.378),
+        (120, 90, 0.783),
+        (90, 90, 0.441),
+        (120, 45, 0.324),
+        (150, 120, 2.119),
     ],
 )
 def test_turn_anticipation_table(gs, delta, expected):
@@ -57,8 +64,24 @@ def test_turn_anticipation_has_no_floor_and_a_5nm_cap():
     # AER-4675: no 0.1 nm floor -- a straight-through fix has nothing to
     # anticipate. The floor made it sequence 0.1 nm early at every one.
     assert engine.turn_anticipation_nm(120, 0) == 0.0
-    assert engine.turn_anticipation_nm(1, 1) == pytest.approx(4.63e-5, rel=1e-2)
+    assert engine.turn_anticipation_nm(1, 1) == pytest.approx(4.75e-7, rel=1e-2)
     assert engine.turn_anticipation_nm(100000, 120) == pytest.approx(5.0)
+
+
+def test_turn_anticipation_takes_its_bank_from_the_config():
+    # 25 deg at 120 kt: R = 14400 / (68625.4 tan 25) = 0.450 nm.
+    assert engine.turn_anticipation_nm(120, 90, 25.0) == pytest.approx(0.450, abs=1e-3)
+    assert engine.Engine().turn_bank_deg == 15.0
+    assert engine.Engine({"turn_bank_deg": 25.0}).turn_bank_deg == 25.0
+
+
+def test_hold_turns_stay_standard_rate_up_to_25_deg_of_bank():
+    # AIM 5-3-8: holding turns at 3 deg/s or 25 deg of bank (flight
+    # director), whichever needs less bank -- not the fly-by 15 deg. At
+    # 120 kt standard rate is the lesser bank (18 deg); at 200 kt it would
+    # take 28.6 deg, so the 25 deg radius, 40000 / (68625.4 tan 25), applies.
+    assert engine.hold_turn_radius_nm(120) == pytest.approx(120 / 188.5, abs=1e-4)
+    assert engine.hold_turn_radius_nm(200) == pytest.approx(1.2500, abs=1e-3)
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +149,7 @@ def test_sequencing_abeam_backstop_when_atd_goes_negative():
 
 
 def _turn_route(b_flags=0):
-    # A -> B east, then a 90 degree left turn to C: 0.637 nm of anticipation
+    # A -> B east, then a 90 degree left turn to C: 0.783 nm of anticipation
     # at 120 kt if B is flown fly-by.
     b_lon = nm_to_deg_lon(60.04)
     return [wp("A", 0.0, 0.0), wp("B", 0.0, b_lon, flags=b_flags), wp("C", 1.0, b_lon)]
@@ -136,7 +159,7 @@ def _turn_route(b_flags=0):
 def test_coded_flyover_fix_is_not_turn_anticipated(b_flags, turned_crs):
     # fix-gateway#44: FPLfFLAGS 0x01 is fly-over -- abeam-only. The fly-by
     # row is the control: same route,
-    # same position, inside its 0.637 nm d_ta, where the course has turned
+    # same position, inside its 0.783 nm d_ta, where the course has turned
     # to C's leg (AER-4675: the waypoint waits for the bisector).
     e = engine.Engine()
     route = _turn_route(b_flags)
@@ -166,10 +189,11 @@ def _fly_turn(e, lat, lon, t0, seconds, gs_kt=120.0, dt=0.25, rate_deg_s=3.0):
 
 def test_flyby_turn_changes_track_at_turn_start_and_waypoint_at_the_bisector():
     # AER-4675 (Bill's ruling on AER-4671): a 90 deg fly-by at 120 kt. The
-    # desired track moves to the B->C leg at turn start, d_ta = 0.637 nm
+    # desired track moves to the B->C leg at turn start, d_ta = 0.783 nm
     # before B. The waypoint stays B -- name, distance, TO, active leg and
     # the map's FROM anchor -- until the turn bisector, half the turn later:
-    # 45 deg at 3 deg/s = 15 s. Before AER-4675 both changed at turn start.
+    # 45 deg at 2.439 deg/s = 18.45 s. Before AER-4675 both changed at turn
+    # start.
     e = engine.Engine()
     route = _turn_route()
     load(e, route, "T", 1)
@@ -177,17 +201,17 @@ def test_flyby_turn_changes_track_at_turn_start_and_waypoint_at_the_bisector():
     b = route[1]
     e.update(0.0, b.lon - nm_to_deg_lon(3.0), 120.0, 0.0, True, None, None, 999.0)  # posts NO INTEGRITY DATA
 
-    rows = _fly_turn(e, 0.0, b.lon - nm_to_deg_lon(3.0), 1000.0, 120.0)
+    rows = _fly_turn(e, 0.0, b.lon - nm_to_deg_lon(3.0), 1000.0, 120.0, rate_deg_s=RATE_120)
     i_turn = next(i for i, r in enumerate(rows) if r[3]["crs"] < 45.0)
     i_seq = next(i for i, r in enumerate(rows) if r[3]["act_leg"] == 3)
     t_turn, lat_turn, lon_turn, _ = rows[i_turn]
     t_seq, lat_seq, lon_seq, seq_out = rows[i_seq]
 
-    # Turn start: 0.637 nm before B, within one 0.25 s step (0.008 nm).
-    assert geo.distance_nm(lat_turn, lon_turn, b.lat, b.lon) == pytest.approx(0.637, abs=0.01)
-    # The waypoint changes 15 s later, at the bisector, R(sqrt 2 - 1) from B.
-    assert t_seq - t_turn == pytest.approx(15.0, abs=0.5)
-    assert geo.distance_nm(lat_seq, lon_seq, b.lat, b.lon) == pytest.approx(0.637 * (2 ** 0.5 - 1), abs=0.02)
+    # Turn start: 0.783 nm before B, within one 0.25 s step (0.008 nm).
+    assert geo.distance_nm(lat_turn, lon_turn, b.lat, b.lon) == pytest.approx(R_120, abs=0.01)
+    # The waypoint changes 18.45 s later, at the bisector, R(sqrt 2 - 1) from B.
+    assert t_seq - t_turn == pytest.approx(18.45, abs=0.5)
+    assert geo.distance_nm(lat_seq, lon_seq, b.lat, b.lon) == pytest.approx(R_120 * (2 ** 0.5 - 1), abs=0.02)
     assert seq_out["wp_name"] == "C" and seq_out["wp_from"] == "B"
     assert seq_out.get("msg") == "SEQ B -> C"
 
@@ -213,12 +237,12 @@ def test_flyby_turn_changes_track_at_turn_start_and_waypoint_at_the_bisector():
 
 def test_flyby_turn_cross_track_is_from_the_arc_until_the_arc_ends():
     # AER-4715: a well-flown fly-by turn shows a centred CDI. The arc of the
-    # 90 deg turn at B joins A->B 0.637 nm before B to B->C 0.637 nm past
-    # it (radius 0.637 nm at 120 kt). An aircraft that turns at standard
-    # rate from turn start is on it for 30 s, on both sides of the
-    # bisector. Measured from the B->C line, as from AER-4675 until this
-    # change, its cross-track started at -0.637 nm (a third of full scale
-    # en route) and shrank through the turn.
+    # 90 deg turn at B joins A->B 0.783 nm before B to B->C 0.783 nm past
+    # it (radius 0.783 nm at 120 kt, a 15 deg bank). An aircraft that turns
+    # at that radius's rate from turn start is on it for 36.9 s, on both
+    # sides of the bisector. Measured from the B->C line, as from AER-4675
+    # until #123, its cross-track started at -0.783 nm and shrank through
+    # the turn.
     e = engine.Engine()
     route = _turn_route()
     load(e, route, "T", 1)
@@ -226,16 +250,16 @@ def test_flyby_turn_cross_track_is_from_the_arc_until_the_arc_ends():
     b = route[1]
     e.update(0.0, b.lon - nm_to_deg_lon(3.0), 120.0, 0.0, True, None, None, 999.0)  # posts NO INTEGRITY DATA
 
-    rows = _fly_turn(e, 0.0, b.lon - nm_to_deg_lon(3.0), 1000.0, 120.0)
+    rows = _fly_turn(e, 0.0, b.lon - nm_to_deg_lon(3.0), 1000.0, 120.0, rate_deg_s=RATE_120)
     i_turn = next(i for i, r in enumerate(rows) if r[3]["crs"] < 45.0)
     i_seq = next(i for i, r in enumerate(rows) if r[3]["act_leg"] == 3)
     t_turn, lat_turn, lon_turn, _ = rows[i_turn]
-    i_end = next(i for i, r in enumerate(rows) if r[0] >= t_turn + 30.0)
+    i_end = next(i for i, r in enumerate(rows) if r[0] >= t_turn + 36.9)
     assert i_turn < i_seq < i_end
 
     # The straight-line measure this replaces, at turn start.
     line_xtk = geo.cross_track_nm(b.lat, b.lon, route[2].lat, route[2].lon, lat_turn, lon_turn)
-    assert line_xtk == pytest.approx(-0.637, abs=0.01)
+    assert line_xtk == pytest.approx(-R_120, abs=0.01)
 
     for _, _, _, out in rows[i_turn:i_end]:
         assert abs(out["xtk"]) < 0.01
@@ -250,16 +274,16 @@ def test_flyby_turn_cross_track_is_from_the_arc_until_the_arc_ends():
 
 def test_off_the_arc_in_a_flyby_turn_reads_the_distance_from_the_arc():
     # AER-4715: still on the A->B line, 0.3 nm before B, past turn start.
-    # The left turn's arc is centred 0.637 nm north of turn start, so the
+    # The left turn's arc is centred 0.783 nm north of turn start, so the
     # aircraft is outside it: right of the path by
-    # hypot(0.337, 0.637) - 0.637 = 0.084 nm. From the B->C line it read
+    # hypot(0.483, 0.783) - 0.783 = 0.137 nm. From the B->C line it read
     # 0.3 nm left.
     e = engine.Engine()
     route = _turn_route()
     pos = _in_turn_window(e, route)
     out = e.update(*pos, 120.0, 0.0, True, None, None, 1001.0)
     assert out["act_leg"] == 2 and out["crs"] == pytest.approx(0.0, abs=0.01)
-    assert out["xtk"] == pytest.approx(math.hypot(0.637 - 0.3, 0.637) - 0.637, abs=0.002)
+    assert out["xtk"] == pytest.approx(math.hypot(R_120 - 0.3, R_120) - R_120, abs=0.002)
     assert out["cdi"] < 0.0  # fly left, back toward the arc
 
 
@@ -291,7 +315,7 @@ def test_a_state_file_from_before_the_arc_measures_the_turn_from_the_next_leg():
 
 def _in_turn_window(e, route):
     """Engine on the _turn_route A->B leg, 0.3 nm before B: past turn start
-    (0.637 nm), short of the bisector. Returns that position."""
+    (0.783 nm), short of the bisector. Returns that position."""
     load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
     pos = (0.0, route[1].lon - nm_to_deg_lon(0.3))

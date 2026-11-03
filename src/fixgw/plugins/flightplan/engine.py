@@ -404,6 +404,15 @@ TF_FROM = 2
 TERMINAL_NM_DEFAULT = 30.0
 APPROACH_RAMP_NM_DEFAULT = 2.0
 TURN_RATE_DEG_S_DEFAULT = 3.0
+# TURN1 (AER-4759): fly-by turns are sized from a nominal 15 deg bank, the
+# figure every Garmin guide that states one gives ("smooths adjacent leg
+# transitions based upon a nominal 15 deg bank angle"). Hold turns stay at
+# standard rate, bounded at 25 deg of bank (AIM 5-3-8).
+TURN_BANK_DEG_DEFAULT = 15.0
+HOLD_BANK_MAX_DEG = 25.0
+# R = GS^2 / (G_KT2_PER_NM tan(bank)): g = 9.80665 m/s^2 in kt^2 per nm,
+# 3600^2 * 9.80665 / 1852 (FAA Order 8260.58D formula 1-2-10's 68625.4).
+G_KT2_PER_NM = 3600.0 ** 2 * 9.80665 / 1852.0
 ALERT_S_DEFAULT = 10.0
 HAL_NM_DEFAULT = {"enr": 2.0, "term": 1.0, "lnav": 0.3}
 # How long after the fix it was computed from a position may still drive
@@ -539,26 +548,30 @@ class RouteRejected(Exception):
         self.reason = reason
 
 
-def turn_anticipation_nm(gs_kt, delta_deg, turn_rate_deg_s=TURN_RATE_DEG_S_DEFAULT):
-    """d_ta = R_turn * tan(delta/2), R_turn = GS_kt / (rate-driven constant).
+def bank_turn_radius_nm(gs_kt, bank_deg):
+    """Radius of a coordinated turn at this ground speed and bank, nm."""
+    return gs_kt * gs_kt / (G_KT2_PER_NM * math.tan(math.radians(bank_deg)))
 
-    The spec's constant 188.5 corresponds to a standard-rate (3 deg/s) turn;
-    scale it if a different turn_rate_deg_s is configured (rate scales R_turn
-    inversely: a faster turn has a smaller radius).
+
+def turn_anticipation_nm(gs_kt, delta_deg, turn_bank_deg=TURN_BANK_DEG_DEFAULT):
+    """d_ta = R_turn * tan(delta/2), R_turn the radius at turn_bank_deg
+    (TURN1: a nominal 15 deg, 0.783 nm at 120 kt; standard rate before).
 
     No floor (AER-4675): a straight-through fix has no turn to anticipate,
     so its course changes at the fix, where its waypoint does.
     """
     delta_deg = min(abs(delta_deg), 120.0)
-    r_turn = (gs_kt / 188.5) * (TURN_RATE_DEG_S_DEFAULT / turn_rate_deg_s)
+    r_turn = bank_turn_radius_nm(gs_kt, turn_bank_deg)
     d_ta = r_turn * math.tan(math.radians(delta_deg) / 2.0)
     return min(5.0, d_ta)
 
 
 def hold_turn_radius_nm(gs_kt, turn_rate_deg_s=TURN_RATE_DEG_S_DEFAULT):
-    """Radius of a hold's turns at this ground speed and turn rate -- the
-    same R_turn turn_anticipation_nm uses (188.5 = a standard-rate turn)."""
-    return max(HOLD_MIN_NM, (gs_kt / 188.5) * (TURN_RATE_DEG_S_DEFAULT / turn_rate_deg_s))
+    """Radius of a hold's turns: AIM 5-3-8, standard rate (188.5 = GS per
+    nm of radius at 3 deg/s) or 25 deg of bank, whichever needs less bank,
+    so the wider of the two radii. Not the fly-by turn's 15 deg (TURN1)."""
+    r_rate = (gs_kt / 188.5) * (TURN_RATE_DEG_S_DEFAULT / turn_rate_deg_s)
+    return max(HOLD_MIN_NM, r_rate, bank_turn_radius_nm(gs_kt, HOLD_BANK_MAX_DEG))
 
 
 def _course_change_deg(course_a, course_b):
@@ -580,6 +593,7 @@ class Engine:
         self.terminal_nm = float(config.get("terminal_nm", TERMINAL_NM_DEFAULT))
         self.approach_ramp_nm = float(config.get("approach_ramp_nm", APPROACH_RAMP_NM_DEFAULT))
         self.turn_rate_deg_s = float(config.get("turn_rate_deg_s", TURN_RATE_DEG_S_DEFAULT))
+        self.turn_bank_deg = float(config.get("turn_bank_deg", TURN_BANK_DEG_DEFAULT))
         self.alert_s = float(config.get("alert_s", ALERT_S_DEFAULT))
         self.hal_nm = dict(config.get("hal_nm", HAL_NM_DEFAULT))
 
@@ -1382,7 +1396,7 @@ class Engine:
             return 0.0
         in_course, out_course = self._turn_courses(anchor, to, next_wp)
         delta = _course_change_deg(in_course, out_course)
-        return turn_anticipation_nm(gs_kt, delta, self.turn_rate_deg_s)
+        return turn_anticipation_nm(gs_kt, delta, self.turn_bank_deg)
 
     @staticmethod
     def _turn_courses(anchor, to, next_wp):
