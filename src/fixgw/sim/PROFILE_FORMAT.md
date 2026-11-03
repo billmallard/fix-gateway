@@ -200,6 +200,12 @@ Tier-independent comparisons on the recorded bus. Each is one of:
   comparing two navigators only where both guide to the same fix
   (`[WPNAME, gps_id]` on an X-Plane recording, where X-Plane changes its TO
   fix about 0.2 nm early at a straight-through fix, XPB-001).
+  `min_compared_share: f` (0 < f <= 1) fails the check when fewer than
+  that share of the rows at or after `after_s` were compared, even if every
+  compared row agreed. Set it per check, below the share the log compares
+  today: the skips above are opened by keys the engine writes (`FPLALERT`,
+  `WPNAME`), and an engine that changes them constantly would otherwise
+  excuse itself and pass on a handful of rows (AER-4693).
 - `flagged: [KEY, ...]` with `while_no_fix: true`, `within_s`,
   `clear_within_s`: each key must be flagged (bad or failed) on every row
   where `GPS_FIX_TYPE` has been below 3 for at least `within_s`, and must not
