@@ -277,8 +277,11 @@ own trajectory and X-Plane's navigator as the expected values. A recording
 names its `profile` (for the route) and its `trace`, and carries its own
 `checks:` in the format above. The profile's checks are written against the
 synthetic reference, and X-Plane is a different navigator. It sequences
-earlier (XPB-001), holds its own way (XPB-004), and has no `REF*` keys. So
-the recording's checks use the keys the bench writes X-Plane's navigator to:
+earlier (XPB-001: a fixed ~0.2 nm before every fly-by fix, even with no turn, a
+sim quirk we do not model), holds its own way (XPB-004), and has no `REF*`
+keys. So a recording bounds X-Plane's sequence points by distance (0.3 nm,
+`tests/sim/test_fp8_xplane_replay.py`), not by the profile's 5 s window, and
+its checks use the keys the bench writes X-Plane's navigator to:
 
 | Key | From the trace |
 |---|---|
