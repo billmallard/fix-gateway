@@ -797,15 +797,6 @@ class Engine:
             return faf_idx, map_idx
         return None, None
 
-    def _is_flyover_leg(self, to_slot):
-        """True when the TO waypoint at `to_slot` (1-based) is the FAF or one
-        of the intermediate fixes between the FAF and the MAP -- fly-over,
-        abeam-only sequencing, no turn anticipation."""
-        faf_idx, map_idx = self._faf_map_idx()
-        if faf_idx is None:
-            return False
-        return faf_idx <= to_slot < map_idx
-
     def _is_final(self, slot):
         """A slot that never auto-sequences: the last waypoint, or a waypoint
         marked MAP."""
@@ -1371,19 +1362,20 @@ class Engine:
 
     def _turn_anticipation_for(self, to_wp, anchor, to, gs_kt):
         """d_ta for the active leg, or 0.0 (fly-over: no predictive
-        anticipation) for a TO fix coded fly-over (FLAG_FLYOVER), a
-        FAF/MAP-flagged leg or (PA13) a transition into or out of any Tier-2
-        leg -- an arc's exit tangent, a hold/PT's outbound/inbound pair and a
-        CA/FA's open-ended course are not the simple bearing-delta case
-        this anticipation formula was built for, so those transitions are
-        abeam-triggered only, never anticipated early (fix-gateway#44: a
-        hold coded at the TO fix also makes the next leg zero-length, so
-        its bearing is meaningless as a turn)."""
+        anticipation) for a TO fix coded fly-over (FLAG_FLYOVER) or (PA13)
+        a transition into or out of any Tier-2 leg -- an arc's exit
+        tangent, a hold/PT's outbound/inbound pair and a CA/FA's open-ended
+        course are not the simple bearing-delta case this anticipation
+        formula was built for, so those transitions are abeam-triggered
+        only, never anticipated early (fix-gateway#44: a hold coded at the
+        TO fix also makes the next leg zero-length, so its bearing is
+        meaningless as a turn). The FAF and the fixes between it and the
+        MAP follow their coding like any other fix (TURN4, AER-4761): the
+        procedure design criteria allow a turn at the FAF only when it is
+        fly-by. The MAP never gets here: it never auto-sequences."""
         if to_wp.pt in PT_TIER2:
             return 0.0
         if to_wp.flags & FLAG_FLYOVER:
-            return 0.0
-        if self._is_flyover_leg(self.act_leg):
             return 0.0
         next_wp = self.route[self.act_leg] if self.act_leg < self.count else None
         if next_wp is None or next_wp.pt in PT_TIER2:

@@ -134,8 +134,8 @@ def _turn_route(b_flags=0):
 
 @pytest.mark.parametrize("b_flags,turned_crs", [(0, 0.0), (engine.FLAG_FLYOVER, 90.0)])
 def test_coded_flyover_fix_is_not_turn_anticipated(b_flags, turned_crs):
-    # fix-gateway#44: FPLfFLAGS 0x01 outside the FAF..MAP run is fly-over --
-    # abeam-only, like the FAF. The fly-by row is the control: same route,
+    # fix-gateway#44: FPLfFLAGS 0x01 is fly-over -- abeam-only. The fly-by
+    # row is the control: same route,
     # same position, inside its 0.637 nm d_ta, where the course has turned
     # to C's leg (AER-4675: the waypoint waits for the bisector).
     e = engine.Engine()
@@ -681,17 +681,60 @@ def test_approach_ramp_linear_1_0_to_0_3_over_2nm_before_faf():
     assert out["cdiscale"] == pytest.approx(0.3, abs=0.01)
 
 
-def test_scale_holds_0_3_from_faf_to_map_fly_over_no_turn_anticipation():
+def _offset_approach_route(turn_at, flyover):
+    # IAF -> FAF -> SDF -> MAP, final course 090. turn_at "FAF": the
+    # intermediate course is 060, a 30 deg turn at the FAF (the LNAV
+    # maximum, Order 8260.58A 3-1-4.b). turn_at "SDF": straight through the
+    # FAF and a 10 deg turn at a stepdown fix 2 nm on.
+    faf = (0.0, nm_to_deg_lon(5.0))
+    sdf = (0.0, nm_to_deg_lon(7.0))
+    in_brg = 240.0 if turn_at == "FAF" else 270.0
+    iaf = geo.destination_point(faf[0], faf[1], in_brg, 5.0)
+    out_brg = 100.0 if turn_at == "SDF" else 90.0
+    map_ = geo.destination_point(sdf[0], sdf[1], out_brg, 3.0)
+    fo = engine.FLAG_FLYOVER if flyover else 0
+    return [
+        wp("IAF", *iaf, type=engine.TYPE_FIX, flags=engine.FLAG_IAF),
+        wp("FAF", *faf, type=engine.TYPE_FIX, flags=engine.FLAG_FAF | (fo if turn_at == "FAF" else 0)),
+        wp("SDF", *sdf, type=engine.TYPE_FIX, flags=fo if turn_at == "SDF" else 0),
+        wp("MAP", *map_, type=engine.TYPE_MAPPOINT, flags=engine.FLAG_MAP),
+    ]
+
+
+@pytest.mark.parametrize("turn_at,slot,in_crs,out_crs,before_nm", [
+    # Inside d_ta at 120 kt: 0.171 / 0.056 nm at standard rate, 0.210 /
+    # 0.069 nm at a 15 deg bank.
+    ("FAF", 2, 60.0, 90.0, 0.1),
+    ("SDF", 3, 90.0, 100.0, 0.03),
+])
+@pytest.mark.parametrize("flyover", [False, True])
+def test_faf_and_stepdown_follow_their_coding(turn_at, slot, in_crs, out_crs, before_nm, flyover):
+    # TURN4 (AER-4761): the FAF and the fixes between it and the MAP are
+    # flown as coded, like any other fix. Fly-by: the course moves to the
+    # next leg at turn start and the waypoint waits for the bisector.
+    # Coded fly-over: abeam only. Before AER-4761 every fix from the FAF to
+    # the MAP was forced fly-over whatever the coding.
+    e = engine.Engine()
+    route = _offset_approach_route(turn_at, flyover)
+    load(e, route, "T", 1)
+    e.handle_command(f"1 ACT {slot}", (0.0, 0.0, True))
+    fix = route[slot - 1]
+    lat, lon = geo.destination_point(fix.lat, fix.lon, geo.wrap360(in_crs + 180.0), before_nm)
+    out = e.update(lat, lon, 120.0, 0.0, True, None, None, 1000.0)
+    assert out["act_leg"] == slot
+    assert out["wp_name"] == fix.id
+    assert out["crs"] == pytest.approx(in_crs if flyover else out_crs, abs=0.05)
+
+
+def test_scale_holds_0_3_from_faf_to_map():
     e = engine.Engine()
     route = approach_route()
     load(e, route, "T", 1)
     e.handle_command("1 ACT 2", (0.0, 0.0, True))
     faf_lon = route[1].lon
 
-    # Just past the FAF -- abeam rule sequences immediately (fly-over, no
-    # turn-anticipation window), even though the course change to MAP is 0
-    # here and would floor to 0.1nm anyway; use a real course change to prove
-    # it truly ignores turn anticipation.
+    # Just past a straight-through FAF: sequenced onto the FAF->MAP leg,
+    # and the scale holds 0.3 nm from there to the MAP.
     out = e.update(0.0, faf_lon + nm_to_deg_lon(0.01), 120.0, 0.0, True, None, None, 1000.0)
     assert out["act_leg"] == 3  # sequenced onto the FAF->MAP leg
     assert out["cdiscale"] == pytest.approx(0.3, abs=1e-6)
@@ -945,7 +988,7 @@ def test_scale_manual_ceiling_does_not_widen_a_tighter_phase_scale():
     e = engine.Engine()
     route = approach_route()
     load(e, route, "T", 1)
-    e.handle_command("1 ACT 3", (0.0, 0.0, True))  # on the fly-over FAF->MAP leg, 0.3nm
+    e.handle_command("1 ACT 3", (0.0, 0.0, True))  # on the FAF->MAP leg, 0.3nm
     e.handle_command("2 SCALE 2.0", (0.0, 0.0, True))
     out = e.update(0.0, route[1].lon + nm_to_deg_lon(0.5), 120.0, 0.0, True, None, None, 1000.0)
     assert out["cdiscale"] == pytest.approx(0.3)  # min(0.3, 2.0)
