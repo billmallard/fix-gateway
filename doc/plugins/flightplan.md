@@ -188,8 +188,15 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
 - **Sequencing** (AER-4675, Bill's ruling on AER-4671): a fly-by fix is two
   events. At turn start, `d_ta = R_turn * tan(delta/2)` before the fix
   (`R_turn = GS_kt / 188.5` nm, `delta` capped at 120 deg, `d_ta` capped at
-  5 nm, no floor), `FPLCRS`, `FPLXTK` and `FPLCDI` move to the next leg and
-  `FPLALERT` ends. At the turn bisector — the line through the fix square to
+  5 nm, no floor), `FPLCRS` moves to the next leg and `FPLALERT` ends.
+  From turn start to the end of the turn's arc, on both sides of the
+  bisector, `FPLXTK` and `FPLCDI` are measured from that arc (AER-4715),
+  so a turn flown on it shows a centred CDI. The arc is tangent to both
+  legs `d_ta` from the fix, radius `d_ta / tan(delta/2)`: `R_turn`, or
+  tighter where a cap applied. It is fixed at turn start, survives a
+  restart, and goes with the turn on `SUSP` or any activation. Past its
+  end, and for a course change under 0.5 deg, `FPLXTK` is from the leg's
+  straight line. At the turn bisector — the line through the fix square to
   the mean of the two courses — the waypoint sequences: `WPNAME`, `WPDIS`,
   `FPLTF`, `FPLACTLEG`, `WPFROM`/`FPLFRLAT`/`FPLFRLON` and the `FPLMSG`
   `"SEQ A -> B"`. At standard rate that is `delta/2 / 3` s later, 15 s for

@@ -79,6 +79,7 @@ Unless an entry says otherwise:
 | [XPB-020](#xpb-020) | LAT holds its value for seconds while the stream is alive | `interface` |
 | [XPB-021](#xpb-021) | X-Plane's nav data provider changed on 2026-10-31 | `interface` |
 | [XPB-022](#xpb-022) | On V27 GVO-GOLET, course reads 1.4 deg below ours, steady along the leg | `unknown` |
+| [XPB-023](#xpb-023) | Fly-by turn: CDI from an arc until the bisector, then from the next leg's straight line | `sim-quirk` |
 
 ---
 
@@ -135,11 +136,12 @@ Unless an entry says otherwise:
 - **Our side, for contrast:**
   - Until AER-4675 the engine changed course and waypoint together at turn start, with a 0.1 nm floor on the turn anticipation (comment 4d4661bb, step 4). Bill ruled on AER-4671 (2026-11-02): the course changes at turn start, the waypoint at the turn bisector, and there is no floor.
   - Since AER-4675 the engine and X-Plane change the waypoint in the same 0.2 s row at GEARE, XEHMO and HENER, and 0.2 s apart at CUGAK. X-Plane still turns its course 4.6 to 5.1 s before the engine at those fixes: its turn term fits about 15 deg of bank, ours is standard rate. At straight-through fixes the engine now switches at the fix, so the whole ~0.2 nm lead (5.9 to 6.8 s) is X-Plane's.
+  - X-Plane's CDI in a fly-by turn is its own entry, [XPB-023](#xpb-023).
 - **Relied on by:**
   - `tests/sim/test_fp8_xplane_replay.py:75`: the sequence points are within 0.3 nm of X-Plane's. 0.3 nm is the FP8 brief's bound (AER-809), not fitted to this.
   - `tests/sim/test_fp8_xplane_replay.py:79`: HANNU -> WINCH is not compared, because X-Plane switches that waypoint abeam the fix.
   - `tests/sim/test_fp8_xplane_replay.py:133`: `_shared` excludes 5 s around either system's sequence.
-  - `tests/sim/fixtures/qa1_kssf_r28_xplane_2026-11-01.yaml`, `qa1_kded_r30_xplane_2026-11-01.yaml`, `sim2b_v27_xplane_2026-11-01.yaml`: `except_s_around_sequence: 6` with `around_keys` `FPLALERT` for X-Plane's earlier turn start, and `skip_when_differ: [WPNAME, gps_id]` for its early switch at straight-through fixes.
+  - `tests/sim/fixtures/qa1_kssf_r28_xplane_2026-11-01.yaml`, `qa1_kded_r30_xplane_2026-11-01.yaml`, `sim2b_v27_xplane_2026-11-01.yaml`: `except_s_around_sequence: 6` with `around_keys` `FPLALERT` for X-Plane's earlier turn start, and `skip_when_differ: [WPNAME, gps_id]` for its early switch at straight-through fixes. The CDI through the turn is [XPB-023](#xpb-023)'s.
   - `tests/sim/fixtures/fp8_xplane_2026-10-29.yaml:24,29`: `except_s_around_sequence: 5`.
   - `tests/sim/fixtures/fp8_xplane_2026-10-29.yaml:16`: the EXTTF 2 skip, for the FROM before WINCH.
   - The synthetic tier's 5 s `WPNAME`/`REFWPT` window would not hold against X-Plane: the lead is 6.1 to 6.9 s at the SR22's speeds and 8.4 s at 86.7 kt (AER-4286, AER-4283).
@@ -200,6 +202,24 @@ Unless an entry says otherwise:
   - `tests/sim/test_fp8_xplane_replay.py:156`: `test_hold_inbound_leg_matches_xplane` compares only the inbound leg.
   - `tests/sim/test_fp8_xplane_replay.py:170`: the CDI sign is checked only where both deflections exceed 0.05 of full scale. The 0.1 magnitude bound applies to every row.
   - `tests/sim/test_fp8_xplane_replay.py:175`: `_hold_inbound` picks that leg's rows on the engine's own leg phase (`INBOUND`) with X-Plane TO, not on agreement with X-Plane, so an inbound course disagreement fails the 2 deg bound instead of dropping out (fix-gateway#89). `test_hold_inbound_selection_keeps_a_course_disagreement` (line 184) pins that.
+
+### XPB-023
+
+**In a fly-by turn, X-Plane's CDI follows an arc until the bisector, then the next leg's straight line.**
+
+- **Class:** `sim-quirk` (Bill, AER-4715, 2026-11-03: the CDI stays on the arc to the arc's end). This is a second departure from the Garmin guides, separate from XPB-001's early switch. We don't copy it.
+- **Setup:** X-Plane 12, SR22 G1000. Sessions `acdbb0757fca` (KSSF, GEARE 90 deg), `ea108163a87d` (KDED, XEHMO 85 deg) and the SIM2b V27 recording (HENER 61 deg), replayed through the engine at fix-gateway#123.
+- **Observed** (AER-4715, fix-gateway#123):
+  - From X-Plane's turn start to the bisector, its deviation follows an arc. At HENER it is within 0.002 of full scale of the engine's arc cross-track, where the next leg's straight line reads up to 0.156 off. At XEHMO and GEARE it follows a wider arc than ours (XPB-001: its turn starts about 5 s earlier).
+  - From the first row after the waypoint switch at the bisector, X-Plane's CDI equals the next leg's straight-line cross-track to the third decimal. That is the engine's value before #123, at HENER, GEARE and XEHMO.
+  - So a turn flown on X-Plane's arc shows a CDI step at the bisector, which then decays to zero at the arc's end. In the 6 s after the switch, X-Plane's CDI and ours differ by up to 0.129 of full scale at GEARE (TERM, 1 nm), 0.094 at XEHMO and 0.028 at HENER (ENR, 2 nm).
+- **Our side:** the engine and the synthetic reference measure the cross-track from the turn's arc, from turn start to the arc's end, on both sides of the bisector (fix-gateway#123; `makerplane/briefs/flight_plan_plan.md` section 3.3.1, row 2).
+- **Reference:**
+  - Garmin's online pilot's guide, "Flight Plan Navigation Indications": "The CDI will indicate the cross track error relative to the arc for the duration of the turn." Quoted second-hand from AER-4715, comment a6464f0d (Bill's account, 2026-11-03).
+  - Garmin GNC 250XL pilot's guide, p. 84: turn anticipation gives "CDI guidance along a curved path segment", and "during the transition, the CDI display will be referenced to" that path.
+- **Where the comparison is blind:** the X-Plane CDI checks skip 6 s around each waypoint switch (`except_s_around_sequence: 6`, `around_keys` with `FPLALERT`). That window holds the start of X-Plane's step, where the difference is largest. At GEARE the gate's largest compared difference is 0.059, but the excluded rows reach 0.129, over the 0.1 bound. A future recording that fails just outside that window, in the second half of a fly-by turn, is most likely this step, not a regression. Check it against this entry before treating it as one. The tolerance is not widened for it.
+- **Relied on by:**
+  - `tests/sim/fixtures/qa1_kssf_r28_xplane_2026-11-01.yaml`, `qa1_kded_r30_xplane_2026-11-01.yaml`, `sim2b_v27_xplane_2026-11-01.yaml`: the CDI checks compare through the turn (no `eng_turning` skip since #123). Past the 6 s window the step is inside the 0.1 bound on all three: largest 0.093, in the XEHMO turn.
 
 ## Interface
 

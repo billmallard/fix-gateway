@@ -34,11 +34,12 @@
 #     engine drops at turn start, beside the TO-fix keys): X-Plane turns its
 #     course to BEFOR's at 0.81 nm before GEARE, 5.1 s before the engine
 #     does at 0.63 nm (XPB-001: X-Plane's turn is wider than standard rate).
-#   eng_turning 1, CDI only: the engine's fly-by turn window, from turn start
-#     to the bisector. The engine's cross-track there is from the next leg's
-#     straight line (AER-4675), so it starts at the turn's anticipation
-#     distance and shrinks through the turn; X-Plane's deviation stays near
-#     zero, not referenced to that line. The course is compared there.
+#   In the turn the engine's cross-track is from the turn's arc, to the
+#     arc's end (AER-4715), and the CDI is compared there. X-Plane's follows
+#     an arc until the bisector and the next leg's straight line after it
+#     (XPB-023). The step that leaves at the bisector is largest inside the
+#     6 s window above, so this check does not see it (XPB-023). The second half of the GEARE
+#     turn puts the CDIs 0.059 apart, the largest difference on the trace.
 # The turn direction at GANLE (QA's F3) is not judged here: no FPL key
 # carries it.
 name: qa1-kssf-r28-xplane-2026-11-01
@@ -61,7 +62,7 @@ checks:
     same_sign: true
     except_s_around_sequence: 6  # X-Plane turns its course 5.1 s before the engine at GEARE (above)
     around_keys: [WPNAME, gps_id, FPLALERT]
-    skip_when: {FPLSTATE: 3, WPNAME: GANLE, EXTTF: 2, eng_turning: 1}
+    skip_when: {FPLSTATE: 3, WPNAME: GANLE, EXTTF: 2}
     skip_when_differ: [WPNAME, gps_id]
   - sequence: [GEARE, BEFOR, LANDD, RW28, GANLE]
     keys: [WPNAME, gps_id]

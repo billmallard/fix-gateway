@@ -203,12 +203,90 @@ def test_flyby_turn_changes_track_at_turn_start_and_waypoint_at_the_bisector():
         assert out.get("msg") is None
         # The FROM anchor stays A, so the map's active leg stays A->B.
         assert (out["fr_lat"], out["fr_lon"]) == (0.0, 0.0)
-        # Course and deviation are the B->C leg's: due north, with the
-        # aircraft west of that line in the turn, so left of track.
+        # The course is the B->C leg's, due north. The deviation is from
+        # the turn's arc (AER-4715), which this aircraft flies.
         assert out["crs"] == pytest.approx(0.0, abs=0.5)
-        assert out["xtk"] < 0.0
+        assert abs(out["xtk"]) < 0.01
     dists = [out["wp_dis"] for out in window]
     assert all(b2 < b1 for b1, b2 in zip(dists, dists[1:]))
+
+
+def test_flyby_turn_cross_track_is_from_the_arc_until_the_arc_ends():
+    # AER-4715: a well-flown fly-by turn shows a centred CDI. The arc of the
+    # 90 deg turn at B joins A->B 0.637 nm before B to B->C 0.637 nm past
+    # it (radius 0.637 nm at 120 kt). An aircraft that turns at standard
+    # rate from turn start is on it for 30 s, on both sides of the
+    # bisector. Measured from the B->C line, as from AER-4675 until this
+    # change, its cross-track started at -0.637 nm (a third of full scale
+    # en route) and shrank through the turn.
+    e = engine.Engine()
+    route = _turn_route()
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+    b = route[1]
+    e.update(0.0, b.lon - nm_to_deg_lon(3.0), 120.0, 0.0, True, None, None, 999.0)  # posts NO INTEGRITY DATA
+
+    rows = _fly_turn(e, 0.0, b.lon - nm_to_deg_lon(3.0), 1000.0, 120.0)
+    i_turn = next(i for i, r in enumerate(rows) if r[3]["crs"] < 45.0)
+    i_seq = next(i for i, r in enumerate(rows) if r[3]["act_leg"] == 3)
+    t_turn, lat_turn, lon_turn, _ = rows[i_turn]
+    i_end = next(i for i, r in enumerate(rows) if r[0] >= t_turn + 30.0)
+    assert i_turn < i_seq < i_end
+
+    # The straight-line measure this replaces, at turn start.
+    line_xtk = geo.cross_track_nm(b.lat, b.lon, route[2].lat, route[2].lon, lat_turn, lon_turn)
+    assert line_xtk == pytest.approx(-0.637, abs=0.01)
+
+    for _, _, _, out in rows[i_turn:i_end]:
+        assert abs(out["xtk"]) < 0.01
+        assert abs(out["cdi"]) < 0.01
+
+    # Past the arc's end it is the B->C line again, and the arc is gone.
+    assert e._turn_arc is None
+    for _, lat, lon, out in rows[i_end + 8:]:
+        assert out["xtk"] == pytest.approx(
+            geo.cross_track_nm(b.lat, b.lon, route[2].lat, route[2].lon, lat, lon), abs=1e-9)
+
+
+def test_off_the_arc_in_a_flyby_turn_reads_the_distance_from_the_arc():
+    # AER-4715: still on the A->B line, 0.3 nm before B, past turn start.
+    # The left turn's arc is centred 0.637 nm north of turn start, so the
+    # aircraft is outside it: right of the path by
+    # hypot(0.337, 0.637) - 0.637 = 0.084 nm. From the B->C line it read
+    # 0.3 nm left.
+    e = engine.Engine()
+    route = _turn_route()
+    pos = _in_turn_window(e, route)
+    out = e.update(*pos, 120.0, 0.0, True, None, None, 1001.0)
+    assert out["act_leg"] == 2 and out["crs"] == pytest.approx(0.0, abs=0.01)
+    assert out["xtk"] == pytest.approx(math.hypot(0.637 - 0.3, 0.637) - 0.637, abs=0.002)
+    assert out["cdi"] < 0.0  # fly left, back toward the arc
+
+
+def test_arc_cross_track_survives_a_restart_and_ignores_a_new_gs():
+    # The arc is fixed at turn start: a restart, and a slower GS that would
+    # give a tighter turn, both leave it where it was.
+    e = engine.Engine()
+    route = _turn_route()
+    pos = _in_turn_window(e, route)
+    want = e.update(*pos, 120.0, 0.0, True, None, None, 1001.0)["xtk"]
+    restored = engine.Engine()
+    restored.restore_from_dict(e.to_persisted_dict())
+    out = restored.update(*pos, 40.0, 0.0, True, None, None, 1002.0)
+    assert out["xtk"] == pytest.approx(want, abs=1e-9)
+
+
+def test_a_state_file_from_before_the_arc_measures_the_turn_from_the_next_leg():
+    e = engine.Engine()
+    route = _turn_route()
+    pos = _in_turn_window(e, route)
+    d = e.to_persisted_dict()
+    del d["turn_arc"]
+    restored = engine.Engine()
+    restored.restore_from_dict(d)
+    out = restored.update(*pos, 120.0, 0.0, True, None, None, 1001.0)
+    assert out["act_leg"] == 2 and out["crs"] == pytest.approx(0.0, abs=0.01)
+    assert out["xtk"] == pytest.approx(-0.3, abs=0.001)
 
 
 def _in_turn_window(e, route):

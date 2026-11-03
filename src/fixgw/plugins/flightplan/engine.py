@@ -136,6 +136,11 @@ CF_VIRTUAL_FROM_NM = 50.0
 # fix (fix-gateway#44). Well under any real distance between two fixes.
 COINCIDENT_FIX_NM = 0.01
 
+# A fly-by course change below this has no arc to measure cross-track from
+# (AER-4715): the arc would be its two legs to within a few feet, and its
+# centre is 0/0 at a straight-through fix.
+ARC_MIN_DEG = 0.5
+
 # --- Hold entries and racetrack (fix-gateway#45) ----------------------------
 # AIM 5-3-8 (the Instrument Flying Handbook, FAA-H-8083-15B ch. 10, still
 # cites it as 5-3-7): a line through the fix at 70 deg to the holding course
@@ -624,6 +629,10 @@ class Engine:
         # the next leg's, but the waypoint does not sequence until the turn
         # bisector. See _compute_guidance.
         self._turning = False
+        # The arc of that turn (AER-4715), fixed at turn start: cross-track
+        # is measured from it until the aircraft is past its end, on both
+        # sides of the bisector. None outside a fly-by turn.
+        self._turn_arc = None
 
         self._last_good_time = None
         self._last_lat = None
@@ -670,6 +679,7 @@ class Engine:
         self._integrity_msg_posted = True
         self._prev_atd = None
         self._turning = False
+        self._turn_arc = None
         self._clear_leg_phase()
 
     # ------------------------------------------------------------------
@@ -701,6 +711,7 @@ class Engine:
             "hold_r_nm": self._hold_r_nm,
             "hold_entry_nm": self._hold_entry_nm,
             "turning": self._turning,
+            "turn_arc": self._turn_arc,
         }
 
     def restore_from_dict(self, d):
@@ -743,6 +754,9 @@ class Engine:
         self._hold_r_nm = d.get("hold_r_nm")
         self._hold_entry_nm = d.get("hold_entry_nm")
         self._turning = d.get("turning", False)
+        # A file from before AER-4715 has no arc: the rest of that turn
+        # measures cross-track from the next leg's line, as it did then.
+        self._turn_arc = d.get("turn_arc")
         self._prev_atd = None
 
     # ------------------------------------------------------------------
@@ -1073,6 +1087,7 @@ class Engine:
             self._integrity_msg_posted = False
         self._prev_atd = None
         self._turning = False
+        self._turn_arc = None
         # A fresh activation always starts a leg's "approach the fix" phase
         # (PA13) -- never mid-hold or past-the-fix-on-course from whatever
         # leg was previously active.
@@ -1190,6 +1205,7 @@ class Engine:
         # a SUSP in a fly-by turn takes the desired track back from the
         # next leg. RESUME re-enters the turn if it is still ahead.
         self._turning = False
+        self._turn_arc = None
 
     def _cmd_resume(self, position):
         if self._map_suspended:
@@ -1397,6 +1413,61 @@ class Engine:
         back_lat, back_lon = geo.destination_point(to.lat, to.lon, geo.wrap360(mean + 180.0), 1.0)
         return geo.along_track_distance_to_waypoint_nm(back_lat, back_lon, to.lat, to.lon, ac_lat, ac_lon) <= 0.0
 
+    def _fly_by_arc(self, anchor, to, d_ta):
+        """The arc of the fly-by turn at the fix `to` that starts d_ta
+        before it (AER-4715): tangent to the arriving leg at turn start and
+        to the next leg d_ta past the fix, so its radius is
+        d_ta / tan(delta/2). That is the turn radius d_ta was computed from,
+        except where turn_anticipation_nm capped the course change at 120
+        deg or d_ta at 5 nm: there it is the tighter arc that still joins
+        the two legs from where the turn started. None for a course change
+        too small to bend the path (ARC_MIN_DEG)."""
+        in_course, out_course = self._turn_courses(anchor, to, self.route[self.act_leg])
+        delta = (out_course - in_course + 180.0) % 360.0 - 180.0
+        if abs(delta) < ARC_MIN_DEG or d_ta <= 0.0:
+            return None
+        half = math.radians(abs(delta)) / 2.0
+        back = geo.wrap360(in_course + 180.0)
+        inside = geo.wrap360(back + ((out_course - back + 180.0) % 360.0 - 180.0) / 2.0)
+        c_lat, c_lon = geo.destination_point(to.lat, to.lon, inside, d_ta / math.sin(half))
+        x_lat, x_lon = geo.destination_point(to.lat, to.lon, out_course, d_ta)
+        return {
+            "leg": self.act_leg,
+            "lat": c_lat,
+            "lon": c_lon,
+            "r_nm": d_ta / math.tan(half),
+            "cw": delta > 0.0,
+            "sweep_deg": abs(delta),
+            "exit_lat": x_lat,
+            "exit_lon": x_lon,
+        }
+
+    def _turn_arc_xtk(self, ac_lat, ac_lon):
+        """Cross-track from the fly-by arc (AER-4715), or None where it does
+        not apply: outside the turn it belongs to, or with the aircraft's
+        radial from the arc's center not between the arc's ends. Clears the
+        arc for good once the turn is over: the leg after the turn is
+        active and the aircraft is past the arc's end, or neither the
+        turn's waypoint nor the one after it is active any more."""
+        arc = self._turn_arc
+        if arc is None:
+            return None
+        before_seq = self._turning and self.act_leg == arc["leg"]
+        after_seq = not self._turning and self.act_leg == arc["leg"] + 1
+        if not (before_seq or after_seq):
+            self._turn_arc = None
+            return None
+        _, to_go, xtk, _ = self._circle_geometry(
+            Point(arc["lat"], arc["lon"]), arc["r_nm"], arc["cw"],
+            Point(arc["exit_lat"], arc["exit_lon"]), ac_lat, ac_lon)
+        if to_go < 0.0:
+            if after_seq:
+                self._turn_arc = None
+            return None
+        if to_go > arc["r_nm"] * math.radians(arc["sweep_deg"]):
+            return None  # short of the arc's start radial
+        return xtk
+
     def _next_leg_geometry(self, to, ac_lat, ac_lon, magvar_deg):
         """atd, xtk and true DTK on the leg after the TO fix `to`, flown
         from that fix: the desired track in a fly-by turn (AER-4675). Only
@@ -1600,6 +1671,7 @@ class Engine:
                 if (not self._turning and 0.0 < atd <= d_ta
                         and self.route[self.act_leg].pt not in PT_VECTOR):
                     self._turning = True
+                    self._turn_arc = self._fly_by_arc(anchor, to, d_ta)
                 alert = not self._turning and 0.0 <= atd <= alert_dist
                 reached = (
                     atd <= 0.0
@@ -1645,6 +1717,13 @@ class Engine:
             # the FROM anchor, which the map draws the active leg from)
             # stays on the fix being turned at until it sequences.
             _, xtk, dtk_true = self._next_leg_geometry(to, ac_lat, ac_lon, magvar_deg)
+        # From turn start to the arc's end, across the bisector, the
+        # deviation is from the turn's arc (AER-4715): the path a fly-by
+        # turn flies, so a turn flown on it shows a centred CDI. The course
+        # stays the next leg's.
+        arc_xtk = self._turn_arc_xtk(ac_lat, ac_lon)
+        if arc_xtk is not None:
+            xtk = arc_xtk
 
         self._prev_atd = atd
 
