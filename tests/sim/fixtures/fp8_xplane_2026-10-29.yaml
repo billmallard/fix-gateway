@@ -27,10 +27,12 @@ pilot:
   - {resume_past: HANNU, max_s: 90}
 checks:
   - key_pair: [FPLCRS, EXTCRS]
+    min_compared_share: 0.55  # 66% of rows compared on this trace (AER-4693)
     tol_deg: 2.0
     except_s_around_sequence: 5  # XPB-001: X-Plane sequences ~0.2 nm (6-7 s) early
     skip_when: {FPLSTATE: 3, FPLPHASE: HOLD, EXTTF: 2}
   - key_pair: [FPLCDI, EXTCDI]
+    min_compared_share: 0.55  # 66% of rows compared on this trace (AER-4693)
     tol: 0.1
     same_sign: true
     except_s_around_sequence: 5  # XPB-001: X-Plane sequences ~0.2 nm (6-7 s) early

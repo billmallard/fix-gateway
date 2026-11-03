@@ -12,6 +12,7 @@ import statistics
 import pytest
 import yaml
 
+from fixgw.plugins.flightplan.engine import Engine
 from fixgw.sim import checks
 from fixgw.sim.profile import ProfileError, load_profile
 
@@ -146,6 +147,39 @@ def test_skip_when_differ_needs_two_keys(tmp_path):
     p.write_text(yaml.safe_dump(raw))
     with pytest.raises(ProfileError, match="skip_when_differ"):
         load_profile(str(p))
+
+
+def _toggling_alert(monkeypatch):
+    """The fault QA planted on fix-gateway#120 (AER-4688): the engine toggles
+    FPLALERT every 0.005 nm wherever it computes it. Each toggle opens the
+    6 s window that excuses the rows around the engine's turn start."""
+    real = Engine.update
+
+    def update(self, *a, **k):
+        out = real(self, *a, **k)
+        if (not self._is_final(self.act_leg) and not self.suspended
+                and self.route[self.act_leg].pt not in ("CA", "FA")):
+            out["alert"] = int(out["wp_dis"] / 0.005) % 2 == 0
+        return out
+
+    monkeypatch.setattr(Engine, "update", update)
+
+
+@pytest.mark.parametrize("rec", [KSSF, KDED], ids=["kssf", "kded"])
+def test_an_engine_toggling_fplalert_fails_the_fixture_checks(rec, monkeypatch, tmp_path):
+    # Without the floor every compared row still agrees, so the checks pass
+    # on a few percent of the rows: the fault was caught only by the
+    # sensitivity tests above. With it, both pair checks fail on the share.
+    _toggling_alert(monkeypatch)
+    fails = profile_gate.failure_lines(profile_gate.fly_recording(rec))
+    assert len(fails) == 2 and all("floor" in f for f in fails), fails
+    raw = yaml.safe_load(rec.read_text())
+    raw["trace"] = str(rec.parent / raw["trace"])
+    for c in raw["checks"]:
+        c.pop("min_compared_share", None)
+    unfloored = tmp_path / rec.name
+    unfloored.write_text(yaml.safe_dump(raw))
+    assert profile_gate.fly_recording(unfloored).passed
 
 
 def test_min_compared_share_fails_a_check_that_excuses_too_many_rows():
