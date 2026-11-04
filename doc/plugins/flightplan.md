@@ -189,13 +189,16 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
 - **Sequencing** (AER-4675, Bill's ruling on AER-4671): a fly-by fix is two
   events. At turn start, `d_ta = R_turn * tan(delta/2)` before the fix
   (`R_turn = GS_kt^2 / (68625.4 tan 15 deg)` nm, a nominal 15 deg bank
-  as in the Garmin guides (TURN1, AER-4759), `delta` capped at 120 deg, `d_ta` capped at
-  5 nm, no floor), `FPLCRS` moves to the next leg and `FPLALERT` ends.
+  as in the Garmin guides (TURN1, AER-4759), `d_ta` capped at 5 nm, no
+  floor), `FPLCRS` moves to the next leg and `FPLALERT` ends. A turn over
+  120 deg is flown as a fly-over instead (TURN2, AER-4760): no turn start
+  and no arc; it sequences abeam the fix and `FPLXTK` is from the next
+  leg's line, as at a coded fly-over fix.
   From turn start to the end of the turn's arc, on both sides of the
   bisector, `FPLXTK` and `FPLCDI` are measured from that arc (AER-4715),
   so a turn flown on it shows a centred CDI. The arc is tangent to both
   legs `d_ta` from the fix, radius `d_ta / tan(delta/2)`: `R_turn`, or
-  tighter where a cap applied. It is fixed at turn start, survives a
+  tighter where the 5 nm cap applied. It is fixed at turn start, survives a
   restart, and goes with the turn on `SUSP` or any activation. Past its
   end, and for a course change under 0.5 deg, `FPLXTK` is from the leg's
   straight line. At the turn bisector — the line through the fix square to
