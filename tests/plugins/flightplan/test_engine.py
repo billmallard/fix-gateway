@@ -56,8 +56,12 @@ def test_turn_anticipation_table(gs, delta, expected):
     assert engine.turn_anticipation_nm(gs, delta) == pytest.approx(expected, abs=1e-3)
 
 
-def test_turn_anticipation_caps_delta_at_120():
-    assert engine.turn_anticipation_nm(150, 170) == engine.turn_anticipation_nm(150, 120)
+def test_turn_anticipation_is_r_tan_half_the_turn_with_no_120_deg_cap():
+    # TURN2 (AER-4760): the 120 deg cap is gone. A turn over 120 deg is
+    # flown as a fly-over, so the engine never anticipates one, and a cap
+    # here only hid that. 150 deg at 120 kt: 0.783 tan 75 = 2.923 nm.
+    assert engine.turn_anticipation_nm(120, 150) == pytest.approx(2.923, abs=1e-3)
+    assert engine.turn_anticipation_nm(150, 170) == pytest.approx(5.0)
 
 
 def test_turn_anticipation_has_no_floor_and_a_5nm_cap():
@@ -168,6 +172,72 @@ def test_coded_flyover_fix_is_not_turn_anticipated(b_flags, turned_crs):
     out = e.update(0.0, route[1].lon - nm_to_deg_lon(0.3), 120.0, 0.0, True, None, None, 1000.0)
     assert out["act_leg"] == 2
     assert out["crs"] == pytest.approx(turned_crs, abs=0.01)
+
+
+def _left_turn_route(turn_deg):
+    # A -> B east, then a turn_deg left turn at B to C, 10 nm on.
+    b_lon = nm_to_deg_lon(60.04)
+    c_lat, c_lon = geo.destination_point(0.0, b_lon, geo.wrap360(90.0 - turn_deg), 10.0)
+    return [wp("A", 0.0, 0.0), wp("B", 0.0, b_lon), wp("C", c_lat, c_lon)]
+
+
+@pytest.mark.parametrize("turn_deg", [121.0, 150.0, 179.0])
+def test_flyby_turn_over_120_deg_is_flown_as_a_flyover(turn_deg):
+    # TURN2 (AER-4760, Bill's card 2026-11-04): row 3 of brief 3.3.1. The
+    # turn is not anticipated: 0.5 nm before B the course is still A->B's,
+    # inside the 1.356 nm (120 deg at 120 kt) where it used to turn. Abeam
+    # B it sequences, and the needle is from the B->C line, as at a coded
+    # fly-over fix.
+    e = engine.Engine()
+    route = _left_turn_route(turn_deg)
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+    b, c = route[1], route[2]
+    out = e.update(0.0, b.lon - nm_to_deg_lon(0.5), 120.0, 0.0, True, None, None, 1000.0)
+    assert out["act_leg"] == 2
+    assert out["crs"] == pytest.approx(90.0, abs=0.01)
+    assert e._turn_arc is None
+    lat, lon = 0.0, b.lon + nm_to_deg_lon(0.01)
+    out = e.update(lat, lon, 120.0, 0.0, True, None, None, 1001.0)
+    assert out["act_leg"] == 3 and out["wp_name"] == "C"
+    assert out["crs"] == pytest.approx(geo.bearing_deg(lat, lon, c.lat, c.lon), abs=0.1)
+    assert out["xtk"] == pytest.approx(geo.cross_track_nm(b.lat, b.lon, c.lat, c.lon, lat, lon), abs=1e-9)
+
+
+def test_flyby_turn_just_under_120_deg_is_still_anticipated():
+    # The control for the test above: up to 120 deg is row 2, a fly-by.
+    # (A route built at exactly 120 measures 120 + 1.5e-11 on the sphere.)
+    e = engine.Engine()
+    route = _left_turn_route(119.9)
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+    out = e.update(0.0, route[1].lon - nm_to_deg_lon(0.5), 120.0, 0.0, True, None, None, 1000.0)
+    assert out["act_leg"] == 2
+    assert out["crs"] == pytest.approx(330.1, abs=0.1)
+    assert e._turn_arc is not None
+
+
+def test_a_150_deg_turn_flown_through_shows_the_overshoot_not_a_tight_arc():
+    # TURN2: what the pilot sees. Until TURN2 the turn started 1.356 nm
+    # before B and the needle was measured from an arc of 0.46 R_turn,
+    # which the aircraft does not fly. Now it reaches B on A->B, turns at
+    # 3 deg/s, and rolls out R (1 - cos 150) = 1.19 nm (R = 120/188.5)
+    # outside the B->C line, which the needle shows.
+    e = engine.Engine()
+    route = _left_turn_route(150.0)
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+    b = route[1]
+    e.update(0.0, b.lon - nm_to_deg_lon(3.0), 120.0, 0.0, True, None, None, 999.0)  # posts NO INTEGRITY DATA
+
+    rows = _fly_turn(e, 0.0, b.lon - nm_to_deg_lon(3.0), 1000.0, 150.0)
+    before = [r[3] for r in rows if r[3]["act_leg"] == 2]
+    after = [r[3] for r in rows if r[3]["act_leg"] == 3]
+    assert before and after
+    assert all(out["crs"] == pytest.approx(90.0, abs=0.01) for out in before)
+    assert all(abs(out["xtk"]) < 0.01 for out in before)
+    r_rate = 120.0 / 188.5
+    assert max(out["xtk"] for out in after) == pytest.approx(r_rate * (1 - math.cos(math.radians(150.0))), abs=0.03)
 
 
 def _fly_turn(e, lat, lon, t0, seconds, gs_kt=120.0, dt=0.25, rate_deg_s=3.0):

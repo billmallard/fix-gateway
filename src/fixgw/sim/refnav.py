@@ -28,9 +28,13 @@ Behaviour, as a navigator built to TSO-C129/C146 and DO-229 would show it:
   through the fix square to the mean of the two courses, the TO waypoint
   and distance sequence. A fly-over fix, and a fix with nothing after it,
   sequence abeam, as does a straight-through fix (its bisector is the
-  abeam line). A fly-by turn over 120 degrees is refused
-  (:class:`ReferenceError_`), as an unsupported leg type is: neither guide
-  says where such a turn starts or sequences.
+  abeam line). A fly-by turn over 120 degrees is flown as a fly-over
+  (TURN2, AER-4760): Doc 9613 and AC 90-105A define fly-by transitions
+  only up to 120 degrees, and no Garmin guide says where a larger one
+  starts or sequences. Bill chose the fly-over on the AER-4760 card.
+  A turn within 0.5 degrees of 120 is refused (:class:`ReferenceError_`):
+  the engine's sphere and this module's WGS-84 can read it on opposite
+  sides of the limit (QA, AER-4785).
 - In a fly-by turn the cross-track is from the turn's arc, from turn start
   until the aircraft is abeam the arc's end, on both sides of the bisector
   (the Garmin GNC 250XL guide, p. 84: "CDI guidance along a curved path
@@ -63,9 +67,17 @@ G_MPS2 = 9.80665
 KT_TO_MPS = M_PER_NM / 3600.0
 
 SUPPORTED = ("IF", "TF", "DF", "CA", "HM")
-# Neither Garmin guide says where a larger fly-by turn starts or sequences
-# (QA's review of fix-gateway#120, AER-4688), so the reference refuses one.
+# The standards define a fly-by transition only up to 120 deg (Doc 9613 Vol
+# II C-1 1.3.3.7.3; AC 90-105A App. F), and no Garmin guide says where a
+# larger one starts or sequences, so the reference flies it as a fly-over
+# (TURN2, AER-4760; until then it refused one).
 MAX_FLYBY_TURN_DEG = 120.0
+# The engine measures the turn on the sphere and the reference on WGS-84,
+# and near 120 deg the two readings differ by up to 0.29 deg (QA's survey
+# on AER-4785: latitudes 0 to 70, inbound 000/045/090, legs 10 to 100 nm;
+# worst at the equator, inbound 045). Inside this band either answer is
+# honest, so the reference refuses to judge rather than pick a side.
+FLYBY_LIMIT_BAND_DEG = 0.5
 
 
 class ReferenceError_(Exception):
@@ -523,12 +535,15 @@ class ReferenceNavigator:
         lead = 0.0
         if flyby:
             turn = abs(wrap180(nxt_course - self._turn_inbound_azi()))
-            if turn > MAX_FLYBY_TURN_DEG:
-                raise ReferenceError_(f"fly-by turn of {turn:.1f} deg at {leg.ident}: over "
-                                      f"{MAX_FLYBY_TURN_DEG:g} deg, not supported by the reference")
-            # The turn at the fix, the one the refusal above measures and the
-            # arc is built on, not at the abeam point (QA on #122).
-            lead = flyby_turn_radius_nm(gs_kt, self.flyby_bank) * math.tan(math.radians(turn / 2.0))
+            if abs(turn - MAX_FLYBY_TURN_DEG) <= FLYBY_LIMIT_BAND_DEG:
+                raise ReferenceError_(
+                    f"fly-by turn of {turn:.2f} deg at {leg.ident}: within {FLYBY_LIMIT_BAND_DEG:g} deg of "
+                    f"the {MAX_FLYBY_TURN_DEG:g} deg limit, too close for the reference to tell fly-by from fly-over")
+            # The turn at the fix, the one the limit below measures and the
+            # arc is built on, not at the abeam point (QA on #122). Over the
+            # limit there is no lead: abeam, as at a fly-over fix.
+            if turn <= MAX_FLYBY_TURN_DEG:
+                lead = flyby_turn_radius_nm(gs_kt, self.flyby_bank) * math.tan(math.radians(turn / 2.0))
         if 0.0 < remaining <= lead:
             self._start_turn(lat, lon, self._turn_inbound_azi(), nxt_course, lead)
             return self._turn_done(t, lat, lon)
