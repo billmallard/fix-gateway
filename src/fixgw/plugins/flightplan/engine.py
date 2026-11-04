@@ -140,6 +140,11 @@ COINCIDENT_FIX_NM = 0.01
 # (AER-4715): the arc would be its two legs to within a few feet, and its
 # centre is 0/0 at a straight-through fix.
 ARC_MIN_DEG = 0.5
+# The largest course change flown fly-by (TURN2, AER-4760). Doc 9613 and
+# AC 90-105A define fly-by transitions only up to 120 deg below FL195; a
+# larger turn (a pilot-built reversal) is flown as a fly-over: no
+# anticipation, sequenced abeam, needle from the next leg (brief 3.3.1 row 3).
+MAX_FLYBY_TURN_DEG = 120.0
 
 # --- Hold entries and racetrack (fix-gateway#45) ----------------------------
 # AIM 5-3-8 (the Instrument Flying Handbook, FAA-H-8083-15B ch. 10, still
@@ -558,9 +563,11 @@ def turn_anticipation_nm(gs_kt, delta_deg, turn_bank_deg=TURN_BANK_DEG_DEFAULT):
     (TURN1: a nominal 15 deg, 0.783 nm at 120 kt; standard rate before).
 
     No floor (AER-4675): a straight-through fix has no turn to anticipate,
-    so its course changes at the fix, where its waypoint does.
+    so its course changes at the fix, where its waypoint does. No cap on
+    delta either (TURN2, AER-4760): the engine does not anticipate a turn
+    over MAX_FLYBY_TURN_DEG at all, so capping it here only hid that.
     """
-    delta_deg = min(abs(delta_deg), 120.0)
+    delta_deg = abs(delta_deg)
     r_turn = bank_turn_radius_nm(gs_kt, turn_bank_deg)
     d_ta = r_turn * math.tan(math.radians(delta_deg) / 2.0)
     return min(5.0, d_ta)
@@ -1386,7 +1393,8 @@ class Engine:
         meaningless as a turn). The FAF and the fixes between it and the
         MAP follow their coding like any other fix (TURN4, AER-4761): the
         procedure design criteria allow a turn at the FAF only when it is
-        fly-by. The MAP never gets here: it never auto-sequences."""
+        fly-by. The MAP never gets here: it never auto-sequences. A turn
+        over MAX_FLYBY_TURN_DEG is flown as a fly-over too (TURN2)."""
         if to_wp.pt in PT_TIER2:
             return 0.0
         if to_wp.flags & FLAG_FLYOVER:
@@ -1396,6 +1404,8 @@ class Engine:
             return 0.0
         in_course, out_course = self._turn_courses(anchor, to, next_wp)
         delta = _course_change_deg(in_course, out_course)
+        if delta > MAX_FLYBY_TURN_DEG:
+            return 0.0
         return turn_anticipation_nm(gs_kt, delta, self.turn_bank_deg)
 
     @staticmethod
@@ -1424,10 +1434,10 @@ class Engine:
         before it (AER-4715): tangent to the arriving leg at turn start and
         to the next leg d_ta past the fix, so its radius is
         d_ta / tan(delta/2). That is the turn radius d_ta was computed from,
-        except where turn_anticipation_nm capped the course change at 120
-        deg or d_ta at 5 nm: there it is the tighter arc that still joins
-        the two legs from where the turn started. None for a course change
-        too small to bend the path (ARC_MIN_DEG)."""
+        except where turn_anticipation_nm capped d_ta at 5 nm: there it is
+        the tighter arc that still joins the two legs from where the turn
+        started. A turn over MAX_FLYBY_TURN_DEG never gets here (TURN2).
+        None for a course change too small to bend the path (ARC_MIN_DEG)."""
         in_course, out_course = self._turn_courses(anchor, to, self.route[self.act_leg])
         delta = (out_course - in_course + 180.0) % 360.0 - 180.0
         if abs(delta) < ARC_MIN_DEG or d_ta <= 0.0:
