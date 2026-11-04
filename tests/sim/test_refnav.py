@@ -228,6 +228,30 @@ def test_fly_by_turn_over_120_deg_is_flown_as_a_fly_over(turn_deg):
     assert o.xtk_nm == pytest.approx(line.project(lat, lon)[1], abs=1e-6)
 
 
+@pytest.mark.parametrize("turn_deg", [119.6, 120.0, 120.4])
+def test_a_fly_by_turn_within_half_a_degree_of_120_is_refused(turn_deg):
+    # QA on #126 (AER-4785): the engine's sphere and the reference's WGS-84
+    # read a turn near 120 deg up to 0.29 deg apart, so the two can land on
+    # opposite sides of the limit and the comparison would fail a correct
+    # engine. Inside the band the reference does not judge.
+    lg = _turn_legs(turn_deg)
+    nav = refnav.ReferenceNavigator(lg, MV, (lg[1].lat, lg[1].lon), 1, 110.0)
+    lat, lon, azi = _on_leg(lg, 1, 5.0)
+    with pytest.raises(refnav.ReferenceError_, match=r"too close for the reference to tell fly-by from fly-over"):
+        nav.update(0.0, lat, lon, 3000.0, 110.0, azi)
+
+
+@pytest.mark.parametrize("turn_deg, expect_turned", [(119.0, True), (121.0, False)])
+def test_just_outside_the_band_a_turn_is_flown_by_its_side_of_120(turn_deg, expect_turned):
+    # 119 is a fly-by (the course turns 0.5 nm before B), 121 a fly-over.
+    lg = _turn_legs(turn_deg)
+    nav = refnav.ReferenceNavigator(lg, MV, (lg[1].lat, lg[1].lon), 1, 110.0)
+    lat, lon, azi = _on_leg(lg, 1, 0.5)
+    o = nav.update(0.0, lat, lon, 3000.0, 110.0, azi)
+    assert o.wpt == "B"
+    assert o.dtk_true == pytest.approx(turn_deg if expect_turned else 0.0, abs=0.1)
+
+
 @pytest.mark.parametrize("turn_deg, flyover", [(119.0, False), (150.0, True)], ids=["fly-by-119", "fly-over-150"])
 def test_a_fly_by_turn_to_120_deg_or_a_fly_over_turn_is_still_flown(turn_deg, flyover):
     lg = _turn_legs(turn_deg, flyover)
