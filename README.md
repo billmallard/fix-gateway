@@ -133,6 +133,10 @@ The gateway checks this at runtime. The first time a second plugin writes a key,
 
 Navigation keys are different: `COURSE`, `CDI` and `GSI` belong to compute's `NAVSRC` select in every configuration. A navigator or receiver writes the source inputs (`NAV1CRS`, `EXTCRS` and so on), never the canonical key.
 
+## Wiki
+
+The [GitHub wiki](https://github.com/billmallard/fix-gateway/wiki) is generated from `docs/wiki/` by `.github/workflows/wiki-sync.yml` on every merge to `dev`. Edit the pages here, not in the wiki; direct wiki edits are overwritten.
+
 ## Important Disclaimer
 
 > FIX-Gateway is developed for Experimental Amateur-Built aircraft use only.  
