@@ -1,0 +1,60 @@
+name: wiki-sync
+
+# Publish docs/wiki/ to this repo's GitHub wiki on every merge to dev.
+#
+# docs/wiki/ is the source of truth: the wiki is overwritten from it with
+# rsync --delete, so pages renamed or removed here are renamed or removed there,
+# and any edit made directly in the wiki is lost on the next run. Edit the pages
+# in docs/wiki/ and land them by PR.
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "docs/wiki/**"
+      - ".github/workflows/wiki-sync.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wiki-sync
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # This fork's work is landed upstream (makerplane/*) later. The guard keeps
+    # a copy of this file from ever publishing upstream's wiki.
+    if: github.repository == 'billmallard/fix-gateway'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Publish docs/wiki to the wiki
+        env:
+          # The built-in token may not be allowed to push to the wiki. If the
+          # push fails with 403, add a WIKI_TOKEN secret (a fine-grained token
+          # with Contents read/write on this repo) and re-run; it wins when set.
+          TOKEN: ${{ secrets.WIKI_TOKEN || github.token }}
+          SRC: docs/wiki
+        run: |
+          set -euo pipefail
+          short="${GITHUB_SHA::7}"
+          # Cloned outside the checkout so it can never land inside the source tree.
+          wiki="$RUNNER_TEMP/wiki"
+          git clone --depth 1 "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git" "$wiki"
+          rsync -a --delete --exclude .git "$SRC/" "$wiki/"
+          cd "$wiki"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Wiki already matches $SRC @ $short; nothing to publish."
+            exit 0
+          fi
+          git diff --cached --stat
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898699+github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "Sync from $SRC @ $short"
+          git push origin HEAD:master
