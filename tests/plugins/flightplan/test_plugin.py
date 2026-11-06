@@ -862,3 +862,21 @@ def test_dead_position_link_without_a_fix_type_source_flags_within_the_bound(dat
 
     assert flagged is not None
     assert flagged <= 2.0 + 0.2 + 1e-6
+
+
+def test_state_file_config_placeholder_resolves_under_the_config_directory(database, tmp_path, monkeypatch):
+    # fix-gateway#129 (G64): connections/flightplan.yaml documents
+    # `state_file: "{CONFIG}/flightplan_state.json"` as the default. Uncommented
+    # as shown, it must land in the config directory, not in a literal
+    # ./{CONFIG}/ directory under the working directory.
+    monkeypatch.chdir(tmp_path)
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    _persist_active_plan(config_dir / "x.json")
+
+    config = make_config(config_dir, state_file="{CONFIG}/x.json")
+    pl = flightplan.Plugin("flightplan", config, {})
+
+    assert pl.thread.state_file == str(config_dir / "x.json")
+    pl.thread._restore()
+    assert pl.thread.engine.route_name == "INFLIGHT"
