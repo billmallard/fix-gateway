@@ -49,7 +49,7 @@ database and does one job:
 | **Source** | `xplane`, `gpsd`, `stratux`, `canfix`, `rpi_bno055`, `mavlink` | reads an external protocol/sensor, **writes** keys |
 | **Consumer** | `netfix` (to pyEfis/clients), `canfix` (to bus nodes) | **reads/subscribes** and forwards data out |
 | **Compute** | `compute` | **derives** keys from other keys (TAS, density altitude, nav-source routing…) |
-| **Infrastructure** | `quorum`, `annunciate`, `data_recorder`, `state_persist` | arbitration, alerting, logging, persistence |
+| **Infrastructure** | `quorum`, `annunciate`, `data_recorder`, `state_persist` | leader election, alerting, logging, persistence |
 
 The lifecycle is minimal: the server calls each plugin's `run()` (which returns
 immediately, spawning a thread if it needs one) and later `stop()`. See
@@ -67,13 +67,15 @@ flickering mix.
 > attitude, for example, means they overwrite each other. This is the single
 > most common integration mistake.
 
-When you genuinely need multiple sources for one key — redundancy, voting,
-failover — that is the job of the **`quorum`** plugin, which arbitrates between
-candidate sources and publishes the chosen value (and sets `secfail` when a
-redundant source drops). Deliberate arbitration, not accidental collision.
+When you genuinely need more than one source for a value, give each source its
+own key and choose between them with a `compute` **`select`**, driven by a
+selector key — the way `NAVSRC` picks NAV1, NAV2 or GPS (section 4). The chosen
+value lands in one canonical key with its source's quality flags.
+Deliberate selection, not accidental collision.
 
-*(Related: a runtime SIM-vs-FLIGHT interlock and richer source-selection are
-areas of ongoing work in the MakerPlane stack.)*
+For redundant *gateways*, the **`quorum`** plugin elects one leader (`LEADER`)
+from the `QVOTE<n>` keys the gateways exchange. Plugins that command
+equipment, such as `mavlink` and `canfix` outputs, act only on the leader.
 
 ## 4. The compute plugin — first-class derived data
 
@@ -82,15 +84,17 @@ rather than in a source. It runs small **functions** wired in the config, each
 taking input keys and writing an output key, re-running whenever an input
 changes. Examples in use:
 
-- `TAS`/density-altitude from `IAS`, `OAT`, `ALT`;
+- `altp` / `altd` — pressure altitude `PALT` from `BARO` and `ALT`, then
+  density altitude `DALT` from `PALT`, `TALT` and `OAT`;
 - `wrap360` for magnetic ground track (`TRACKM = TRACK + MAGVAR`);
 - `select` — an **EFIS nav-source selector**: `COURSE`/`CDI`/`GSI` = the source
-  chosen by `NAVSRC` (GPS / NAV1 / NAV2), so the display and autopilot read one
-  canonical key regardless of which radio is active.
+  chosen by `NAVSRC` (0 = NAV1, 1 = NAV2, 2 = GPS), so the display and autopilot
+  read one canonical key regardless of which radio is active. A second `select`
+  on `GPSSRC` picks the GPS source itself — see **[[Flight Plan Engine]]**.
 
 Because compute functions consume and produce ordinary keys, they compose freely
 and can be added without touching any source or consumer. See the compute plugin
-doc: [`doc/plugins/compute.rst`](https://github.com/billmallard/fix-gateway/blob/master/doc/plugins/compute.rst).
+doc: [`doc/plugins/compute.rst`](https://github.com/billmallard/fix-gateway/blob/dev/doc/plugins/compute.rst).
 
 ## 5. Talking to the outside — NetFIX
 

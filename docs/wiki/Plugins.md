@@ -7,7 +7,7 @@ catalogue; see **[[Configuration]]** to enable them and **[[Writing a Plugin]]**
 to add your own.
 
 Per-plugin reference docs live under
-[`doc/plugins/`](https://github.com/billmallard/fix-gateway/tree/master/doc/plugins).
+[`doc/plugins/`](https://github.com/billmallard/fix-gateway/tree/dev/doc/plugins).
 
 ## How a plugin connects
 
@@ -17,69 +17,82 @@ one): **write** keys (a source), **read/subscribe** to keys (a consumer), or
 only to the database, which notifies whoever subscribed. That is what lets you
 add a data source without changing anything downstream.
 
+Plugins on in the shipped config: `netfix`, `compute`, `annunciate`, `system`,
+`demo`, `flightplan` and `state_persist`. Turn others on with their `enabled:`
+flag (**[[Configuration]]**). Plugins marked *not wired* ship a connection file
+but no `preferences.yaml` entry; add the include name and flag yourself.
+
 ## Sources — bring data in
 
 ### Simulators
 | Plugin | Brings in |
 |---|---|
-| `xplane` | X-Plane 11/12 — attitude, position, engine, nav-radio data (UDP / named datarefs) |
-| `fgfs` | FlightGear |
+| `xplane` | X-Plane 11/12 over UDP — air data, attitude, position, nav radios and the X-Plane GPS; writes the HSI source back. See **[[X-Plane]]** |
+| `fgfs` | FlightGear generic protocol — the same keys as `xplane` |
+| `demo` | canned values and a scripted attitude/altitude/heading sequence — drives a display with no hardware |
+| `data_playback` | replays `data_recorder` files (`--playback-start-time`, or `data_playback.yaml`) |
 
-### GPS & ADS-B
+### GPS, navigators & ADS-B
 | Plugin | Brings in |
 |---|---|
-| `gpsd` | position + ground track from a `gpsd` daemon |
-| `stratux` | ADS-B traffic + GPS from a Stratux receiver |
+| `gpsd` | position, track, ground speed, GPS altitude, fix type and accuracy from a `gpsd` daemon |
+| `stratux` | GDL90 from a Stratux: ADS-B traffic (`TFC*`), AHRS and ground speed; no position |
+| `navigator_adapter` | an external navigator's RS-232 NMEA: position and `EXT*` guidance — *not wired*, see **[[Navigator Adapter]]** |
+| `garmin_gnx375` | Garmin GNX 375 NMEA: position and `EXT*` guidance (GPS and nav only) — *not wired* |
+| `ifly` | next waypoint (`WPNAME`, `WPLAT`, `WPLON`) from the iFly EFB over UDP; experimental |
 
 ### Buses & autopilots
 | Plugin | Brings in |
 |---|---|
-| `canfix` | the **CAN-FIX** hardware bus (SocketCAN / MCP2515) — bidirectional |
-| `mavlink` | a MAVLink autopilot / flight-control system |
+| `canfix` | the **CAN-FIX** bus — bidirectional. See **[[CAN-FIX]]** |
+| `canaerospace` | CANaerospace engine data (Rotax 912iS / 915iS ECU), listen-only — *not wired*, see **[[CANaerospace Input]]** |
+| `dronecan` | DroneCAN v0 sensors; listen-only unless given a node id — *not wired* |
+| `mavlink` | an ArduPilot / Pixhawk link, mainly as a GPS, AHRS and air-data source; can send mode commands |
+| `megasquirt` | MegaSquirt ECU over CAN: `TACH1`, `FUELF1`, `H2OT1`, `MAP1`, `THR1` |
+| `mgl` | MGL RDAC over CAN |
 
 ### Serial EMS & avionics
 | Plugin | Brings in |
 |---|---|
-| `dynon` | Dynon serial |
-| `mgl` / `mgl_serial` | MGL Avionics serial |
+| `dynon` | Dynon D10/D100 serial stream |
+| `mgl_serial` | MGL Avionics serial |
 | `grand_rapids_eis` | Grand Rapids Technologies EIS |
-| `megasquirt` | MegaSquirt ECU |
-| `shadin` | Shadin air-data |
-| `ifly` | iFly |
-| `garmin_gnx375` | Garmin GNX-375 (GPS/NAV/XPDR) |
+| `shadin` | Shadin fuel protocol: `FUELF1`, `FUELF2`, `FUELQT` |
+| `onspeed` | OnSpeed Gen2 AOA: `AOA` and `AOA.Warn` — *not wired* |
 
-### Raspberry Pi hardware
+### Raspberry Pi & panel hardware
 | Plugin | Brings in |
 |---|---|
 | `rpi_bno055` | IMU attitude (BNO055) |
-| `rpi_bmp085` | barometric pressure |
-| `rpi_mcp3008` | 8-channel SPI ADC (analog sensors) |
-| `rpi_rotary_encoder` | encoders (altimeter baro, heading/course bugs) |
+| `rpi_bmp085` | barometric pressure and altitude (BMP085) |
+| `rpi_mcp3008` | 8-channel SPI ADC, to `VKEY1`…`VKEY8` |
+| `rpi_rotary_encoder` | one GPIO encoder writing a counter key, with an optional button-held second key |
 | `rpi_button` | GPIO buttons |
-| `rpi_virtualwire` | 433 MHz VirtualWire receiver |
-| `rtl_433` | RTL-SDR 433 MHz sensors |
-| `X728` / `strom_pi` | Pi UPS / power HATs |
+| `rpi_virtualwire` | VirtualWire radio receiver for `IAS` / `OAT` |
+| `rtl_433` | sensors decoded by `rtl_433` on an RTL-SDR; shipped for tire pressure |
+| `knobster` | Sim Innovations Knobster USB encoder |
+| `rais` | a RAIS sensor pipeline |
+| `X728` / `strom_pi` | Pi UPS boards: power-fail and battery keys, and shutdown after a delay |
 
 ## Consumers — send data out
 | Plugin | Sends to |
 |---|---|
 | `netfix` | **the network** — pyEfis, moving maps, control heads, debug clients, over the [[NetFIX Protocol]] (TCP :3490). The main way anything off-box reads the database |
 | `canfix` | out to CAN-FIX bus nodes (same plugin, both directions) |
+| `data_recorder` | every key (or those matching `key_prefixes`) to hourly JSON files |
+| `db_persister` | keys matching a regex to an HDF5 file — *not wired* |
+| `dimmer` | `DIM` to a backlight brightness file |
 
 ## Compute & infrastructure
 | Plugin | Does |
 |---|---|
-| `compute` | **derives keys** — TAS/density altitude, `wrap360` track, the `NAVSRC` nav-source `select`, and more (see [[Architecture]] → *The compute plugin*) |
-| `quorum` | multi-source **arbitration / voting** — the right way to have more than one source for a key |
-| `annunciate` | generates warning/caution/advisory annunciations from parameter limits |
-| `command` | a control/command channel |
-| `state_persist` | persists pilot **selections** (e.g. `NAVSRC`) across restarts |
-| `data_recorder` / `data_playback` | log every parameter to file / replay it |
-| `db_persister` | records values to an HDF5 file (data logging) |
-| `dimmer` | display brightness control |
-| `system` | host/system status into the database |
-| `navigator_adapter` | flight-plan / navigator integration |
-| `demo` | simulated flight data — drive a display with no hardware |
+| `compute` | **derives keys** — pressure and density altitude, `wrap360` track, the `NAVSRC` and `GPSSRC` source selects, and more (see [[Architecture]] → *The compute plugin*) |
+| `flightplan` | the GPS navigator: flies a route and writes guidance — see **[[Flight Plan Engine]]** |
+| `quorum` | leader election between redundant gateways |
+| `annunciate` | sets a key's `annunciate` flag when it crosses its alarm limits (`lowAlarm`/`highAlarm` by default) |
+| `command` | an interactive console on the gateway's terminal (read, write, list, subscribe, flag) |
+| `state_persist` | persists pilot **selections** (`NAVSRC`, `GPSSRC`) across restarts |
+| `system` | the clock: `TIMEZ*` and `TIMEL` keys, once a second |
 
 ## Templates
 - **`skel.py`** — the annotated starting point for a new plugin.
@@ -87,8 +100,7 @@ add a data source without changing anything downstream.
 
 ## Enabling & the golden rule
 
-Add a plugin's `*_CONFIG` name to the `default.yaml` include list to load it,
-remove it to unload it (**[[Configuration]]**). And before enabling two
+Set a plugin's flag under `enabled:` in `preferences.yaml.custom` to load it,
+or clear it to unload it (**[[Configuration]]**). And before enabling two
 **sources**, confirm they don't write the same keys — two writers on one key
-fight (last-writer-wins). When you truly need multiple sources for a key, that's
-what `quorum` is for.
+fight (last-writer-wins).

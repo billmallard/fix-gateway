@@ -39,6 +39,10 @@ writing/enabling a plugin — nothing else in the system changes.
 - **Understanding the parameters?** → **[[The FIX Database]]**
 - **Connecting a display / writing a client?** → **[[NetFIX Protocol]]**
 - **Adding a data source or feature?** → **[[Plugins]]** and **[[Writing a Plugin]]**
+- **Flying a route?** → **[[Flight Plan Engine]]**, and **[[Navigator Adapter]]**
+  for an external GPS navigator
+- **Connecting a simulator or bus?** → **[[X-Plane]]**, **[[CAN-FIX]]**,
+  **[[CANaerospace Input]]**
 
 ## Where it fits
 
@@ -71,11 +75,11 @@ This wiki explains **how the system works and how to use it**. The
 [repository](https://github.com/billmallard/fix-gateway) carries the canonical
 detail:
 
-- [`README.md`](https://github.com/billmallard/fix-gateway/blob/master/README.md)
+- [`README.md`](https://github.com/billmallard/fix-gateway/blob/dev/README.md)
   — project overview + full plugin list
-- [`doc/`](https://github.com/billmallard/fix-gateway/tree/master/doc) — the
-  reference manual (Sphinx): [intro](https://github.com/billmallard/fix-gateway/blob/master/doc/intro.rst),
-  [getting started](https://github.com/billmallard/fix-gateway/blob/master/doc/getting_started.rst),
-  [database](https://github.com/billmallard/fix-gateway/blob/master/doc/database.rst),
-  [plugin development](https://github.com/billmallard/fix-gateway/blob/master/doc/plugin.rst),
+- [`doc/`](https://github.com/billmallard/fix-gateway/tree/dev/doc) — the
+  reference manual (Sphinx): [intro](https://github.com/billmallard/fix-gateway/blob/dev/doc/intro.rst),
+  [getting started](https://github.com/billmallard/fix-gateway/blob/dev/doc/getting_started.rst),
+  [database](https://github.com/billmallard/fix-gateway/blob/dev/doc/database.rst),
+  [plugin development](https://github.com/billmallard/fix-gateway/blob/dev/doc/plugin.rst),
   and per-plugin pages under `doc/plugins/`.

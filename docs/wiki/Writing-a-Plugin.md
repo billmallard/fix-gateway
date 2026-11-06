@@ -4,8 +4,8 @@ A plugin is a Python module with a `Plugin` class that talks to the database.
 Because everything goes through the database, a new plugin needs to know nothing
 about any other plugin — read the keys you need, write the keys you produce.
 
-Start from [`src/fixgw/plugins/skel.py`](https://github.com/billmallard/fix-gateway/blob/master/src/fixgw/plugins/skel.py)
-and read [`doc/plugin.rst`](https://github.com/billmallard/fix-gateway/blob/master/doc/plugin.rst).
+Start from [`src/fixgw/plugins/skel.py`](https://github.com/billmallard/fix-gateway/blob/dev/src/fixgw/plugins/skel.py)
+and read [`doc/plugin.rst`](https://github.com/billmallard/fix-gateway/blob/dev/doc/plugin.rst).
 
 ## The shape
 
@@ -54,8 +54,8 @@ Rules that matter:
 - **`stop()` must stop cleanly and promptly.** Use short I/O timeouts + a flag.
   Raise `plugin.PluginFail` if a thread won't join, so the server can exit and be
   restarted rather than hang.
-- Set **`self.running = False`** when your work loop ends — it's a status point
-  the user can see.
+- Set **`self.running = False`** when your work loop ends. The server checks
+  it about every four seconds and exits when no plugin is running.
 - If you override `__init__`, call `super().__init__(...)` first.
 
 ## The database API (from `PluginBase`)
@@ -121,12 +121,14 @@ def get_status(self):
 
 ## Wiring it in
 
-Three coordinated edits load your plugin (same as any other — see
+Four coordinated edits load your plugin (same as any other — see
 **[[Configuration]]**):
 
-1. `connections/<name>.yaml` — `{ load: yes, module: fixgw.plugins.<name>, ... }`
-2. `preferences.yaml` — `NAME_CONFIG: connections/<name>.yaml`
-3. `default.yaml` — add `- NAME_CONFIG` to the `connections: include:` list
+1. `connections/<name>.yaml` — `{ load: NAME, module: fixgw.plugins.<name>, ... }`
+2. `preferences.yaml.custom` — `includes: { NAME_CONFIG: connections/<name>.yaml }`
+3. `preferences.yaml.custom` — `enabled: { NAME: true }`
+4. `default.yaml` — add `- NAME_CONFIG` to the `connections: include:` list
 
-Put the module on the Python path (under `fixgw/plugins/`), add a test under
-`tests/`, and run `make test`.
+Put the module under `src/fixgw/plugins/`, add a test under `tests/`, and run
+`make test`. The suite includes `tests/test_one_writer.py`, which starts the
+gateway from each shipped configuration and fails if any key has two writers.
