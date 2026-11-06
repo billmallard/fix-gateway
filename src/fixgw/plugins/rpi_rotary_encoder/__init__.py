@@ -43,11 +43,9 @@ class MainThread(threading.Thread):
             if ("rkey" in parent.config) and parent.config["rkey"]
             else "ENC1"
         )
-        self.btn = (
-            parent.config["btn"]
-            if ("btn" in parent.config) and parent.config["btn"]
-            else "False"
-        )
+        # YAML gives `btn: True` as a bool; older configs may quote it.
+        btn = parent.config.get("btn", False)
+        self.btn = btn is True or str(btn).lower() == "true"
         self.btnpin = (
             int(parent.config["btnpin"])
             if ("btnpin" in parent.config) and parent.config["btnpin"]
@@ -103,7 +101,7 @@ class MainThread(threading.Thread):
             self.count += 1
             clkState = GPIO.input(self.clk)
             dtState = GPIO.input(self.dt)
-            if self.btn == "True" and not (GPIO.input(self.btnpin)):
+            if self.btn and not (GPIO.input(self.btnpin)):
                 if clkState != self.clkLastState:
                     if dtState != clkState:
                         self.btnstcounter += self.btnincr
