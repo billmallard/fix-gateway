@@ -84,8 +84,10 @@ class MainThread(threading.Thread):
             }
         )
 
-        default_path = os.path.join(cfg.get("CONFIGPATH", "."), "flightplan_state.json")
-        self.state_file = cfg.get("state_file", default_path)
+        config_dir = cfg.get("CONFIGPATH", ".")
+        default_path = os.path.join(config_dir, "flightplan_state.json")
+        # "{CONFIG}" expands to the config directory, as for canfix's mapfile.
+        self.state_file = cfg["state_file"].format(CONFIG=config_dir) if "state_file" in cfg else default_path
         self.restore_delay = float(cfg.get("restore_delay", 2.0))
         self.rate_hz = float(cfg.get("rate_hz", 5.0))
         self.min_interval = 1.0 / self.rate_hz if self.rate_hz > 0 else 0.0
