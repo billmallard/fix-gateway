@@ -139,7 +139,12 @@ def _build_dataref_map(spec):
     """Turn a ``{FIX_KEY: dataref}`` (or ``{FIX_KEY: [dataref, scale]}``) dict
     into ``{rref_index: (key, dataref, scale)}`` with sequential request
     indices. ``scale`` multiplies the raw dataref value before it's written to
-    FIX (e.g. nav deflection dots +/-2.5 -> HSI +/-1 needs scale 0.4)."""
+    FIX (e.g. nav deflection dots +/-2.5 -> HSI +/-1 needs scale 0.4).
+
+    ``scale`` may instead be a ``{code: value}`` dict, for an enumerated
+    dataref whose X-Plane codes are not the FIX key's: the rounded raw value
+    is looked up and an unlisted code writes 0 (e.g. X-Plane's nav_type
+    3=VOR, 4=ILS, 5=LOC onto NAV1TYPE's 1=VOR, 2=LOC)."""
     out = {}
     if not isinstance(spec, dict):
         return out
@@ -150,7 +155,10 @@ def _build_dataref_map(spec):
             continue
         if isinstance(raw_val, (list, tuple)):
             dref = str(raw_val[0]).strip()
-            scale = float(raw_val[1]) if len(raw_val) > 1 else 1.0
+            if len(raw_val) > 1 and isinstance(raw_val[1], dict):
+                scale = {int(k): float(v) for k, v in raw_val[1].items()}
+            else:
+                scale = float(raw_val[1]) if len(raw_val) > 1 else 1.0
         else:
             dref, scale = str(raw_val).strip(), 1.0
         if not dref:
@@ -294,6 +302,12 @@ class MainThread(threading.Thread):
             if entry is None:
                 continue
             key, _dref, scale = entry
+            if isinstance(scale, dict):
+                try:
+                    self.parent.db_write(key, scale.get(int(round(value)), 0.0))
+                except Exception as e:
+                    self.log.warning("xplane: db_write %s failed (%s)", key, e)
+                continue
             # Flush before scaling: a subnormal (or -0.0) times a negative
             # scale would otherwise land as -0.0 or a signed ~1e-45.
             if abs(value) < FLT32_MIN_NORMAL:

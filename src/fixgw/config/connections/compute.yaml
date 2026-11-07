@@ -179,6 +179,14 @@ compute:
       inputs: ["NAVSRC", "NAV1TF", "NAV2TF", "GPSTF"]
       output: TOFROM
       require_leader: false
+    # Selected-source navaid type, routed to the canonical NAVTYPE the HSI reads
+    # (0=GPS or unknown, 1=VOR, 2=LOC, 3=LOC-BC; fix-gateway#135). Each source
+    # plugin writes NAV1TYPE/NAV2TYPE; the GPS slot is the constant 0.0 (GPS),
+    # the same shape as CDIV. NAVTYPE is written only by this select.
+    - function: select
+      inputs: ["NAVSRC", "NAV1TYPE", "NAV2TYPE", 0.0]
+      output: NAVTYPE
+      require_leader: false
     # NAVSRC already matches X-Plane's HSI_source_select numbering
     # (0=NAV1, 1=NAV2, 2=GPS), so XPHSISRC is an identity map; the table is kept
     # as the seam that collapses an optional GPS2 (3) onto X-Plane's GPS (2).

@@ -117,6 +117,16 @@ xplane:
         # VOR TO/FROM (0=off, 1=TO, 2=FROM) -> the HSI TO/FROM triangle.
         NAV1TF:  sim/cockpit/radios/nav1_fromto
         NAV2TF:  sim/cockpit/radios/nav2_fromto
+        # Tuned navaid type per radio -> NAV1TYPE/NAV2TYPE, which the compute
+        # NAVSRC select routes into NAVTYPE (the HSI's VOR{n}/LOC{n} label and
+        # its OBS-push refusal on a localizer; fix-gateway#135). nav_type is an
+        # array (0=NAV1, 1=NAV2) of X-Plane's navaid codes: 3=VOR, 4=ILS
+        # localizer, 5=standalone localizer. The map translates them onto the FIX
+        # encoding (1=VOR, 2=LOC); any other code (nothing tuned, NDB, DME) reads
+        # 0, which the HSI labels VLOC{n}. X-Plane has no back-course navaid
+        # type, so 3=LOC-BC is never written from here.
+        NAV1TYPE: ["sim/cockpit/radios/nav_type[0]", {3: 1, 4: 2, 5: 2}]
+        NAV2TYPE: ["sim/cockpit/radios/nav_type[1]", {3: 1, 4: 2, 5: 2}]
         # VOR bearing TO the tuned station, degrees magnetic -> the HSI bearing
         # pointers (P5b.1). X-Plane publishes bearing-TO directly, so no radial
         # +180 conversion is needed here (unlike the on-aircraft CAN-FiX radial

@@ -501,6 +501,35 @@ items:
   initial: 0.0
   tol: 2000
 
+# Kind of navaid each NAV radio is tuned to (0=none/unknown, 1=VOR, 2=LOC,
+# 3=LOC back course), written by the source plugin from its own nav-type data
+# (X-Plane: sim/cockpit/radios/nav_type). The compute NAVSRC select routes the
+# selected radio into NAVTYPE, which the HSI reads for its VOR{n}/LOC{n} source
+# label and to refuse an OBS course push on a localizer (fix-gateway#135).
+- key: NAV1TYPE
+  description: NAV1 tuned navaid type (0=none/unknown, 1=VOR, 2=LOC, 3=LOC-BC)
+  type: float
+  min: 0.0
+  max: 3.0
+  initial: 0.0
+  tol: 2000
+
+- key: NAV2TYPE
+  description: NAV2 tuned navaid type (0=none/unknown, 1=VOR, 2=LOC, 3=LOC-BC)
+  type: float
+  min: 0.0
+  max: 3.0
+  initial: 0.0
+  tol: 2000
+
+- key: NAVTYPE
+  description: Selected-source navaid type (0=GPS or unknown, 1=VOR, 2=LOC, 3=LOC-BC)
+  type: float
+  min: 0.0
+  max: 3.0
+  initial: 0.0
+  tol: 2000
+
 - key: XPHSISRC
   description: X-Plane HSI source index (0=NAV1, 1=NAV2, 2=GPS) = NAVSRC (identity map)
   type: float
