@@ -107,7 +107,7 @@ The test does not check them.
 
 ## Found while building the table, not changed here
 
-- Some pilot settings do carry a tol, so they read old about two seconds after
+- Some pilot settings do carry a tol, so they read old within two seconds of
   every edit: `HEADBUG`, `NAVSRC`, `BRG1SRC`, `BRG2SRC`, `NAV1CRS`, `NAV2CRS`
   and `COMSQUELCH1`. Only the X-Plane connection streams any of them
   (`HEADBUG`, `NAV1CRS`, `NAV2CRS`); without the sim, they are written on
