@@ -285,6 +285,18 @@
     <factor>2</factor>
    </chunk>
 
+   <!-- NAV#TYPE (1=VOR, 2=LOC) from the tuned frequency's band, which is how
+        the receiver itself picks VOR or localizer mode. nav-loc is not used:
+        FlightGear leaves it set on a localizer that has gone out of range,
+        and in-range would then read a VOR. Never 0 or 3 (LOC-BC) from here. -->
+   <chunk>
+    <name>NAV1TYPE: NAV1 tuned navaid type</name>
+    <type>float</type>
+    <format>%.0f</format>
+    <node>/instrumentation/nav[0]/frequencies/is-localizer-frequency</node>
+    <offset>1</offset>
+   </chunk>
+
    <!-- VOR1BRG = true bearing to the station - east variation = magnetic.
         The plugin wraps the sum into 0..360. -->
    <chunk>
@@ -353,6 +365,14 @@
     <format>%.0f</format>
     <node>/instrumentation/nav[1]/from-flag</node>
     <factor>2</factor>
+   </chunk>
+
+   <chunk>
+    <name>NAV2TYPE: NAV2 tuned navaid type</name>
+    <type>float</type>
+    <format>%.0f</format>
+    <node>/instrumentation/nav[1]/frequencies/is-localizer-frequency</node>
+    <offset>1</offset>
    </chunk>
 
    <chunk>

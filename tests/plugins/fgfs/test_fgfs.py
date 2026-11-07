@@ -260,6 +260,8 @@ def test_shipped_xml_emulated_sentence_round_trips(database):
         "/instrumentation/nav[0]/to-flag": 0,
         "/instrumentation/nav[0]/from-flag": 1,
         "/instrumentation/nav[0]/heading-deg": 5.0,      # true 5, var E13 -> 352 mag
+        "/instrumentation/nav[0]/frequencies/is-localizer-frequency": 1,
+        "/instrumentation/nav[1]/frequencies/is-localizer-frequency": 0,
         "/instrumentation/nav[1]/in-range": 0,
         "/instrumentation/nav[1]/gs-in-range": 0,
         "/instrumentation/nav[1]/heading-deg": 200.0,
@@ -304,10 +306,12 @@ def test_shipped_xml_emulated_sentence_round_trips(database):
     assert value(database, "NAV1DH") == pytest.approx(1.0)
     assert value(database, "NAV1TF") == pytest.approx(2.0)     # FROM
     assert value(database, "VOR1BRG") == pytest.approx(352.0)  # wrapped, not clamped to 0
+    assert value(database, "NAV1TYPE") == pytest.approx(2.0)   # localizer frequency
     assert value(database, "NAV2GSF") == pytest.approx(1.0)    # no GS
     assert value(database, "NAV2DH") == pytest.approx(0.0)
     assert value(database, "NAV2TF") == pytest.approx(0.0)     # off
     assert value(database, "VOR2BRG") == pytest.approx(187.0)
+    assert value(database, "NAV2TYPE") == pytest.approx(1.0)   # VOR frequency
     assert value(database, "OAT") == pytest.approx(15.0)
     assert value(database, "TACH1") == pytest.approx(2400.0)
     assert value(database, "OILT1") == pytest.approx(100.0, abs=0.1)
