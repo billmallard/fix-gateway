@@ -109,7 +109,9 @@ The test does not check them.
 
 - Some pilot settings do carry a tol, so they read old about two seconds after
   every edit: `HEADBUG`, `NAVSRC`, `BRG1SRC`, `BRG2SRC`, `NAV1CRS`, `NAV2CRS`
-  and `COMSQUELCH1`. The HSI's HDG readout shows `HEADBUG`. This is the
+  and `COMSQUELCH1`. Only the X-Plane connection streams any of them
+  (`HEADBUG`, `NAV1CRS`, `NAV2CRS`); without the sim, they are written on
+  change. The HSI's HDG readout shows `HEADBUG`. This is the
   opposite failure, a good value flagged stale. It is left for a separate item.
 - The HSI subscribes to `NAVTYPE` (VOR/LOC source label), which the database
   does not define. The HSI handles the missing key and falls back to a label
