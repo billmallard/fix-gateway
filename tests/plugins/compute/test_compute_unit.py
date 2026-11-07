@@ -429,6 +429,55 @@ def test_max_and_min_forward_aux_metadata():
     assert parent.db_get_item("MIN").aux["lowWarn"] == 10
 
 
+@pytest.mark.parametrize(
+    "a, b, expected",
+    [(0, 1, 0), (1, 0, 0), (0, -1, -1), (-1, 0, -1), (0, 0, 0), (2, 1, 1)],
+)
+def test_min_treats_zero_as_a_value_not_as_unset(a, b, expected):
+    # G68 / fix-gateway #136: `if vmin:` read an accumulated 0 as "not set
+    # yet", so min(0, 1) returned 1.
+    parent = FakeParent()
+    func = compute.minFunction(["A", "B"], "MIN", require_leader=False)
+
+    func("A", value_tuple(a), parent)
+    func("B", value_tuple(b), parent)
+
+    assert parent.db_get_item("MIN").value == expected
+
+
+@pytest.mark.parametrize(
+    "a, b, expected",
+    [(0, -1, 0), (-1, 0, 0), (0, 1, 1), (1, 0, 1), (0, 0, 0), (-2, -1, -1)],
+)
+def test_max_treats_zero_as_a_value_not_as_unset(a, b, expected):
+    parent = FakeParent()
+    func = compute.maxFunction(["A", "B"], "MAX", require_leader=False)
+
+    func("A", value_tuple(a), parent)
+    func("B", value_tuple(b), parent)
+
+    assert parent.db_get_item("MAX").value == expected
+
+
+def test_glideslope_valid_drops_when_the_localizer_is_lost():
+    # The repro table in fix-gateway #136, through the shipped compute.yaml
+    # gate NAV1GSV = min(NAV1DH, NAV1GSNF): with the glideslope still
+    # received, losing the localizer must take the diamond down.
+    parent = FakeParent()
+    func = compute.minFunction(["NAV1DH", "NAV1GSNF"], "NAV1GSV", require_leader=False)
+
+    func("NAV1DH", value_tuple(1), parent)
+    func("NAV1GSNF", value_tuple(1.0), parent)
+    assert parent.db_get_item("NAV1GSV").value == 1.0
+
+    func("NAV1DH", value_tuple(0), parent)
+    assert parent.db_get_item("NAV1GSV").value == 0
+
+    # Refreshes of the held glideslope input must not bring it back.
+    func("NAV1GSNF", value_tuple(1.0), parent)
+    assert parent.db_get_item("NAV1GSV").value == 0
+
+
 def test_alt_density_flag_paths_and_aux_metadata():
     parent = FakeParent()
     func = compute.altDensity(["PALT", "ALTMSL", "OAT"], "DALT", require_leader=False)

@@ -343,7 +343,7 @@ def maxFunction(inputs, output, require_leader):
         for each in vals:
             if vals[each] is None:
                 return  # We don't have one of each yet
-            if vmax:
+            if vmax is not None:
                 if vals[each][0] > vmax:
                     vmax = vals[each][0]
             else:  # The first time through we just set vmax to the value
@@ -389,10 +389,10 @@ def minFunction(inputs, output, require_leader):
         for each in vals:
             if vals[each] is None:
                 return  # We don't have one of each yet
-            if vmin:
+            if vmin is not None:
                 if vals[each][0] < vmin:
                     vmin = vals[each][0]
-            else:  # The first time through we just set vmax to the value
+            else:  # The first time through we just set vmin to the value
                 vmin = vals[each][0]
             if vals[each][2]:
                 flag_old = True
