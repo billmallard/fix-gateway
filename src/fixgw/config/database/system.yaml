@@ -55,10 +55,12 @@ items:
   initial: 0
   tol: 2000
 
+# TIMEL goes old like TIMEZ: the system plugin writes both every second, and
+# the PFD shows both (AER-5032).
 - key: TIMEL
   description: Local Time String
   type: str
-  tol: 0
+  tol: 2000
 
 - key: TZONE
   description: Time Zone
