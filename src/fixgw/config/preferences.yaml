@@ -42,6 +42,11 @@ includes:
   KNOBSTER_CONFIG: connections/knobster.yaml
   STATE_PERSIST_CONFIG: connections/state_persist.yaml
   FLIGHTPLAN_CONFIG: connections/flightplan.yaml
+  NAVIGATOR_CONFIG: connections/navigator_adapter.yaml
+  GARMIN_GNX375_CONFIG: connections/garmin_gnx375.yaml
+  CANAEROSPACE_CONFIG: connections/canaerospace.yaml
+  DRONECAN_CONFIG: connections/dronecan.yaml
+  ONSPEED_CONFIG: connections/onspeed.yaml
 # This section is used to turn things on or off
 enabled:
   QUORUM: false
@@ -78,3 +83,8 @@ enabled:
   RTL_433: false
   FLIGHTPLAN: true
   KNOBSTER: false
+  NAVIGATOR: false
+  GARMIN_GNX375: false
+  CANAEROSPACE: false
+  DRONECAN: false
+  ONSPEED: false

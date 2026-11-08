@@ -3,7 +3,7 @@
 # Listen-only. Writes AOA and AOA.Warn and nothing else; see
 # doc/plugins/onspeed.md.
 onspeed:
-  load: no
+  load: ONSPEED
   module: fixgw.plugins.onspeed
   port: /dev/ttyUSB0
   baud: 115200

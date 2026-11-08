@@ -72,6 +72,11 @@ connections:
   - DEMO_CONFIG
   - RTL_433_CONFIG
   - KNOBSTER_CONFIG
+  - NAVIGATOR_CONFIG
+  - GARMIN_GNX375_CONFIG
+  - CANAEROSPACE_CONFIG
+  - DRONECAN_CONFIG
+  - ONSPEED_CONFIG
 # Logging configuration - See Python logging.config module documenation
 # This is logging for system messages, not system data
 # If you want a Flight Data Recorder, see the file connections/data_recorder.yaml

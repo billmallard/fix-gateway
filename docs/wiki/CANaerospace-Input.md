@@ -13,19 +13,14 @@ Plugin reference:
 
 ## Turning it on
 
-The plugin ships a connection file with `load: no`, and no include name or flag.
-In `preferences.yaml.custom`:
+The plugin ships off. In `preferences.yaml.custom`:
 
 ```yaml
-includes:
-  CANAEROSPACE_CONFIG: connections/canaerospace.yaml
 enabled:
   CANAEROSPACE: true
 ```
 
-set `load: CANAEROSPACE` in `connections/canaerospace.yaml`, and add
-`- CANAEROSPACE_CONFIG` to `connections: include:` in `default.yaml`. See
-[[Configuration]].
+See [[Configuration]].
 
 ## Settings
 

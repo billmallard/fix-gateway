@@ -90,7 +90,14 @@ If you see garbage characters: baud rate is wrong. Try 4800 — some older Garmi
 
 ## Step 4 — Configure and Start FIX-Gateway
 
-In your FIX-Gateway connections config, include:
+The plugin ships off. Turn it on in `preferences.yaml.custom`:
+
+```yaml
+enabled:
+  GARMIN_GNX375: true
+```
+
+and set your port in `connections/garmin_gnx375.yaml`:
 
 ```yaml
 garmin_gnx375:
