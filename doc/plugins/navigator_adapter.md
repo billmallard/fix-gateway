@@ -30,6 +30,9 @@ Serial port (bytes)
 
 ## Configuration
 
+The plugin ships off. Turn it on with `NAVIGATOR: true` under `enabled:` in
+`preferences.yaml.custom`. The settings live in `connections/navigator_adapter.yaml`:
+
 ```yaml
 navigator:
   load: NAVIGATOR
