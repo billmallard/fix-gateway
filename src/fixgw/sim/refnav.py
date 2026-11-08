@@ -46,7 +46,8 @@ Behaviour, as a navigator built to TSO-C129/C146 and DO-229 would show it:
 - An ``HM`` hold is flown as the published racetrack with a standard entry
   (direct, teardrop or parallel, AIM 5-3-8 sectors) and never ends on its
   own.
-- CDI full scale: 2.0 nm en route, 1.0 nm within 30 nm of the destination,
+- CDI full scale: 2.0 nm en route, 1.0 nm within 30 nm of the departure or
+  the destination airport (terminal mode, TSO-C129a / AC 20-138D),
   ramping linearly to 0.3 nm over the 2 nm before the FAF, 0.3 nm from the
   FAF until the missed approach is initiated, then 1.0 nm.
 
@@ -218,6 +219,24 @@ def legs_from_cifp(cifp, airport, approach, transition, magvar_deg):
     return legs
 
 
+def legs_from_route(cifp, profile):
+    """A profile's whole route as reference legs: the departure airport,
+    every en-route fix (an airway expanded to the fixes it passes through,
+    each one a ``TF`` from the fix before it), then the procedure as
+    :func:`legs_from_cifp` reads it, or the destination airport."""
+    fixes = [cifp.fix(profile.departure, section="PA")] if profile.departure else []
+    fixes += [f for f, _ in cifp.expand_route(profile.enroute)]
+    legs = [RefLeg(pt="TF", ident=f.ident, lat=f.lat, lon=f.lon) for f in fixes]
+    proc = profile.procedure
+    if proc is None:
+        d = cifp.fix(profile.destination, section="PA")
+        return legs + [RefLeg(pt="TF", ident=d.ident, lat=d.lat, lon=d.lon)]
+    p_legs = legs_from_cifp(cifp, proc["airport"], proc["approach"], proc["transition"], profile.magvar_deg)
+    if legs and legs[-1].ident == p_legs[0].ident:
+        raise ReferenceError_(f"the en-route items end at {p_legs[0].ident}, where the procedure starts")
+    return legs + p_legs
+
+
 @dataclass
 class RefOutput:
     crs_mag: float
@@ -354,18 +373,20 @@ class ReferenceNavigator:
     """Flies ``legs`` from the leg into ``legs[active]``.
 
     ``destination`` is the (lat, lon) the 30 nm terminal radius is measured
-    from. ``tas_kt`` sizes the hold and its entry leg (one minute).
+    from, and ``departure``, when the route starts at an airport, the other.
+    ``tas_kt`` sizes the hold and its entry leg (one minute).
     ``position`` is where the aircraft is, needed only to start on a ``DF``.
     """
 
     def __init__(self, legs, magvar_deg, destination, active, tas_kt,
                  turn_rate_deg_s=3.0, bank_max_deg=25.0, terminal_nm=30.0, position=None,
-                 flyby_bank_deg=15.0):
+                 flyby_bank_deg=15.0, departure=None):
         if not 0 < active < len(legs):
             raise ReferenceError_(f"active leg {active} out of range")
         self.legs = legs
         self.magvar = magvar_deg
         self.dest = destination
+        self.dep = departure
         self.tas = tas_kt
         self.rate = turn_rate_deg_s
         self.bank = bank_max_deg
@@ -475,8 +496,9 @@ class ReferenceNavigator:
                 d_faf = inverse(lat, lon, f.lat, f.lon)[0]
                 if d_faf <= 2.0:
                     return 0.3 + 0.7 * d_faf / 2.0, "RAMP"
-        if inverse(lat, lon, self.dest[0], self.dest[1])[0] <= self.terminal_nm:
-            return 1.0, "TERMINAL"
+        for apt in (self.dest, self.dep):
+            if apt is not None and inverse(lat, lon, apt[0], apt[1])[0] <= self.terminal_nm:
+                return 1.0, "TERMINAL"
         return 2.0, "ENROUTE"
 
     # -- the cycle -----------------------------------------------------------

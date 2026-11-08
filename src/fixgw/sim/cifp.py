@@ -3,8 +3,9 @@
 #  Minimal ARINC 424-18 reader for the synthetic flight tier (SYN1).
 #
 """Just enough of FAA CIFP (``FAACIFP18``, ARINC 424-18 fixed-width records)
-to fly one approach: the header cycle, fix positions (terminal and en-route
-waypoints, VHF navaids, runways, airports) and an approach's legs.
+to fly one approach and the airways before it: the header cycle, fix
+positions (terminal and en-route waypoints, VHF navaids, runways, airports),
+an approach's legs, and an airway's fixes between two of them.
 
 Written for the synthetic tier only. It is deliberately not shared with the
 navigation engine (which reads no CIFP at all -- its route arrives on the
@@ -123,14 +124,17 @@ class Cifp:
             raise CifpError(f"{path}: no HDR01 cycle")
 
     # -- fixes -------------------------------------------------------------
-    def fix(self, ident, airport=None, section=None):
+    def fix(self, ident, airport=None, section=None, region=None):
         """The position of ``ident``. ``section`` is the 2-char section code
         a leg record names (``PC`` terminal waypoint, ``EA`` en-route
-        waypoint, ``D `` VHF navaid, ``PG`` runway); with ``airport`` it
-        disambiguates a terminal waypoint or runway. Raises if absent or
-        ambiguous."""
+        waypoint, ``D `` VHF navaid, ``PG`` runway, ``PA`` airport); with
+        ``airport`` it disambiguates a terminal waypoint or runway, and
+        ``region`` (the ICAO code an airway record names, ``K2``) an en-route
+        waypoint or navaid. Raises if absent or ambiguous."""
         found = []
         for line in self._lines:
+            if region and _col(line, 5, 5) in "ED" and _col(line, 20, 21) != region:
+                continue
             sec = _col(line, 5, 5)
             if sec == "P":
                 sub = _col(line, 13, 13)
@@ -157,6 +161,81 @@ class Cifp:
         if len(set((f.lat, f.lon) for f in found)) > 1:
             raise CifpError(f"{ident}: ambiguous ({len(found)} records); name the section")
         return found[0]
+
+    def enroute_fix(self, ident):
+        """A fix a pilot enters by name: an en-route waypoint, a VHF navaid
+        or an airport. Raises if absent, or if two of them with that name
+        are in different places (name the fix by its airway instead)."""
+        found = []
+        for section in ("EA", "D ", "PA"):
+            try:
+                found.append(self.fix(ident, section=section))
+            except CifpError as e:
+                if "ambiguous" in str(e):
+                    raise
+        if not found:
+            raise CifpError(f"{ident}: no en-route waypoint, navaid or airport record in {self.path}")
+        if len(set((f.lat, f.lon) for f in found)) > 1:
+            raise CifpError(f"{ident}: ambiguous ({', '.join(f.kind for f in found)})")
+        return found[0]
+
+    # -- airways -----------------------------------------------------------
+    def airway(self, ident, entry, exit):
+        """The fixes of airway ``ident`` from ``entry`` to ``exit``, both
+        included, in the order flown: ``[(fix, section, region), ...]``.
+
+        An airway is its ``ER`` records in sequence-number order (cols
+        26-29). The same ident can name more than one airway (the sequence
+        restarts); the one holding both fixes is used, and more than one
+        such is an error. Flying it against the record order is the same
+        fixes reversed."""
+        runs, last_seq = [], None
+        for line in self._lines:
+            if _col(line, 5, 6) != "ER" or _col(line, 14, 18).strip() != ident:
+                continue
+            if _col(line, 39, 39) not in ("0", "1"):
+                continue   # continuation records name no fix
+            seq = int(_col(line, 26, 29))
+            if last_seq is None or seq <= last_seq:
+                runs.append([])
+            last_seq = seq
+            runs[-1].append((_col(line, 30, 34).strip(), _col(line, 37, 38), _col(line, 35, 36)))
+        if not runs:
+            raise CifpError(f"airway {ident}: no records in {self.path}")
+        found = []
+        for run in runs:
+            names = [f[0] for f in run]
+            if entry in names and exit in names:
+                i, j = names.index(entry), names.index(exit)
+                found.append(run[i:j + 1] if i <= j else run[j:i + 1][::-1])
+        if not found:
+            raise CifpError(f"airway {ident}: no run through both {entry} and {exit} in {self.path}")
+        if len(found) > 1:
+            raise CifpError(f"airway {ident}: {len(found)} runs through {entry} and {exit}")
+        if len(found[0]) < 2:
+            raise CifpError(f"airway {ident}: entry and exit are both {entry}")
+        return found[0]
+
+    def expand_route(self, enroute):
+        """A profile's en-route items (``Profile.enroute``) as the fixes
+        flown: ``[(Fix, airway), ...]``, where ``airway`` is the airway the
+        fix belongs to (its entry included), or None for a waypoint entered
+        on its own. A waypoint straight before an airway is that airway's
+        entry, as RS1 puts the entry fix in the airway's segment."""
+        out = []
+        for n, item in enumerate(enroute):
+            if item["kind"] == "waypoint":
+                out.append((self.enroute_fix(item["fix"]), None))
+                continue
+            entry = out[-1][0]
+            fixes = self.airway(item["id"], entry.ident, item["exit"])
+            first = self.fix(fixes[0][0], section=fixes[0][1], region=fixes[0][2])
+            if (first.lat, first.lon) != (entry.lat, entry.lon):
+                raise CifpError(f"airway {item['id']}: its {entry.ident} is not the waypoint entered before it")
+            out[-1] = (entry, item["id"])
+            for ident, section, region in fixes[1:]:
+                out.append((self.fix(ident, section=section, region=region), item["id"]))
+        return out
 
     # -- approaches --------------------------------------------------------
     def approach_legs(self, airport, approach):

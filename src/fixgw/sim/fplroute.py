@@ -23,6 +23,14 @@ them:
   hold fix, and ``0x20`` (from a coded procedure) on every slot;
 - segment rows: the transition plus final as one approach row (kind 4,
   ``RNAV<rwy>.<transition>``), the missed approach as one row (kind 5).
+
+En-route items (:func:`route_slots`) follow RS1 as written: a waypoint is
+one kind-0 row; an airway is one kind-1 row from its entry fix (the
+waypoint before it) to its exit; the ``departure`` airport, when named, is
+the first row and the ``destination`` the last when there is no procedure.
+A procedure's rows follow the en-route ones. Every en-route slot is a
+``TF`` with no altitude, course or flags: the engine flies a ``TF`` from its
+two fixes alone, and an airway's minimum altitudes are not encoded yet.
 """
 
 from fixgw.sim import refnav
@@ -36,6 +44,8 @@ FLAG_FROM_PROCEDURE = 0x20
 
 TYPE_BY_KIND = {"airport": 1, "vor": 2, "waypoint": 4, "runway": 4}
 
+SEGKIND_WAYPOINT = 0
+SEGKIND_AIRWAY = 1
 SEGKIND_APPROACH = 4
 SEGKIND_MISSED = 5
 
@@ -116,6 +126,54 @@ def procedure_slots(cifp, airport, approach, transition, magvar_deg, ca_point_nm
         for i in idx:
             slots[i - 1]["SGI"] = len(segments)
     return slots, segments
+
+
+def _fix_slot(f):
+    return {"ID": f.ident, "LAT": f.lat, "LON": f.lon, "TYPE": TYPE_BY_KIND[f.kind], "PT": "TF",
+            "CRS": 0.0, "DST": 0.0, "ALT": "", "SPD": 0, "SGI": 0, "FLAGS": 0,
+            "CTRLAT": 0.0, "CTRLON": 0.0, "TURN": ""}
+
+
+def route_slots(cifp, profile):
+    """(slots, segments, route name, approach type) for a profile's whole
+    route: the departure, the en-route items, then the procedure or the
+    destination."""
+    rows = []                     # (fix, airway or None)
+    if profile.departure:
+        rows.append((cifp.fix(profile.departure, section="PA"), None))
+    rows += cifp.expand_route(profile.enroute)
+    proc = profile.procedure
+    if proc is None:
+        rows.append((cifp.fix(profile.destination, section="PA"), None))
+    slots, segments = [], []
+    for f, airway in rows:
+        slots.append(_fix_slot(f))
+        n = len(slots)
+        if airway is not None and segments and segments[-1]["KIND"] == SEGKIND_AIRWAY \
+                and segments[-1]["ID"] == airway and segments[-1]["LAST"] == n - 1:
+            segments[-1].update(EXT=f.ident, LAST=n)
+        else:
+            segments.append({"KIND": SEGKIND_AIRWAY if airway else SEGKIND_WAYPOINT, "ID": airway or "",
+                             "ENT": f.ident, "EXT": f.ident, "FIRST": n, "LAST": n})
+        slots[-1]["SGI"] = len(segments)
+    names = [profile.departure] if profile.departure else []
+    names += [it["fix"] if it["kind"] == "waypoint" else it["id"] for it in profile.enroute]
+    if proc is None:
+        names.append(profile.destination)
+        return slots, segments, " ".join(names)[:32], ""
+    p_slots, p_segs = procedure_slots(cifp, proc["airport"], proc["approach"], proc["transition"],
+                                      profile.magvar_deg)
+    if slots and slots[-1]["ID"] == p_slots[0]["ID"]:
+        raise ValueError(f"the en-route items end at {p_slots[0]['ID']}, where the procedure starts: "
+                         "end them at the fix before it")
+    off, k0 = len(slots), len(segments)
+    for s in p_slots:
+        s["SGI"] += k0
+    for g in p_segs:
+        g["FIRST"] += off
+        g["LAST"] += off
+    names.append(f"{proc['airport']} {proc['approach']} {proc['transition']}")
+    return slots + p_slots, segments + p_segs, " ".join(names)[:32], "RNAV"
 
 
 def route_block_writes(slots, segments, name, aprtype, cycle, seq):

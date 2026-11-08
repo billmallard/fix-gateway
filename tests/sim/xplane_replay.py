@@ -98,10 +98,8 @@ def build_route(profile=PROFILE):
     """-> (wps, segments, act, cycle, route name, profile)."""
     prof = load_profile(str(profile))
     cifp = Cifp(prof.cifp_file)
-    p = prof.procedure
-    name = f"{p['airport']} {p['approach']} {p['transition']}"
-    slots, segs = fplroute.procedure_slots(cifp, p["airport"], p["approach"], p["transition"], prof.magvar_deg)
-    db = dict(fplroute.route_block_writes(slots, segs, name, "RNAV", cifp.cycle, 1))
+    slots, segs, name, aprtype = fplroute.route_slots(cifp, prof)
+    db = dict(fplroute.route_block_writes(slots, segs, name, aprtype, cifp.cycle, 1))
     wps, segments = _route(db)
     act = next(i for i, s in enumerate(slots, start=1) if s["ID"] == prof.start["fix"] and i > 1)
     return wps, segments, act, cifp.cycle, name, prof
@@ -193,8 +191,8 @@ def fly(rows=None, profile=PROFILE, pilot=None, magvar=None):
 
 def fly_route(rows, block, act, magvar):
     """-> (samples, events) for a recording that carries its own route block
-    rather than a profile: an en-route flight (SIM2b, AER-4464), which
-    fix-gateway's profile loader cannot read yet. ``block`` is the route block
+    rather than a profile: an en-route flight (SIM2b, AER-4464), loaded with
+    the block pyEfis published on the bench. ``block`` is the route block
     as the editor published it (``FPLf*``, ``FPLS*``, the counts), ``act`` the
     slot the bench activated, ``magvar`` the bench's FIX MAGVAR. No pilot
     commands: an airway is flown leg to leg on the engine's own sequencing."""
