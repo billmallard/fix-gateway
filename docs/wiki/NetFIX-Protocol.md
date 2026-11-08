@@ -20,7 +20,8 @@ ID;value;aobfs
 ```
 - `ID` — the database key (e.g. `IAS`), same names as the [[The FIX Database]].
 - `value` — a **float** (has a decimal point), **int** (no point), **bool**
-  (`T`/`F`), or **string** (begins with `&`; may not contain `;`).
+  (`True`/`False`), or **string** (sent as is, with no prefix; may not contain
+  `;`).
 - `aobfs` — five quality flags, each `1`/`0`: **a**nnunciate, **o**ld, **b**ad,
   **f**ailed, **s**econdary-fail.
 
@@ -36,7 +37,13 @@ data is stale sets `bad` instead:
 ```
 ID;value;abfs
 ```
-Omitted flags are assumed `0`.
+Omitted flags are assumed `0`: `IAS;122.4` writes 122.4 with every flag clear,
+and `IAS;122.4;1` sets annunciate and clears the rest. A line with only a key,
+or with more than three fields, is ignored.
+
+On a write, a **bool** is true for `true`, `yes` or `1` in any case, or any
+nonzero integer, and false for anything else, so `T` writes false. A **string**
+is stored exactly as sent: a leading `&` becomes part of the value.
 
 ## Commands
 
