@@ -11,7 +11,7 @@
               independently of the navigation engine and importing nothing
               from it.
 ``aircraft``  a point-mass aircraft whose autopilot flies the reference.
-``fplroute``  the route block an editor would publish for the procedure.
+``fplroute``  the route block an editor would publish for the route.
 ``generator`` profile + CIFP -> bus rows -> a data_recorder file.
 ``checks``    the profile's checks, evaluated on any recorded bus log.
 

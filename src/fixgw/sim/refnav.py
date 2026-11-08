@@ -218,6 +218,24 @@ def legs_from_cifp(cifp, airport, approach, transition, magvar_deg):
     return legs
 
 
+def legs_from_route(cifp, profile):
+    """A profile's whole route as reference legs: the departure airport,
+    every en-route fix (an airway expanded to the fixes it passes through,
+    each one a ``TF`` from the fix before it), then the procedure as
+    :func:`legs_from_cifp` reads it, or the destination airport."""
+    fixes = [cifp.fix(profile.departure, section="PA")] if profile.departure else []
+    fixes += [f for f, _ in cifp.expand_route(profile.enroute)]
+    legs = [RefLeg(pt="TF", ident=f.ident, lat=f.lat, lon=f.lon) for f in fixes]
+    proc = profile.procedure
+    if proc is None:
+        d = cifp.fix(profile.destination, section="PA")
+        return legs + [RefLeg(pt="TF", ident=d.ident, lat=d.lat, lon=d.lon)]
+    p_legs = legs_from_cifp(cifp, proc["airport"], proc["approach"], proc["transition"], profile.magvar_deg)
+    if legs and legs[-1].ident == p_legs[0].ident:
+        raise ReferenceError_(f"the en-route items end at {p_legs[0].ident}, where the procedure starts")
+    return legs + p_legs
+
+
 @dataclass
 class RefOutput:
     crs_mag: float
@@ -354,7 +372,8 @@ class ReferenceNavigator:
     """Flies ``legs`` from the leg into ``legs[active]``.
 
     ``destination`` is the (lat, lon) the 30 nm terminal radius is measured
-    from. ``tas_kt`` sizes the hold and its entry leg (one minute).
+    from.
+    ``tas_kt`` sizes the hold and its entry leg (one minute).
     ``position`` is where the aircraft is, needed only to start on a ``DF``.
     """
 
