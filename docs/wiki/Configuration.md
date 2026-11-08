@@ -74,13 +74,9 @@ connections:
     - XPLANE_CONFIG
 ```
 
-The shipped `default.yaml` lists every plugin that has a `preferences.yaml`
-entry, so for those you only touch the flag. A few plugins ship a connection
-file but no include name or flag — `canaerospace`, `dronecan`, `onspeed`,
-`navigator_adapter` among them. To load one, add its include name and flag to
-`preferences.yaml.custom` and its include name to `default.yaml`, or give its
-connection file `load: yes`. The full plugin catalogue is on the
-**[[Plugins]]** page.
+The shipped `default.yaml` lists every connection file in `connections/`, and
+`preferences.yaml` has a flag for each, so you only ever touch the flag. The
+full plugin catalogue is on the **[[Plugins]]** page.
 
 > **One key, one writer.** Before enabling two source plugins, check they don't
 > both write the same keys — e.g. `xplane` and `stratux` both publish attitude
