@@ -123,8 +123,10 @@ def generate(profile, frequency_ms=200, cifp_path=None, fplseq=1, gps_accuracy_f
                        turn_rate_deg_s=a.get("turn_rate_deg_s", 3.0))
     ac = Aircraft(perf, State(lat, lon, float(profile.start["alt_ft"]), azi),
                   profile.wind_from_deg, profile.wind_kt)
+    dep = cifp.fix(profile.departure, section="PA") if profile.departure else None
     ref = refnav.ReferenceNavigator(legs, mv, (apt.lat, apt.lon), k, perf.tas_kt,
-                                    perf.turn_rate_deg_s, perf.bank_max_deg)
+                                    perf.turn_rate_deg_s, perf.bank_max_deg,
+                                    departure=(dep.lat, dep.lon) if dep else None)
     alts = _alt_constraints(cifp, proc) if proc else {}
     missed_top = max([alts.get(lg.ident, 0.0) for lg in legs if lg.first_missed or ref_in_missed(legs, lg)] + [0.0])
 
