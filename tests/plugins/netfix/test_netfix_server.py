@@ -129,6 +129,32 @@ def test_normal_write(plugin,database):
     x = database.read("IAS")
     assert x == (121.6, False, False, False, False, True)
 
+def test_bool_wire_format_is_python_true_false(plugin, database):
+    """Booleans go out as True/False; on the way in, true/yes/1 in any case
+    is true and anything else is false -- including the old spec's T."""
+    for sent, stored in [("True", True), ("False", False), ("yes", True),
+                         ("1", True), ("0", False), ("T", False)]:
+        plugin.sock.sendall("BTN1;{};0000\n".format(sent).encode())
+        time.sleep(0.1)
+        assert database.read("BTN1")[0] is stored, sent
+        plugin.sock.sendall("@rBTN1\n".encode())
+        res = plugin.sock.recv(1024).decode()
+        assert res == "@rBTN1;{};00000\n".format(stored)
+
+
+def test_string_wire_format_has_no_prefix(plugin, database):
+    """A string is sent bare. Nothing adds or strips a leading '&', so one a
+    client sends is stored as part of the value."""
+    plugin.sock.sendall("ACID;N123AB;0000\n".encode())
+    time.sleep(0.1)
+    assert database.read("ACID")[0] == "N123AB"
+    plugin.sock.sendall("ACID;&N123AB;0000\n".encode())
+    time.sleep(0.1)
+    assert database.read("ACID")[0] == "&N123AB"
+    plugin.sock.sendall("@rACID\n".encode())
+    res = plugin.sock.recv(1024).decode()
+    assert res == "@rACID;&N123AB;00000\n"
+
 def test_read(plugin,database):
     database.write("IAS", 105.4)
     plugin.sock.sendall("@rIAS\n".encode())
