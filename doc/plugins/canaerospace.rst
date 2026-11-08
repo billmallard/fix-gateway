@@ -25,11 +25,13 @@ is used.
 Configuration
 -------------
 
-::
+The plugin ships off.  Turn it on with ``CANAEROSPACE: true`` under
+``enabled:`` in ``preferences.yaml.custom``.  The settings live in
+``connections/canaerospace.yaml``::
 
   # CANaerospace input bridge (e.g. Rotax 912iS / 915iS ECU)
   canaerospace:
-    load: yes
+    load: CANAEROSPACE
     module: fixgw.plugins.canaerospace
     # python-can options. Bit rate is an interface-level concern:
     # for socketcan set it with `ip link set can0 up type can bitrate ...`;

@@ -49,10 +49,12 @@ DroneCAN GUI tool.
 Configuration
 -------------
 
-::
+The plugin ships off.  Turn it on with ``DRONECAN: true`` under
+``enabled:`` in ``preferences.yaml.custom``.  The settings live in
+``connections/dronecan.yaml``::
 
   dronecan:
-    load: yes
+    load: DRONECAN
     module: fixgw.plugins.dronecan
     # python-can options.  SocketCAN: interface socketcan, channel can1
     # (set the bit rate with `ip link set can1 up type can bitrate 1000000`).

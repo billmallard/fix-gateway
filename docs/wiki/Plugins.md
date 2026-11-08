@@ -19,8 +19,8 @@ add a data source without changing anything downstream.
 
 Plugins on in the shipped config: `netfix`, `compute`, `annunciate`, `system`,
 `demo`, `flightplan` and `state_persist`. Turn others on with their `enabled:`
-flag (**[[Configuration]]**). Plugins marked *not wired* ship a connection file
-but no `preferences.yaml` entry; add the include name and flag yourself.
+flag (**[[Configuration]]**). The one plugin marked *not wired* ships no
+connection file; write one and wire it in as **[[Configuration]]** describes.
 
 ## Sources — bring data in
 
@@ -37,16 +37,16 @@ but no `preferences.yaml` entry; add the include name and flag yourself.
 |---|---|
 | `gpsd` | position, track, ground speed, GPS altitude, fix type and accuracy from a `gpsd` daemon |
 | `stratux` | GDL90 from a Stratux: ADS-B traffic (`TFC*`), AHRS and ground speed; no position |
-| `navigator_adapter` | an external navigator's RS-232 NMEA: position and `EXT*` guidance — *not wired*, see **[[Navigator Adapter]]** |
-| `garmin_gnx375` | Garmin GNX 375 NMEA: position and `EXT*` guidance (GPS and nav only) — *not wired* |
+| `navigator_adapter` | an external navigator's RS-232 NMEA: position and `EXT*` guidance, see **[[Navigator Adapter]]** |
+| `garmin_gnx375` | Garmin GNX 375 NMEA: position and `EXT*` guidance (GPS and nav only) |
 | `ifly` | next waypoint (`WPNAME`, `WPLAT`, `WPLON`) from the iFly EFB over UDP; experimental |
 
 ### Buses & autopilots
 | Plugin | Brings in |
 |---|---|
 | `canfix` | the **CAN-FIX** bus — bidirectional. See **[[CAN-FIX]]** |
-| `canaerospace` | CANaerospace engine data (Rotax 912iS / 915iS ECU), listen-only — *not wired*, see **[[CANaerospace Input]]** |
-| `dronecan` | DroneCAN v0 sensors; listen-only unless given a node id — *not wired* |
+| `canaerospace` | CANaerospace engine data (Rotax 912iS / 915iS ECU), listen-only, see **[[CANaerospace Input]]** |
+| `dronecan` | DroneCAN v0 sensors; listen-only unless given a node id |
 | `mavlink` | an ArduPilot / Pixhawk link, mainly as a GPS, AHRS and air-data source; can send mode commands |
 | `megasquirt` | MegaSquirt ECU over CAN: `TACH1`, `FUELF1`, `H2OT1`, `MAP1`, `THR1` |
 | `mgl` | MGL RDAC over CAN |
@@ -58,7 +58,7 @@ but no `preferences.yaml` entry; add the include name and flag yourself.
 | `mgl_serial` | MGL Avionics serial |
 | `grand_rapids_eis` | Grand Rapids Technologies EIS |
 | `shadin` | Shadin fuel protocol: `FUELF1`, `FUELF2`, `FUELQT` |
-| `onspeed` | OnSpeed Gen2 AOA: `AOA` and `AOA.Warn` — *not wired* |
+| `onspeed` | OnSpeed Gen2 AOA: `AOA` and `AOA.Warn` |
 
 ### Raspberry Pi & panel hardware
 | Plugin | Brings in |

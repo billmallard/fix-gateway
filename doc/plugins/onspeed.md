@@ -40,9 +40,8 @@ covered.
 | `baud` | `115200` | the firmware only sends at 115200; anything else logs a warning but is used |
 | `min_ias` | `30` | kt. Below this IAS (from the sentence), `AOA` is published `bad` |
 
-The file ships with `load: no`. To use it, add it to the `connections`
-`include` list of your `default.yaml` (or copy its block in) and set
-`load: yes`. Unknown options log a warning.
+The plugin ships off. Turn it on with `ONSPEED: true` under `enabled:` in
+`preferences.yaml.custom`. Unknown options log a warning.
 
 **`min_ias` must be at least the box's `MUTE_AUDIO_UNDER_IAS`.** Below that
 speed OnSpeed does not stop sending: it sends AOA `+000` and percent lift `00`.
