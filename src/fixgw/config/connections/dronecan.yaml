@@ -3,7 +3,7 @@
 # adapter: never put DroneCAN on the same physical bus as CAN-FIX (bit
 # rates and identifier spaces collide).
 dronecan:
-  load: no
+  load: DRONECAN
   module: fixgw.plugins.dronecan
   # python-can options.  SocketCAN: interface socketcan, channel can1 (set
   # the bit rate with `ip link set can1 up type can bitrate 1000000`).
