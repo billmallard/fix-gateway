@@ -198,9 +198,12 @@ the X-Plane GPS on the bench). The shipped `compute` config selects:
 | `GPSCDI` | `FPLCDI` | `EXTCDI` |
 | `GPSTF` | `FPLTF` | `EXTTF` |
 | `XTRACK` | `FPLXTK` | `EXTXTK` |
+| `GPSGSI` | 0 (no glidepath) | `EXTGSI` |
+| `GPSGSV` | 0 (no glidepath) | `EXTGSV` (`EXTGSF` inverted) |
 
-`NAVSRC` = 2 then routes the GPS keys into `COURSE`, `CDI` and `TOFROM`, which
-the HSI reads. `GPSBRG`, the GPS bearing pointer, always points at the internal
+`NAVSRC` = 2 then routes the GPS keys into `COURSE`, `CDI`, `TOFROM`, `GSI`
+and `GSV`, which the HSI reads. The internal plan has no vertical guidance, so
+with `GPSSRC` = 0 the HSI shows no glidepath. `GPSBRG`, the GPS bearing pointer, always points at the internal
 plan's `WPLAT`/`WPLON`. `state_persist` saves `GPSSRC` across restarts.
 
 ## Persistence
