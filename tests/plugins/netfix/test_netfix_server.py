@@ -129,6 +129,7 @@ def test_normal_write(plugin,database):
     x = database.read("IAS")
     assert x == (121.6, False, False, False, False, True)
 
+
 def _set_client_flags(database, key):
     item = database.get_raw_item(key)
     item.annunciate = True
@@ -587,19 +588,22 @@ def test_read_non_tuple_fixid(plugin,database):
     a = res.split(';')
     assert a[1] == "20.5\n"
 
-def test_send_invalid_value_update(plugin,caplog):
+def test_send_invalid_value_update(plugin, database, caplog):
+    """A frame that is neither ID;value nor ID;value;flags is logged and
+    nothing is written. (`IAS;10` used to be the example here: it is now a
+    valid write with its flags omitted, fix-gateway #128.)"""
     with caplog.at_level(logging.DEBUG):
-        plugin.sock.sendall("IAS;10\n".encode())
+        plugin.sock.sendall("IAS\n".encode())
         time.sleep(0.1)
-        assert 'Bad Frame IAS;10 from 127.0.0.1' in caplog.text
-        assert 'Problem with input IAS;10: list index out of range' in caplog.text
+        assert 'Bad Frame IAS from 127.0.0.1' in caplog.text
+        assert database.read("IAS")[0] == 0.0
 
-def test_send_invalid_value_update2(plugin,caplog):
+def test_send_invalid_value_update2(plugin, database, caplog):
     with caplog.at_level(logging.DEBUG):
         plugin.sock.sendall("IAS;10;10;10;10;10\n".encode())
         time.sleep(0.1)
         assert 'Bad Frame IAS;10;10;10;10;10 from 127.0.0.1' in caplog.text
-        assert 'Problem with input IAS;10;10;10;10;10: string index out of range' in caplog.text        
+        assert database.read("IAS")[0] == 0.0
 
 
 

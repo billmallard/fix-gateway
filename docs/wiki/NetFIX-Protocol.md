@@ -37,7 +37,9 @@ data is stale sets `bad` instead:
 ```
 ID;value;abfs
 ```
-Omitted flags are assumed `0`.
+Omitted flags are assumed `0`: `IAS;122.4` writes 122.4 with every flag clear,
+and `IAS;122.4;1` sets annunciate and clears the rest. A line with only a key,
+or with more than three fields, is ignored.
 
 On a write, a **bool** is true for `true`, `yes` or `1` in any case, or any
 nonzero integer, and false for anything else, so `T` writes false. A **string**

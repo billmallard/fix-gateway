@@ -56,7 +56,9 @@ The sentence from the client to the server is similar...
 The difference is that the old flag is removed.  If the client
 determines that the data is old it should simply set the bad flag.
 The secondary failed flag is optional.  If flags are not sent they are
-assumed to be false '0';
+assumed to be false '0', so ``ID;xxxx.x`` and ``ID;xxxx.x;1`` are both
+valid: the value is written and every flag that was not sent is cleared.
+A sentence with only an ID, or with more than three fields, is ignored.
 
 Command Sentence Description
 ----------------------------
