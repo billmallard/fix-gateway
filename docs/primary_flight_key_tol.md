@@ -9,10 +9,13 @@ shipped database. `tests/test_primary_key_tol.py` fails if any key in the
 first table has `tol: 0`, and it fails if this table and the test's lists drift
 apart.
 
-How the list was built: pyEfis `dev` at 8017016a. It covers the default screen
-list (`screens/default_list.yaml`: PFD, EMS, EMS2), with every include and
-`preferences.yaml` substitution resolved, plus the keys each instrument class
-subscribes to in Python. Most PFD and HSI keys are hard-coded in the
+How the list was built: pyEfis `dev` at 8017016a. The default screen list
+(`screens/default_list.yaml`) loads seven screens. This table covers three of
+them: PFD, EMS and EMS2. PFD_AI_ONLY shows a subset of the PFD's keys. Data
+Status, Radio and Flight Plan are outside CERT2; the flight plan engine's live
+outputs carry tol 5000. For the three screens, every include and
+`preferences.yaml` substitution is resolved, plus the keys each instrument
+class subscribes to in Python. Most PFD and HSI keys are hard-coded in the
 instrument, not in the YAML. Items the shipped preferences leave disabled are
 not built and are not listed: the VSI needle, wind, the pressure readouts
 (DALT, PALT), trim and dimmer.
@@ -113,6 +116,14 @@ The test does not check them.
   (`HEADBUG`, `NAV1CRS`, `NAV2CRS`); without the sim, they are written on
   change. The HSI's HDG readout shows `HEADBUG`. This is the
   opposite failure, a good value flagged stale. It is left for a separate item.
+- pyEfis ignores the flags on a bar gauge's highlight key
+  (`gauges/abstract.py`, the `highlight_key` hookup connects the value only).
+  So `EGTMAX1` and `CHTMAX1` going old changes nothing on the glass yet, though
+  each bar still goes old on its own key. Found by the Safety and Compliance
+  review (AER-5044).
+- `MAVMSG`, the autopilot mode text, is correctly exempt, but on a MAVLink
+  link loss nothing rewrites or flags it, so a stale mode can stay on the PFD.
+  It is latent: MAVLink ships disabled. Found by the same review.
 - The HSI subscribes to `NAVTYPE` (VOR/LOC source label), which the database
   does not define. The HSI handles the missing key and falls back to a label
   built from `NAVSRC`.

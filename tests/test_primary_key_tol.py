@@ -3,8 +3,10 @@
 # once its source stops writing. tol 0 (the define_item default) disables the
 # expiry: a dead source would leave its last value on the glass, unflagged.
 #
-# The key list is the shipped pyEfis config on dev (8017016a): the default
-# screen list (PFD, EMS, EMS2) with its includes and preferences resolved,
+# The key list is the shipped pyEfis config on dev (8017016a): the PFD, EMS
+# and EMS2 screens of the default list (PFD_AI_ONLY shows a subset of the
+# PFD; Data Status, Radio and Flight Plan are out of scope), with includes and
+# preferences resolved,
 # plus the keys each instrument class subscribes to in Python. It is the
 # table in docs/primary_flight_key_tol.md; the last test keeps the two in step.
 #
