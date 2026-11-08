@@ -78,7 +78,7 @@ Unless an entry says otherwise:
 | [XPB-019](#xpb-019) | Pause and unpause lag after launch, and the start flips a preference | `interface` |
 | [XPB-020](#xpb-020) | LAT holds its value for seconds while the stream is alive | `interface` |
 | [XPB-021](#xpb-021) | X-Plane's nav data provider changed on 2026-10-31 | `interface` |
-| [XPB-022](#xpb-022) | On V27 GVO-GOLET, course reads 1.4 deg below ours, steady along the leg | `unknown` |
+| [XPB-022](#xpb-022) | On V27 GVO-GOLET, course reads 1.4 deg below ours: after the 154 deg turn at GVO, X-Plane's leg is not the published one | `unknown` |
 | [XPB-023](#xpb-023) | Fly-by turn: CDI from an arc until the bisector, then from the next leg's straight line | `sim-quirk` |
 
 ---
@@ -438,23 +438,35 @@ Unless an entry says otherwise:
 
 **On V27 from GVO to GOLET, X-Plane's course reads 1.4 deg below the engine's and the page's, and holds steady along the leg.**
 
-- **Class:** `unknown`.
-- **Setup:** X-Plane 12, SR22, XPNavData cycle 2611 (XPB-021). Sessions `b90a1c257dd6` (2026-11-01 05:37Z) and `d419efeeea66` (07:44Z), slice 1 of the RS3 golden route (AER-4464).
+- **Class:** `unknown`. The discriminating test below was run on 2026-11-07 (XPB22T). Neither the data nor the variation explains it, so by this entry's own rule it is navigator behavior, and it needs a reference before it can leave `unknown`.
+- **Setup:** X-Plane 12, SR22, XPNavData cycle 2611 (XPB-021). Sessions `b90a1c257dd6` (2026-11-01 05:37Z) and `d419efeeea66` (07:44Z), slice 1 of the RS3 golden route (AER-4464). The test run was a hand run on the workstation, 2026-11-07 23:11Z, with Bill's session, run directory `20261107T231150Z-xpb22t-v27-gvo-golet`. It used slice 1's start, 3 nm before GVO inbound from KSBA, and ended once GOLET was sequenced. Hand runs get no session id.
 - **Observed** (AER-4464, comment a4a33c53):
   - On the leg into GOLET, X-Plane's `gps_crs_mag` is 129.9 deg for the whole leg. The live engine's `FPLCRS` is 131.35 to 131.56, and the page's DTK (the published `FPLfCRS`) is 131.4. The difference is 1.4 deg, steady, over 1,079 rows.
   - The FAA CIFP 2611 positions give a great-circle course of 143.1 deg true for GVO-GOLET. The bench's FIX MAGVAR over that leg is -11.7 (11.7 E), so the course is 131.4 magnetic, which is what the engine and the page show.
   - Every other V27 leg flown agrees with X-Plane to 0.11 deg or better. That includes VTU-EXERT, which also starts at a VOR (session `9b6d523db79a`, `tests/sim/fixtures/sim2b_v27_xplane_2026-11-01.csv.gz`).
-- **Reference.** None found for which variation a GPS navigator applies to an airway leg that starts at a VOR.
-- **What is ruled out, and what is not.**
-  - It is not GVO's station declination. The FAA CIFP gives E016.0, which would put the course near 127 deg, not 129.9.
-  - It is not a general VOR-origin rule, because VTU-EXERT agrees.
-  - It is not the sphere/WGS-84 offset (XPB-002), which is about 0.1 deg.
-  - Not ruled out: provider coding (XPB-021). X-Plane's GVO or GOLET may sit elsewhere in its data, or the provider may carry a different variation for the leg. Not ruled out either: a variation model in X-Plane that differs from the bench's MAGVAR by 1.4 deg at that point.
-- **Discriminating test.**
+- **Discriminating test, as specified.**
   - (1) Compute the GVO-GOLET course from X-Plane's own installed data and compare it with the FAA CIFP's. Record only "agrees" or "differs by N deg", never the provider's coordinates (XPB-021, licence boundary).
   - (2) Compare X-Plane's magnetic variation dataref along the leg with the bench's MAGVAR.
   - If (1) differs by about 1.4 deg, it is the data. If (2) does, it is the variation model. If neither, it is navigator behavior and needs a reference.
-- **Relied on by:** nothing. No committed recording includes the leg. The V27 recording is HENER-DOYLE. A course check at the FP8 tolerance (2 deg) would pass it anyway.
+- **Result** (2026-11-07, XPB22T):
+  - (1) **Agrees.** Computed from `Custom Data`, the GVO-GOLET course differs from the FAA CIFP's by 0.000 deg, on a sphere and on WGS-84. GVO's and GOLET's positions also agree, and so does GVO's station declination. X-Plane's airway data carries the GVO-GOLET segment on V27. The positions in the FMS plan the driver loaded (`plan.fms`) agree with the FAA's at every V27 fix.
+  - (2) **Agrees.** Along the leg, `sim/flightmodel/position/magnetic_variation` read -11.69 to -11.78 (east negative), 399 rows. The bench's live MAGVAR agreed to 0.0003 deg; it takes that dataref over RREF. That is the Beelink's `xplane.yaml` standing block since AER-4970, whose comment says it repeats the block the 2026-11-01 follower added, so the -11.7 that comparison used is X-Plane's own value.
+  - The behavior reproduced: 129.94 deg from the waypoint switch on, rising to 130.14 by GOLET.
+- **What the recordings show instead.** This is the same on 2026-11-01 (`b90a1c257dd6`) and on the test run.
+  - X-Plane changes its course to 131.44 at turn start, 1.32 nm before GVO. That is the published leg with the local variation, and it is the engine's value.
+  - At its waypoint switch, 0.75 nm past GVO in the turn, the course becomes 129.94.
+  - From the switch to GOLET, X-Plane's CDI is centred (`gps_hdef_dot` -0.01) on a straight line that is not the published leg. On the test run, measured from the FAA GVO-GOLET line, the aircraft was 0.455 nm right 16 nm before GOLET, and the offset closed linearly to 0.017 nm at 0.6 nm. The line runs 1.45 deg left of the published leg and passes 0.48 nm right of GVO abeam. The aircraft's true track was 141.65, against the published 143.13 true.
+  - X-Plane's course is that line's true course (141.73 to 141.84) with X-Plane's own variation. X-Plane's bearing to GOLET, corrected by the same dataref, matches the FAA bearing from the aircraft to 0.007 deg on average. So the variation and GOLET are consistent; only the leg is different.
+  - The course change at GVO is 154 deg: 285.3 inbound from KSBA, 131.4 outbound. Every other V27 turn in the slices is 0 to 61 deg, and there X-Plane's course agrees with the published leg to 0.11 deg (above). At XPB-023's turns (61 to 90 deg), its CDI after the switch is the next leg's straight line.
+- **Reference.** None found for the path or the CDI a GPS navigator gives after a fly-by turn of about 150 deg. The earlier question (which variation a navigator applies on a leg from a VOR) is answered by the result: X-Plane applies its local variation, and that equals the bench's.
+- **What is ruled out, and what is not.**
+  - Ruled out: GVO's station declination (E016.0 would give near 127 deg). A general VOR-origin rule (VTU-EXERT agrees). The sphere/WGS-84 offset (XPB-002, about 0.1 deg). Provider coding (result 1). X-Plane's variation model (result 2).
+  - Not ruled out: anything about how X-Plane builds the leg after a large-angle turn. Whether the line comes from the turn geometry, from where the aircraft was when the leg activated, or from somewhere else is not shown. The line does not pass through the aircraft's position at the switch, which was 0.055 nm right of the published leg.
+- **Next discriminating test.**
+  - (a) Start on V27 past GVO, for example at 15 nm before GOLET, so there is no turn at GVO. If X-Plane then reads 131.4 on a centred CDI, the offset comes from the turn.
+  - (b) Fly the same leg after a smaller turn at GVO (an inbound under 90 deg). If the offset goes away, it depends on the turn angle.
+  - (c) A reference from a manufacturer's guide for a fly-by turn above about 120 deg, before any class is proposed.
+- **Relied on by:** nothing. No committed recording includes the leg. The V27 recording is HENER-DOYLE. A course check at the FP8 tolerance (2 deg) would pass it anyway. The engine flies the published leg from GVO, so nothing in the engine or in a test allowance changes.
 
 ---
 
