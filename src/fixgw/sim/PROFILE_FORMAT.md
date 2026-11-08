@@ -22,6 +22,9 @@ a missed approach coded to turn the long way round, GPS losses of fix, and
 (AER-4223) a dead GPS link, and a status or a position stream that stops on
 its own; their checks and
 tolerances are QA's and are not edited to fit a result.
+`sim2b-v27-s2-hener-doyle.yaml` is the first en-route profile (SIM3b,
+AER-5173): V27 from HENER to DOYLE, the slice X-Plane flew as SIM2b's
+session `9b6d523db79a`.
 
 ## The rule for the reference
 
@@ -34,8 +37,9 @@ wrong in the same way and the comparison would prove nothing.
 fails if an import creeps in.
 
 What the tier still shares, and so cannot catch: the CIFP decoding
-(`fixgw/sim/cifp.py`) feeds both the reference and the route block the
-engine is loaded with. A misread record would be flown wrong by both. The
+(`fixgw/sim/cifp.py`), airway expansion included, feeds both the reference
+and the route block the engine is loaded with. A misread record would be
+flown wrong by both. The
 X-Plane tier, which reads X-Plane's own navigation data, is the check on
 that.
 
@@ -99,21 +103,64 @@ rolls. A trimmed excerpt (the header record plus the records the procedure
 needs) can be committed beside the profile, as `profiles/cifp/` does; a
 full `FAACIFP18` can be passed instead with `--cifp`.
 
+### `departure`, `destination`
+
+Airport idents, both optional with a procedure. `departure`, when named, is
+the route's first slot (and the reference's second terminal radius, below).
+A route with no procedure must name its `destination`, which is then its
+last slot. With a procedure, a `destination` must be the procedure's
+airport.
+
 ### `start`
 
 The aircraft starts on the leg into `fix`, `before_nm` short of it, at
-`alt_ft`, on course. The box is loaded with the route and the pilot
+`alt_ft`, on course. `fix` may be any fix on the route after the first:
+an en-route fix as well as a procedure's. The box is loaded with the route and the pilot
 activates that leg (`FPLCMD ACT <slot>`). `heading` only accepts
 `on_course` so far.
 
 ### `route`
 
-One `procedure` item so far: `airport`, `approach` (the CIFP procedure
-ident, `R30`), `transition` (`GVO`), and `missed` (fly the missed approach;
-when false the run ends at the MAP). The reference flies the transition,
-the final and the missed approach as coded. The box gets the same legs as
-an editor would publish them (`fixgw/sim/fplroute.py` lists the encoding
-choices, since assembling a procedure into slots is not specified yet).
+The items the box is loaded with, in order: any number of en-route items,
+then at most one `procedure`, last. They are the route-segment kinds of
+RS1 (`doc/flightplan_keys.md`, the route segment table) and the shape the
+X-Plane tier reads (xplane-bench `fca936a`):
+
+```yaml
+departure: KSBA
+destination: KSMX
+route:
+  - waypoint: GVO                    # one fix, flown as a TF from the fix before it
+  - airway: {id: V27, exit: AVOLS}   # entry: the waypoint before it
+end: {after_fix: DOYLE, max_s: 2100}
+```
+
+| Item | RS1 | Slots |
+|---|---|---|
+| `waypoint: FIX` | a kind 0 (waypoint) row | one, `FIX`: an en-route waypoint, a VHF navaid or an airport, by name |
+| `airway: {id, exit}` | a kind 1 (airway) row, `ID` the airway | its entry fix, every fix the airway passes through, and `exit`. The entry is the `waypoint` before it, which becomes the airway's first slot rather than a row of its own: RS1 puts the entry fix in the airway's segment |
+| `procedure: {...}` | kind 4 (approach) and 5 (missed) rows | as below |
+
+The airway comes from the CIFP's en-route airway (`ER`) records: the run of
+records with that ident, in sequence-number order, that holds both fixes,
+reversed when flown against that order; each fix is then the record it names
+(section and ICAO region). En-route slots are `TF` legs with no altitude,
+course or flags (an airway's minimum altitudes are not encoded yet, and the
+airplane holds its start altitude), so the reference flies them as straight
+legs between the expanded fixes, fly-by at each, as on a procedure.
+
+Refused, rather than flown a guessed way: an airway with no waypoint before
+it, an airway straight after another (the junction fix would belong to both
+segments), and en-route items whose last fix is the procedure's first (a
+pilot would not file it, and the X-Plane driver would turn back to it after
+sequencing it).
+
+A `procedure` has `airport`, `approach` (the CIFP procedure ident, `R30`),
+`transition` (`GVO`), and `missed` (fly the missed approach; when false the
+run ends at the MAP). The reference flies the transition, the final and the
+missed approach as coded. The box gets the same legs as an editor would
+publish them (`fixgw/sim/fplroute.py` lists the encoding choices, since
+assembling a procedure into slots is not specified yet).
 
 Leg types the reference flies: `IF TF DF CA HM`. Anything else refuses the
 whole profile rather than flying a guess.
@@ -169,9 +216,13 @@ plugin's job, and `engine_replay` only models it.
 
 ### `end`
 
-`after_event`: the run stops when that event finishes. `max_s` (default
-3600): a run still going then is an error naming the events that never
-finished, never a silent short run.
+`after_event`: the run stops when that event finishes. `after_fix`: the run
+stops once that en-route fix is sequenced, on the row where the next fix
+becomes the TO fix, as the X-Plane tier ends a session; it must name a fix
+of the en-route items. A route with no procedure also stops once the
+destination is the TO fix, as the X-Plane tier does. Whichever comes first
+ends the run. `max_s` (default 3600): a run still going then is an error
+naming the events that never finished, never a silent short run.
 
 ### `checks`
 
@@ -246,7 +297,8 @@ the turn's arc from turn start to the arc's end; fly-over fixes and the MAP
 abeam; the MAP suspends until the pilot goes missed; a `CA` ends on
 altitude; an `HM` is the published racetrack with a standard entry (direct,
 teardrop or parallel by the AIM sectors). CDI full scale 2.0 nm en route,
-1.0 nm within 30 nm of the airport, a linear ramp to 0.3 nm over the 2 nm
+1.0 nm within 30 nm of the destination or the `departure` airport (TSO-C129a
+terminal mode, as the engine does), a linear ramp to 0.3 nm over the 2 nm
 before the FAF, 0.3 nm to the MAP and until the missed approach is
 initiated, then 1.0 nm.
 
@@ -414,6 +466,9 @@ and its proof is the readback log and someone looking at the glass.
   same `MAGVAR`, and a coded `CA`/`HM` course is magnetic.
 - `start.before_nm`: starting exactly at PAMJI would skip PAMJI's own
   sequence, which the checks list.
+- (SIM3b) `route` takes en-route items before the procedure, and
+  `departure`, `destination` and `end.after_fix` are new: the names
+  xplane-bench gave them first, unchanged.
 - `missed: true` moved into the procedure, and the pilot's RESUME timing
   into `pilot.missed_after_map_s`. A profile still says "go missed", not how
   either tier does it.
