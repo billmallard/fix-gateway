@@ -36,10 +36,9 @@ def test_connection_file_is_wired(name):
     assert includes[0] in DEFAULT["connections"]["include"]
     for con, body in load(path).items():
         flag = body["load"]
-        # load: yes is an always-on plugin (netfix, state_persist); load: no
-        # is a file nothing can turn on short of editing it.
-        if flag is True:
-            continue
+        # load: yes / no is a YAML boolean, which the server never looks up
+        # under enabled:, so no flag can change it (#147: netfix ignored
+        # NETFIX: false).
         assert isinstance(flag, str), "{} has load: {}".format(con, flag)
         assert flag in PREFS["enabled"], "{} not under enabled:".format(flag)
 
