@@ -82,6 +82,7 @@ enabled:
   DEMO: true
   RTL_433: false
   FLIGHTPLAN: true
+  STATE_PERSIST: true
   KNOBSTER: false
   NAVIGATOR: false
   GARMIN_GNX375: false
