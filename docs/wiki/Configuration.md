@@ -21,9 +21,8 @@ keys exist** (and their aircraft-specific values). Getting-started walkthrough:
 `{CONFIG}` in a path setting expands to the config directory, so paths stay
 portable. The server expands it in `database file` and `initialization files`;
 some plugins expand it in their own path settings (`canfix`, `canaerospace` and
-`dronecan` in `mapfile`, `data_recorder` in `filepath`). `state_file` in
-`state_persist` and `flightplan` does not expand it: give an absolute path, or
-leave it unset to use the config directory.
+`dronecan` in `mapfile`, `data_recorder` in `filepath`, `state_persist` and
+`flightplan` in `state_file`).
 
 ## Turning a plugin on or off
 
@@ -74,9 +73,10 @@ connections:
     - XPLANE_CONFIG
 ```
 
-The shipped `default.yaml` lists every connection file in `connections/`, and
-`preferences.yaml` has a flag for each, so you only ever touch the flag. The
-full plugin catalogue is on the **[[Plugins]]** page.
+The shipped `default.yaml` lists every connection file in `connections/`
+except the test suite's `test.yaml`, and `preferences.yaml` has a flag for
+each, so you only ever touch the flag. The full plugin catalogue is on the
+**[[Plugins]]** page.
 
 > **One key, one writer.** Before enabling two source plugins, check they don't
 > both write the same keys — e.g. `xplane` and `stratux` both publish attitude
@@ -132,8 +132,8 @@ state_persist:
   keys:              # keys whose last value should persist
     - NAVSRC
     - GPSSRC
-  # state_file: /abs/path.json   # default: persist_state.json in the config directory
-  # restore_delay: 2.0           # seconds after start
+  # state_file: "{CONFIG}/persist_state.json"   # optional; default shown
+  # restore_delay: 2.0                           # seconds after start
 ```
 
 It restores the saved values `restore_delay` seconds after start, then saves
