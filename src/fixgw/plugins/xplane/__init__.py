@@ -49,14 +49,24 @@ Config schema (``connections/xplane.yaml``):
 Legacy ``idxN: KEY1,KEY2,...`` entries at the top level are still
 honoured and treated as ``send`` mappings (matching the old plugin's
 behaviour).
+
+One key, one writer: this plugin refuses to start when the ``demo`` plugin
+is also loaded, because both write attitude, air data and position and
+fix-gateway has no arbitration between them. (``fgfs`` refuses to start
+beside this plugin, so that pair is already covered from the other side.)
 """
 import threading
 import time
 import socket
 import select
 import struct
+import sys
 
 import fixgw.plugin as plugin
+
+# Plugins that write the same flight keys. Loading one of them alongside this
+# plugin gives each key two writers, and the last write silently wins.
+CONFLICTING_MODULES = ("fixgw.plugins.demo",)
 
 
 # X-Plane packet framing.
@@ -385,7 +395,7 @@ class MainThread(threading.Thread):
 
     def stop(self):
         self.getout = True
-        if self.dataref_map:
+        if self.dataref_map and not self.sock_closed:
             try:
                 self.subscribe_datarefs(0)   # freq 0 cancels the subscriptions
             except Exception:
@@ -406,7 +416,23 @@ class Plugin(plugin.PluginBase):
         super().__init__(name, config, config_meta)
         self.thread = MainThread(self)
 
+    def conflicting_plugins(self):
+        """Names of other loaded plugins that write the same flight keys."""
+        server = sys.modules.get("fixgw.server")
+        loaded = getattr(server, "plugins", None) or {}
+        return sorted(
+            name for name, p in loaded.items()
+            if p is not self and type(p).__module__ in CONFLICTING_MODULES)
+
     def run(self):
+        conflicts = self.conflicting_plugins()
+        if conflicts:
+            msg = ("xplane: not starting: {} also loaded and writes the same "
+                   "keys. Enable one simulator source at a time.".format(
+                       ", ".join(conflicts)))
+            self.log.critical(msg)
+            self.thread.close()             # release udp_in
+            raise plugin.PluginFail(msg)
         self.thread.start()
 
     def stop(self):
