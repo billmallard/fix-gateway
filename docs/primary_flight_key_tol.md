@@ -97,6 +97,7 @@ The test does not check them.
 |---|---|---|---|
 | `BARO` | altimeter setting box | 0 | pilot setting, written when the pilot turns the knob |
 | `ALTSEL` | selected-altitude box and bug | 0 | pilot setting (altitude bug), written on change |
+| `BANKBUG` | target-bank bug on the bank scale | 0 | pilot setting (target-bank bug), written on change |
 | `COMACTNAME1` | COM frequency name | 0 | frequency name, written when a frequency is tuned |
 | `MAVMSG` | autopilot message line | 0 | autopilot event text, written when the autopilot has news |
 | `ACID` | aircraft ID readout | 0 | aircraft identifier, a configured constant |

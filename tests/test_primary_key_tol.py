@@ -50,6 +50,7 @@ DISPLAYED_VALUES = PFD | HSI | EMS
 SETTINGS_AND_EVENTS = {
     "BARO": "pilot setting, written when the pilot turns the knob",
     "ALTSEL": "pilot setting (altitude bug), written on change",
+    "BANKBUG": "pilot setting (target-bank bug), written on change",
     "COMACTNAME1": "frequency name, written when a frequency is tuned",
     "MAVMSG": "autopilot event text, written when the autopilot has news",
     "ACID": "aircraft identifier, a configured constant",
@@ -95,3 +96,19 @@ def test_table_matches_the_lists():
     rows = re.findall(r"^\| `([A-Z0-9_]+)` \|", TABLE.read_text(), re.M)
     assert len(rows) == len(set(rows))
     assert set(rows) == DISPLAYED_VALUES | set(SETTINGS_AND_EVENTS)
+
+
+@pytest.mark.parametrize("key", sorted(SETTINGS_AND_EVENTS))
+def test_setting_or_event_has_no_tol(database, key):
+    # The other direction: a setting written on change must not read old
+    # seconds after the pilot sets it.
+    assert database.get_raw_item(key).tol == 0
+
+
+def test_bankbug_shape(database):
+    # ATT1 (AER-5149): the target-bank bug is a magnitude, 0 = off, capped at
+    # pyEfis's 65 deg unusual-attitude de-clutter, where the bug is hidden.
+    item = database.get_raw_item("BANKBUG")
+    assert item.dtype is float
+    assert (item.min, item.max) == (0.0, 65.0)
+    assert item.value[0] == 0.0
