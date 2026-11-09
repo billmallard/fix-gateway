@@ -510,9 +510,9 @@ items:
   tol: 5000
 
 # --- GPS guidance source selection ------------------------------------------
-# 0 = internal plan (FPLCRS/FPLCDI/FPLTF/FPLXTK), 1 = external navigator
-# (EXTCRS/EXTCDI/EXTTF/EXTXTK). Persisted by state_persist, the BRGnSRC/NAVSRC
-# precedent.
+# 0 = internal plan (FPLCRS/FPLCDI/FPLTF/FPLXTK, no glidepath), 1 = external
+# navigator (EXTCRS/EXTCDI/EXTTF/EXTXTK, EXTGSI/EXTGSV). Persisted by
+# state_persist, the BRGnSRC/NAVSRC precedent.
 - key: GPSSRC
   description: "GPS guidance source (0 = internal plan, 1 = external navigator)"
   type: int
@@ -554,5 +554,34 @@ items:
   min: -100.0
   max: 100.0
   units: nM
+  initial: 0.0
+  tol: 5000
+
+# The navigator's own glidepath, so GPSGSI/GPSGSV follow GPSSRC like the needle
+# does (AER-5145, fix-gateway#137). The internal plan has no vertical guidance:
+# compute selects the constant 0 for it. Same sign as GPSGSI (positive = below
+# the glidepath, diamond up). EXTGSF is the raw flag (1 = no valid glidepath);
+# EXTGSV is its compute inversion.
+- key: EXTGSI
+  description: External navigator vertical deviation (glidepath)
+  type: float
+  min: -1.0
+  max: 1.0
+  initial: 0.0
+  tol: 5000
+
+- key: EXTGSF
+  description: External navigator glidepath flag (1=no valid glidepath)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 1.0
+  tol: 5000
+
+- key: EXTGSV
+  description: External navigator glidepath valid (1=glidepath present)
+  type: float
+  min: 0.0
+  max: 1.0
   initial: 0.0
   tol: 5000

@@ -154,7 +154,7 @@ Every key the X-Plane plugin writes, plus FlightGear-only extras:
 - **Nav**: NAV1/NAV2 course, deviation, glideslope deviation and flags,
   TO/FROM and bearing to the station; the GPS course, deviation and TO/FROM
   as the EXT* keys; HEADBUG. FlightGear's stock GPS has no vertical guidance,
-  so GPSGSF is always 1 (no glidepath).
+  so EXTGSF is always 1 (no glidepath).
 - **Extras**: OAT, VOLT and one engine's RPM, manifold pressure, oil, EGT,
   CHT, fuel flow and two tanks. These are the default piston single's
   property paths; on an aircraft without them FlightGear sends 0.
