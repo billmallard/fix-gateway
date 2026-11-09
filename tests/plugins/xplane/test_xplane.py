@@ -6,10 +6,13 @@ on ``socket.socket`` so the tests don't bind any ports.
 """
 
 import struct
+import sys
+import types
 from unittest.mock import MagicMock, patch, call
 
 import pytest
 
+import fixgw.plugin as plugin_base
 from fixgw.plugins.xplane import (
     HEADER,
     NO_VALUE,
@@ -401,3 +404,44 @@ def test_plugin_lifecycle(mock_parent):
         mock_start.assert_called_once()
         plugin_instance.stop()
         mock_stop.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# One key, one writer: refuse to start beside the demo source
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def fake_server(monkeypatch):
+    mod = types.ModuleType("fixgw.server")
+    mod.plugins = {}
+    monkeypatch.setitem(sys.modules, "fixgw.server", mod)
+    return mod
+
+
+def test_plugin_refuses_to_start_beside_demo(mock_parent, fake_server):
+    demo = type("Plugin", (), {"__module__": "fixgw.plugins.demo"})()
+    cfg = dict(mock_parent.config,
+               datarefs={"COURSE": "sim/cockpit/radios/nav1_obs_degm"})
+    with patch("socket.socket"):
+        p = Plugin("xplane", cfg, MagicMock())
+    fake_server.plugins.update({"demo": demo, "xplane": p})
+    with patch.object(p.thread, "start") as mock_start:
+        with pytest.raises(plugin_base.PluginFail,
+                           match="xplane: not starting: demo also loaded"):
+            p.start()
+        mock_start.assert_not_called()
+    assert not p.is_running()
+    assert p.thread.sock_closed             # the udp_in port is released
+    p.shutdown()                            # server stops every plugin at exit
+    p.thread.sock.sendto.assert_not_called()  # no RREF cancel on a closed socket
+
+
+def test_plugin_starts_beside_unrelated_plugins(mock_parent, fake_server):
+    other = type("Plugin", (), {"__module__": "fixgw.plugins.netfix"})()
+    with patch("socket.socket"):
+        p = Plugin("xplane", mock_parent.config, MagicMock())
+    fake_server.plugins.update({"netfix": other, "xplane": p})
+    with patch.object(p.thread, "start") as mock_start:
+        p.start()
+        mock_start.assert_called_once()
+    assert p.is_running()

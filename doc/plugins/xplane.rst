@@ -18,6 +18,15 @@ values are wired up by editing YAML, with no code changes.  The shipped
 ``connections/xplane.yaml`` is heavily commented and is the best line-by-line
 reference; this page explains the concepts and each configuration section.
 
+.. warning::
+
+   **One key, one writer.** Do not enable this plugin together with the
+   ``demo`` plugin. Both write attitude, air data and position, and
+   FIX-Gateway does not choose between sources. The plugin refuses to start,
+   and logs why, if ``demo`` is loaded. ``DEMO`` is enabled in the stock
+   ``preferences.yaml``, so disable it in ``preferences.yaml.custom`` when you
+   enable ``XPLANE``. (The ``fgfs`` plugin refuses to start beside this one.)
+
 Data paths
 ==========
 
