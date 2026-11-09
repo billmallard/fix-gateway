@@ -50,8 +50,9 @@ xplane:
   # ...any plugin-specific settings (passed to the plugin as self.config)
 ```
 
-`load:` may also be a plain `yes` / `no`. A flag name that is missing from
-`enabled:` counts as off.
+`load:` may also be a plain `yes` / `no`, which skips `enabled:` entirely, so
+no flag can change it; no shipped connection file does this. A flag name that is
+missing from `enabled:` counts as off.
 
 **2. `preferences.yaml`** maps a stable include name to that file, and sets the
 flag:
@@ -122,12 +123,12 @@ to the shipped files still reach you.
 Most values are *sensed* (written by a source every cycle). A few are *pilot
 selections* — e.g. `NAVSRC` (the EFIS nav-source selector). Those aren't sensed,
 so left alone they reset to their `init_data` default on every start. The
-`state_persist` plugin (on in the shipped config) remembers the last value of
+`state_persist` plugin (on in the shipped config; `STATE_PERSIST: false` turns it off) remembers the last value of
 selected keys across restarts, so a selection survives a reboot:
 
 ```yaml
 state_persist:
-  load: yes
+  load: STATE_PERSIST
   module: fixgw.plugins.state_persist
   keys:              # keys whose last value should persist
     - NAVSRC

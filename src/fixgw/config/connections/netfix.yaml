@@ -1,6 +1,6 @@
   # Network FIX Protocol Interface
   netfix:
-    load: yes
+    load: NETFIX
     module: fixgw.plugins.netfix
     type: server
     host: 0.0.0.0
