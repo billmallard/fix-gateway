@@ -78,7 +78,7 @@ Unless an entry says otherwise:
 | [XPB-019](#xpb-019) | Pause and unpause lag after launch, and the start flips a preference | `interface` |
 | [XPB-020](#xpb-020) | LAT holds its value for seconds while the stream is alive | `interface` |
 | [XPB-021](#xpb-021) | X-Plane's nav data provider changed on 2026-10-31 | `interface` |
-| [XPB-022](#xpb-022) | On V27 GVO-GOLET, course reads 1.4 deg below ours: after the 154 deg turn at GVO, X-Plane's leg is not the published one | `unknown` |
+| [XPB-022](#xpb-022) | On V27 GVO-GOLET, course reads 1.4 deg below ours: when the plan turns 154 deg at GVO, X-Plane's next leg is not the published one, whether or not the turn is flown | `sim-quirk` |
 | [XPB-023](#xpb-023) | Fly-by turn: CDI from an arc until the bisector, then from the next leg's straight line | `sim-quirk` |
 
 ---
@@ -438,7 +438,7 @@ Unless an entry says otherwise:
 
 **On V27 from GVO to GOLET, X-Plane's course reads 1.4 deg below the engine's and the page's, and holds steady along the leg.**
 
-- **Class:** `unknown`. The discriminating test below was run on 2026-11-07 (XPB22T). Neither the data nor the variation explains it, so by this entry's own rule it is navigator behavior, and it needs a reference before it can leave `unknown`.
+- **Class:** `sim-quirk` (2026-11-09, XPB22U, AER-5150). It was `unknown` until then. XPB22T (2026-11-07) ruled out the data and the variation. XPB22U then showed that the planned turn angle at GVO decides it, whether or not the turn is flown. Every source that defines the leg after a fix makes it the leg between the two fixes; none moves it (Reference, below). Nothing in the engine or in a test allowance changes, so by the register's rule this reclassification is made in the PR, without a card.
 - **Setup:** X-Plane 12, SR22, XPNavData cycle 2611 (XPB-021). Sessions `b90a1c257dd6` (2026-11-01 05:37Z) and `d419efeeea66` (07:44Z), slice 1 of the RS3 golden route (AER-4464). The test run was a hand run on the workstation, 2026-11-07 23:11Z, with Bill's session, run directory `20261107T231150Z-xpb22t-v27-gvo-golet`. It used slice 1's start, 3 nm before GVO inbound from KSBA, and ended once GOLET was sequenced. Hand runs get no session id.
 - **Observed** (AER-4464, comment a4a33c53):
   - On the leg into GOLET, X-Plane's `gps_crs_mag` is 129.9 deg for the whole leg. The live engine's `FPLCRS` is 131.35 to 131.56, and the page's DTK (the published `FPLfCRS`) is 131.4. The difference is 1.4 deg, steady, over 1,079 rows.
@@ -458,15 +458,32 @@ Unless an entry says otherwise:
   - From the switch to GOLET, X-Plane's CDI is centred (`gps_hdef_dot` -0.01) on a straight line that is not the published leg. On the test run, measured from the FAA GVO-GOLET line, the aircraft was 0.455 nm right 16 nm before GOLET, and the offset closed linearly to 0.017 nm at 0.6 nm. The line runs 1.45 deg left of the published leg and passes 0.48 nm right of GVO abeam. The aircraft's true track was 141.65, against the published 143.13 true.
   - X-Plane's course is that line's true course (141.73 to 141.84) with X-Plane's own variation. X-Plane's bearing to GOLET, corrected by the same dataref, matches the FAA bearing from the aircraft to 0.007 deg on average. So the variation and GOLET are consistent; only the leg is different.
   - The course change at GVO is 154 deg: 285.3 inbound from KSBA, 131.4 outbound. Every other V27 turn in the slices is 0 to 61 deg, and there X-Plane's course agrees with the published leg to 0.11 deg (above). At XPB-023's turns (61 to 90 deg), its CDI after the switch is the next leg's straight line.
-- **Reference.** None found for the path or the CDI a GPS navigator gives after a fly-by turn of about 150 deg. The earlier question (which variation a navigator applies on a leg from a VOR) is answered by the result: X-Plane applies its local variation, and that equals the bench's.
+- **Reference.** No source describes a leg that moves with the turn before it. The ones found (XPB22U, test c) all guide to the leg between the fixes. Where they treat a large turn specially, they change the turn, not the leg:
+  - FMS-800, Army TM 1-1510-218-10 (C-12C/D) section 3C. The same text is in TM 1-1510-225-10, 3B. It anticipates "up to 30 nm prior to the waypoint, for course changes [up to] 150°. Over 150°, the waypoint will be overflown and a teardrop turn is made to intercept the next leg." Above 150 deg, "the FMS will provide guidance to turn and intercept the next course, resulting in an S-turn maneuver into the course." The online copy loses the comparison symbol; "up to" is a reading of it.
+  - Apollo GX: "If the turn is greater than 120°, the Apollo GX will generate a step turn message prior to the waypoint."
+  - The Garmin guides, ICAO Doc 9613 and the ACs, as quoted for the over-120 deg row in `makerplane/briefs/flight_plan_plan.md` (TURN2, AER-4760). They post a steep-turn alert or limit the fly-by transition to 120 deg. None says what the CDI references after the switch.
+
+  The earlier question (which variation a navigator applies on a leg from a VOR) is answered by XPB22T: X-Plane applies its local variation, and that equals the bench's.
 - **What is ruled out, and what is not.**
   - Ruled out: GVO's station declination (E016.0 would give near 127 deg). A general VOR-origin rule (VTU-EXERT agrees). The sphere/WGS-84 offset (XPB-002, about 0.1 deg). Provider coding (result 1). X-Plane's variation model (result 2).
-  - Not ruled out: anything about how X-Plane builds the leg after a large-angle turn. Whether the line comes from the turn geometry, from where the aircraft was when the leg activated, or from somewhere else is not shown. The line does not pass through the aircraft's position at the switch, which was 0.055 nm right of the published leg.
-- **Next discriminating test.**
-  - (a) Start on V27 past GVO, for example at 15 nm before GOLET, so there is no turn at GVO. If X-Plane then reads 131.4 on a centred CDI, the offset comes from the turn.
-  - (b) Fly the same leg after a smaller turn at GVO (an inbound under 90 deg). If the offset goes away, it depends on the turn angle.
-  - (c) A reference from a manufacturer's guide for a fly-by turn above about 120 deg, before any class is proposed.
+  - Ruled out by XPB22U: the turn as flown (test a), where the aircraft was when the leg activated (test a), and the airport as the plan entry before GVO (test d).
+  - Not shown: how X-Plane computes the line, and the turn angle at which it starts to move. Only 3, 4 and 154 deg were flown at GVO; turns of 0 to 90 deg elsewhere agree (above, and XPB-023). The line's side and size are what a turn started short of full anticipation would leave: a 154 deg left turn that starts about 1.3 nm before the fix rolls out right of the next leg. That fits, but it is not tested.
+- **Discriminating tests, XPB22U** (2026-11-09 05:00-08:00Z, AER-5150). Three bench sessions, X-Plane 12, SR22, XPNavData 2611, profiles submitted inline. Cross-track is measured on a sphere from the FAA CIFP 2611 GVO-GOLET line (positive is right), and the line is fitted to the rows where X-Plane's CDI is centred (`|gps_hdef_dot|` < 0.05), more than 1 nm before GOLET.
+
+  | Test | Session | Plan, and air start | Planned turn at GVO | X-Plane `gps_crs_mag` on GVO-GOLET | X-Plane's line at GVO abeam |
+  |---|---|---|---|---|---|
+  | slice 1 (XPB22T) | `b90a1c257dd6` and the XPB22T hand run | KSBA, GVO, V27; 3 nm before GVO, turn flown | 154 deg | 129.94 to 130.14 | 0.48 nm right, 1.45 deg left of the leg |
+  | (a) | `90c66fb67b39` | KSBA, GVO, V27; 15 nm before GOLET (3.7 nm past GVO), no turn flown | 154 deg | 129.83 to 130.00 | 0.503 nm right, 1.52 deg left (1,579 rows, residual 0.018 nm) |
+  | (b) | `eeb16a7fcbfe` | KSMX, AFOXY, GVO, V27; 6 nm before GVO, turn flown | 4 deg | 131.35 to 131.56 | 0.003 nm, 0.00 deg (2,457 rows, residual 0.001 nm) |
+  | (d) | `cefebb18e984` | KSMX, GVO, V27; 15 nm before GOLET, as (a) | 3 deg | 131.39 to 131.55 | 0.003 nm, 0.00 deg |
+
+  - (a) **No.** With no turn flown, X-Plane still reads 129.8 to 130.0, not 131.4, and its CDI is not centred on the published leg. At the air start the aircraft was 0.033 nm from the published line and the CDI read +0.93 dot (fly right). The autopilot then took it to the same offset line as slice 1, and the CDI centred there (-0.01 dot). So the offset does not come from the turn being flown.
+  - (b) **Yes.** After a 4 deg turn at GVO, X-Plane's GVO-GOLET is the published leg: course 131.35 to 131.56, the engine's 131.4, and the aircraft is 0.003 nm off it. Its AFOXY-GVO leg is the published one too (131.08 to 131.14 against 131.19).
+  - (d) was added to separate the two things (a) and (b) changed together: the planned turn, and the airport as the entry before GVO. With the airport kept and the turn removed, the offset is gone. So the cause is the turn angle in the plan.
+  - In all three sessions the next leg, GOLET-KWANG, agrees with the published one: course 72.75 to 73.00 against 72.72 at a fixed 11.7 E, and 0.001 nm off it once established.
+  - The profiles (start, route) are as in the table. Each one also sets `cifp: {cycle: "2611"}`, `alt_ft: 7000` (above the 6,000 and 6,400 ft MEAs) and `end: {after_fix: KWANG}`.
 - **Relied on by:** nothing. No committed recording includes the leg. The V27 recording is HENER-DOYLE. A course check at the FP8 tolerance (2 deg) would pass it anyway. The engine flies the published leg from GVO, so nothing in the engine or in a test allowance changes.
+- **For a future comparison.** Any recording whose plan turns more than 90 deg at a fix should have the next leg checked against the published line before X-Plane's course or CDI is compared there. The over-120 deg row of the guidance table (`flight_plan_plan.md`, TURN2) flies such a turn as a fly-over and measures from the published leg. X-Plane here anticipates, and measures from a moved line.
 
 ---
 
