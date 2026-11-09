@@ -309,6 +309,8 @@ items:
   initial: 0.0
   tol: 2000
 
+# GPSGSI/GPSGSV are compute's GPSSRC selects (AER-5145): the external
+# navigator's EXTGSI/EXTGSV, or no glidepath under the internal plan.
 - key: GPSGSI
   description: GPS Vertical Deviation (glidepath)
   type: float
@@ -353,8 +355,11 @@ items:
   initial: 1.0
   tol: 2000
 
+# Deprecated (AER-5145): nothing writes or reads GPSGSF any more. The external
+# navigator's flag is EXTGSF. Kept declared so an old config that writes it
+# still loads.
 - key: GPSGSF
-  description: GPS glidepath flag (1=no valid glidepath)
+  description: "Deprecated, unused: GPS glidepath flag (use EXTGSF)"
   type: float
   min: 0.0
   max: 1.0

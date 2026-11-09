@@ -210,10 +210,10 @@
    </chunk>
 
    <!-- FlightGear's stock GPS has no vertical guidance, so publish "no valid
-        glidepath" (GPSGSF 1, GPSGSI 0) rather than leave the keys to go stale.
+        glidepath" (EXTGSF 1, EXTGSI 0) rather than leave the keys to go stale.
         Any always-present property times 0, plus the offset, is a constant. -->
    <chunk>
-    <name>GPSGSI: GPS glidepath deviation (none)</name>
+    <name>EXTGSI: GPS glidepath deviation (none)</name>
     <type>float</type>
     <format>%.0f</format>
     <node>/sim/time/elapsed-sec</node>
@@ -221,7 +221,7 @@
    </chunk>
 
    <chunk>
-    <name>GPSGSF: GPS glidepath flag (always 1, no glidepath)</name>
+    <name>EXTGSF: GPS glidepath flag (always 1, no glidepath)</name>
     <type>float</type>
     <format>%.0f</format>
     <node>/sim/time/elapsed-sec</node>

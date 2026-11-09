@@ -58,7 +58,8 @@ datarefs:
 ```
 
 The shipped file subscribes the X-Plane GPS as the external navigator
-(`EXTCRS`, `EXTCDI`, `EXTTF`; select it with `GPSSRC` = 1, see
+(`EXTCRS`, `EXTCDI`, `EXTTF`, and its glidepath `EXTGSI`/`EXTGSF`; select it
+with `GPSSRC` = 1, see
 [[Flight Plan Engine]]), both NAV radios' course, deviation, glideslope and
 TO/FROM, the VOR bearings, and `HEADBUG`.
 

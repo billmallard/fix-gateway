@@ -295,8 +295,8 @@ def test_shipped_xml_emulated_sentence_round_trips(database):
     assert value(database, "EXTCRS") == pytest.approx(300.0)
     assert value(database, "EXTCDI") == pytest.approx(-0.5)
     assert value(database, "EXTTF") == 1                       # TO
-    assert value(database, "GPSGSI") == pytest.approx(0.0)
-    assert value(database, "GPSGSF") == pytest.approx(1.0)     # no glidepath
+    assert value(database, "EXTGSI") == pytest.approx(0.0)
+    assert value(database, "EXTGSF") == pytest.approx(1.0)     # no glidepath
     assert value(database, "NAV1CRS") == pytest.approx(110.0)
     assert value(database, "NAV1CDI") == pytest.approx(0.25)
     assert value(database, "NAV1GSI") == pytest.approx(0.5)

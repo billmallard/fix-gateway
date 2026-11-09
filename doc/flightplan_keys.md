@@ -318,6 +318,10 @@ selects into `COURSE`/`CDI`/`TOFROM` for the HSI:
 | `EXTXTK` | float | +-100 nm, positive = right of track | external navigator plugin | External navigator cross-track error |
 | `GPSCRS` / `GPSCDI` / `GPSTF` | (existing) | | compute `select` on `GPSSRC` | `{FPLCRS,EXTCRS}`, `{FPLCDI,EXTCDI}`, `{FPLTF,EXTTF}` |
 | `XTRACK` | (existing) | | compute `select` on `GPSSRC` | `{FPLXTK,EXTXTK}` |
+| `EXTGSI` | float | -1..+1, positive = below the glidepath | external navigator plugin | External navigator vertical deviation |
+| `EXTGSF` | float | 0/1, 1 = no valid glidepath | external navigator plugin | External navigator glidepath flag |
+| `EXTGSV` | float | 0/1 | compute `remap` of `EXTGSF` | External navigator glidepath valid |
+| `GPSGSI` / `GPSGSV` | (existing) | | compute `select` on `GPSSRC` | `{0, EXTGSI}`, `{0, EXTGSV}` |
 
 On the bench, `xplane.yaml`'s nav RREF rows now write `EXTCRS`/`EXTCDI`
 (previously `GPSCRS`/`GPSCDI` directly) so X-Plane's FMS is the external
@@ -338,6 +342,15 @@ engine already publishes as `FPLXTK`. X-Plane's rows map no `EXTXTK`, so on
 the bench `XTRACK` reads 0 with `GPSSRC` = 1. `GPSBRGT`/`GPSBRG` still use
 `WPLAT`/`WPLON`, so with `GPSSRC` = 1 the GPS bearing pointer aims at the
 internal plan's waypoint; that is a noted follow-on.
+
+`GPSGSI`/`GPSGSV`, the GPS glidepath, follow `GPSSRC` too (AER-5145,
+fix-gateway#137). The internal plan publishes no vertical guidance, so its
+slot is the constant 0: with `GPSSRC` = 0 the HSI shows no glidepath.
+Before this, X-Plane's rows wrote `GPSGSI`/`GPSGSF` directly, and the HSI
+drew X-Plane's glidepath diamond under the internal plan as though it were
+the plan's. X-Plane and FlightGear now write `EXTGSI`/`EXTGSF`; `GPSGSF` is
+deprecated and unwritten. `garmin_gnx375` and `navigator_adapter` write no
+glidepath, so with them `GSV` stays 0.
 
 ## Integrity key for FP2
 

@@ -98,7 +98,9 @@ xplane:
         # +/-2.5-dot -> +/-1.0 scaling. gps_vdef is the GPS LPV/glidepath.
         # Vertical deviation: negative scale flips X-Plane's vdef sense so that
         # below the glideslope drives the GS diamond UP (fly up), per HSI convention.
-        GPSGSI:  [sim/cockpit/radios/gps_vdef_dot, -0.4]
+        # The FMS glidepath is the external navigator's, so it writes EXTGSI and
+        # a compute GPSSRC select routes it into GPSGSI (AER-5145).
+        EXTGSI:  [sim/cockpit/radios/gps_vdef_dot, -0.4]
         NAV1GSI: [sim/cockpit/radios/nav1_vdef_dot, -0.4]
         NAV2GSI: [sim/cockpit/radios/nav2_vdef_dot, -0.4]
         # Glideslope flag (1 = no valid GS: a VOR, or an ILS outside the cone;
@@ -106,7 +108,7 @@ xplane:
         # the GS diamond flags/hides until the glideslope is actually received.
         NAV1GSF: sim/cockpit2/radios/indicators/nav1_flag_glideslope
         NAV2GSF: sim/cockpit2/radios/indicators/nav2_flag_glideslope
-        GPSGSF:  sim/cockpit2/radios/indicators/gps_flag_glideslope
+        EXTGSF:  sim/cockpit2/radios/indicators/gps_flag_glideslope
         # Localizer (lateral) display-valid per source. 1 = the LOC/VOR deviation
         # is in range / displayable; 0 = no valid lateral signal. The compute
         # plugin gates the ILS glideslope on this (NAV#GSV = min(NAV#DH,

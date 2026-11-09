@@ -99,6 +99,24 @@ compute:
       inputs: ["GPSSRC", "FPLTF", "EXTTF"]
       output: GPSTF
       require_leader: false
+    # The GPS glidepath follows GPSSRC like the lateral triple (AER-5145,
+    # fix-gateway#137). The internal plan publishes no vertical guidance, so
+    # its slot is the constant 0.0: GPSSRC=0 drives GPSGSV to 0 and the HSI
+    # shows no glidepath, instead of the external navigator's glidepath as
+    # though it belonged to the plan. EXTGSV is the navigator's flag inverted.
+    - function: remap
+      inputs: ["EXTGSF"]
+      output: EXTGSV
+      table: [1, 0]
+      require_leader: false
+    - function: select
+      inputs: ["GPSSRC", 0.0, "EXTGSI"]
+      output: GPSGSI
+      require_leader: false
+    - function: select
+      inputs: ["GPSSRC", 0.0, "EXTGSV"]
+      output: GPSGSV
+      require_leader: false
     # EFIS nav-source selector: NAVSRC (0=NAV1, 1=NAV2, 2=GPS) routes the
     # selected source's course / lateral / vertical deviation into the canonical
     # COURSE / CDI / GSI the HSI + autopilot read. Source order matches NAVSRC:
@@ -128,7 +146,7 @@ compute:
     # range). This suppresses the GS when off the localizer -- turned off the
     # approach, or a false glideslope lobe while climbing out -- matching how
     # X-Plane's own HSI and modern glass behave. GPS/LPV has no separate localizer,
-    # so its glidepath follows the flag alone.
+    # so its glidepath follows the flag alone: GPSGSV is the GPSSRC select above.
     - function: remap
       inputs: ["NAV1GSF"]
       output: NAV1GSNF
@@ -146,11 +164,6 @@ compute:
     - function: min
       inputs: ["NAV2DH", "NAV2GSNF"]
       output: NAV2GSV
-      require_leader: false
-    - function: remap
-      inputs: ["GPSGSF"]
-      output: GPSGSV
-      table: [1, 0]
       require_leader: false
     - function: select
       inputs: ["NAVSRC", "NAV1GSV", "NAV2GSV", "GPSGSV"]
