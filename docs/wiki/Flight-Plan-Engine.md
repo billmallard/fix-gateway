@@ -25,7 +25,7 @@ Plugin reference:
 
 | Option | Default | Meaning |
 |---|---|---|
-| `state_file` | `flightplan_state.json` in the config directory | where the active plan is saved; `{CONFIG}` is not expanded here, so give an absolute path if you set it |
+| `state_file` | `flightplan_state.json` in the config directory | where the active plan is saved; `{CONFIG}` expands to the config directory |
 | `restore_delay` | `2.0` s | delay before the saved plan is restored at start |
 | `rate_hz` | `5` | cap on position-driven guidance updates; `0` or less means no cap |
 | `turn_bank_deg` | `15.0` | bank angle that sizes fly-by turns |
