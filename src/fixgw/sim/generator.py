@@ -94,16 +94,23 @@ def generate(profile, frequency_ms=200, cifp_path=None, fplseq=1, gps_accuracy_f
 
     proc = profile.procedure
     mv = profile.magvar_deg
-    legs = refnav.legs_from_cifp(cifp, proc["airport"], proc["approach"], proc["transition"], mv)
-    slots, segments = fplroute.procedure_slots(cifp, proc["airport"], proc["approach"], proc["transition"], mv)
-    apt = cifp.fix(proc["airport"], section="PA")
+    try:
+        legs = refnav.legs_from_route(cifp, profile)
+        slots, segments, name, aprtype = fplroute.route_slots(cifp, profile)
+    except (ValueError, refnav.ReferenceError_) as e:
+        raise GeneratorError(f"{profile.name}: {e}")
+    apt = cifp.fix(profile.destination, section="PA")
 
     start_fix = profile.start["fix"]
     try:
         k = next(i for i, lg in enumerate(legs) if lg.ident == start_fix and i > 0)
         act_slot = next(i for i, s in enumerate(slots, start=1) if s["ID"] == start_fix and i > 1)
     except StopIteration:
-        raise GeneratorError(f"start fix {start_fix} is not a fix after the first in the procedure")
+        raise GeneratorError(f"start fix {start_fix} is not a fix after the first in the route")
+    route_ids = [f.ident for f, _ in cifp.expand_route(profile.enroute)]
+    end_fix = profile.end.get("after_fix")
+    if end_fix is not None and end_fix not in route_ids:
+        raise GeneratorError(f"end.after_fix {end_fix} is not an en-route fix of the route {route_ids}")
     prev = legs[k - 1]
     to = legs[k]
     line = refnav.GeoLine.between(prev.lat, prev.lon, to.lat, to.lon)
@@ -116,17 +123,18 @@ def generate(profile, frequency_ms=200, cifp_path=None, fplseq=1, gps_accuracy_f
                        turn_rate_deg_s=a.get("turn_rate_deg_s", 3.0))
     ac = Aircraft(perf, State(lat, lon, float(profile.start["alt_ft"]), azi),
                   profile.wind_from_deg, profile.wind_kt)
+    dep = cifp.fix(profile.departure, section="PA") if profile.departure else None
     ref = refnav.ReferenceNavigator(legs, mv, (apt.lat, apt.lon), k, perf.tas_kt,
-                                    perf.turn_rate_deg_s, perf.bank_max_deg)
-    alts = _alt_constraints(cifp, proc)
+                                    perf.turn_rate_deg_s, perf.bank_max_deg,
+                                    departure=(dep.lat, dep.lon) if dep else None)
+    alts = _alt_constraints(cifp, proc) if proc else {}
     missed_top = max([alts.get(lg.ident, 0.0) for lg in legs if lg.first_missed or ref_in_missed(legs, lg)] + [0.0])
 
     dt = frequency_ms / 1000.0
     rows = []
     timeline = []
     cmd_seq = cmd_seq_base          # a live gateway has already acked earlier commands
-    name = f"{proc['airport']} {proc['approach']} {proc['transition']}"[:32]
-    route = fplroute.route_block_writes(slots, segments, name, "RNAV", cifp.cycle, fplseq)
+    route = fplroute.route_block_writes(slots, segments, name, aprtype, cifp.cycle, fplseq)
 
     events = {e.id: {"e": e, "state": "pending", "t0": None, "est": None} for e in profile.events}
     leg_start_t = {k: 0.0}
@@ -141,9 +149,14 @@ def generate(profile, frequency_ms=200, cifp_path=None, fplseq=1, gps_accuracy_f
         s = ac.s
         n_seq = len(ref.sequences)
         out = ref.update(t, s.lat, s.lon, s.alt_ft, s.gs_kt, s.track_true)
+        route_done = False
         for sq in ref.sequences[n_seq:]:
             leg_start_t[sq.leg_index] = t
             timeline.append({"t": round(t, 3), "what": "sequence", "from": sq.from_ident, "to": sq.to_ident})
+            # as the X-Plane tier ends: once end.after_fix is behind, or, with
+            # no procedure, once the destination is the TO fix
+            if sq.from_ident == end_fix or (proc is None and sq.leg_index == len(legs) - 1):
+                route_done = True
 
         row = {}
         cmds = []
@@ -207,7 +220,7 @@ def generate(profile, frequency_ms=200, cifp_path=None, fplseq=1, gps_accuracy_f
             row["FPLCMD"] = c
         rows.append((round(t, 3), row))
 
-        if end_event and end_event in done_now:
+        if (end_event and end_event in done_now) or route_done:
             break
         if t > max_s:
             pending = [i for i, ev in events.items() if ev["state"] != "done"]
@@ -231,7 +244,7 @@ def generate(profile, frequency_ms=200, cifp_path=None, fplseq=1, gps_accuracy_f
         tick += 1
 
     pending = [i for i, ev in events.items() if ev["state"] != "done"]
-    if pending and end_event:
+    if pending and end_event and not route_done:
         raise GeneratorError(f"{profile.name}: run ended with events not done: {pending}")
     return Run(profile, frequency_ms, rows, timeline, [s.__dict__ for s in ref.sequences])
 

@@ -85,8 +85,11 @@ KSMX (SIM2b, AER-4464, billmallard/pyEfis#324). Pilotless sim bench session
 `9b6d523db79a`, 2026-11-01 10:32Z, X-Plane 12, SR22, 7,000 ft, outcome
 `complete`. X-Plane flew its own nav data: the session reports cycle 2611,
 which from 2026-10-31 is XPNavData in `Custom Data` (XPB-021); the route
-block is from the FAA CIFP 2611 pack. The profile was submitted inline (an en-route profile is X-Plane
-tier only until fix-gateway's loader reads en-route items, SIM3b):
+block is from the FAA CIFP 2611 pack. The profile was submitted inline, before fix-gateway's loader read en-route
+items; since SIM3b (AER-5173) it is committed as
+`src/fixgw/sim/profiles/sim2b-v27-s2-hener-doyle.yaml`, with the synthetic
+tier's `cifp.file`, `environment` and `checks` added, and the gate flies it
+there too. The X-Plane tier was sent:
 
 ```yaml
 name: sim2b-v27-s2-hener-doyle
@@ -112,9 +115,13 @@ The route block the bench loaded for that flight: KSBA, V27 GVO..AVOLS as
 one airway segment (slots 2-12), KSMX, written by pyEfis's own
 `FixBridge.publish` (pyEfis dev `79b9e5c`, the bench's AIRAC 2611
 procedures pack) into a dict instead of the bus, with MAGVAR -11.45. A
-recording names it with `route_block:` and the activated slot with `act:`
-instead of a `profile:`; `xplane_replay.fly_route` flies it with no pilot
-commands. Regenerate on the Beelink with the AER-4464 bench follower's
+recording names it with `route_block:` and the activated slot with `act:`;
+`xplane_replay.fly_route` flies it with no pilot commands. The route block
+is what the bench was really loaded with, so the replay keeps it rather
+than rebuilding it from the profile the recording also names.
+`tests/sim/test_enroute.py` checks the two agree on every field a `TF` leg
+is flown from; the one difference is that pyEfis types the VORs VTU and SXC
+inside V27 as fixes. Regenerate on the Beelink with the AER-4464 bench follower's
 `publish_golden` against a recording client (agent scratch
 `scratch/sim2b/v27_follow.py`; the commands are on AER-4464).
 
