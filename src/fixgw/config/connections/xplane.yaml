@@ -1,3 +1,9 @@
+# ONE KEY, ONE WRITER. X-Plane writes the same attitude, air data and position
+# keys as the demo plugin, and fix-gateway does not arbitrate between sources.
+# Never enable XPLANE together with DEMO (DEMO is on in the stock
+# preferences.yaml, so turn it off in preferences.yaml.custom). The plugin
+# refuses to start if demo is loaded.
+#
 xplane:
     load: XPLANE
     module: fixgw.plugins.xplane
