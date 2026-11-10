@@ -1,0 +1,33 @@
+# AvionicsDuino input bridge (AHRS, wingtip magnetometer module, RDAM air
+# data and engine module).  Listen-only: decodes AvionicsDuino's own CAN
+# messages and writes mapped values into the FIX database.  This plugin
+# never transmits.
+#
+# Needs its OWN CAN interface.  AvionicsDuino uses 11-bit ids 10-60, which
+# are CAN-FIX node alarms, so it can never share a bus with the canfix
+# plugin.  It writes ROLL, PITCH, HEAD, LAT, LONG, IAS and more: enable it
+# only when no other enabled plugin (MAVLINK, STRATUX, GARMIN_GNX375,
+# DRONECAN, ...) writes the same keys.
+avionicsduino:
+  load: AVIONICSDUINO
+  module: fixgw.plugins.avionicsduino
+  # python-can options.  SocketCAN: set the bit rate, and listen-only mode
+  # so the adapter never ACKs or sends error frames on their bus:
+  #   ip link set can1 up type can bitrate 500000 listen-only on
+  # SLCAN USB adapter: interface slcan, channel /dev/ttyACM0 (or COM5);
+  # the bitrate below is used by adapters that set their own.
+  interface: socketcan
+  channel: can1
+  bitrate: 500000
+  # One mapfile per AvionicsDuino firmware version set.
+  mapfile: "{CONFIG}/avionicsduino/ahrs21_rm3_rdam12.yaml"
+  # ID 46 altitude is computed at the RDAM's own QNH, which pyEfis cannot
+  # set: with no AvionicsDuino display it is not a usable altitude.  Leave
+  # this off unless their display is on the RDAM and set to the same QNH.
+  # BARO is never written, whatever this says.
+  rdam_altitude: false
+  # ID 46 vertical speed (pressure-altitude rate, ft/min rounded to 10).
+  rdam_vertical_speed: false
+  # IAS/TAS arrive as whole km/h at 5 Hz.  A first-order low-pass with this
+  # time constant in seconds smooths the steps; 0 is off.
+  smoothing_tau: 0.0
