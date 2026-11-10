@@ -38,6 +38,9 @@ jobs:
         python -m pip install --upgrade pip
         pip install flake8 pytest pytest-qt pytest-env pytest-cov
         pip install -e .[qt,sim]
+        # CERT7: the environment the tests ran in, so a promotion's lock file can be
+        # checked against it.
+        mkdir -p reports && pip freeze > reports/tested-env.txt
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
@@ -70,6 +73,7 @@ jobs:
         path: |
           reports/junit.xml
           reports/verification.json
+          reports/tested-env.txt
         retention-days: 90
 
     - name: Coverage comment
@@ -88,6 +92,137 @@ jobs:
         name: python-coverage-comment-action
         # If you use a different name, update COMMENT_FILENAME accordingly
         path: python-coverage-comment-action.txt
+
+  # CERT7: each qa -> master promotion (a push to master) is a flown baseline, recorded
+  # the same way as pyEfis's (its ci.yml, `release`). The commit gets an annotated tag,
+  # baseline-YYYY-MM-DD, whose message names the pyEfis baseline it flies with, and a
+  # GitHub Release carrying: the commit's test report (the job summary as the notes, the
+  # JSON and JUnit records), the resolved lock file and CycloneDX SBOM of what flies, and
+  # the open safety problems in both repos. A red promotion still gets its tag and
+  # release, as a pre-release that says so, so the record is never missing. Separate
+  # job: a Release API failure cannot fail the required `build` check. The lookups are
+  # tools/flown_baseline.py, kept identical in pyEfis; the procedure is doc/releases.md.
+  release:
+    needs: build
+    if: >-
+      always() && github.event_name == 'push' && github.ref_name == 'master'
+      && (needs.build.result == 'success' || needs.build.result == 'failure')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BUILD_RESULT: ${{ needs.build.result }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      OTHER_REPO: billmallard/pyEfis
+      # What flies: the gateway itself. qt is the desktop client and sim the scenario
+      # tooling; neither runs on the aircraft.
+      FLOWN: "."
+      PACKAGE: fixgw
+    steps:
+    - uses: actions/checkout@v6
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+    - uses: actions/download-artifact@v6
+      with:
+        name: test-results
+        path: records
+    - name: Find this commit's baseline, if a re-run
+      id: tag
+      run: |
+        # One baseline per commit. A re-run reuses the tag it already cut, and stops if
+        # the release exists too.
+        tag=$(git ls-remote --tags origin 'refs/tags/baseline-*' \
+          | awk -v s="$GITHUB_SHA" '$1 == s && $2 ~ /\^\{\}$/ {sub("refs/tags/", "", $2); sub(/\^\{\}$/, "", $2); print $2; exit}')
+        if [ -n "$tag" ] && gh release view "$tag" >/dev/null 2>&1; then
+          echo "::notice::$tag is already released; not re-creating it"
+          echo "released=true" >> "$GITHUB_OUTPUT"
+        fi
+        echo "existing=$tag" >> "$GITHUB_OUTPUT"
+    - name: Resolved lock file and SBOM of what flies
+      if: steps.tag.outputs.released != 'true'
+      run: |
+        python -m venv "$RUNNER_TEMP/flown"
+        "$RUNNER_TEMP/flown/bin/pip" install --upgrade pip
+        "$RUNNER_TEMP/flown/bin/pip" install "$FLOWN"
+        "$RUNNER_TEMP/flown/bin/pip" freeze --exclude "$PACKAGE" > requirements-flown.lock.txt
+        # The SBOM tool lives in its own venv so it is not in the inventory it takes.
+        python -m venv "$RUNNER_TEMP/sbom"
+        "$RUNNER_TEMP/sbom/bin/pip" install cyclonedx-bom==8.0.1
+        "$RUNNER_TEMP/sbom/bin/cyclonedx-py" environment --pyproject pyproject.toml \
+          --mc-type application --of JSON -o sbom.cdx.json "$RUNNER_TEMP/flown/bin/python"
+    - name: Tag the baseline
+      if: steps.tag.outputs.released != 'true'
+      id: cut
+      env:
+        EXISTING: ${{ steps.tag.outputs.existing }}
+      run: |
+        if [ -n "$EXISTING" ]; then
+          echo "name=$EXISTING" >> "$GITHUB_OUTPUT"
+          git fetch -q origin "refs/tags/$EXISTING:refs/tags/$EXISTING"
+          git tag -l --format='%(contents)' "$EXISTING" | sed -n '3p' > pair.txt
+          exit 0
+        fi
+        name=$(python tools/flown_baseline.py name --repo "$GITHUB_REPOSITORY" --date "$(date -u +%F)")
+        python tools/flown_baseline.py pair --other "$OTHER_REPO" --name "$name" > pair.txt
+        {
+          echo "Flown baseline $name: $GITHUB_REPOSITORY at $GITHUB_SHA."
+          echo
+          cat pair.txt
+          echo
+          echo "Tests: $BUILD_RESULT ($RUN_URL)."
+        } > tag-message.txt
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git tag -a "$name" "$GITHUB_SHA" -F tag-message.txt
+        git push origin "refs/tags/$name"
+        echo "name=$name" >> "$GITHUB_OUTPUT"
+    - name: Create the release
+      if: steps.tag.outputs.released != 'true'
+      env:
+        TAG: ${{ steps.cut.outputs.name }}
+      run: |
+        short=${GITHUB_SHA::7}
+        assets="records/verification.json records/junit.xml requirements-flown.lock.txt sbom.cdx.json"
+        python tools/flown_baseline.py safety --repos "$GITHUB_REPOSITORY" "$OTHER_REPO" > safety.md
+        {
+          echo "Promotion of \`qa\` to \`master\` at $GITHUB_SHA ([CI run]($RUN_URL)), the flown baseline \`$TAG\`."
+          echo
+          cat pair.txt
+          echo
+          if [ "$BUILD_RESULT" != "success" ]; then
+            echo "**The test run for this commit did not pass.** It is published as a pre-release so the record exists; see the failing tests below."
+            echo
+          fi
+          cat safety.md
+          echo
+          echo "### What flies"
+          echo
+          echo "\`requirements-flown.lock.txt\` is every Python package \`pip install \"$FLOWN\"\` resolved to for this commit (Linux x86_64, Python 3.12); \`sbom.cdx.json\` is the same environment as a CycloneDX SBOM."
+          if [ -f records/tested-env.txt ]; then
+            python tools/flown_baseline.py lockcheck --lock requirements-flown.lock.txt --tested records/tested-env.txt
+          else
+            echo "The build job left no record of its tested environment, so the lock is not checked against it."
+          fi
+          echo
+          echo "### Test report"
+          echo
+          echo "Attached: \`verification.json\` and \`junit.xml\`, the test records."
+          echo
+          python tools/verification_report.py summary records/verification.json
+        } > notes.md
+        if [ "$(wc -c < notes.md)" -gt 120000 ]; then
+          head -c 118000 notes.md > notes.cut
+          printf '\n\n_Report truncated to fit a release body; the full record is verification.json._\n' >> notes.cut
+          mv notes.cut notes.md
+        fi
+        flags=""
+        [ "$BUILD_RESULT" = "success" ] || flags="--prerelease"
+        gh release create "$TAG" --verify-tag $flags \
+          --title "Flown baseline $TAG ($short)" --notes-file notes.md $assets
 
   # SYN3: every committed scenario profile (src/fixgw/sim/profiles/) flown
   # headless through the navigation engine, its checks: evaluated against the
