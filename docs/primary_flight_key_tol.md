@@ -53,7 +53,6 @@ rule on.
 | `BRG2` | HSI | bearing pointer 2 (off by default) | 2000 | no change |  |
 | `CDI` | HSI | lateral deviation bar | 2000 | no change |  |
 | `CDIV` | HSI | CDI validity, NAV flag | 2000 | no change |  |
-| `COURSE` | HSI | course pointer, CRS readout | 2000 | no change |  |
 | `GSI` | HSI | glideslope needle | 2000 | no change |  |
 | `GSV` | HSI | GS needle validity | 2000 | no change |  |
 | `TOFROM` | HSI | TO/FROM triangle | 2000 | no change |  |
@@ -91,7 +90,7 @@ rule on.
 
 These keys are written when the pilot changes them, when an event happens, or
 once at start-up. A tol would flag them old a few seconds after every write.
-The test does not check them.
+The test checks that they stay at 0.
 
 | Key | Shown as | TOL on dev (ms) | Why 0 is right |
 |---|---|---|---|
@@ -108,15 +107,49 @@ The test does not check them.
 | `EGTBTN2` | EGT Normalize button | 0 | EGT mode button |
 | `EGTBTN3` | EGT Peak button | 0 | EGT mode button |
 | `EGTBTN4` | EGT Lean button | 0 | EGT mode button |
+| `HEADBUG` | HSI heading bug and HDG readout | 2000, now 0 | pilot setting (heading bug), written on change |
+| `NAVSRC` | HSI source label, needle colour | 2000, now 0 | pilot selection (CDI source), written on change |
+| `NAV1CRS` | CRS readout and course pointer, through `COURSE` | 2000, now 0 | pilot setting (NAV1 OBS), written on change |
+| `NAV2CRS` | CRS readout and course pointer, through `COURSE` | 2000, now 0 | pilot setting (NAV2 OBS), written on change |
+| `BRG1SRC` | bearing pointer 1 label | 2000, now 0 | pilot selection (bearing pointer 1 source), written on change |
+| `BRG2SRC` | bearing pointer 2 label | 2000, now 0 | pilot selection (bearing pointer 2 source), written on change |
+| `COMSQUELCH1` | COM squelch bar | 300, now 0 | pilot setting (COM squelch), written on change |
+
+The last seven were changed by CERT2a (AER-5270). Their writers: the pilot,
+through pyEfis (the HDG and CRS knobs, the CDI button, a tap on the HSI, the
+squelch bar's encoder), and `state_persist`, which restores `NAVSRC` at boot.
+The X-Plane connection streams `HEADBUG`, `NAV1CRS` and `NAV2CRS` from the
+sim's own panel, at 10 Hz. Without the sim, nothing writes any of them
+periodically, so each read `old` 2 s (squelch: 0.3 s) after every edit.
+`XPHSISRC`, compute's remap of `NAVSRC` for X-Plane, is not shown and goes to
+tol 0 with it.
+
+On the glass today, only the squelch bar greys when its key is old. The HSI
+ignores the flags on `HEADBUG`, `NAVSRC` and `BRG1SRC`/`BRG2SRC`, and it
+records `COURSE`'s old flag without repainting. So the stale flags were mostly
+latent. Any consumer that honours them would have shown a good setting as
+stale.
+
+## Derived by a select: as fresh as the selected source
+
+| Key | Shown as | TOL on dev (ms) | Writer |
+|---|---|---|---|
+| `COURSE` | course pointer, CRS readout | 2000, now 0 | NAVSRC select of NAV1CRS, NAV2CRS, GPSCRS |
+
+Compute's `select` copies the selected source's value and its flags, and it
+runs again when that source expires. So `COURSE` reads old exactly when its
+source does. With a tol of its own, `COURSE` read old 2 s after an OBS edit
+whenever NAV1 or NAV2 was selected, because nothing rewrites it until the
+pilot touches the OBS again. With GPS selected, `GPSCRS` (tol 2000) going old
+still makes `COURSE` old. The test checks both, on the real compute plugin
+and the shipped `compute.yaml`. What `COURSE` gives up: if the compute plugin
+itself stopped, `COURSE` would hold its last value without a flag. `CDI`, from
+the same plugin, keeps its tol and would go old.
 
 ## Found while building the table, not changed here
 
-- Some pilot settings do carry a tol, so they read old within two seconds of
-  every edit: `HEADBUG`, `NAVSRC`, `BRG1SRC`, `BRG2SRC`, `NAV1CRS`, `NAV2CRS`
-  and `COMSQUELCH1`. Only the X-Plane connection streams any of them
-  (`HEADBUG`, `NAV1CRS`, `NAV2CRS`); without the sim, they are written on
-  change. The HSI's HDG readout shows `HEADBUG`. This is the
-  opposite failure, a good value flagged stale. It is left for a separate item.
+- Some pilot settings carried a tol, so they read old within two seconds of
+  every edit. CERT2a (AER-5270) set them to 0; see the settings table.
 - pyEfis ignores the flags on a bar gauge's highlight key
   (`gauges/abstract.py`, the `highlight_key` hookup connects the value only).
   So `EGTMAX1` and `CHTMAX1` going old changes nothing on the glass yet, though

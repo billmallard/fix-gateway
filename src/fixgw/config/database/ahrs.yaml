@@ -168,6 +168,10 @@ items:
   initial: 0.0
   tol: 2000
 
+# Writer: the pilot, through pyEfis (HDG knob, buttons); X-Plane streams it
+# from the sim's autopilot panel when that connection is on.
+# tol 0 (CERT2a, AER-5270): it is written on change, so a tol would flag a good
+# setting old seconds after every edit (docs/primary_flight_key_tol.md).
 - key: HEADBUG
   description: Selected Heading Bug
   type: float
@@ -175,7 +179,7 @@ items:
   max: 359.9
   units: deg
   initial: 0.0
-  tol: 2000
+  tol: 0
 
 # Target-bank bug (ATT1, AER-5149): the bank angle the pilot selects on the
 # attitude indicator's bank scale for a steep or standard-rate turn. Magnitude
@@ -230,6 +234,10 @@ items:
   initial: 0.0
   tol: 2000
 
+# Writer: compute's NAVSRC select (connections/compute.yaml), which copies the
+# selected source's value AND flags. tol 0 (CERT2a, AER-5270): COURSE is as
+# fresh as its source. GPSCRS going old makes COURSE old; NAV1CRS/NAV2CRS are
+# pilot settings, and a tol here would flag them old after every OBS edit.
 - key: COURSE
   description: Selected Course
   type: float
@@ -237,7 +245,7 @@ items:
   max: 359.9
   units: deg
   initial: 0.0
-  tol: 2000
+  tol: 0
 
 - key: CDI
   description: Course Deviation Indicator
@@ -264,13 +272,16 @@ items:
 # b1:b2) and X-Plane's HSI_source_select, so XPHSISRC is an identity map (no table
 # inversion) and a real nav radio's OBI Flags decodes straight into NAVSRC.
 # initial 2.0 keeps the boot default on GPS. Extensible to 3=GPS2 (max 4).
+# Writer: the pilot (CDI button, HSI tap); state_persist restores it at boot.
+# tol 0 (CERT2a, AER-5270): it is written on change, so a tol would flag a good
+# setting old seconds after every edit (docs/primary_flight_key_tol.md).
 - key: NAVSRC
   description: Selected Nav Source (0=NAV1, 1=NAV2, 2=GPS)
   type: float
   min: 0.0
   max: 3.0
   initial: 2.0
-  tol: 2000
+  tol: 0
 
 - key: GPSCRS
   description: GPS Course
@@ -289,6 +300,10 @@ items:
   initial: 0.0
   tol: 2000
 
+# Writer: the pilot, through the HSI's CRS knob; X-Plane streams it from the
+# sim's OBS when that connection is on.
+# tol 0 (CERT2a, AER-5270): it is written on change, so a tol would flag a good
+# setting old seconds after every edit (docs/primary_flight_key_tol.md).
 - key: NAV1CRS
   description: NAV1 OBS Course
   type: float
@@ -296,7 +311,7 @@ items:
   max: 359.9
   units: deg
   initial: 0.0
-  tol: 2000
+  tol: 0
 
 - key: NAV1CDI
   description: NAV1 Course Deviation
@@ -306,6 +321,7 @@ items:
   initial: 0.0
   tol: 2000
 
+# Writer and tol: as NAV1CRS.
 - key: NAV2CRS
   description: NAV2 OBS Course
   type: float
@@ -313,7 +329,7 @@ items:
   max: 359.9
   units: deg
   initial: 0.0
-  tol: 2000
+  tol: 0
 
 - key: NAV2CDI
   description: NAV2 Course Deviation
@@ -520,13 +536,14 @@ items:
   initial: 0.0
   tol: 2000
 
+# Writer: compute's remap of NAVSRC, on change. tol 0 as NAVSRC (CERT2a).
 - key: XPHSISRC
   description: X-Plane HSI source index (0=NAV1, 1=NAV2, 2=GPS) = NAVSRC (identity map)
   type: float
   min: 0.0
   max: 2.0
   initial: 2.0
-  tol: 2000
+  tol: 0
 
 # HSI bearing pointers (P5b.1). Two selectable needles (BRG1/BRG2), each a
 # bearing TO a station/waypoint that the HSI draws relative to HEAD. Three
@@ -581,14 +598,16 @@ items:
 # Per-pointer source selectors (0=VOR1, 1=VOR2, 2=GPS). A button/HMI cycles
 # these; max = the cycle modulus (3 sources) so change-value-wrap steps
 # 0 -> 1 -> 2 -> 0. Defaults give two distinct pointers out of the box:
-# pointer 1 = GPS, pointer 2 = VOR1.
+# pointer 1 = GPS, pointer 2 = VOR1. Writer: the pilot (HSI tap).
+# tol 0 (CERT2a, AER-5270): it is written on change, so a tol would flag a good
+# setting old seconds after every edit (docs/primary_flight_key_tol.md).
 - key: BRG1SRC
   description: Bearing pointer 1 source (0=VOR1, 1=VOR2, 2=GPS)
   type: float
   min: 0.0
   max: 3.0
   initial: 2.0
-  tol: 2000
+  tol: 0
 
 - key: BRG2SRC
   description: Bearing pointer 2 source (0=VOR1, 1=VOR2, 2=GPS)
@@ -596,7 +615,7 @@ items:
   min: 0.0
   max: 3.0
   initial: 0.0
-  tol: 2000
+  tol: 0
 
 - key: BRG1
   description: Bearing pointer 1 (selected source, magnetic)
