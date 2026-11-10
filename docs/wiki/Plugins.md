@@ -47,6 +47,7 @@ connection file; write one and wire it in as **[[Configuration]]** describes.
 | `canfix` | the **CAN-FIX** bus — bidirectional. See **[[CAN-FIX]]** |
 | `canaerospace` | CANaerospace engine data (Rotax 912iS / 915iS ECU), listen-only, see **[[CANaerospace Input]]** |
 | `dronecan` | DroneCAN v0 sensors; listen-only unless given a node id |
+| `avionicsduino` | an AvionicsDuino CAN bus (AHRS, wingtip magnetometer, RDAM air data), listen-only, on its own adapter |
 | `mavlink` | an ArduPilot / Pixhawk link, mainly as a GPS, AHRS and air-data source; can send mode commands |
 | `megasquirt` | MegaSquirt ECU over CAN: `TACH1`, `FUELF1`, `H2OT1`, `MAP1`, `THR1` |
 | `mgl` | MGL RDAC over CAN |

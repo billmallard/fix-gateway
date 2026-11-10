@@ -76,6 +76,7 @@ connections:
   - GARMIN_GNX375_CONFIG
   - CANAEROSPACE_CONFIG
   - DRONECAN_CONFIG
+  - AVIONICSDUINO_CONFIG
   - ONSPEED_CONFIG
 # Logging configuration - See Python logging.config module documenation
 # This is logging for system messages, not system data

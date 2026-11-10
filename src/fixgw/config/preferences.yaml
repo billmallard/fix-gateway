@@ -46,6 +46,7 @@ includes:
   GARMIN_GNX375_CONFIG: connections/garmin_gnx375.yaml
   CANAEROSPACE_CONFIG: connections/canaerospace.yaml
   DRONECAN_CONFIG: connections/dronecan.yaml
+  AVIONICSDUINO_CONFIG: connections/avionicsduino.yaml
   ONSPEED_CONFIG: connections/onspeed.yaml
 # This section is used to turn things on or off
 enabled:
@@ -88,4 +89,5 @@ enabled:
   GARMIN_GNX375: false
   CANAEROSPACE: false
   DRONECAN: false
+  AVIONICSDUINO: false
   ONSPEED: false
