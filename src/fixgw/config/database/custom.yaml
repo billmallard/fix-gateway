@@ -48,3 +48,12 @@ items:
   type: bool
   initial: true
   tol: 0
+
+- key: MAPNDMODE
+  description: "Moving map ND mode (0=off, 1=expanded, 2=ctr)"
+  type: int
+  min: 0
+  max: 3                 # three modes (pyEfis map nd.ND_MODES)
+  units: index
+  initial: 0
+  tol: 0
