@@ -992,3 +992,48 @@ def test_hand_added_altsel_in_custom_yaml_still_loads_and_wins(tmp_path):
 
     assert database.read("ALTSEL")[0] == 5000
     assert database.read("GCUSEL")[0] == "NONE"
+
+
+# G11d (AER-5388): MAPNDMODE ships in custom.yaml beside MAPORIENT, so a map
+# button can step the ND mode. Its max is the mode count, so pyEfis's
+# "change value wrap" (span = max - min) cycles off -> expanded -> ctr -> off.
+# An install whose custom.yaml is still the stock (stamped) file receives it on
+# update; one whose custom.yaml was edited gets it only in custom.yaml.dist.
+def _install_with_custom_before_g11d(tmp_path, edited):
+    import fixgw.database as database
+
+    root = tmp_path / "makerplane" / "fixgw"
+    server.create_config_dir(str(root))
+    custom = root / "config" / "database" / "custom.yaml"
+    old = custom.read_text()
+    start = old.index("- key: MAPNDMODE")
+    custom.write_text(old[:start].rstrip() + "\n")
+    if edited:
+        server.os.utime(custom, (1700000000.0, 1700000000.0))
+    else:
+        server.os.utime(custom, (350039106.789, 350039106.789))
+    dbyaml = root / "config" / "database.yaml"
+    database.init(str(dbyaml))
+    before = database.listkeys()
+
+    server.create_config_dir(str(root))
+    database.init(str(dbyaml))
+    return before, database, custom
+
+
+def test_update_delivers_mapndmode_to_a_stock_custom_yaml(tmp_path):
+    before, database, _ = _install_with_custom_before_g11d(tmp_path, edited=False)
+    assert "MAPNDMODE" not in before and "MAPORIENT" in before
+
+    item = database.get_raw_item("MAPNDMODE")
+    assert item.dtype is int
+    assert (item.min, item.max, item.units) == (0, 3, "index")
+    assert item.tol == 0                       # a pilot setting, written on change
+    assert database.read("MAPNDMODE")[0] == 0  # off
+
+
+def test_edited_custom_yaml_gets_mapndmode_only_in_dist(tmp_path):
+    before, database, custom = _install_with_custom_before_g11d(tmp_path, edited=True)
+
+    assert "MAPNDMODE" not in database.listkeys()
+    assert "- key: MAPNDMODE" in (custom.parent / "custom.yaml.dist").read_text()
