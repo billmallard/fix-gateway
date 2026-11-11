@@ -174,6 +174,17 @@ items:
   initial: ""
   tol: 0
 
+# TURN3 (AER-5418): the one engine-written field of the slot block. The
+# editor never writes it; the map draws each fly-by turn from it.
+- key: FPLfTA
+  description: "Flight plan slot %f fly-by turn anticipation, nm (engine-written, TURN3). The distance before and after the fix at which the turn's arc leaves the leg in and joins the leg out. 0 = no arc at this fix: fly-over, Tier 2, over 120 deg, the MAP, passed, or no leg active. Fixed at turn start for the turn in progress, a prediction at the current groundspeed for fixes ahead"
+  type: float
+  min: 0
+  max: 5
+  units: nm
+  initial: 0.0
+  tol: 0
+
 - key: FPLCOUNT
   description: Flight plan slots in use
   type: int
