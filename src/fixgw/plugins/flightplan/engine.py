@@ -1381,7 +1381,7 @@ class Engine:
         fires over an existing SUSP) or after a missed with no MAHP leg."""
         return 1 if self.suspended and self._map_suspended else 0
 
-    def _turn_anticipation_for(self, to_wp, anchor, to, gs_kt):
+    def _turn_anticipation_for(self, to_wp, anchor, to, gs_kt, next_idx=None):
         """d_ta for the active leg, or 0.0 (fly-over: no predictive
         anticipation) for a TO fix coded fly-over (FLAG_FLYOVER) or (PA13)
         a transition into or out of any Tier-2 leg -- an arc's exit
@@ -1394,12 +1394,15 @@ class Engine:
         MAP follow their coding like any other fix (TURN4, AER-4761): the
         procedure design criteria allow a turn at the FAF only when it is
         fly-by. The MAP never gets here: it never auto-sequences. A turn
-        over MAX_FLYBY_TURN_DEG is flown as a fly-over too (TURN2)."""
+        over MAX_FLYBY_TURN_DEG is flown as a fly-over too (TURN2).
+        `next_idx` is the route index of the leg after the turn, the active
+        leg's by default; turn_anticipations passes the ones ahead."""
         if to_wp.pt in PT_TIER2:
             return 0.0
         if to_wp.flags & FLAG_FLYOVER:
             return 0.0
-        next_wp = self.route[self.act_leg] if self.act_leg < self.count else None
+        next_idx = self.act_leg if next_idx is None else next_idx
+        next_wp = self.route[next_idx] if next_idx < self.count else None
         if next_wp is None or next_wp.pt in PT_TIER2:
             return 0.0
         in_course, out_course = self._turn_courses(anchor, to, next_wp)
@@ -1457,6 +1460,65 @@ class Engine:
             "exit_lat": x_lat,
             "exit_lon": x_lon,
         }
+
+    def turn_anticipations(self, gs_kt, magvar_deg):
+        """FPLfTA (TURN3, AER-5418): for each slot, the d_ta of the fly-by
+        turn at its fix, or 0.0 where the engine will not turn there by
+        anticipation. The map draws a slot's turn as the arc tangent to the
+        leg into the fix and the leg out of it, d_ta from the fix on both
+        (_fly_by_arc), so the engine decides every case and the map only
+        draws.
+
+        - The turn in progress, from turn start until _turn_arc_xtk drops
+          its arc (across the bisector, to the arc's end): the d_ta of the
+          arc fixed at turn start, which the needle is measured from.
+        - The active fix before turn start: the d_ta the engine is testing
+          against this cycle, from the active leg's own anchor (a direct-to
+          or a CF course included).
+        - Fixes ahead: the same rule at the current groundspeed, with the
+          leg in from the slot before (or the coded course, for CF). They
+          are predictions: each one is fixed when its turn starts.
+        - 0.0 for a fix already passed, a fix the engine never anticipates
+          (fly-over, Tier 2 either side, over MAX_FLYBY_TURN_DEG, into a
+          vector leg, the last slot and the MAP), a course change under
+          ARC_MIN_DEG, while suspended or turning with no arc, and with no
+          plan leg active.
+
+        Call after update(), so the turn state is this cycle's."""
+        ta = [0.0] * self.count
+        if self.mode == "NONE" or not self.act_leg or self.to_point is None:
+            return ta
+        arc = self._turn_arc
+        if arc is not None:
+            half = math.radians(arc["sweep_deg"]) / 2.0
+            ta[arc["leg"] - 1] = arc["r_nm"] * math.tan(half)
+        gs_kt = gs_kt or 0.0
+        for slot in range(self.act_leg, self.count):
+            if arc is not None and slot <= arc["leg"]:
+                continue
+            if self._is_final(slot) or gs_kt <= 0.0:
+                continue
+            to_wp = self.route[slot - 1]
+            next_wp = self.route[slot]
+            if to_wp.pt in PT_VECTOR or next_wp.pt in PT_VECTOR:
+                continue
+            to = Point.from_waypoint(to_wp)
+            if slot == self.act_leg:
+                if self.suspended or self._turning:
+                    continue
+                anchor = self._leg_from_anchor(to_wp, self.from_point, self.to_point, magvar_deg)
+                to = self.to_point
+            elif to_wp.pt == "CF":
+                back = geo.wrap360(to_wp.crs - magvar_deg + 180.0)
+                anchor = Point(*geo.destination_point(to.lat, to.lon, back, CF_VIRTUAL_FROM_NM))
+            else:
+                prev = self.route[slot - 2]
+                anchor = Point(prev.lat, prev.lon)
+            d_ta = self._turn_anticipation_for(to_wp, anchor, to, gs_kt, next_idx=slot)
+            in_course, out_course = self._turn_courses(anchor, to, next_wp)
+            if d_ta > 0.0 and abs(_course_change_deg(in_course, out_course)) >= ARC_MIN_DEG:
+                ta[slot - 1] = d_ta
+        return ta
 
     def _turn_arc_xtk(self, ac_lat, ac_lon):
         """Cross-track from the fly-by arc (AER-4715), or None where it does
