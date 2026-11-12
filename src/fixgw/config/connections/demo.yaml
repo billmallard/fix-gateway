@@ -15,3 +15,6 @@ demo:
   # watch_s: 3        # watch LAT/LONG this long for another writer first
   # restart_s: 5      # between loops: plan cleared, position flagged bad
   # frequency_ms: 200 # one row of source keys every 200 ms
+  # A few ADS-B targets around the hold, decoded by the stratux plugin's
+  # GDL90 path into the TFC block (DEMO7).
+  traffic: true

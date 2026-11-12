@@ -127,7 +127,7 @@ Every FIX key has exactly one writer. Two writers on one key overwrite each othe
 | Key | Written by compute (`compute.yaml`) | Also written by | When that box is fitted |
 |---|---|---|---|
 | `PALT` | derived from the altimeter setting | `dynon` | delete the compute function whose output is `PALT` |
-| `FUELQT` | sum of `FUELQ1`-`FUELQ3` | `shadin`; `mgl_serial` (a fuel-level channel) | delete the compute function whose output is `FUELQT` |
+| `FUELQT` | sum of `FUELQ1`..`FUELQ<t>`, the tanks written | `shadin`; `mgl_serial` (a fuel-level channel) | delete the compute function whose output is `FUELQT` |
 
 The gateway checks this at runtime. The first time a second plugin writes a key, it logs `FIX key <KEY> has a second writer: <plugin> now writes it, <plugin> already did` at WARNING, and `database.writers()` lists every key's writers. If that warning names `PALT` or `FUELQT`, the compute function in the table above is still in place.
 

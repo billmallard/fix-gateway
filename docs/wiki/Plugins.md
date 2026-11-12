@@ -36,7 +36,7 @@ connection file; write one and wire it in as **[[Configuration]]** describes.
 | Plugin | Brings in |
 |---|---|
 | `gpsd` | position, track, ground speed, GPS altitude, fix type and accuracy from a `gpsd` daemon |
-| `stratux` | GDL90 from a Stratux: ADS-B traffic (`TFC*`), AHRS and ground speed; no position |
+| `stratux` | GDL90 from a Stratux: ADS-B traffic (`TFC*`), AHRS and ground speed; no position. AHRS over Wi-Fi drives the attitude display: set `source:` to the receiver's address |
 | `navigator_adapter` | an external navigator's RS-232 NMEA: position and `EXT*` guidance, see **[[Navigator Adapter]]** |
 | `garmin_gnx375` | Garmin GNX 375 NMEA: position and `EXT*` guidance (GPS and nav only) |
 | `ifly` | next waypoint (`WPNAME`, `WPLAT`, `WPLON`) from the iFly EFB over UDP; experimental |
@@ -78,7 +78,7 @@ connection file; write one and wire it in as **[[Configuration]]** describes.
 ## Consumers — send data out
 | Plugin | Sends to |
 |---|---|
-| `netfix` | **the network** — pyEfis, moving maps, control heads, debug clients, over the [[NetFIX Protocol]] (TCP :3490). The main way anything off-box reads the database |
+| `netfix` | **the network** — pyEfis, moving maps, control heads, debug clients, over the [[NetFIX Protocol]] (TCP :3490). Loopback only by default; a client on another host needs `host:` set (see the plugin doc) |
 | `canfix` | out to CAN-FIX bus nodes (same plugin, both directions) |
 | `data_recorder` | every key (or those matching `key_prefixes`) to hourly JSON files |
 | `db_persister` | keys matching a regex to an HDF5 file — *not wired* |

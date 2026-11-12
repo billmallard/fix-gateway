@@ -154,8 +154,12 @@ def test_demo_writes_only_source_keys_and_the_editors_route_keys(db, monkeypatch
     written = demo_keys()
     editor = _editor_keys()
     route = {k for k in written if any(rx.match(k) for rx in editor)}
-    # every key it writes is a sensor's or the editor's
-    assert written - route == set(demo.SOURCE_KEYS), sorted(written - route)
+    tfc = {k for k in written if k.startswith("TFC")}
+    # every key it writes is a sensor's, the editor's, or the traffic block
+    # (DEMO7) through the stratux decoder
+    assert written - route - tfc == set(demo.SOURCE_KEYS), sorted(written - route - tfc)
+    assert {"TFC1TGT", "TFCCOUNT"} <= tfc
+    assert all(database.get_raw_item(k).writers == ["demo"] for k in tfc)
     assert {"FPLSEQ", "FPLCMD", "FPLCOUNT", "FPLSEGCNT", "FPL1ID", "FPLS1KIND"} <= route
     # never a reference key, a compute output, or an annunciate flag
     assert not {k for k in written if k.startswith("REF")}
@@ -303,3 +307,50 @@ def test_stop_ends_the_thread(db):
     p.shutdown()
     assert not p.thread.is_alive()
     assert p.thread.refused is None
+
+
+# ---------------------------------------------------------------------------
+# Traffic (DEMO7) in the rewritten loop
+# ---------------------------------------------------------------------------
+
+def test_traffic_orbits_the_hold_fix_at_hold_altitude(db):
+    p = make()
+    loops(p, 2)
+    p.run()
+    p.thread.join(60)
+    assert p.thread.traffic.center == demo.hold_center(demo.route_rows(generator.generate(PROFILE),
+                                                                       set(database.listkeys()))[0])
+    lat, lon, alt = p.thread.traffic.center
+    assert (round(lat, 3), round(lon, 3), alt) == (35.073, -120.663, 4000.0)   # WINCH, +4000
+    assert database.read("TFCCOUNT")[0] == 3
+
+
+def test_refuses_beside_stratux_writing_traffic(db):
+    as_plugin("stratux", "TFC1TGT", 5)
+    p = make()
+    with pytest.raises(plugin_base.PluginFail, match="TFC1TGT"):
+        p.start()
+
+
+def test_with_traffic_off_the_tfc_block_is_not_its_own(db):
+    as_plugin("stratux", "TFC1TGT", 5)
+    p = make({"traffic": False})
+    loops(p, 1)
+    p.start()
+    p.thread.join(60)
+    assert p.thread.refused is None
+    assert p.thread.traffic is None
+    assert not {k for k in demo_keys() if k.startswith("TFC")}
+
+
+def test_without_a_tfc_block_it_says_so_once_and_flies_without_traffic(db, monkeypatch, caplog):
+    real = database.listkeys
+    monkeypatch.setattr(database, "listkeys", lambda: [k for k in real() if not k.startswith("TFC")])
+    p = make()
+    loops(p, 1)
+    p.start()
+    p.thread.join(60)
+    assert p.thread.refused is None
+    assert p.thread.traffic is None
+    errors = [r.message for r in caplog.records if r.levelname == "ERROR"]
+    assert len(errors) == 1 and "TFC block" in errors[0]

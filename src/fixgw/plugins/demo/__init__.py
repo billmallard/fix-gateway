@@ -23,6 +23,11 @@ One writer per key, both ways round:
   shared contract by design (the engine republishes them on restore, a
   pilot's editor commits them), so they are not watched.
 
+With ``traffic`` on (the default), a few ADS-B targets orbit the route's
+hold through the stratux plugin's own GDL90 decoder (DEMO7,
+:mod:`fixgw.plugins.demo.traffic`). The TFC block is then the demo's as
+well: watched at start and while running like the sensor keys.
+
 At the end of the route it clears the plan, holds the position bad for
 ``restart_s`` (nav flags, SVS unavailable: honest), commits the route again
 and starts over. Time runs at 1x only: faster, the airplane covers more
@@ -30,12 +35,14 @@ ground than the GS it shows.
 """
 
 import os
+import re
 import threading
 import time
 from collections import OrderedDict
 
 import fixgw.database as database
 import fixgw.plugin as plugin
+from fixgw.plugins.demo import traffic
 
 # The generator's sensor set (fixgw.sim.generator.SENSOR_KEYS), kept here so
 # the registry check runs before the sim package is imported; a test holds
@@ -44,6 +51,7 @@ SOURCE_KEYS = ("MAGVAR", "GPS_FIX_TYPE", "GPS_ACCURACY_HORIZ", "ALT", "GS", "TAS
                "TRACK", "HEAD", "PITCH", "ROLL", "LAT", "LONG")
 POSITION_KEYS = ("LAT", "LONG")
 REF_PREFIX = "REF"
+TRAFFIC_PREFIX = "TFC"
 WRITER = "demo"
 DEFAULT_PROFILE = "fp8-ksmx-rnav30-missed.yaml"
 
@@ -102,6 +110,23 @@ def route_rows(run, have):
     return rows, sorted(absent)
 
 
+def hold_center(rows):
+    """(lat, lon, alt_ft) of the route's hold fix, from the route block in
+    ``rows``: the slot coded ``HM``, at its altitude constraint. None when the
+    route has no hold, or the hold no altitude."""
+    for _, row in rows:
+        if "FPLCOUNT" not in row:
+            continue
+        for i in range(1, int(row["FPLCOUNT"]) + 1):
+            if row.get("FPL{}PT".format(i)) == "HM":
+                alts = re.findall(r"\d+", str(row.get("FPL{}ALT".format(i), "")))
+                if not alts:
+                    return None
+                return (row["FPL{}LAT".format(i)], row["FPL{}LON".format(i)], float(alts[-1]))
+        return None
+    return None
+
+
 class MainThread(threading.Thread):
     def __init__(self, parent):
         super(MainThread, self).__init__(name="demo")
@@ -114,6 +139,8 @@ class MainThread(threading.Thread):
         self.running = False
         self.clock = time.monotonic     # live.stream's schedule; tests fast-forward it
         self.sleep = time.sleep
+        self.traffic = None
+        self.center = None
 
     def stop(self):
         self.halt.set()
@@ -130,8 +157,12 @@ class MainThread(threading.Thread):
     def _read(self, key):
         return database.read(key)[0]
 
+    # Once per row, from live.stream: the traffic emitter's step (it sends on
+    # its own 1 s deadline), then the second-writer check.
     def _second_writer(self):
-        found = other_writers()
+        if self.traffic is not None:
+            self.traffic.step()
+        found = other_writers(self.parent.keys)
         if found:
             self.refused = "{} also written by another plugin".format(_describe(found))
             return True
@@ -169,12 +200,15 @@ class MainThread(threading.Thread):
         if left > 0 and self.halt.wait(left):
             return
         moving = [k for k in POSITION_KEYS if self._read(k) != first[k]]
-        found = other_writers()
+        found = other_writers(self.parent.keys)
         if found:
             return self._refuse("another source writes {}".format(_describe(found)))
         if moving:
             return self._refuse("something else is moving {} (a netfix client?)".format(" ".join(moving)))
 
+        if self.parent.traffic_on:
+            self.traffic = traffic.DemoTraffic(database.get_raw_item, self.log, clock=self.clock)
+            self.center = hold_center(rows)
         restart_s = float(self.config.get("restart_s", 5.0))
         self.status["Profile"] = run.profile.name
         self.status["Route s"] = round(rows[-1][0], 1)
@@ -184,6 +218,8 @@ class MainThread(threading.Thread):
             cmd_base = abs(int(float(self._read("FPLCMDACK"))))
             self.status["State"] = "flying"
             self.status["Loops"] = loops
+            if self.traffic is not None and self.center is not None:
+                self.traffic.center_on(*self.center)
             stats = live.stream(_Run(renumber(rows, fplseq, cmd_base)), self._write,
                                 speed=1.0, stop=self._second_writer, clock=self.clock, sleep=self.sleep)
             if stats.stopped:
@@ -195,8 +231,19 @@ class MainThread(threading.Thread):
             loops += 1
             self.status["State"] = "restarting"
             self._clear_plan()
-            if self.halt.wait(restart_s):
+            if self._hold(restart_s):
                 return
+
+    # The restart hold; the traffic keeps flying through it.  True if halted.
+    def _hold(self, seconds):
+        end = self.clock() + seconds
+        while self.clock() < end:
+            if self.traffic is not None:
+                self.traffic.step()
+            if self.halt.wait(0):
+                return True
+            self.sleep(min(0.2, max(0.0, end - self.clock())))
+        return self.halt.is_set()
 
     def _clear_plan(self):
         """The editor's clear (an empty route, committed), then the position
@@ -220,6 +267,8 @@ class Plugin(plugin.PluginBase):
     def __init__(self, name, config, config_meta):
         super(Plugin, self).__init__(name, config, config_meta)
         self.status = OrderedDict()
+        self.keys = SOURCE_KEYS
+        self.traffic_on = False
         self.profile_path = self._profile_path(config.get("profile", DEFAULT_PROFILE))
         self.thread = MainThread(self)
 
@@ -238,10 +287,24 @@ class Plugin(plugin.PluginBase):
             import fixgw.sim.generator  # noqa: F401  (needs geographiclib)
         except ImportError as e:
             self._fail("the synthetic flight tier is not installed ({}): pip install 'fixgw[sim]'".format(e))
-        found = other_writers()
+        self.keys = SOURCE_KEYS + self._traffic_keys()
+        found = other_writers(self.keys)
         if found:
             self._fail("another source writes {}".format(_describe(found)))
         self.thread.start()
+
+    # The TFC block, when traffic is on and the database has it (an edited
+    # older config may not: said once, and no traffic).
+    def _traffic_keys(self):
+        if not self.config.get("traffic", True):
+            return ()
+        keys = tuple(k for k in database.listkeys() if k.startswith(TRAFFIC_PREFIX))
+        if "TFC1TGT" not in keys:
+            self.log.error("traffic: true but the database has no TFC block "
+                           "(database/traffic.yaml); no demo traffic")
+            return ()
+        self.traffic_on = True
+        return keys
 
     def _fail(self, why):
         self.status["State"] = "refused"
