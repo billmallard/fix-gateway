@@ -32,6 +32,10 @@ Behaviour, as a navigator built to TSO-C129/C146 and DO-229 would show it:
   (TURN2, AER-4760): Doc 9613 and AC 90-105A define fly-by transitions
   only up to 120 degrees, and no Garmin guide says where a larger one
   starts or sequences. Bill chose the fly-over on the AER-4760 card.
+  Such a turn also sequences once an aircraft that turned back short of
+  the fix, and never got abeam it, has passed its closest approach to it
+  (TURN2b, AER-5324, Bill's card 2026-11-12). In straight flight that
+  point is abeam, so it changes nothing else.
   A turn within 0.5 degrees of 120 is refused (:class:`ReferenceError_`):
   the engine's sphere and this module's WGS-84 can read it on opposite
   sides of the limit (QA, AER-4785).
@@ -79,6 +83,12 @@ MAX_FLYBY_TURN_DEG = 120.0
 # worst at the equator, inbound 045). Inside this band either answer is
 # honest, so the reference refuses to judge rather than pick a side.
 FLYBY_LIMIT_BAND_DEG = 0.5
+# TURN2b (AER-5324): such a turn also sequences where an aircraft that
+# turned back short of the fix has passed its closest approach to it,
+# within the lead a fly-by turn would have taken (capped at 5 nm, as the
+# engine caps it), once the distance has opened by this much.
+REVERSAL_PASSED_NM = 0.05
+REVERSAL_LEAD_CAP_NM = 5.0
 
 
 class ReferenceError_(Exception):
@@ -400,6 +410,7 @@ class ReferenceNavigator:
         self._line = None
         self._turn = None             # (bisector, inbound line) between turn start and the bisector
         self._arc = None              # the fly-by turn's arc, turn start to its end (_TurnArc)
+        self._closest = None          # closest approach to a row-3 fix on this leg, nm (TURN2b)
         self._start_leg(position)
         self._faf = next((k for k, lg in enumerate(legs) if lg.faf), None)
         self._map = next((k for k, lg in enumerate(legs) if lg.map), None)
@@ -431,6 +442,7 @@ class ReferenceNavigator:
         self._hold = None
         self._turn = None
         self._arc = None
+        self._closest = None
         if leg.pt in ("TF", "IF", "DF", "CA"):
             self._line = self._line_for(self.i, position)
         elif leg.pt == "HM":
@@ -555,6 +567,7 @@ class ReferenceNavigator:
             return False
         flyby = not leg.flyover and nxt_course is not None
         lead = 0.0
+        reversal_lead = None
         if flyby:
             turn = abs(wrap180(nxt_course - self._turn_inbound_azi()))
             if abs(turn - MAX_FLYBY_TURN_DEG) <= FLYBY_LIMIT_BAND_DEG:
@@ -566,13 +579,25 @@ class ReferenceNavigator:
             # limit there is no lead: abeam, as at a fly-over fix.
             if turn <= MAX_FLYBY_TURN_DEG:
                 lead = flyby_turn_radius_nm(gs_kt, self.flyby_bank) * math.tan(math.radians(turn / 2.0))
+            elif self.legs[self.i + 1].pt in ("TF", "DF"):
+                reversal_lead = min(REVERSAL_LEAD_CAP_NM, flyby_turn_radius_nm(gs_kt, self.flyby_bank)
+                                    * math.tan(math.radians(turn / 2.0)))
         if 0.0 < remaining <= lead:
             self._start_turn(lat, lon, self._turn_inbound_azi(), nxt_course, lead)
             return self._turn_done(t, lat, lon)
-        if remaining <= 0.0:
+        if remaining <= 0.0 or self._turned_back_short(lat, lon, leg, reversal_lead):
             self._sequence(t, (lat, lon), track_true)
             return True
         return False
+
+    def _turned_back_short(self, lat, lon, leg, reversal_lead):
+        """TURN2b: past the closest approach to a row-3 fix, within the
+        lead a fly-by turn would have taken. None for any other fix."""
+        if reversal_lead is None:
+            return False
+        dist = inverse(lat, lon, leg.lat, leg.lon)[0]
+        self._closest = dist if self._closest is None else min(self._closest, dist)
+        return self._closest <= reversal_lead and dist >= self._closest + REVERSAL_PASSED_NM
 
     def _turn_inbound_azi(self):
         """Azimuth of the current leg's geodesic where it reaches its fix."""
