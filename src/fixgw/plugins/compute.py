@@ -22,6 +22,7 @@
 #  True Airspeed could be done also.
 
 import fixgw.plugin as plugin
+import fixgw.database as database
 from fixgw.database import read
 import fixgw.quorum as quorum
 import math
@@ -275,7 +276,14 @@ def setFunction(inputs, output, val, require_leader):
 
 
 def sumFunction(inputs, output, require_leader):
-    """Determines the sum of the inputs and writes that to output"""
+    """Sums the inputs that have been written and writes that to output.
+
+    An input no source has written yet, such as a fuel tank the aircraft
+    does not have or no plugin maps, is left out rather than waited for, so
+    the sum publishes from the first input written.  Once written, an input
+    stays in and its old, bad and fail flags carry to the output.  FUELQT on
+    a 2-tank CAN install was never written while the sum waited for FUELQ3
+    (AER-5391)."""
     vals = {}
     for each in inputs:
         vals[each] = None
@@ -285,6 +293,8 @@ def sumFunction(inputs, output, require_leader):
             return  # This might be a meta data update
         if not quorum.leader and require_leader:
             return  # Only the leader can do calculations
+        if vals[key] is None and not parent.db_get_item(key).written:
+            return  # The expiry of a key nobody has written
 
         vals[key] = value
         _refresh_old(vals, parent)
@@ -295,7 +305,7 @@ def sumFunction(inputs, output, require_leader):
         flag_secfail = False
         for each in vals:
             if vals[each] is None:
-                return  # We don't have one of each yet
+                continue  # Not written yet
             try:
                 arrsum += vals[each][0]
                 if vals[each][2]:
@@ -1055,6 +1065,22 @@ def windComponents(inputs, output, require_leader):
     return func
 
 
+# Expand an input named with a database variable, as the database expands its
+# keys: with t: 3 in variables.yaml, FUELQt is FUELQ1, FUELQ2, FUELQ3.  So a
+# function over every tank follows the tank count (AER-5391).
+def _expand_inputs(inputs):
+    variables = getattr(database, "variables", {})
+    expanded = []
+    for each in inputs:
+        ch = database.check_for_variables({"key": each}) if isinstance(each, str) else None
+        if ch in variables:
+            entry = {"key": each, "description": ""}
+            expanded.extend(e["key"] for e in database.expand_entry(entry, ch, variables[ch]))
+        else:
+            expanded.append(each)
+    return expanded
+
+
 class Plugin(plugin.PluginBase):
     # def __init__(self, name, config):
     #     super(Plugin, self).__init__(name, config)
@@ -1089,6 +1115,7 @@ class Plugin(plugin.PluginBase):
                     req_lead = False
 
             fname = function["function"].lower()
+            function = dict(function, inputs=_expand_inputs(function["inputs"]))
             if fname in aggregate_functions:
                 if fname == "encoder":
                     f = aggregate_functions[fname](
