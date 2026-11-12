@@ -57,3 +57,12 @@ def test_flag_gates_plugin(tmp_path, flag, plugin):
     assert plugin in loaded_plugins(tmp_path / "on", "{}\n")
     off = loaded_plugins(tmp_path / "off", "enabled:\n  {}: false\n".format(flag))
     assert plugin not in off
+
+
+# AER-5468 (P3f): a top-level preference in preferences.yaml.custom reaches
+# the plugins.  config-pull writes ownship_address there for stratux.
+def test_custom_preference_reaches_plugins(tmp_path, monkeypatch):
+    monkeypatch.setattr(server.plugin, "preferences", {})
+    loaded_plugins(tmp_path, 'ownship_address: "AB4549"\n')
+    assert server.plugin.preferences["ownship_address"] == "AB4549"
+    assert server.plugin.preferences["enabled"]["COMPUTE"] is True

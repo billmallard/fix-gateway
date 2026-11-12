@@ -20,6 +20,8 @@ class FakeParent:
         self.log = FakeLog()
         self.values = {}
         self.writes = []
+        # The keyframe script only; demo traffic has its own tests.
+        self.config = {"traffic": False}
 
     def db_write(self, key, value):
         self.values[key] = value
