@@ -57,8 +57,7 @@ def test_subscription(plugin,database):
     assert status['Connection 0']['Subscriptions'] == 1
 
 def test_multiple_subscription_fail(plugin,database):
-    """Test that we receive an error if we try to subscribe to the same
-    point again"""
+    """Subscribing to the same point a second time returns an error"""
     plugin.sock.sendall("@sALT\n".encode())
     res = plugin.sock.recv(1024).decode()
     assert res == "@sALT\n"
@@ -278,7 +277,7 @@ def test_write_errors(plugin,database):
 
 
 def test_value_write_with_subscription(plugin,database):
-    """Make sure we don't get a response to a value write on our subscriptions"""
+    """A value write on a subscribed point gets no response"""
     plugin.sock.sendall("@sALT\n".encode())
     res = plugin.sock.recv(1024).decode()
     assert res == "@sALT\n"
