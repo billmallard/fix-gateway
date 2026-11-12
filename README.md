@@ -78,7 +78,7 @@ Input/output plugins currently available:
 | `data_playback` | Replay recorded flight data |
 | `quorum` | Multi-source data arbitration / voting |
 | `annunciate` | Generate warning/caution/advisory annunciations from parameter limits |
-| `demo` | Simulated flight data for display testing |
+| `demo` | A simulated flight, looped, for display testing (needs the `sim` extra) |
 
 ## Installation
 

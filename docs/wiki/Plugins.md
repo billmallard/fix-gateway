@@ -29,7 +29,7 @@ connection file; write one and wire it in as **[[Configuration]]** describes.
 |---|---|
 | `xplane` | X-Plane 11/12 over UDP — air data, attitude, position, nav radios and the X-Plane GPS; writes the HSI source back. See **[[X-Plane]]** |
 | `fgfs` | FlightGear generic protocol — the same keys as `xplane` |
-| `demo` | canned values and a scripted attitude/altitude/heading sequence — drives a display with no hardware |
+| `demo` | a simulated flight, looped: the synthetic tier flies the KSMX RNAV 30 approach, missed and hold, and the real flight-plan engine guides it. Needs `pip install 'fixgw[sim]'`, and refuses to run beside another source of its keys |
 | `data_playback` | replays `data_recorder` files (`--playback-start-time`, or `data_playback.yaml`) |
 
 ### GPS, navigators & ADS-B
