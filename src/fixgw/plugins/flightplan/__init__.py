@@ -98,7 +98,12 @@ class MainThread(threading.Thread):
         # bench source, so it defaults on rather than off.
         self.altitude_key = cfg.get("altitude_key", "ALT") or None
 
-        self._lock = threading.Lock()
+        # _maybe_persist runs on this thread's 1 Hz loop and inside the
+        # LAT/LONG and FPLCMD callbacks, on the writer's thread. Both write
+        # the one .tmp path: unserialized, one replace() takes the other's
+        # file and the second fails ENOENT, or an older snapshot lands over a
+        # newer one (fix-gateway#169).
+        self._persist_lock = threading.Lock()
         self._last_update_time = 0.0
         self._restoring = False
         self._last_persisted = None
@@ -436,17 +441,20 @@ class MainThread(threading.Thread):
     def _maybe_persist(self):
         if not self._restore_done:
             return
-        snapshot = self.engine.to_persisted_dict()
-        if snapshot == self._last_persisted:
-            return
-        tmp = self.state_file + ".tmp"
-        try:
-            with open(tmp, "w") as f:
-                json.dump(snapshot, f)
-            os.replace(tmp, self.state_file)
-            self._last_persisted = snapshot
-        except Exception as e:
-            self.log.error(f"flightplan: could not write {self.state_file}: {e}")
+        # The snapshot is taken inside the lock too, so the caller that
+        # writes last also wrote the newest state.
+        with self._persist_lock:
+            snapshot = self.engine.to_persisted_dict()
+            if snapshot == self._last_persisted:
+                return
+            tmp = self.state_file + ".tmp"
+            try:
+                with open(tmp, "w") as f:
+                    json.dump(snapshot, f)
+                os.replace(tmp, self.state_file)
+                self._last_persisted = snapshot
+            except Exception as e:
+                self.log.error(f"flightplan: could not write {self.state_file}: {e}")
 
     # ------------------------------------------------------------------
     # Lifecycle
