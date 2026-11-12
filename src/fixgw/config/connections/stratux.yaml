@@ -18,6 +18,8 @@ stratux:
   # slot keys' 3 s tol, so a stale target shows as old before it goes.
   evict_s: 10
   # Our own 24-bit ICAO address, hex, QUOTED (e.g. "A1B2C3").  Traffic with
-  # this address is never shown.  Set by the configurator from the aircraft
-  # registration; the receiver's own ownship report is filtered as well.
+  # this address is never shown; the receiver's own ownship report is
+  # filtered as well.  Leave it "" to use the top-level ownship_address in
+  # preferences.yaml.custom, which pyefis-data config-pull sets from the
+  # configurator's aircraft registration.  A value here overrides it.
   ownship_address: ""
