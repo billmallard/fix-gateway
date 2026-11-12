@@ -3,7 +3,11 @@
     load: NETFIX
     module: fixgw.plugins.netfix
     type: server
-    host: 0.0.0.0
+    # Loopback only.  netfix has no authentication, and any client can write
+    # any key as valid.  If pyEfis or another client runs on a different host,
+    # set host: to the address of the one interface that faces it, and see
+    # the plugin docs (doc/plugins/netfix.rst) first.
+    host: 127.0.0.1
     port: 3490
     buffer_size: 1024
     timeout: 1.0

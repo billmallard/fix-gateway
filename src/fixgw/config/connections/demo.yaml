@@ -2,3 +2,6 @@ demo:
   load: DEMO
   module: fixgw.plugins.demo
 
+  # A few ADS-B targets around ownship, decoded by the stratux plugin's
+  # GDL90 path into the TFC block (DEMO7).
+  traffic: true
