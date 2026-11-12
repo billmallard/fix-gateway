@@ -19,6 +19,7 @@ class FakeItem:
         self.fail = False
         self.secfail = False
         self.aux = {}
+        self.written = True  # a callback for a fake input stands for a write
 
     def set(self, value, old=None, bad=None, fail=None, secfail=None):
         self.value = value
