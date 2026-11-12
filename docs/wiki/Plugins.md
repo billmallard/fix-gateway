@@ -78,7 +78,7 @@ connection file; write one and wire it in as **[[Configuration]]** describes.
 ## Consumers — send data out
 | Plugin | Sends to |
 |---|---|
-| `netfix` | **the network** — pyEfis, moving maps, control heads, debug clients, over the [[NetFIX Protocol]] (TCP :3490). The main way anything off-box reads the database |
+| `netfix` | **the network** — pyEfis, moving maps, control heads, debug clients, over the [[NetFIX Protocol]] (TCP :3490). Loopback only by default; a client on another host needs `host:` set (see the plugin doc) |
 | `canfix` | out to CAN-FIX bus nodes (same plugin, both directions) |
 | `data_recorder` | every key (or those matching `key_prefixes`) to hourly JSON files |
 | `db_persister` | keys matching a regex to an HDF5 file — *not wired* |
