@@ -480,6 +480,9 @@ are the ones above, with these differences:
   flags `LAT`/`LONG` bad, waits `restart_s` (5 s), and commits the route
   again under the next `FPLSEQ`, with commands numbered after the last ack.
 - It runs at x1 only, and refuses a `speed` other than 1.
+- With `traffic` on (the default), three ADS-B targets orbit the route's
+  hold fix at its altitude, through the stratux plugin's GDL90 decoder
+  (DEMO7). The TFC block is then watched like the sensor keys.
 
 Its plugin status reports `State` (`watching`, `flying`, `restarting`,
 `refused`, `stopped`), the profile, the route's length in seconds and the
