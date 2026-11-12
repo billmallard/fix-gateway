@@ -36,7 +36,7 @@ connection file; write one and wire it in as **[[Configuration]]** describes.
 | Plugin | Brings in |
 |---|---|
 | `gpsd` | position, track, ground speed, GPS altitude, fix type and accuracy from a `gpsd` daemon |
-| `stratux` | GDL90 from a Stratux: ADS-B traffic (`TFC*`), AHRS and ground speed; no position |
+| `stratux` | GDL90 from a Stratux: ADS-B traffic (`TFC*`), AHRS and ground speed; no position. AHRS over Wi-Fi drives the attitude display: set `source:` to the receiver's address |
 | `navigator_adapter` | an external navigator's RS-232 NMEA: position and `EXT*` guidance, see **[[Navigator Adapter]]** |
 | `garmin_gnx375` | Garmin GNX 375 NMEA: position and `EXT*` guidance (GPS and nav only) |
 | `ifly` | next waypoint (`WPNAME`, `WPLAT`, `WPLON`) from the iFly EFB over UDP; experimental |
