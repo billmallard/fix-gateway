@@ -27,6 +27,7 @@ import threading
 import time
 from collections import OrderedDict
 import fixgw.plugin as plugin
+from fixgw.plugins.demo import traffic
 
 
 class MainThread(threading.Thread):
@@ -618,6 +619,24 @@ class MainThread(threading.Thread):
         # Initialize the points
         for each in self.keylist:
             self.parent.db_write(each, self.keylist[each])
+        self.traffic = self._traffic()
+
+    # Traffic around ownship, decoded by the stratux plugin's GDL90 path
+    # (DEMO7, AER-5462).  Off with traffic: false, and off, said once, on a
+    # database without the TFC block (an edited older config).
+    def _traffic(self):
+        config = getattr(self.parent, "config", None) or {}
+        if not config.get("traffic", True):
+            return None
+        try:
+            self.parent.db_get_item("TFC1TGT")
+        except KeyError:
+            self.log.error(
+                "traffic: true but the database has no TFC block "
+                "(database/traffic.yaml); no demo traffic"
+            )
+            return None
+        return traffic.DemoTraffic(self.parent.db_get_item, self.log)
 
     def run(self):
         count = 0
@@ -627,6 +646,8 @@ class MainThread(threading.Thread):
             count += 1
             script_when += 1
             time.sleep(0.1)
+            if self.traffic is not None:
+                self.traffic.step()
             # We just read the point and write it back in to reset the TOL timer.
             # Write the value alone: a read is (value, annunc, old, bad, fail,
             # secfail) but a tuple write is (value, annunc, bad, fail, secfail),
