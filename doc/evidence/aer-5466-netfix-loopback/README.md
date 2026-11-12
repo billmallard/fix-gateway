@@ -30,12 +30,15 @@ Beelink.
 - `beelink_full_attitude.png`: during `remote_write_all.py 10.110.10.241`, which writes
   PITCH 15, ROLL 20, ALAT 0 and TAS 120 the same way, as a live AHRS would. The AI
   shows a full-colour attitude, 15 deg up and 20 deg right bank, from the second host.
+  The readback in `beelink_all_write.txt` shows ROLL and ALAT old only because it runs
+  about 0.35 s after the last write and their tol is 300 ms; PITCH has the same tol and
+  read first.
 
 After each run the keys went old again within one tol. The grabs taken 14 s and
 40 s later were byte-identical to `beelink_pitch_only.png`: pyEfis keeps drawing the
 last attitude, greyed, when its inputs are old. That is existing pyEfis behaviour and
-not part of this change. `PITCH;0.0`, `ROLL;0.0` and `TAS;0.0` were written afterwards
-on both benches to put the values back.
+not part of this change. `PITCH;0.0` and `ROLL;0.0` were written afterwards on both
+benches, and `TAS;0.0` on the Beelink, to put the values back.
 
 ## After: this branch, netfix on `127.0.0.1:3490`
 
