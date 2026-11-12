@@ -15,8 +15,13 @@ compute:
     - function: max
       inputs: ["CHT11", "CHT12", "CHT13", "CHT14"]
       output: CHTMAX1
+    # FUELQT, total fuel: the sum of FUELQ1..FUELQ<t>, t being the tank
+    # count in database/variables.yaml. It publishes from the tanks written so
+    # far, flagged when one of those is old, bad or failed; a tank no source
+    # writes is left out (CAN maps only FUELQ1 and FUELQ2). Derived and
+    # display-only (AER-5391).
     - function: sum
-      inputs: ["FUELQ1", "FUELQ2", "FUELQ3"]
+      inputs: ["FUELQt"]
       output: FUELQT
     # PALT, the one pressure-altitude writer (P3c): indicated altitude read
     # back to the standard setting. ADS-B traffic altitude is pressure
