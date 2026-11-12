@@ -20,7 +20,8 @@ Behaviour, as a navigator built to TSO-C129/C146 and DO-229 would show it:
 - Straight legs (``IF``/``TF``/``DF``/``CA``) are geodesics. ``TF`` runs
   from the previous fix, ``DF`` from the position where the leg became
   active, ``CA`` along its coded course from the end of the previous leg
-  and ends when the altitude is reached.
+  (the runway threshold, when a climb-out opens the route) and ends when
+  the altitude is reached.
 - A fly-by fix is two events (DO-236 section 3.2.5.4.1; the Garmin
   guides). At the start of the turn (turn anticipation ``R * tan(delta/2)``,
   ``R`` the radius of a nominal 15 degree bank, the Garmin guides' figure:
@@ -219,14 +220,33 @@ def legs_from_cifp(cifp, airport, approach, transition, magvar_deg):
     return legs
 
 
+def climb_out_legs(cifp, profile):
+    """The ``climb_out`` item as reference legs: the runway threshold, then
+    a ``CA`` on the runway's magnetic bearing from it, ending at the item's
+    altitude. ``[]`` when the route has none."""
+    climb = profile.climb_out
+    if climb is None:
+        return []
+    rwy, bearing_mag, _ = cifp.runway(profile.departure, climb["runway"])
+    return [RefLeg(pt="TF", ident=rwy.ident, lat=rwy.lat, lon=rwy.lon),
+            RefLeg(pt="CA", course_true=wrap360(bearing_mag - profile.magvar_deg), alt_ft=climb["alt_ft"])]
+
+
 def legs_from_route(cifp, profile):
     """A profile's whole route as reference legs: the departure airport,
-    every en-route fix (an airway expanded to the fixes it passes through,
-    each one a ``TF`` from the fix before it), then the procedure as
-    :func:`legs_from_cifp` reads it, or the destination airport."""
-    fixes = [cifp.fix(profile.departure, section="PA")] if profile.departure else []
-    fixes += [f for f, _ in cifp.expand_route(profile.enroute)]
-    legs = [RefLeg(pt="TF", ident=f.ident, lat=f.lat, lon=f.lon) for f in fixes]
+    the climb-out (:func:`climb_out_legs`), every en-route fix (an airway
+    expanded to the fixes it passes through, each one a ``TF`` from the fix
+    before it, except the first after a climb-out: a ``DF``, from where the
+    climb ended), then the procedure as :func:`legs_from_cifp` reads it, or
+    the destination airport."""
+    legs = []
+    if profile.departure:
+        d = cifp.fix(profile.departure, section="PA")
+        legs.append(RefLeg(pt="TF", ident=d.ident, lat=d.lat, lon=d.lon))
+    legs += climb_out_legs(cifp, profile)
+    for n, (f, _) in enumerate(cifp.expand_route(profile.enroute)):
+        pt = "DF" if n == 0 and profile.climb_out else "TF"
+        legs.append(RefLeg(pt=pt, ident=f.ident, lat=f.lat, lon=f.lon))
     proc = profile.procedure
     if proc is None:
         d = cifp.fix(profile.destination, section="PA")

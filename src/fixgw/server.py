@@ -202,6 +202,7 @@ def main_setup():
         with open(preference_file) as cf:
             custom = yaml.safe_load(cf)
         merge_dict(preferences, custom)
+    plugin.preferences = preferences
 
     config,config_meta = cfg.from_yaml(config_file, preferences=preferences, metadata=True)
 
