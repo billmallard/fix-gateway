@@ -31,6 +31,14 @@ the first row and the ``destination`` the last when there is no procedure.
 A procedure's rows follow the en-route ones. Every en-route slot is a
 ``TF`` with no altitude, course or flags: the engine flies a ``TF`` from its
 two fixes alone, and an airway's minimum altitudes are not encoded yet.
+
+A ``climb_out`` (DEMO9) is one departure row (kind 2, ``ID`` the runway)
+after the departure airport's: the runway threshold slot, then a ``CA``
+slot on the runway's magnetic bearing, ``+<alt_ft>``, placed on that course
+``ca_point_nm`` from the threshold as a procedure's ``CA`` is. It is not a
+published procedure, so no slot carries ``0x20``. The en-route slot after
+it is a ``DF``: ARINC 424 does not follow a ``CA`` with a ``TF``, and the
+engine flies a ``DF`` from wherever the climb ended.
 """
 
 from fixgw.sim import refnav
@@ -46,6 +54,7 @@ TYPE_BY_KIND = {"airport": 1, "vor": 2, "waypoint": 4, "runway": 4}
 
 SEGKIND_WAYPOINT = 0
 SEGKIND_AIRWAY = 1
+SEGKIND_DEPARTURE = 2
 SEGKIND_APPROACH = 4
 SEGKIND_MISSED = 5
 
@@ -134,6 +143,18 @@ def _fix_slot(f):
             "CTRLAT": 0.0, "CTRLON": 0.0, "TURN": ""}
 
 
+def climb_out_slots(cifp, profile, ca_point_nm=2.0):
+    """The runway threshold and ``CA`` slots of a ``climb_out``."""
+    climb = profile.climb_out
+    rwy, bearing_mag, _ = cifp.runway(profile.departure, climb["runway"])
+    threshold = _fix_slot(rwy)
+    ca = _fix_slot(rwy)
+    ca.update(ID="", PT="CA", CRS=bearing_mag, ALT=_alt_field("+", climb["alt_ft"], ""))
+    ca["LAT"], ca["LON"] = refnav.direct(rwy.lat, rwy.lon, refnav.wrap360(bearing_mag - profile.magvar_deg),
+                                         ca_point_nm)
+    return [threshold, ca]
+
+
 def route_slots(cifp, profile):
     """(slots, segments, route name, approach type) for a profile's whole
     route: the departure, the en-route items, then the procedure or the
@@ -141,13 +162,22 @@ def route_slots(cifp, profile):
     rows = []                     # (fix, airway or None)
     if profile.departure:
         rows.append((cifp.fix(profile.departure, section="PA"), None))
+    climb_at = len(rows)
     rows += cifp.expand_route(profile.enroute)
     proc = profile.procedure
     if proc is None:
         rows.append((cifp.fix(profile.destination, section="PA"), None))
     slots, segments = [], []
-    for f, airway in rows:
+    for r, (f, airway) in enumerate(rows):
+        if r == climb_at and profile.climb_out:
+            slots += climb_out_slots(cifp, profile)
+            segments.append({"KIND": SEGKIND_DEPARTURE, "ID": profile.climb_out["runway"],
+                             "ENT": slots[-2]["ID"], "EXT": slots[-1]["ID"],
+                             "FIRST": len(slots) - 1, "LAST": len(slots)})
+            slots[-2]["SGI"] = slots[-1]["SGI"] = len(segments)
         slots.append(_fix_slot(f))
+        if r == climb_at and profile.climb_out:
+            slots[-1]["PT"] = "DF"
         n = len(slots)
         if airway is not None and segments and segments[-1]["KIND"] == SEGKIND_AIRWAY \
                 and segments[-1]["ID"] == airway and segments[-1]["LAST"] == n - 1:

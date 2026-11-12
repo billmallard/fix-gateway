@@ -101,21 +101,34 @@ def generate(profile, frequency_ms=200, cifp_path=None, fplseq=1, gps_accuracy_f
         raise GeneratorError(f"{profile.name}: {e}")
     apt = cifp.fix(profile.destination, section="PA")
 
-    start_fix = profile.start["fix"]
-    try:
-        k = next(i for i, lg in enumerate(legs) if lg.ident == start_fix and i > 0)
-        act_slot = next(i for i, s in enumerate(slots, start=1) if s["ID"] == start_fix and i > 1)
-    except StopIteration:
-        raise GeneratorError(f"start fix {start_fix} is not a fix after the first in the route")
     route_ids = [f.ident for f, _ in cifp.expand_route(profile.enroute)]
     end_fix = profile.end.get("after_fix")
     if end_fix is not None and end_fix not in route_ids:
         raise GeneratorError(f"end.after_fix {end_fix} is not an en-route fix of the route {route_ids}")
-    prev = legs[k - 1]
-    to = legs[k]
-    line = refnav.GeoLine.between(prev.lat, prev.lon, to.lat, to.lon)
-    before = float(profile.start.get("before_nm", 0.0))
-    lat, lon, azi = line.position(max(0.0, line.length_nm - before))
+    if "runway" in profile.start:
+        # over the threshold, on the climb-out's CA (the leg after the runway)
+        k = next(i for i, lg in enumerate(legs) if lg.pt == "CA")
+        act_slot = next(i for i, s in enumerate(slots, start=1) if s["PT"] == "CA")
+        rwy, _, elev_ft = cifp.runway(profile.departure, profile.start["runway"])
+        lat, lon, azi = rwy.lat, rwy.lon, legs[k].course_true
+        if not elev_ft <= float(profile.start["alt_ft"]) < legs[k].alt_ft:
+            raise GeneratorError(f"start.alt_ft {profile.start['alt_ft']} is not between the threshold "
+                                 f"elevation {elev_ft:.0f} and the climb-out altitude {legs[k].alt_ft:.0f}")
+    else:
+        start_fix = profile.start["fix"]
+        try:
+            k = next(i for i, lg in enumerate(legs) if lg.ident == start_fix and i > 0)
+            act_slot = next(i for i, s in enumerate(slots, start=1) if s["ID"] == start_fix and i > 1)
+        except StopIteration:
+            raise GeneratorError(f"start fix {start_fix} is not a fix after the first in the route")
+        prev = legs[k - 1]
+        to = legs[k]
+        if to.pt == "DF" or prev.lat is None:
+            raise GeneratorError(f"start fix {start_fix}: the leg into it is a {to.pt} from where the climb-out "
+                                 "ends; start on the runway instead")
+        line = refnav.GeoLine.between(prev.lat, prev.lon, to.lat, to.lon)
+        before = float(profile.start.get("before_nm", 0.0))
+        lat, lon, azi = line.position(max(0.0, line.length_nm - before))
 
     a = profile.aircraft
     perf = Performance(tas_kt=a.get("tas_kt", 110.0), climb_fpm=a.get("climb_fpm", 700.0),
@@ -226,9 +239,13 @@ def generate(profile, frequency_ms=200, cifp_path=None, fplseq=1, gps_accuracy_f
             pending = [i for i, ev in events.items() if ev["state"] != "done"]
             raise GeneratorError(f"{profile.name}: still running at {max_s:.0f} s; events not done: {pending}")
 
-        # vertical: descend to the TO fix's constraint on the approach, climb to the top of the missed
+        # vertical: descend to the TO fix's constraint on the approach, climb to the top of the missed,
+        # and on any other CA (a climb-out) climb to its altitude, which is what ends the leg
         if ref.missed:
             target = missed_top
+            vs_lim = None
+        elif out.pt == "CA":
+            target = max(s.alt_ft, ref.legs[ref.i].alt_ft)
             vs_lim = None
         elif ref.map_suspended:
             target = s.alt_ft

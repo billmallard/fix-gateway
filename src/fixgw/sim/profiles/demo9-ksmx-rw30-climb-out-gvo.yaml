@@ -1,0 +1,61 @@
+# DEMO9 (AER-5463): a route that opens with a departure. Over the RW30
+# threshold at KSMX, a CA on the runway heading (301 magnetic, from the
+# runway record) to 3,000 ft, then direct to GVO and V27 towards GOLET on
+# the way to KSBA. The climb-out ends on altitude, never at a fix, so the
+# leg to GVO starts wherever the climb ended and turns about 170 degrees back
+# to it, as the published BUELT4 RW30 departure turns back south after its
+# CA. BUELT4 itself is not flown: its next leg is a VI, which the reference
+# does not fly.
+# Format: ../PROFILE_FORMAT.md
+#
+# The CIFP excerpt is the V27 excerpt of sim2b-v27-s2-hener-doyle.yaml plus
+# the KSMX RW30 runway record.
+name: demo9-ksmx-rw30-climb-out-gvo
+description: >
+  KSMX RW30 climb-out to 3,000 ft, direct GVO, V27 towards GOLET and KSBA,
+  from over the RW30 threshold, ending once GVO is sequenced.
+
+departure: KSMX
+destination: KSBA
+
+cifp:
+  cycle: "2611"
+  file: cifp/FAACIFP18-2611-KSMX-RW30-V27-GOLET
+
+aircraft: {tas_kt: 110}
+
+environment:
+  magvar_deg: -11.9               # FIX MAGVAR, positive west: fp8's, at the same airport
+
+start: {runway: RW30, alt_ft: 311}   # 50 ft over the 261 ft threshold
+
+route:
+  - climb_out: {runway: RW30, alt_ft: 3000}
+  - waypoint: GVO
+  - airway: {id: V27, exit: GOLET}
+
+end: {after_fix: GVO, max_s: 2400}
+
+checks:
+  - key_pair: [FPLCRS, REFCRS]
+    tol_deg: 0.5
+    except_s_around_sequence: 5
+  - key_pair: [FPLXTK, REFXTK]
+    tol: 0.02
+    except_s_around_sequence: 5
+  - key_pair: [FPLCDI, REFCDI]
+    tol: 0.05
+    same_sign: true
+    except_s_around_sequence: 5
+  - key_pair: [WPDIS, REFDIS]
+    # 0.5%: sphere vs WGS-84 distance; 0.015 nm: two 0.2 s updates at 110 kt
+    tol: 0.015
+    tol_rel: 0.005
+    except_s_around_sequence: 5
+    # a CA has no fix: the reference says 0, the engine the distance to the
+    # slot's point on the course (fp8 skips its missed-approach CA the same way)
+    skip_when: {REFWPT: ""}
+  - key_pair: [WPNAME, REFWPT]
+    except_s_around_sequence: 1
+  - sequence: [GVO, GOLET]
+    keys: [WPNAME, REFWPT]
