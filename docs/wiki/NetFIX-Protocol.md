@@ -4,6 +4,11 @@
 ASCII protocol over TCP, served by the `netfix` plugin on port **3490** by
 default. pyEfis, moving maps, control heads, and the debug client all speak it.
 
+The shipped config binds **`127.0.0.1`**, so only clients on the same host can
+connect. NetFIX has no authentication, and a sentence with its flags omitted
+is written as valid. A client on another host needs `host:` set to the one
+interface that faces it; see [`doc/plugins/netfix.rst`](https://github.com/billmallard/fix-gateway/blob/dev/doc/plugins/netfix.rst), "Network exposure".
+
 Full spec: [`doc/appendix/netfixascii.rst`](https://github.com/billmallard/fix-gateway/blob/dev/doc/appendix/netfixascii.rst).
 
 Two kinds of line cross the socket: **data sentences** (a value + its flags) and
