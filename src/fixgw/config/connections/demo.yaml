@@ -1,4 +1,17 @@
+# The demo source (DEMO2): flies a synthetic-tier profile into this gateway,
+# looped, in real time. It writes what a GPS, an AHRS and an air-data box
+# would, and loads the route through the flight-plan contract as a pilot's
+# editor does; the flight-plan engine and compute do the rest. It needs the
+# sim extra (pip install 'fixgw[sim]') and refuses to start without it.
+#
+# It refuses to run beside any other source of the same keys: at start when
+# another plugin has written one, or when LAT/LONG move while it watches;
+# and it stops if another plugin writes one while it runs. See
+# src/fixgw/sim/PROFILE_FORMAT.md, "In the gateway: the demo source".
 demo:
   load: DEMO
   module: fixgw.plugins.demo
-
+  # profile: fp8-ksmx-rnav30-missed.yaml  # in src/fixgw/sim/profiles/, or a full path
+  # watch_s: 3        # watch LAT/LONG this long for another writer first
+  # restart_s: 5      # between loops: plan cleared, position flagged bad
+  # frequency_ms: 200 # one row of source keys every 200 ms

@@ -1,4 +1,10 @@
-import io
+# DEMO2 (AER-5461): the demo is a source built on fixgw.sim.  These tests fly
+# the shipped profile on the real database, with the stream's clock
+# fast-forwarded, and check what it writes, what it refuses, and when it stops.
+
+import re
+import sys
+import threading
 
 import pytest
 
@@ -6,169 +12,121 @@ import fixgw.database as database
 import fixgw.plugin as plugin_base
 import fixgw.plugins.demo as demo
 
+pytest.importorskip("geographiclib")
 
-class FakeLog:
-    def __init__(self):
-        self.debugs = []
+from fixgw.sim import generator  # noqa: E402
 
-    def debug(self, message):
-        self.debugs.append(message)
+PROFILE = demo.Plugin._profile_path(demo.DEFAULT_PROFILE)
 
 
-class FakeParent:
-    def __init__(self):
-        self.log = FakeLog()
-        self.values = {}
-        self.writes = []
-
-    def db_write(self, key, value):
-        self.values[key] = value
-        self.writes.append((key, value))
-
-    def db_read(self, key):
-        return (self.values[key], False, False, False, False, False)
+@pytest.fixture(scope="module")
+def flown():
+    return generator.generate(PROFILE)
 
 
-def test_main_thread_initializes_points_and_runs_script_paths(monkeypatch):
-    parent = FakeParent()
-    thread = demo.MainThread(parent)
-    assert parent.values["IAS"] == 113.0
-    assert parent.values["LAT"] == 40.000200
-
-    sleeps = 0
-
-    def stop_after_script_progress(_seconds):
-        nonlocal sleeps
-        sleeps += 1
-        if sleeps >= 25:
-            thread.getout = True
-
-    monkeypatch.setattr(demo.time, "sleep", stop_after_script_progress)
-
-    thread.run()
-
-    assert thread.running is False
-    assert ("MAVMSG", "NO DATA") in parent.writes
-    assert any(
-        key == "ROLL" and isinstance(value, (int, float)) and value > 0
-        for key, value in parent.writes
-    )
-    assert any(key == "LAT" and value != 40.000200 for key, value in parent.writes)
-
-
-def test_main_thread_wraps_single_entry_script_and_stop(monkeypatch):
-    parent = FakeParent()
-    thread = demo.MainThread(parent)
-    thread.script = [{"MAVMSG": "NO DATA"}]
-
-    def stop_after_sleep(_seconds):
-        thread.getout = True
-
-    monkeypatch.setattr(demo.time, "sleep", stop_after_sleep)
-    thread.run()
-    thread.stop()
-
-    assert ("MAVMSG", "NO DATA") in parent.writes
-    assert thread.running is False
-    assert thread.getout is True
-
-
-def test_plugin_lifecycle_status_and_failure(monkeypatch):
-    class DummyThread:
-        def __init__(self, _parent):
-            self.started = False
-            self.stopped = False
-            self.alive = False
-
-        def start(self):
-            self.started = True
-
-        def stop(self):
-            self.stopped = True
-
-        def is_alive(self):
-            return self.alive
-
-        def join(self, timeout):
-            self.joined = timeout
-
-    monkeypatch.setattr(demo, "MainThread", DummyThread)
-    plugin = demo.Plugin("demo", {}, {})
-
-    plugin.run()
-    plugin.stop()
-
-    assert plugin.thread.started is True
-    assert plugin.thread.stopped is True
-    assert plugin.get_status() == demo.OrderedDict()
-
-    failing = demo.Plugin("demo", {}, {})
-    failing.thread.alive = True
-    with pytest.raises(plugin_base.PluginFail):
-        failing.stop()
-
-
-# The refresh loop reads each point and writes it back.  A read returns
-# (value, annunc, old, bad, fail, secfail), but a tuple write is taken as
-# (value, annunc, bad, fail, secfail), so writing the read back moved every
-# flag one place: old became bad and bad became fail.  Under the writer-held
-# old flag (AER-4450) a compute output that demo also writes (CDI, COURSE in
-# the shipped default config) went old, then BAD, then FAILED (AER-4471).
-# These run on the real database because the shift is in its tuple setter.
-DB = """
-entries:
-- {key: CDI, type: float, min: -1.0, max: 1.0, initial: 0.0, tol: 2000}
-- {key: MAVMSG, type: str, initial: '', tol: 0}
-"""
-
-
-class DbParent:
-    def db_write(self, key, value):
-        database.write(key, value)
-
-    def db_read(self, key):
-        return database.read(key)
-
-
-def _demo_on_real_db():
-    database.init(io.StringIO(DB))
+@pytest.fixture
+def db(flown, monkeypatch):
+    database.init("src/fixgw/config/database.yaml")
     database._stop_update_thread()
-    thread = demo.MainThread(FakeParent())
-    thread.parent = DbParent()
-    thread.keylist = {"CDI": 0.0}
-    thread.script = [{"MAVMSG": "x"}]
-    return thread
+    monkeypatch.setattr(generator, "generate", lambda *a, **k: flown)
+    yield
+    database._stop_update_thread()
 
 
-def _run_one_pass(monkeypatch, thread):
-    def stop_after_sleep(_seconds):
-        thread.getout = True
-
-    monkeypatch.setattr(demo.time, "sleep", stop_after_sleep)
-    thread.run()
+def as_plugin(name, key, value):
+    """Write ``key`` from inside a plugin module, so the registry names it."""
+    exec("database.write(key, value)",
+         {"__name__": "fixgw.plugins." + name, "database": database, "key": key, "value": value})
 
 
-def test_refresh_does_not_turn_another_writers_old_into_bad(monkeypatch):
-    thread = _demo_on_real_db()
-    database.write("CDI", 0.0)
-    database.get_raw_item("CDI").old = True  # compute: input stale
-    _run_one_pass(monkeypatch, thread)
-    _, _, old, bad, fail, _ = database.read("CDI")
-    assert (bad, fail) == (False, False)
+class FastClock:
+    """live.stream's clock and sleep: a sleep advances the clock at once.
+    ``on_sleep(n)`` runs at the n-th sleep."""
+
+    def __init__(self, on_sleep=None):
+        self.t = 0.0
+        self.n = 0
+        self.on_sleep = on_sleep
+
+    def clock(self):
+        return self.t
+
+    def sleep(self, s):
+        self.t += s
+        self.n += 1
+        if self.on_sleep is not None:
+            self.on_sleep(self.n)
 
 
-def test_refresh_does_not_turn_bad_into_fail(monkeypatch):
-    thread = _demo_on_real_db()
-    database.write("CDI", 0.0)
-    database.get_raw_item("CDI").bad = True
-    _run_one_pass(monkeypatch, thread)
-    _, _, old, bad, fail, _ = database.read("CDI")
-    assert (bad, fail) == (True, False)
+def make(config=None, fast=None):
+    cfg = {"watch_s": 0, "restart_s": 0}
+    cfg.update(config or {})
+    p = demo.Plugin("demo", cfg, {})
+    fast = fast or FastClock()
+    p.thread.clock, p.thread.sleep = fast.clock, fast.sleep
+    return p
 
 
-# One writer per key (AER-4475): demo runs alongside compute in the shipped
-# default, so it must not write any key compute.yaml outputs. It used to write
-# COURSE, CDI and GSI, which compute owns through its NAVSRC select.
+def loops(p, n):
+    """Stop the demo once it has cleared the plan ``n`` times."""
+    clear = p.thread._clear_plan
+    count = []
+
+    def counted():
+        clear()
+        count.append(1)
+        if len(count) >= n:
+            p.thread.halt.set()
+
+    p.thread._clear_plan = counted
+    return count
+
+
+def demo_keys():
+    return {k for k, ws in database.writers().items() if "demo" in ws}
+
+
+# ---------------------------------------------------------------------------
+# What it writes
+# ---------------------------------------------------------------------------
+
+def test_source_keys_are_the_generators_sensor_set():
+    assert demo.SOURCE_KEYS == generator.SENSOR_KEYS
+
+
+def _editor_keys():
+    """The route and command keys doc/flightplan_keys.md gives to the editor,
+    as regexes.  `FPL1..100 LAT` / `LON` is two keys on one slot prefix."""
+    pats = []
+    with open("doc/flightplan_keys.md") as f:
+        lines = f.read().splitlines()
+    writer_col = None
+    for line in lines:
+        if not line.startswith("|"):
+            writer_col = None
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if "Writer" in cells:
+            writer_col = cells.index("Writer")
+            continue
+        if writer_col is None or set(cells[0]) <= set("-"):
+            continue
+        if not cells[writer_col].startswith("editor"):
+            continue
+        names = re.findall(r"`([^`]+)`", cells[0])
+        prefix = ""
+        for name in names:
+            m = re.match(r"(FPLS?)1\.\.100 (\w+)$", name)
+            if m:
+                prefix = m.group(1)
+                pats.append(prefix + r"\d+" + m.group(2))
+            elif prefix:
+                pats.append(prefix + r"\d+" + name)
+            else:
+                pats.append(re.escape(name))
+    return [re.compile(p + "$") for p in pats]
+
+
 def _compute_outputs():
     import yaml
 
@@ -177,11 +135,171 @@ def _compute_outputs():
     return {f["output"] for f in functions if "output" in f}
 
 
-def test_demo_writes_no_compute_output():
-    thread = demo.MainThread(FakeParent())
-    written = set(thread.keylist)
-    for step in thread.script:
-        written.update(k for k in step if k != "MAVMSG")
+def test_demo_writes_only_source_keys_and_the_editors_route_keys(db, monkeypatch):
+    annunciated = []
+    real = database.db_item.annunciate.fset
+
+    def watch(self, x):
+        annunciated.append(self.key)
+        real(self, x)
+
+    monkeypatch.setattr(database.db_item, "annunciate", database.db_item.annunciate.setter(watch))
+    p = make()
+    loops(p, 2)
+    p.run()
+    p.thread.join(60)
+    assert not p.thread.is_alive()
+    assert p.thread.refused is None, p.status
+
+    written = demo_keys()
+    editor = _editor_keys()
+    route = {k for k in written if any(rx.match(k) for rx in editor)}
+    # every key it writes is a sensor's or the editor's
+    assert written - route == set(demo.SOURCE_KEYS), sorted(written - route)
+    assert {"FPLSEQ", "FPLCMD", "FPLCOUNT", "FPLSEGCNT", "FPL1ID", "FPLS1KIND"} <= route
+    # never a reference key, a compute output, or an annunciate flag
+    assert not {k for k in written if k.startswith("REF")}
     outputs = _compute_outputs()
     assert {"COURSE", "CDI", "GSI"} <= outputs
     assert written & outputs == set()
+    assert annunciated == []
+    # the engine's outputs are not the editor's: the contract check above has teeth
+    assert not any(rx.match(k) for rx in editor for k in ("FPLCRS", "FPLXTK", "FPLCDI", "WPNAME", "FPLCMDACK"))
+
+
+def test_the_route_is_committed_again_each_loop(db):
+    seqs = []
+    database.callback_add("t", "FPLSEQ", lambda k, v, u: seqs.append((v[0], database.read("FPLCOUNT")[0])), None)
+    p = make()
+    loops(p, 2)
+    p.run()
+    p.thread.join(60)
+    # commit, clear, commit, clear: each one past the last, the clears empty
+    assert [s for s, _ in seqs] == [1, 2, 3, 4]
+    assert [c > 0 for _, c in seqs] == [True, False, True, False]
+    assert p.status["Loops"] == 1
+
+
+def test_the_restart_holds_position_bad_and_the_next_loop_clears_it(db):
+    p = make({"restart_s": 0})
+    seen = []
+
+    def after_clear():
+        demo.MainThread._clear_plan(p.thread)
+        seen.append(database.read("LAT")[3])
+        if len(seen) == 2:
+            p.thread.halt.set()
+
+    p.thread._clear_plan = after_clear
+    bad_mid_loop = []
+    database.callback_add("t", "LAT", lambda k, v, u: bad_mid_loop.append(v[3]), None)
+    p.run()
+    p.thread.join(60)
+    assert seen == [True, True]
+    # the second loop's first position write cleared it
+    first_of_loop2 = bad_mid_loop.index(True) + 1
+    assert bad_mid_loop[first_of_loop2] is False
+
+
+def test_renumber_follows_the_gateways_seq_and_acks():
+    rows = [(0.0, {"FPLSEQ": 1, "LAT": 1.0}), (0.2, {"FPLCMD": "1 ACT 3"}), (9.0, {"FPLCMD": "2 RESUME"})]
+    out = demo.renumber(rows, 17, 40)
+    assert out == [(0.0, {"FPLSEQ": 17, "LAT": 1.0}), (0.2, {"FPLCMD": "41 ACT 3"}),
+                   (9.0, {"FPLCMD": "42 RESUME"})]
+    assert rows[0][1]["FPLSEQ"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Refusing company
+# ---------------------------------------------------------------------------
+
+def test_refuses_at_start_when_another_plugin_writes_a_source_key(db):
+    as_plugin("stratux", "ROLL", 3.0)
+    p = make()
+    with pytest.raises(plugin_base.PluginFail, match="ROLL"):
+        p.start()
+    assert p.status["State"] == "refused"
+    assert "stratux" in p.status["Reason"]
+    assert demo_keys() == set()
+
+
+def test_refuses_after_watching_when_a_source_starts_writing(db, flown, monkeypatch):
+    # xplane comes up after demo's start check and writes during the watch
+    def gen(*a, **k):
+        as_plugin("xplane", "PITCH", 2.0)
+        return flown
+
+    monkeypatch.setattr(generator, "generate", gen)
+    p = make()
+    p.start()
+    p.thread.join(10)
+    assert p.status["State"] == "refused"
+    assert "PITCH (xplane)" in p.status["Reason"]
+    assert demo_keys() == set()
+
+
+def test_refuses_when_something_unattributed_moves_lat_long(db, flown, monkeypatch):
+    # a netfix client is attributed to netfix; a write from outside any
+    # plugin is not, and the live check is what sees it
+    def gen(*a, **k):
+        # from its own thread: on the demo's stack the write would be demo's
+        t = threading.Thread(target=database.write, args=("LAT", 34.9))
+        t.start()
+        t.join()
+        return flown
+
+    monkeypatch.setattr(generator, "generate", gen)
+    p = make()
+    p.start()
+    p.thread.join(10)
+    assert p.status["State"] == "refused"
+    assert "moving LAT" in p.status["Reason"]
+    assert demo_keys() == set()
+
+
+def test_stops_on_a_second_writer_while_running(db):
+    fast = FastClock(on_sleep=lambda n: as_plugin("gpsd", "LONG", -120.0) if n == 50 else None)
+    p = make(fast=fast)
+    p.start()
+    p.thread.join(30)
+    assert not p.thread.is_alive()
+    assert p.status["State"] == "stopped"
+    assert "LONG (gpsd)" in p.status["Reason"]
+    assert not p.is_running()
+    # it stopped at once: the row after the intruding write was not written
+    assert fast.n == 50
+
+
+def test_a_route_key_written_by_the_engine_does_not_stop_it(db):
+    # flightplan republishes the route on restore: a shared contract
+    fast = FastClock(on_sleep=lambda n: as_plugin("flightplan", "FPLNAME", "X") if n == 50 else None)
+    p = make(fast=fast)
+    loops(p, 1)
+    p.start()
+    p.thread.join(60)
+    assert p.thread.refused is None
+    assert p.status["State"] == "restarting"
+
+
+def test_refuses_a_speed_other_than_1(db):
+    p = make({"speed": 4})
+    with pytest.raises(plugin_base.PluginFail, match="real time"):
+        p.start()
+
+
+def test_refuses_without_the_sim_tier(db, monkeypatch):
+    monkeypatch.setitem(sys.modules, "fixgw.sim.generator", None)
+    p = make()
+    with pytest.raises(plugin_base.PluginFail, match=r"fixgw\[sim\]"):
+        p.start()
+
+
+def test_stop_ends_the_thread(db):
+    fast = FastClock()
+    p = make(fast=fast)
+    fast.on_sleep = lambda n: p.thread.halt.set() if n == 10 else None
+    p.start()
+    p.thread.join(10)
+    p.shutdown()
+    assert not p.thread.is_alive()
+    assert p.thread.refused is None
