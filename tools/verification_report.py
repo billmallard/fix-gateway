@@ -26,6 +26,7 @@ Usage (CI):
         --run-url "$RUN_URL" --out reports/verification.json
     python tools/verification_report.py summary reports/verification.json >> "$GITHUB_STEP_SUMMARY"
     python tools/verification_report.py page reports/verification.json fgw.json --out site
+    python tools/verification_report.py check-text docs/safety/*.md site/*.html
 """
 
 import argparse
@@ -45,7 +46,7 @@ RID = re.compile(r"\b[A-Z]{2,6}(?:-[A-Z]{2,7})?-[A-Z]{2,7}-\d{3}\b")
 
 # Standing text, testing_visibility_plan.md 4.7 (D3), adapted from a data pack to software.
 STANDING_TEXT = (
-    "These are the automated tests we ran on this software, what each one exercises, "
+    "These are the automated tests run on this software, what each one exercises, "
     "and its last result. It is evidence, not a warranty and not a certification. "
     "No authority has reviewed or approved this software or these tests. A passing "
     "test does not mean the software is correct, complete or fit for any purpose. "
@@ -103,6 +104,69 @@ def find_leaks(text):
     for pat in LEAK_PATTERNS:
         leaks += [m.group(0) for m in pat.finditer(text)]
     return leaks
+
+
+# --------------------------------------------------------------------------- public text
+
+# Public text speaks for the project, not for whoever wrote it, and cites no internal
+# board ids (CERT18c; Bill's ruling on the safety documents in pyEfis#447). Checked by
+# ``check-text`` over docs/safety/*.md and every page the evidence site publishes.
+# Whole words; ``I`` is matched in capitals only, the rest in any case.
+FIRST_PERSON = ("I", "I'm", "I've", "me", "my", "we", "we're", "we've", "us", "our", "ours")
+_FIRST_PERSON = re.compile(
+    r"(?<![\w'’-])(?:I(?:['’](?:m|ve))?(?!/O\b)|(?i:we['’](?:re|ve)|me|my|we|us|ours|our))(?![\w-])")
+# "Class I", "Appendix I": a numeral, not a pronoun; nor is the I in "I/O".
+_NUMERAL_I = re.compile(r"\b(?:Appendix|Annex|Category|CAT|Chapter|Class|Division|Group|Level|Part|Phase|"
+                        r"Schedule|Section|Stage|Table|Tier|Type|Vol\.?|Volume)\s+$", re.I)
+BOARD_ID = re.compile(r"\bAER-\d+\b")
+# The one allowance: a line carrying this marker may quote first person or a board id,
+# and only inside the quotation ("...", a curly-quoted span, or a > blockquote line).
+QUOTE_MARKER = "<!-- public-text: quoted -->"
+_QUOTED = re.compile(r"\"[^\"]*\"|“[^”]*”")
+
+
+def _quoted_spans(line):
+    if line.lstrip().startswith(">"):
+        return [(0, len(line))]
+    return [m.span() for m in _QUOTED.finditer(line)]
+
+
+def find_public_text_faults(text):
+    """[(line number, kind, word)] for first-person words and board ids in ``text``."""
+    faults = []
+    for n, line in enumerate(text.splitlines(), 1):
+        hits = [("first person", m) for m in _FIRST_PERSON.finditer(line)
+                if not (m.group(0) == "I" and _NUMERAL_I.search(line[:m.start()]))
+                and m.group(0) != "US"]   # the country
+        hits += [("board id", m) for m in BOARD_ID.finditer(line)]
+        spans = _quoted_spans(line) if QUOTE_MARKER in line else []
+        faults += [(n, kind, m.group(0)) for kind, m in sorted(hits, key=lambda h: h[1].start())
+                   if not any(a <= m.start() and m.end() <= b for a, b in spans)]
+    return faults
+
+
+def visible_text(page_html):
+    """The words a reader sees on a generated page, line for line with the HTML (the
+    generators write one element per line), so a fault's line number is the file's."""
+    page_html = re.sub(r"<(style|script)\b.*?</\1>", lambda m: "\n" * m.group(0).count("\n"),
+                       page_html, flags=re.S | re.I)
+    keep = "\0quoted\0"   # the marker is an HTML comment, so it would go with the tags
+    return "\n".join(html.unescape(re.sub(r"<[^>]*>", " ", line.replace(QUOTE_MARKER, keep)))
+                     .replace(keep, QUOTE_MARKER) for line in page_html.split("\n"))
+
+
+def strip_board_ids(text):
+    """Drop board ids from text that came from a test or a source file, for a public page:
+    "Bank cue (AER-5149)" -> "Bank cue", "AER-1709: a PA3 gateway" -> "A PA3 gateway",
+    "AER-1081 -- offscreen capture" -> "Offscreen capture"."""
+    if not text or not BOARD_ID.search(text):
+        return text
+    out = re.sub(r"\s*\(\s*AER-\d+(?:\s*[,/;]\s*AER-\d+)*\s*\)", "", text)
+    out = re.sub(r"(?:,|\s/)\s*AER-\d+\b(?:['’]s)?", "", out)
+    out = re.sub(r"\bAER-\d+\b(?:['’]s)?(?:\s*(?:[:|/]|--|\u2014))?\s*", "", out)
+    out = re.sub(r"\(\s*\)", "", out)
+    out = re.sub(r"[ \t]{2,}", " ", out).strip()
+    return out[:1].upper() + out[1:] if BOARD_ID.match(text.lstrip()) else out
 
 
 # --------------------------------------------------------------------------- collect
@@ -409,6 +473,8 @@ th{background:#eef1f5}code{font-size:13px}
 .r-pass{color:#1d6b2f}.r-fail{color:#a4161a;font-weight:600}.r-dev{color:#8a5a00}.r-none{color:#5b6475}
 .empty{background:#fff;border:1px dashed #b8bfcc;padding:14px 16px;border-radius:6px}
 details{margin:6px 0}
+nav{font-size:14px;margin-bottom:8px}nav a{margin-right:14px}
+tr:target{background:#fff3c4}.unlisted{border-bottom:1px dotted #a4161a}
 """
 
 
@@ -449,12 +515,24 @@ def _source_block(record):
             f'tests run {_e(record["generated_utc"])}. {_e(_counts_line(record))}.</li>')
 
 
-def render_page(records, missing=()):
+def _nav(pages):
+    """The link bar every page of the site carries, when it has safety pages."""
+    if not pages:
+        return ""
+    links = [("index.html", "Test evidence")] + [(p["href"], p["title"]) for p in pages]
+    return "<nav>" + "".join(f'<a href="{_e(href)}">{_e(title)}</a>' for href, title in links) + "</nav>"
+
+
+def render_page(records, missing=(), safety=None):
     gen = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    safety = safety or {"pages": [], "hazards_by_id": {}}
+    hazards_by_id = safety["hazards_by_id"]
+    hazard_href = next((p["href"] for p in safety["pages"] if p["hazards"]), "")
     h = ["<!doctype html><html lang=en><head><meta charset=utf-8>",
          '<meta name=viewport content="width=device-width,initial-scale=1">',
          "<title>pyEfis and FIX-Gateway test evidence</title>",
          f"<style>{CSS}</style></head><body><main>",
+         _nav(safety["pages"]),
          "<h1>pyEfis and FIX-Gateway: test evidence</h1>",
          f'<p class=muted>Generated {_e(gen)} from the CI test runs listed below. '
          "Every row is produced from the test suite and its JUnit results; nothing here is "
@@ -464,6 +542,12 @@ def render_page(records, missing=()):
     h += [_source_block(r) for r in records]
     h += [f"<li><b>{_e(name)}</b>: no published result yet. {_e(why)}</li>" for name, why in missing]
     h.append("</ul>")
+
+    if safety["pages"]:
+        h.append("<h2 id=safety>Hazard assessment and tool inventory</h2><ul>")
+        h += [f'<li><a href="{_e(p["href"])}">{_e(p["title"])}</a>: {_e(p["blurb"])}</li>'
+              for p in safety["pages"]]
+        h.append("</ul>")
 
     # Requirements -> tests -> last result.
     h.append("<h2 id=requirements>Requirements, their tests, and the last result</h2>")
@@ -485,7 +569,11 @@ def render_page(records, missing=()):
             tests = "<br>".join(_test_link(r, t) for t in x["tests"]) or "-"
             doc = (f' <span class=muted>({_e(x["doc"])})</span>' if x["doc"]
                    else ' <span class=muted>(no spec definition found)</span>')
-            h.append(f'<tr id="{_e(r["name"])}-{_e(x["id"])}"><td><code>{_e(x["id"])}</code></td>'
+            hz = hazards_by_id.get(x["id"], [])
+            cited_in = ("<br><span class=muted>cited in hazard rows "
+                         + ", ".join(f'<a href="{_e(hazard_href)}#{_e(z)}">{_e(z)}</a>' for z in hz)
+                         + "</span>") if hz and hazard_href else ""
+            h.append(f'<tr id="{_e(r["name"])}-{_e(x["id"])}"><td><code>{_e(x["id"])}</code>{cited_in}</td>'
                      f"<td>{_e(x['title'])}{doc}</td><td>{tests}</td>"
                      f'<td class={_result_class(x["result"])}>{_e(x["result"])}</td></tr>')
         h.append("</table>")
@@ -519,7 +607,7 @@ def render_page(records, missing=()):
              "computers, as reported by the people running them. It will fill from a "
              "&ldquo;Tested on my hardware&rdquo; issue form on the repositories, which does not "
              "exist yet. Until it does, this page has nothing to show here, and an empty table "
-             "means exactly that: no reports, not no problems.</p></div>")
+             "means exactly that: no reports, not no problems.</p></div>" + QUOTE_MARKER)
 
     h.append("<h2 id=sim>Simulator runs</h2>")
     h.append("<div class=empty><p><b>No simulator results are published yet.</b> Results from the "
@@ -555,18 +643,266 @@ def render_page(records, missing=()):
     return "\n".join(h)
 
 
+def public_record(record):
+    """The record as the site publishes it: board ids dropped from every string that came
+    from a test or a spec. The artifact the build job keeps is untouched."""
+    for t in record.get("tests", []):
+        for key in ("summary", "xfail_reason", "message"):
+            t[key] = strip_board_ids(t.get(key, ""))
+    for d in record.get("requirements", {}).values():
+        d["title"] = strip_board_ids(d.get("title", ""))
+    return record
+
+
+# --------------------------------------------------------------------------- safety pages
+
+# CERT18b: the hazard assessment and the tool inventory in docs/safety/, as pages of the
+# site. (source file, page, one-line description for the index, hazard page?)
+SAFETY_PAGES = (
+    ("fha_avionics_stack.md", "hazard_assessment.html",
+     "each function, how it can fail, the worst credible effect, the requirements cited against "
+     "each failure, and what is still open. Each requirement ID the Requirements table lists "
+     "links to its row there; the others are marked and listed at the end of the page.", True),
+    ("tool_inventory.md", "tool_inventory.html",
+     "each tool that produces or checks something the project ships to an aircraft, and whether "
+     "anything independent of the tool would catch an error in its output.", False),
+)
+
+# A hazard-table row ID: PFD-2, GW-3, CAN-1, H1, O3.
+_ROW_ID = re.compile(r"^[A-Z]{1,4}-?\d{1,3}$")
+
+
+def _cells(line):
+    return [c.strip() for c in line.strip().strip("|").split("|")]
+
+
+def _row_id(cells):
+    first = re.sub(r"[*`]", "", cells[0]) if cells else ""
+    return first if _ROW_ID.match(first) else ""
+
+
+def hazards_by_requirement(md_text):
+    """Requirement ID -> the hazard rows that name it in a mitigation column ("Mitigating
+    requirements", "Mitigation today"), in document order. An ID in another column, such
+    as "Open", is not a mitigation of that row."""
+    out = {}
+    header = None
+    for line in md_text.splitlines():
+        if not line.lstrip().startswith("|"):
+            header = None
+            continue
+        cells = _cells(line)
+        if header is None:
+            header = [i for i, c in enumerate(cells) if "mitigat" in c.lower()]
+            continue
+        row = _row_id(cells)
+        if not row:
+            continue
+        for ident in RID.findall(" | ".join(cells[i] for i in header if i < len(cells))):
+            if "-TC-" not in ident and row not in out.setdefault(ident, []):
+                out[ident].append(row)
+    return out
+
+
+def _slug(text):
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+
+def _inline(text, link=None):
+    """Markdown inline -> HTML: `code`, **bold**; with ``link``, each requirement ID
+    outside a code span becomes ``link(ident)``."""
+    spans = []
+
+    def keep(m):
+        spans.append(f"<code>{_e(m.group(1))}</code>")
+        return f"\x00{len(spans) - 1}\x00"
+
+    text = _e(re.sub(r"`([^`]+)`", keep, text))
+    if link:
+        text = RID.sub(lambda m: link(m.group(0)), text)
+    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+    return re.sub("\x00(\\d+)\x00", lambda m: spans[int(m.group(1))], text)
+
+
+def render_markdown(md_text, link=None):
+    """The subset of Markdown the safety documents use, as HTML: headings, paragraphs,
+    bullet and numbered lists, tables (a row whose first cell is a row ID gets that ID
+    as its anchor) and rules. Returns (title, opening paragraph, body)."""
+    lines = md_text.splitlines()
+    title, opening, body = "", "", []
+    i = 0
+    para = []
+
+    def flush():
+        nonlocal opening
+        if para:
+            text = _inline(" ".join(para), link)
+            if not opening and not body:
+                opening = text
+            else:
+                body.append(f"<p>{text}</p>")
+            para.clear()
+
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        m = re.match(r"^(#{1,4})\s+(.*)$", stripped)
+        if not stripped:
+            flush()
+        elif m:
+            flush()
+            level, text = len(m.group(1)), m.group(2)
+            if level == 1 and not title:
+                title = re.sub(r"[*`]", "", text)
+            else:
+                body.append(f'<h{level} id="{_slug(text)}">{_inline(text, link)}</h{level}>')
+        elif stripped == "---":
+            flush()
+            body.append("<hr>")
+        elif stripped.startswith("|"):
+            flush()
+            rows = []
+            while i < len(lines) and lines[i].strip().startswith("|"):
+                rows.append(_cells(lines[i]))
+                i += 1
+            body.append("<table><tr>" + "".join(f"<th>{_inline(c, link)}</th>" for c in rows[0]) + "</tr>")
+            for cells in rows[1:]:
+                if all(re.fullmatch(r":?-+:?", c) for c in cells):
+                    continue
+                row = _row_id(cells)
+                anchor = f' id="{_e(row)}"' if row else ""
+                body.append(f"<tr{anchor}>" + "".join(f"<td>{_inline(c, link)}</td>" for c in cells) + "</tr>")
+            body.append("</table>")
+            continue
+        elif re.match(r"^([-*]|\d+\.)\s+", stripped):
+            flush()
+            tag = "ol" if stripped[0].isdigit() else "ul"
+            items = []
+            while i < len(lines):
+                cur = lines[i]
+                if re.match(r"^([-*]|\d+\.)\s+", cur.strip()) and not cur.startswith("  "):
+                    items.append(re.sub(r"^([-*]|\d+\.)\s+", "", cur.strip()))
+                elif cur.startswith("  ") and cur.strip() and items:
+                    items[-1] += " " + cur.strip()
+                else:
+                    break
+                i += 1
+            body.append(f"<{tag}>" + "".join(f"<li>{_inline(t, link)}</li>" for t in items) + f"</{tag}>")
+            continue
+        else:
+            para.append(stripped)
+        i += 1
+    flush()
+    return title, opening, "\n".join(body)
+
+
+def requirement_anchors(records):
+    """Requirement ID -> its row on the index page (the first record that lists it)."""
+    anchors = {}
+    for r in records:
+        for x in requirement_rows(r):
+            anchors.setdefault(x["id"], f"index.html#{r['name']}-{x['id']}")
+    return anchors
+
+
+def _doc_source(records, rel):
+    rec = next((r for r in records if r.get("name") == "pyEfis" and r.get("sha")), None)
+    if not rec:
+        return f"<code>{_e(rel)}</code>"
+    url = f"https://github.com/{rec['repo']}/blob/{rec['sha']}/{rel}"
+    return f'<a href="{_e(url)}"><code>{_e(rel)}</code></a> at commit <code>{_e(rec["sha"][:10])}</code>'
+
+
+def render_safety_page(md_text, rel, records, pages, hazard=False):
+    """One document from docs/safety/ as a page of the site. On the hazard page each
+    requirement ID links to its row in the Requirements table on the index; an ID the
+    index does not list is marked, and collected in a closing section."""
+    anchors = requirement_anchors(records)
+    cited = {}
+    link = None
+    if hazard:
+        def link(ident):
+            if "-TC-" in ident:
+                return ident
+            cited.setdefault(ident, None)
+            if ident in anchors:
+                return f'<a href="{_e(anchors[ident])}">{ident}</a>'
+            return f'<span class=unlisted title="Not in the Requirements table on this site">{ident}</span>'
+
+    title, opening, body = render_markdown(md_text, link)
+    h = ["<!doctype html><html lang=en><head><meta charset=utf-8>",
+         '<meta name=viewport content="width=device-width,initial-scale=1">',
+         f"<title>{_e(title)}</title>",
+         f"<style>{CSS}</style></head><body><main>",
+         _nav(pages),
+         f"<h1>{_e(title)}</h1>",
+         f"<p class=muted>Rendered from {_doc_source(records, rel)}. The document in the "
+         "repository is the source; CI regenerates this page from it.</p>",
+         f"<div class=notice id=standing-text><p>{opening}</p></div>",
+         body]
+    if hazard:
+        rows = hazards_by_requirement(md_text)
+        unlisted = [i for i in cited if i not in anchors]
+        h.append("<h2 id=unlisted>Requirements cited here that the Requirements table does not list</h2>")
+        if unlisted:
+            h.append("<p>The Requirements table on the test evidence page lists the requirement "
+                     "IDs it can read from the pyEfis specs, and the IDs a test cites. The IDs "
+                     "below are cited in this assessment but are not in that table, so they have "
+                     "no row to link to. The <code>CFX-</code> IDs are defined in the CAN-FIX "
+                     "specification, not in a pyEfis spec.</p>")
+            h.append("<table><tr><th>Requirement</th><th>Hazard rows that cite it</th></tr>")
+            for ident in sorted(unlisted):
+                where = ", ".join(f'<a href="#{_e(z)}">{_e(z)}</a>' for z in rows.get(ident, [])) \
+                    or "named in the text only"
+                h.append(f"<tr><td><code>{_e(ident)}</code></td><td>{where}</td></tr>")
+            h.append("</table>")
+        else:
+            h.append("<p class=empty>Every requirement cited above has a row in the Requirements "
+                     "table.</p>")
+    h.append("</main></body></html>")
+    return title, "\n".join(h)
+
+
+def safety_site(safety_dir, records):
+    """{file name: html} for the safety pages, plus the index's view of them. Raises
+    FileNotFoundError when a document is missing: a site that silently lost its hazard
+    page is worse than a failed deploy."""
+    root = pathlib.Path(safety_dir)
+    texts = {src: sanitize((root / src).read_text(encoding="utf-8")) for src, *_ in SAFETY_PAGES}
+    pages = []
+    for src, href, blurb, hazard in SAFETY_PAGES:
+        title = next((ln[2:].strip() for ln in texts[src].splitlines() if ln.startswith("# ")), src)
+        pages.append({"src": src, "href": href, "title": re.sub(r"[*`]", "", title),
+                      "blurb": blurb, "hazards": hazard})
+    files = {}
+    hazards_by_id = {}
+    for p in pages:
+        _, files[p["href"]] = render_safety_page(texts[p["src"]], f"docs/safety/{p['src']}",
+                                                 records, pages, p["hazards"])
+        if p["hazards"]:
+            hazards_by_id = hazards_by_requirement(texts[p["src"]])
+    return files, {"pages": pages, "hazards_by_id": hazards_by_id}
+
+
 def page(args):
     records = []
     for p in args.records:
         path = pathlib.Path(p)
         if path.is_file():
-            records.append(json.loads(path.read_text(encoding="utf-8")))
+            records.append(public_record(json.loads(path.read_text(encoding="utf-8"))))
     have = {r["name"] for r in records}
     missing = [(m, "Its CI has not published a record on the branch this page tracks.")
                for m in (args.expect or []) if m not in have]
+    safety_files, safety = {}, None
+    if args.safety:
+        try:
+            safety_files, safety = safety_site(args.safety, records)
+        except FileNotFoundError as exc:
+            sys.stderr.write(f"refusing to publish: a safety document is missing ({exc.filename})\n")
+            return 2
     out = pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    files = {"index.html": render_page(records, missing)}
+    files = {"index.html": render_page(records, missing, safety), **safety_files}
     for r in records:
         files[f"{r['name']}.json"] = json.dumps(r, indent=1, sort_keys=True)
     for name, text in files.items():
@@ -577,6 +913,23 @@ def page(args):
     for name, text in files.items():
         (out / name).write_text(text, encoding="utf-8")
     return 0
+
+
+def check_text(args):
+    """Fail on first person or a board id in public text, naming file, line and word."""
+    faults = 0
+    for p in args.files:
+        path = pathlib.Path(p)
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if path.suffix.lower() in (".html", ".htm"):
+            text = visible_text(text)
+        for n, kind, word in find_public_text_faults(text):
+            print(f"{path.as_posix()}:{n}: {kind} '{word}'")
+            faults += 1
+    if faults:
+        sys.stderr.write(f"{faults} public-text fault(s): no first person and no board ids in public "
+                         f"text. Quote it on a line marked {QUOTE_MARKER} if it is a quotation.\n")
+    return 1 if faults else 0
 
 
 def main(argv=None):
@@ -596,9 +949,13 @@ def main(argv=None):
     p = sub.add_parser("page", help="verification.json files -> static site")
     p.add_argument("records", nargs="*")
     p.add_argument("--expect", nargs="*", help="record names to show as missing if absent")
+    p.add_argument("--safety", default=None,
+                   help="docs/safety directory: render the hazard assessment and tool inventory too")
     p.add_argument("--out", required=True)
+    t = sub.add_parser("check-text", help="fail on first person or board ids in public .md/.html files")
+    t.add_argument("files", nargs="+")
     args = ap.parse_args(argv)
-    return {"collect": collect, "summary": summary, "page": page}[args.cmd](args)
+    return {"collect": collect, "summary": summary, "page": page, "check-text": check_text}[args.cmd](args)
 
 
 if __name__ == "__main__":

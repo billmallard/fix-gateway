@@ -20,9 +20,31 @@ and a frame whose FCS does not match is discarded.
 |---|---|---|
 | `host` | `""` | address to bind |
 | `port` | `4000` | UDP port |
+| `source` | `""` | the receiver's IPv4 address, e.g. `"192.168.10.1"`. When set, a datagram from any other sender is dropped and counted in the log. Empty accepts every sender. See *AHRS is a network input* |
 | `traffic` | `true` | write ADS-B traffic into the `TFC` block. Exactly one traffic writer per installation |
 | `evict_s` | `10` | seconds without a report before a target's slot is emptied |
 | `ownship_address` | `""` | our 24-bit ICAO address as a **quoted** hex string, e.g. `"A1B2C3"`. Set by the configurator from the aircraft registration |
+
+## AHRS is a network input to the attitude display
+
+The `0x4C` AHRS message writes `PITCH`, `ROLL` and `HEAD`, the attitude and
+heading the PFD shows. It arrives as UDP over the receiver's Wi-Fi, and GDL90
+has no authentication. With `source` empty the plugin accepts it from any
+host that sends to the port: a second receiver, a flight simulator
+broadcasting GDL90, or anything else on that network can drive the attitude
+display.
+
+Set `source` to the receiver's address. Datagrams from any other address are
+then dropped. The first drop from each sender is logged with its address, the
+running count is logged once a minute while drops continue, and the plugin
+status shows `Dropped datagrams`. A `source` that is not an IPv4 address
+drops everything and logs an error, so attitude goes stale rather than the
+filter quietly turning off.
+
+The filter is an address check, not authentication. A host on the same
+network can forge the receiver's source address. It stops the ordinary case,
+a second device sending GDL90 to the port, and it makes a foreign sender
+visible in the log. It does not make Wi-Fi AHRS a trusted attitude source.
 
 ## Traffic
 

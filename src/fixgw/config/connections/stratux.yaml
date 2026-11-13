@@ -4,6 +4,12 @@ stratux:
   # GDL90 over UDP (the Stratux sends to port 4000).
   host: ""
   port: 4000
+  # The receiver's IPv4 address, e.g. "192.168.10.1" (a Stratux's own
+  # address on its Wi-Fi).  When set, a datagram from any other sender is
+  # dropped and counted in the log.  The AHRS message drives PITCH, ROLL
+  # and HEAD: anything on the Wi-Fi that sends to this port reaches the
+  # attitude display unless this is set.  Empty accepts every sender.
+  source: ""
   # ADS-B traffic into the TFC key block (database/traffic.yaml; contract:
   # pyEfis docs/fix_dynamic_list_spec.md section 4).  Exactly one traffic
   # writer per installation: set false if another source writes TFC.
@@ -12,6 +18,8 @@ stratux:
   # slot keys' 3 s tol, so a stale target shows as old before it goes.
   evict_s: 10
   # Our own 24-bit ICAO address, hex, QUOTED (e.g. "A1B2C3").  Traffic with
-  # this address is never shown.  Set by the configurator from the aircraft
-  # registration; the receiver's own ownship report is filtered as well.
+  # this address is never shown; the receiver's own ownship report is
+  # filtered as well.  Leave it "" to use the top-level ownship_address in
+  # preferences.yaml.custom, which pyefis-data config-pull sets from the
+  # configurator's aircraft registration.  A value here overrides it.
   ownship_address: ""

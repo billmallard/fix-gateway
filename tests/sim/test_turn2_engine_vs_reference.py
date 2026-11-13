@@ -67,3 +67,41 @@ def test_engine_and_reference_fly_a_reversal_the_same_way(turn_deg):
     # The overshoot both sides show after the turn: R (1 - cos turn).
     r = GS_KT / 188.5
     assert abs(ref.xtk_nm) == pytest.approx(r * (1 - math.cos(math.radians(turn_deg))), abs=0.05)
+
+
+def _track_cut_short(legs, turn_deg, turn_before_nm=1.0):
+    """One position a second: on A->B from 3 nm before B, a standard-rate
+    right turn through turn_deg started turn_before_nm short of B, hand-
+    flown or in HDG mode, then straight. It never gets abeam B."""
+    b = legs[1]
+    _, _, azi_in = refnav.inverse(legs[0].lat, legs[0].lon, b.lat, b.lon)
+    lat, lon = refnav.direct(b.lat, b.lon, azi_in + 180.0, 3.0)
+    hdg, turned, step = azi_in, 0.0, GS_KT / 3600.0
+    out = []
+    for _ in range(240):
+        out.append((lat, lon, hdg))
+        started = refnav.inverse(lat, lon, b.lat, b.lon)[0] <= turn_before_nm or turned > 0.0
+        if started and turned < turn_deg:
+            d = min(3.0, turn_deg - turned)
+            hdg, turned = hdg + d, turned + d
+        lat, lon = refnav.direct(lat, lon, hdg, step)
+    return out
+
+
+@pytest.mark.parametrize("turn_deg", [150.0, 179.0])
+def test_engine_and_reference_sequence_a_reversal_cut_short_the_same_way(turn_deg):
+    # TURN2b (AER-5324): both sides sequence B past the closest approach,
+    # in the same second, though the aircraft never gets abeam B.
+    legs = _legs(turn_deg)
+    nav = refnav.ReferenceNavigator(legs, 0.0, (legs[1].lat, legs[1].lon), 1, GS_KT)
+    e = Engine()
+    load(e, [Waypoint(lg.ident, lg.lat, lg.lon) for lg in legs], "T", 1)
+    e.handle_command("1 ACT 2", (legs[0].lat, legs[0].lon, True))
+    seen = []
+    for t, (lat, lon, hdg) in enumerate(_track_cut_short(legs, turn_deg)):
+        ref = nav.update(float(t), lat, lon, 3000.0, GS_KT, hdg)
+        out = e.update(lat, lon, GS_KT, 0.0, True, None, None, 1000.0 + t)
+        assert out["wp_name"] == ref.wpt, t
+        if not seen or seen[-1] != ref.wpt:
+            seen.append(ref.wpt)
+    assert seen == ["B", "C"]

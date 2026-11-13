@@ -5,7 +5,8 @@
 """Just enough of FAA CIFP (``FAACIFP18``, ARINC 424-18 fixed-width records)
 to fly one approach and the airways before it: the header cycle, fix
 positions (terminal and en-route waypoints, VHF navaids, runways, airports),
-an approach's legs, and an airway's fixes between two of them.
+a runway's bearing and elevation, an approach's legs, and an airway's fixes
+between two of them.
 
 Written for the synthetic tier only. It is deliberately not shared with the
 navigation engine (which reads no CIFP at all -- its route arrives on the
@@ -161,6 +162,21 @@ class Cifp:
         if len(set((f.lat, f.lon) for f in found)) > 1:
             raise CifpError(f"{ident}: ambiguous ({len(found)} records); name the section")
         return found[0]
+
+    def runway(self, airport, ident):
+        """(threshold Fix, magnetic bearing deg, threshold elevation ft) of
+        runway ``ident`` (``RW30``) at ``airport``, from its ``PG`` record:
+        bearing cols 28-31 (tenths), elevation cols 67-71. Raises if the
+        record is absent or either field is blank."""
+        for line in self._lines:
+            if (_col(line, 5, 5) == "P" and _col(line, 13, 13) == "G"
+                    and _col(line, 7, 10).strip() == airport and _col(line, 14, 18).strip() == ident):
+                brg, elev = _col(line, 28, 31).strip(), _col(line, 67, 71).strip()
+                if not (brg.isdigit() and elev.lstrip("-").isdigit()):
+                    raise CifpError(f"{airport} {ident}: runway record without a bearing or an elevation")
+                f = Fix(ident, _lat(_col(line, 33, 41)), _lon(_col(line, 42, 51)), "runway")
+                return f, int(brg) / 10.0, float(int(elev))
+        raise CifpError(f"{airport} {ident}: no runway record in {self.path}")
 
     def enroute_fix(self, ident):
         """A fix a pilot enters by name: an en-route waypoint, a VHF navaid

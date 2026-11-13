@@ -27,6 +27,10 @@ import queue
 
 jobQueue = queue.Queue()
 
+# The merged preferences.yaml and preferences.yaml.custom, set by the server
+# before any plugin loads, for a plugin that reads a top-level preference.
+preferences = {}
+
 
 class PluginFail(Exception):
     pass

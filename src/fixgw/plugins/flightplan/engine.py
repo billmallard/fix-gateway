@@ -145,6 +145,12 @@ ARC_MIN_DEG = 0.5
 # larger turn (a pilot-built reversal) is flown as a fly-over: no
 # anticipation, sequenced abeam, needle from the next leg (brief 3.3.1 row 3).
 MAX_FLYBY_TURN_DEG = 120.0
+# TURN2b (AER-5324): such a turn also sequences where the aircraft, turned
+# back short of the fix, has passed its closest approach to it -- within the
+# lead a fly-by turn would have taken (turn_anticipation_nm at the full
+# course change). The distance must open by this much past the closest
+# point, so position noise does not read as the turn back.
+REVERSAL_PASSED_NM = 0.05
 
 # --- Hold entries and racetrack (fix-gateway#45) ----------------------------
 # AIM 5-3-8 (the Instrument Flying Handbook, FAA-H-8083-15B ch. 10, still
@@ -654,6 +660,9 @@ class Engine:
         # is measured from it until the aircraft is past its end, on both
         # sides of the bisector. None outside a fly-by turn.
         self._turn_arc = None
+        # Closest approach to the TO fix of a turn over MAX_FLYBY_TURN_DEG
+        # (TURN2b): (leg key, nm). A new key starts it again.
+        self._reversal_closest = None
 
         self._last_good_time = None
         self._last_lat = None
@@ -1411,6 +1420,41 @@ class Engine:
             return 0.0
         return turn_anticipation_nm(gs_kt, delta, self.turn_bank_deg)
 
+    def _reversal_lead_nm(self, to_wp, anchor, to, gs_kt):
+        """The lead a fly-by turn would take at the fix `to`, for a turn
+        flown as a fly-over only because it is over MAX_FLYBY_TURN_DEG
+        (brief 3.3.1 row 3); None for every other fix. Coded fly-over fixes
+        and Tier-2 transitions are fly-over by the procedure, not by the
+        engine, and keep sequencing abeam only (row 4, row 7)."""
+        if to_wp.pt in PT_TIER2 or to_wp.flags & FLAG_FLYOVER:
+            return None
+        next_wp = self.route[self.act_leg] if 0 < self.act_leg < self.count else None
+        if next_wp is None or next_wp.pt in PT_TIER2 or next_wp.pt in PT_VECTOR:
+            return None
+        in_course, out_course = self._turn_courses(anchor, to, next_wp)
+        delta = _course_change_deg(in_course, out_course)
+        if delta <= MAX_FLYBY_TURN_DEG:
+            return None
+        return turn_anticipation_nm(gs_kt, delta, self.turn_bank_deg)
+
+    def _turned_back_short(self, to_wp, anchor, to, gs_kt, ac_lat, ac_lon):
+        """True once an aircraft that turned back short of a row-3 fix has
+        passed its closest approach to it (TURN2b, AER-5324). In straight
+        flight the closest approach is abeam, where the abeam rule fires
+        anyway; this only adds the turn that never gets there."""
+        lead = self._reversal_lead_nm(to_wp, anchor, to, gs_kt)
+        if lead is None:
+            self._reversal_closest = None
+            return False
+        key = (self.act_leg, anchor.lat, anchor.lon, to.lat, to.lon)
+        dist = geo.distance_nm(ac_lat, ac_lon, to.lat, to.lon)
+        if self._reversal_closest is None or self._reversal_closest[0] != key:
+            self._reversal_closest = (key, dist)
+            return False
+        closest = min(self._reversal_closest[1], dist)
+        self._reversal_closest = (key, closest)
+        return closest <= lead and dist >= closest + REVERSAL_PASSED_NM
+
     @staticmethod
     def _turn_courses(anchor, to, next_wp):
         """True courses at the fix `to`: arriving on the great circle from
@@ -1755,6 +1799,7 @@ class Engine:
                     atd <= 0.0
                     or (self._turning and self._past_turn_bisector(anchor, to, ac_lat, ac_lon))
                     or (not self._turning and atd <= d_ta)
+                    or self._turned_back_short(to_wp, anchor, to, gs_kt, ac_lat, ac_lon)
                 )
 
             if reached:
