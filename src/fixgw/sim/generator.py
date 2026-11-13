@@ -183,7 +183,7 @@ def generate(profile, frequency_ms=200, cifp_path=None, fplseq=1, gps_accuracy_f
         if t_map is not None and ref.map_suspended and t >= t_map + resume_after:
             if not proc.get("missed", False):
                 break
-            ref.go_missed(t, (s.lat, s.lon))
+            ref.go_missed(t, (s.lat, s.lon), s.track_true, s.gs_kt)
             leg_start_t[ref.i] = t
             cmd_seq += 1
             cmds.append(f"{cmd_seq} RESUME")

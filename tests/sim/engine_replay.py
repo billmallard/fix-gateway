@@ -22,7 +22,7 @@ ENGINE_CONFIG = {"terminal_nm": 30.0, "approach_ramp_nm": 2.0, "turn_rate_deg_s"
 OUT_KEYS = {"state": "FPLSTATE", "act_leg": "FPLACTLEG", "phase": "FPLPHASE", "apr": "FPLAPR",
             "cdiscale": "CDISCALE", "crs": "FPLCRS", "xtk": "FPLXTK", "cdi": "FPLCDI", "tf": "FPLTF",
             "wp_from": "WPFROM", "wp_next": "WPNEXT", "wp_name": "WPNAME", "wp_dis": "WPDIS",
-            "act_seg": "FPLACTSEG", "alert": "FPLALERT"}
+            "act_seg": "FPLACTSEG", "alert": "FPLALERT", "turn": "FPLTURN"}
 
 
 def _route(db):

@@ -115,6 +115,7 @@ class MainThread(threading.Thread):
         self._ta_act_leg = None
         self._ta_time = 0.0
         self._ta_missing = False
+        self._turn_missing = False
         self._last_update_time = 0.0
         self._restoring = False
         self._last_persisted = None
@@ -397,6 +398,21 @@ class MainThread(threading.Thread):
         self._ta_act_leg = act_leg
         self._ta_time = now
 
+    def _write_turn(self, turn):
+        """FPLTURN (AER-4541): the direction of a DF's coded turn while it
+        is flown. A database without the key (a config edited before
+        AER-4541) turns the output off with one log line, as FPLfTA does:
+        the guidance does not depend on it, and the display then shows no
+        turn annunciation."""
+        if self._turn_missing:
+            return
+        try:
+            self._setval("FPLTURN", turn)
+        except KeyError:
+            self._turn_missing = True
+            self.log.warning("flightplan: no FPLTURN in the database, so a DF's coded turn is not "
+                             "annunciated (database/flightplan.yaml predates AER-4541)")
+
     def _write_outputs(self, out):
         fail = out.get("fail", False)
         bad = out.get("bad", False)
@@ -432,6 +448,7 @@ class MainThread(threading.Thread):
         self._setval("FPLACTSEG", out["act_seg"])
         self._setval("FPLSEGREM", out["seg_rem"], fail=fail, bad=bad)
         self._setval("FPLALERT", out["alert"])
+        self._write_turn(out["turn"])
         if out.get("msg"):
             self.parent.db_write("FPLMSG", out["msg"])
 

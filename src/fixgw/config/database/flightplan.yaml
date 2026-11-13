@@ -169,7 +169,7 @@ items:
   tol: 0
 
 - key: FPLfTURN
-  description: 'Flight plan slot %f turn direction, "L" or "R" ("" = none). Required for RF/AF (which way around the center) and HM/HF/HA/PI (which side of the inbound course the pattern is flown) -- never defaulted (guardrail 1)'
+  description: 'Flight plan slot %f turn direction, "L" or "R" ("" = none). Required for RF/AF (which way around the center) and HM/HF/HA/PI (which side of the inbound course the pattern is flown) -- never defaulted (guardrail 1). Optional on a DF (AER-4541): "L"/"R" is the way the turn onto it is flown, "" or "E" (ARINC either) the short way, anything else rejects the route (BADTURN)'
   type: str
   initial: ""
   tol: 0
@@ -518,6 +518,12 @@ items:
   description: Flight plan waypoint sequencing alert
   type: bool
   initial: false
+  tol: 5000
+
+- key: FPLTURN
+  description: 'Commanded turn direction on the active leg (AER-4541): "L" or "R" while the engine flies the coded turn that opens a DF leg, "" otherwise. Engine-written, one writer. A display annunciates it and never derives it from FPLfTURN and the track. Absent on an older gateway: no annunciation'
+  type: str
+  initial: ""
   tol: 5000
 
 # --- GPS guidance source selection ------------------------------------------

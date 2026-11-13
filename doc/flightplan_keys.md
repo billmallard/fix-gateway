@@ -52,7 +52,7 @@ their zero value -- nothing changes for that case.
 | `FPL1..100 SGI` | int | 1..`FPLSEGCNT` for a slot in use (0 only past `FPLCOUNT`); database range 0..100 | editor | Index of the segment this slot belongs to (RS1, replaces PA3's `FPLfSEG`) |
 | `FPL1..100 FLAGS` | int | bitfield: `0x01` fly-over, `0x02` IAF, `0x04` FAF, `0x08` MAP, `0x10` MAHP, `0x20` from a coded procedure | editor | Leg flags (replaces FP1's `FPLfROLE`) |
 | `FPL1..100 CTRLAT` / `CTRLON` | float | +-90 / +-180 deg | editor | Arc center point (PA13, `RF`/`AF` only) |
-| `FPL1..100 TURN` | str | `"L"`/`"R"`/`""` | editor | Turn direction (PA13, required for `RF`/`AF`/`HM`/`HF`/`HA`/`PI`) |
+| `FPL1..100 TURN` | str | `"L"`/`"R"`/`""` | editor | Turn direction (PA13, required for `RF`/`AF`/`HM`/`HF`/`HA`/`PI`). Optional on a `DF` (AER-4541): `L`/`R` is the way the turn onto it is flown; `""`, or `"E"` (ARINC "either"), the short way; any other value is `BADTURN` |
 | `FPL1..100 TA` | float | 0..5 nm | **engine** | Fly-by turn anticipation at this slot's fix (TURN3, below). 0 = no arc |
 | `FPLCOUNT` | int | 0..100 | editor | Slots in use |
 | `FPLNAME` | str | <=32 chars, no `;` | editor | Route name |
@@ -117,7 +117,8 @@ flown by the box, guardrail 4), and now (PA13, `engine.PT_TIER2`) `RF`/`AF`
 arcs, `CA`/`FA` altitude-terminated legs, and `HM`/`HF`/`HA`/`PI` holds and
 procedure turns are the complete supported set (`engine.PT_SUPPORTED`).
 `IF`/`TF`/`DF` fly the prior slot to this one, the same great circle the
-engine has always flown; `CF` and (PA13) `CA` fly the leg's published
+engine has always flown, except a `DF` with a coded turn direction
+(AER-4541, below); `CF` and (PA13) `CA` fly the leg's published
 `FPLfCRS`, not a bearing derived from the previous slot. `RF`/`AF` fly a real
 circular arc around `FPLfCTRLAT`/`CTRLON` at radius `FPLfDST`. `HM`/`HF`/`HA`
 fly an AIM entry (direct, teardrop or parallel) and then the racetrack:
@@ -137,6 +138,24 @@ incomplete data** -- an `RF` with no turn direction, an `HM` with no leg
 length, a `CA` with no altitude constraint -- rejecting the whole route the
 same way (`BADTURN`/`BADRADIUS`/`BADCENTER`/`BADALT`/`BADLEGLEN`) rather than
 inventing a value the coded data never carried.
+
+**A `DF`'s coded turn direction (AER-4541).** A `DF` whose `FPLfTURN` is
+`L` or `R` starts with a turn that way, from where the leg begins: a circle
+tangent to the track the aircraft arrived on (the desired track of the leg
+just flown), of a hold turn's radius (standard rate, or 25 deg of bank if
+wider) at the groundspeed then, until the tangent from the circle points at
+the fix. The rest of the leg is the great circle from that tangent point.
+This is the path FAA Order 8260.58D appendix C checks a DF against. While
+the turn is flown `FPLCRS` follows the circle's tangent round the coded
+side, `FPLXTK`/`FPLCDI` are measured from the circle, `FPLTURN` reads the
+direction, and nothing sequences. The fix before such a `DF` gets no fly-by
+turn (`FPLfTA` 0): it sequences abeam, and the `DF`'s turn starts there.
+The turn starts where the engine knows the arrival track: sequencing into the
+`DF` from the leg before it, and `RESUME` at the MAP into a missed approach
+that opens with one. A `DF` started by `ACT`, `DTO` or a `RESUME` off a
+vector leg flies the line, the short way, because the engine has no track
+for it. So does a `DF` whose fix lies inside the turn's circle, where no
+tangent reaches it; 8260.58D C-3.a requires a published DF's fix outside it.
 
 ## Route segment table (RS1)
 
@@ -316,6 +335,7 @@ circuit/turn; `HA` exits automatically once the coded altitude is reached.
 | `FPLACTSEG` | int | 0..100 | Active segment (RS1): `FPLfSGI` of the active TO slot `FPLACTLEG`. 0 with no plan active or on an off-route direct-to. Kept during failed guidance (it is identification, like `FPLACTLEG`). A `DTO` to a fix inside an airway keeps the airway: the engine never rewrites the table, and the remaining slots are still that segment |
 | `FPLSEGREM` | float | 0..9999.9 nm | Distance remaining in the active segment (RS1): to the TO fix, then along the plan to the segment's `LAST` slot. 0 with no active segment, on a vector leg, and during failed guidance (flagged `fail`/`bad` with the other distance outputs) |
 | `FPLALERT` | bool | | Waypoint sequencing alert (10 s or 1 nm before turn start, whichever is longer; at a fly-by fix the waypoint itself sequences later, at the turn bisector) |
+| `FPLTURN` | str | `"L"` / `"R"` / `""` | Commanded turn direction (AER-4541): the coded direction while the engine flies the turn that opens a `DF`, `""` otherwise and during failed guidance. One writer, the engine. A display annunciates it and never derives it from `FPLfTURN` and the track; with the key absent (older gateway, or a database edited before AER-4541, which the engine logs once) it shows nothing |
 
 `WPLAT`/`WPLON`/`WPNAME` (`database/mavlink.yaml`) are pre-existing keys; the
 engine becomes their writer when the `flightplan` plugin is enabled (FP2).

@@ -105,7 +105,10 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   (`FPLCDI = clamp(-FPLXTK / CDISCALE, -1, 1)`) use the same sign
   convention as `garmin_gnx375`.
 - **Path terminators (PA4/PA13)**: `IF`/`TF`/`DF` fly the prior slot to this
-  one — the same great circle the engine has always flown. `CF` and (PA13)
+  one — the same great circle the engine has always flown. A `DF` with a
+  coded turn direction first turns that way on a standard-rate circle, then
+  flies the tangent to its fix, annunciated on `FPLTURN` (AER-4541,
+  `doc/flightplan_keys.md`). `CF` and (PA13)
   `CA` fly the leg's published `FPLfCRS` (magnetic, converted with the
   current `MAGVAR`) instead of a bearing derived from the previous slot: a
   synthetic FROM point 50 nm behind the fix, on the reciprocal of that
