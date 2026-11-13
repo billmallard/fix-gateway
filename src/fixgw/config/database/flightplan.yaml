@@ -521,7 +521,7 @@ items:
   tol: 5000
 
 - key: FPLTURN
-  description: 'Commanded turn direction on the active leg (AER-4541): "L" or "R" while the engine flies the coded turn that opens a DF leg, "" otherwise. Engine-written, one writer; a display annunciates it and never derives it from FPLfTURN and the track. Absent on an older gateway: no annunciation'
+  description: 'Commanded turn direction on the active leg (AER-4541): "L" or "R" while the engine flies the coded turn that opens a DF leg, "" otherwise. Engine-written, one writer. A display annunciates it and never derives it from FPLfTURN and the track. Absent on an older gateway: no annunciation'
   type: str
   initial: ""
   tol: 5000
