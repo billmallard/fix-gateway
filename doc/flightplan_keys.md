@@ -1,4 +1,4 @@
-# Flight plan FIX keys (FP1, PA3, PA4, PA13, RS1)
+# Flight plan FIX keys (FP1, PA3, PA4, PA13, RS1, TURN3)
 
 Spec: [fix-gateway#22](https://github.com/billmallard/fix-gateway/issues/22)
 (FP1), [fix-gateway#27](https://github.com/billmallard/fix-gateway/issues/27)
@@ -53,14 +53,47 @@ their zero value -- nothing changes for that case.
 | `FPL1..100 FLAGS` | int | bitfield: `0x01` fly-over, `0x02` IAF, `0x04` FAF, `0x08` MAP, `0x10` MAHP, `0x20` from a coded procedure | editor | Leg flags (replaces FP1's `FPLfROLE`) |
 | `FPL1..100 CTRLAT` / `CTRLON` | float | +-90 / +-180 deg | editor | Arc center point (PA13, `RF`/`AF` only) |
 | `FPL1..100 TURN` | str | `"L"`/`"R"`/`""` | editor | Turn direction (PA13, required for `RF`/`AF`/`HM`/`HF`/`HA`/`PI`) |
+| `FPL1..100 TA` | float | 0..5 nm | **engine** | Fly-by turn anticipation at this slot's fix (TURN3, below). 0 = no arc |
 | `FPLCOUNT` | int | 0..100 | editor | Slots in use |
 | `FPLNAME` | str | <=32 chars, no `;` | editor | Route name |
 | `FPLSEQ` | int | >=0 | editor (engine on restore) | Commit counter, written last |
 | `FPLLDSEQ` | int | >=0, 0 = none loaded | engine | `FPLSEQ` of the route the engine has loaded (PA8). Follows `FPLSEQ` on every accepted commit and on restore; a rejected commit leaves it where it was |
 
 All of the above, and the segment table below, are `tol: 0`, written by the
-editor, and republished by the engine on restore -- except `FPLLDSEQ`, which
-only the engine writes.
+editor, and republished by the engine on restore -- except `FPLLDSEQ` and
+`FPLfTA`, which only the engine writes.
+
+**`FPLfTA`, the fly-by turns (TURN3, AER-5418).** The one engine-written
+field of the slot block, so the map can draw the path the needle is
+measured from (`makerplane/briefs/flight_plan_plan.md` section 3.3.1, row
+2). For each slot it is `d_ta`, the distance before the fix at which the
+engine starts the fly-by turn there; the turn's arc is tangent to the leg
+into the fix `d_ta` before it and to the leg out `d_ta` past it, so its
+radius is `d_ta / tan(delta / 2)` (`engine._fly_by_arc`). The leg in is
+measured from the active leg's FROM anchor (`FPLFRLAT`/`LON`) at the
+active fix, from the coded course for a `CF`, and from the slot before
+otherwise; the leg out runs toward the next slot. The engine decides every
+case and a display only draws it:
+
+- **The turn in progress**, from turn start to the arc's end (across the
+  bisector, when `FPLACTLEG` has already moved on): the `d_ta` the arc was
+  fixed with at turn start, the arc `FPLXTK` is measured from.
+- **The active fix before turn start, and every fix ahead**: the `d_ta` at
+  the current groundspeed. A prediction; each is fixed when its turn starts.
+- **0** for a fix already passed, and wherever the engine does not anticipate
+  the turn: a coded fly-over fix, a turn over 120 deg (TURN2), into or out of
+  a Tier-2 or vector leg, the last slot and the MAP (which never
+  auto-sequence), a course change under 0.5 deg, the active fix while
+  suspended, and with no plan leg active (no plan, or an off-route
+  direct-to). Also 0 at a groundspeed of 0: on the ground the map shows
+  square corners.
+
+Written only where the value moved by 0.01 nm. Because a fix ahead follows
+the groundspeed, those rewrites are paced to one a second; a turn appearing
+or going away, and a new active leg, are written at once. `tol: 0` like the
+rest of the block: it is not rewritten while steady, so a timeout would only
+flag a good value old. A display that finds no `FPLfTA` (an older gateway)
+draws every turn square, as before the key.
 
 **A rejected commit leaves the refused route on the bus.** The editor's
 slots stay where it wrote them while the engine keeps flying the route it
@@ -406,8 +439,8 @@ The specific points a merge with upstream would have to reconcile:
 - The `f: 100` index variable in `database/variables.yaml`, which now
   indexes both the slots and the segment table. Upstream could define `f`
   for something else.
-- The route block and segment table: `FPLf*` (14 fields), `FPLS1..100` (6
-  fields), `FPLSEGCNT`, `FPLCOUNT`, `FPLNAME`, `FPLSEQ`, `FPLLDSEQ`.
+- The route block and segment table: `FPLf*` (15 fields, `FPLfTA` the
+  engine's), `FPLS1..100` (6 fields), `FPLSEGCNT`, `FPLCOUNT`, `FPLNAME`, `FPLSEQ`, `FPLLDSEQ`.
 - PA3 and RS1 were both breaking changes inside the fork (Bill lifted the
   compatibility constraint, procedures brief section 3.2 and route
   segments brief section 3). There is no upstream version to stay

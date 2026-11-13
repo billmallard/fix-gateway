@@ -23,7 +23,9 @@ vector leg (VA/VM/FM/VI) as a SUSP annunciated ``FPLPHASE=VECTORS``
 altitude-terminated legs (reading ``ALT`` by default, ``altitude_key``
 below) and HM/HF/HA/PI holds and procedure turns. RS1 (fix-gateway#39)
 adds the segment table: validated on every commit, persisted with the
-route, and reported as ``FPLACTSEG``/``FPLSEGREM``.
+route, and reported as ``FPLACTSEG``/``FPLSEGREM``. TURN3 (AER-5418)
+publishes each slot's fly-by turn anticipation, ``FPLfTA``, so the map
+draws the turn arc the needle is measured from.
 
 The navigation logic itself lives in :mod:`fixgw.plugins.flightplan.engine`
 (pure Python, no fixgw.database dependency) so it is directly unit testable;
@@ -58,6 +60,10 @@ import fixgw.plugin as plugin
 from fixgw.plugins.flightplan.engine import Engine, RouteRejected, Segment, Waypoint
 
 GPS_ACCURACY_FT_PER_NM = 6076.12
+
+#: FPLfTA rewrites that only follow the groundspeed are paced to this
+#: (TURN3): each one makes the map rebuild the route's paths.
+TA_INTERVAL_S = 1.0
 
 
 def _quality_ok(value_tuple):
@@ -104,6 +110,11 @@ class MainThread(threading.Thread):
         # file and the second fails ENOENT, or an older snapshot lands over a
         # newer one (fix-gateway#169).
         self._persist_lock = threading.Lock()
+        # FPLfTA as last written, by 0-based slot (TURN3).
+        self._ta_written = {}
+        self._ta_act_leg = None
+        self._ta_time = 0.0
+        self._ta_missing = False
         self._last_update_time = 0.0
         self._restoring = False
         self._last_persisted = None
@@ -350,7 +361,41 @@ class MainThread(threading.Thread):
         out = self.engine.update(lat_t[0], lon_t[0], gs, magvar, position_ok, fix_type_ok, accuracy_nm, now, alt_ft,
                                  position_time=self._position_time())
         self._write_outputs(out)
+        self._write_turn_ta(self.engine.turn_anticipations(gs, magvar), out["act_leg"], now)
         self._maybe_persist()
+
+    def _write_turn_ta(self, ta, act_leg, now):
+        """FPLfTA (TURN3): each slot's fly-by turn anticipation, written
+        only where it moved by 0.01 nm. A fix ahead follows the
+        groundspeed, so the rewrites are paced to TA_INTERVAL_S; a turn
+        appearing or going away, or a new active leg, is written at once.
+        Slots past the route that were nonzero are cleared. A clock that
+        stepped back does not hold the rewrites off. A database without
+        the key (a config edited before TURN3, which an update leaves as
+        it was) turns the output off with one log line: guidance does not
+        depend on it, and the map then draws square corners."""
+        if self._ta_missing:
+            return
+        n = max([len(ta)] + [i + 1 for i in self._ta_written])
+        new = {i: round(ta[i], 2) if i < len(ta) else 0.0 for i in range(n)}
+        changed = {i: v for i, v in new.items() if self._ta_written.get(i, 0.0) != v}
+        if not changed:
+            return
+        structural = act_leg != self._ta_act_leg or any(
+            (v == 0.0) != (self._ta_written.get(i, 0.0) == 0.0) for i, v in changed.items())
+        if not structural and 0.0 <= now - self._ta_time < TA_INTERVAL_S:
+            return
+        for i, v in changed.items():
+            try:
+                self.parent.db_write(f"FPL{i + 1}TA", v)
+            except KeyError:
+                self._ta_missing = True
+                self.log.warning("flightplan: no FPL%dTA in the database, so fly-by turns are not "
+                                 "published (database/flightplan.yaml predates TURN3)", i + 1)
+                return
+            self._ta_written[i] = v
+        self._ta_act_leg = act_leg
+        self._ta_time = now
 
     def _write_outputs(self, out):
         fail = out.get("fail", False)
