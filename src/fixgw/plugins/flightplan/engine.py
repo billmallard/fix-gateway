@@ -220,8 +220,14 @@ def unsupported_leg_reason(waypoints):
 
 def _tier2_data_reason(w):
     """None if a Tier-2 leg's type-specific fields are complete enough to
-    fly without inventing anything; otherwise a short FPLMSG reason code."""
-    if w.pt in PT_ARC:
+    fly without inventing anything; otherwise a short FPLMSG reason code.
+    A DF (Tier 1) is checked here too: it may carry a turn direction, and
+    one the engine cannot read rejects the route rather than being flown
+    the short way (AER-4541)."""
+    if w.pt == "DF":
+        if w.turn not in DF_TURNS:
+            return "BADTURN"
+    elif w.pt in PT_ARC:
         if w.turn not in ("L", "R"):
             return "BADTURN"
         if w.dst <= 0.0:
@@ -400,6 +406,16 @@ LEGPHASE_TURN_OUT = "TURN_OUT"
 LEGPHASE_TURN_IN = "TURN_IN"
 LEGPHASES_PATTERN = frozenset({LEGPHASE_ENTRY, LEGPHASE_TURN_OUT, LEGPHASE_OUTBOUND,
                                LEGPHASE_TURN_IN, LEGPHASE_INBOUND})
+# A DF whose turn direction is coded (AER-4541) starts with a turn that way:
+# a circle from where the leg began, tangent to the track the aircraft
+# arrived on, until the tangent from it points at the fix. Then the leg is
+# the great circle from that tangent point (_df_turn_start).
+LEGPHASE_DF_TURN = "DF_TURN"
+
+# FPLfTURN values a DF may carry (AER-4541). A DF's turn direction is
+# optional: "" is the short way, and so is "E" (ARINC 424 "either", coded on
+# 2 SID DFs in cycle 2611). Anything else is BADTURN.
+DF_TURNS = frozenset({"", "L", "R", "E"})
 
 # --- FPLAPR ----------------------------------------------------------------
 APR_NONE = 0
@@ -639,9 +655,16 @@ class Engine:
         self._hold_entry = None
         self._hold_r_nm = None
         self._hold_entry_nm = None
-        # This cycle's GS and MAGVAR, for a hold started mid-cycle.
+        # The coded turn that opens a DF (AER-4541), fixed when the DF leg
+        # starts: its circle and the tangent point it leaves the circle at.
+        # Kept after the turn, as the anchor of the line to the fix.
+        self._df_turn = None
+        # This cycle's GS and MAGVAR, for a hold started mid-cycle, and the
+        # true desired track of the leg flown this cycle, the track a DF's
+        # coded turn starts from.
         self._cycle_gs_kt = 0.0
         self._cycle_magvar_deg = 0.0
+        self._cycle_dtk_true = None
 
         self.scale_manual = None  # None (AUTO) or 0.3/1.0/2.0
 
@@ -742,6 +765,7 @@ class Engine:
             "hold_entry_nm": self._hold_entry_nm,
             "turning": self._turning,
             "turn_arc": self._turn_arc,
+            "df_turn": self._df_turn,
         }
 
     def restore_from_dict(self, d):
@@ -787,6 +811,11 @@ class Engine:
         # A file from before AER-4715 has no arc: the rest of that turn
         # measures cross-track from the next leg's line, as it did then.
         self._turn_arc = d.get("turn_arc")
+        # A file from before AER-4541 has no DF turn, and no DF_TURN phase
+        # either: its DF flies the line from the FROM point, as it did then.
+        self._df_turn = d.get("df_turn")
+        if self._leg_phase == LEGPHASE_DF_TURN and self._df_turn is None:
+            self._leg_phase = None
         self._prev_atd = None
 
     # ------------------------------------------------------------------
@@ -862,6 +891,72 @@ class Engine:
         self._hold_entry = None
         self._hold_r_nm = None
         self._hold_entry_nm = None
+        self._df_turn = None
+
+    @staticmethod
+    def _df_coded_turn(wp):
+        """True for a DF whose coded turn direction the engine flies."""
+        return wp is not None and wp.pt == "DF" and wp.turn in ("L", "R")
+
+    def _df_turn_start(self, wp, start, arrival_true, gs_kt):
+        """Start a DF's coded turn (AER-4541) at `start`, the point the leg
+        begins, on arrival_true, the true track the aircraft arrives on.
+
+        The path is the one FAA Order 8260.58D appendix C checks a DF
+        against: a turn of a set radius from the turn point, in the coded
+        direction, then direct to the fix. The radius is a hold's
+        (hold_turn_radius_nm: standard rate, or 25 deg of bank if wider),
+        from the GS now. The circle is tangent to arrival_true at `start`;
+        the turn ends at the tangent point whose tangent, flown the coded
+        way, points at the fix. A turn is set up whenever one is coded,
+        also when the coded side is the short way.
+
+        No turn is set up -- the leg is the line from `start`, the short
+        way -- with no arrival track (the leg was started by ACT, DTO or a
+        RESUME off vectors, where the engine knows no track), or with the
+        fix inside the turn's circle, where no tangent reaches it. 8260.58D
+        C-3.a requires a DF's fix outside every such path, so a published
+        DF does not do that."""
+        if arrival_true is None or not self._df_coded_turn(wp):
+            return
+        cw = wp.turn == "R"
+        r = hold_turn_radius_nm(gs_kt, self.turn_rate_deg_s)
+        c_lat, c_lon = geo.destination_point(start.lat, start.lon,
+                                             geo.wrap360(arrival_true + (90.0 if cw else -90.0)), r)
+        d = geo.distance_nm(c_lat, c_lon, wp.lat, wp.lon)
+        if d <= r:
+            return
+        theta = math.degrees(math.acos(r / d))
+        to_fix = geo.bearing_deg(c_lat, c_lon, wp.lat, wp.lon)
+        start_radial = geo.bearing_deg(c_lat, c_lon, start.lat, start.lon)
+        exit_radial = geo.wrap360(to_fix - theta if cw else to_fix + theta)
+        x_lat, x_lon = geo.destination_point(c_lat, c_lon, exit_radial, r)
+        self._df_turn = {
+            "lat": c_lat,
+            "lon": c_lon,
+            "r_nm": r,
+            "cw": cw,
+            "sweep_deg": geo.arc_sweep_deg(start_radial, exit_radial, cw),
+            "exit_lat": x_lat,
+            "exit_lon": x_lon,
+        }
+        self._leg_phase = LEGPHASE_DF_TURN
+
+    def _df_turn_geometry(self, ac_lat, ac_lon):
+        """Anchor, atd (arc length left to the tangent point), xtk and true
+        DTK on a DF's coded turn. A remaining sweep up to 10 deg more than
+        the whole turn reads as just short of its start (the aircraft a
+        little behind the point the leg began); past that, as past its end.
+
+        The anchor (FPLFRLAT/FPLFRLON, which the map draws the active leg
+        from) is the tangent point throughout, so the map shows the line the
+        turn rolls out on, not a line swinging round with the aircraft."""
+        t = self._df_turn
+        ahead_max = min(359.0, t["sweep_deg"] + 10.0)
+        exit_pt = Point(t["exit_lat"], t["exit_lon"])
+        _, atd, xtk, dtk_true = self._circle_geometry(Point(t["lat"], t["lon"]), t["r_nm"], t["cw"],
+                                                      exit_pt, ac_lat, ac_lon, ahead_max)
+        return exit_pt, atd, xtk, dtk_true
 
     def _leg_from_anchor(self, to_wp, fr, to, magvar_deg):
         """The FROM anchor used for this leg's course/xtk/atd math: the
@@ -891,6 +986,10 @@ class Engine:
             dest = geo.destination_point_wgs84 if to_wp.pt in PT_HOLD else geo.destination_point
             back_lat, back_lon = dest(to.lat, to.lon, geo.wrap360(true_course + 180.0), CF_VIRTUAL_FROM_NM)
             return Point(back_lat, back_lon)
+        if to_wp.pt == "DF" and self._df_turn is not None:
+            # A DF that opened with its coded turn (AER-4541) is the line
+            # from where that turn ends.
+            return Point(self._df_turn["exit_lat"], self._df_turn["exit_lon"])
         return fr
 
     @staticmethod
@@ -1016,6 +1115,8 @@ class Engine:
         return Point(lat, lon)
 
     def _leg_geometry(self, to_wp, fr, to, ac_lat, ac_lon, magvar_deg):
+        if to_wp.pt == "DF" and self._leg_phase == LEGPHASE_DF_TURN:
+            return self._df_turn_geometry(ac_lat, ac_lon)
         if to_wp.pt in PT_ARC:
             return self._arc_geometry(to_wp, ac_lat, ac_lon)
         if to_wp.pt in PT_HOLD and self._leg_phase in (LEGPHASES_PATTERN - {LEGPHASE_INBOUND}):
@@ -1244,6 +1345,12 @@ class Engine:
                 self._cmd_msg = "NO MISSED APPROACH LEGS"
             self._prev_atd = None
             self._clear_leg_phase()
+            if map_idx is not None and map_idx < self.count and position is not None and position[2]:
+                # A missed approach that opens with a coded DF turns from
+                # where the aircraft is, on the final course it was flying
+                # past the MAP (AER-4541).
+                self._df_turn_start(self.route[map_idx], Point(position[0], position[1]),
+                                    self._cycle_dtk_true, self._cycle_gs_kt)
             return
         if self._on_vector_leg():
             self._resume_from_vectors(position)
@@ -1371,6 +1478,7 @@ class Engine:
             "seg_rem": 0.0,
             "alert": False,
             "fail": True,
+            "turn": "",
             # The waypoint positions are blanked here, so they are flagged
             # failed too: 0.0/0.0 is not a waypoint (NULLWP1).
             "wp_fail": True,
@@ -1412,7 +1520,9 @@ class Engine:
             return 0.0
         next_idx = self.act_leg if next_idx is None else next_idx
         next_wp = self.route[next_idx] if next_idx < self.count else None
-        if next_wp is None or next_wp.pt in PT_TIER2:
+        # Into a DF with a coded turn (AER-4541) the turn is the DF's own,
+        # flown from the fix: no fly-by turn ahead of it.
+        if next_wp is None or next_wp.pt in PT_TIER2 or self._df_coded_turn(next_wp):
             return 0.0
         in_course, out_course = self._turn_courses(anchor, to, next_wp)
         delta = _course_change_deg(in_course, out_course)
@@ -1429,7 +1539,8 @@ class Engine:
         if to_wp.pt in PT_TIER2 or to_wp.flags & FLAG_FLYOVER:
             return None
         next_wp = self.route[self.act_leg] if 0 < self.act_leg < self.count else None
-        if next_wp is None or next_wp.pt in PT_TIER2 or next_wp.pt in PT_VECTOR:
+        if (next_wp is None or next_wp.pt in PT_TIER2 or next_wp.pt in PT_VECTOR
+                or self._df_coded_turn(next_wp)):
             return None
         in_course, out_course = self._turn_courses(anchor, to, next_wp)
         delta = _course_change_deg(in_course, out_course)
@@ -1601,6 +1712,11 @@ class Engine:
 
     def _sequence(self, reached_to):
         prev_from = self.from_point
+        if self._df_turn is not None:
+            # A DF that opened with its coded turn arrived along the line
+            # from the turn's end (AER-4541): a hold at its fix is entered
+            # from that track, not from the line from where the DF began.
+            prev_from = Point(self._df_turn["exit_lat"], self._df_turn["exit_lon"])
         self.from_point = reached_to
         self.act_leg += 1
         new_to = Point.from_waypoint(self.route[self.act_leg - 1])
@@ -1617,6 +1733,9 @@ class Engine:
             and geo.distance_nm(reached_to.lat, reached_to.lon, new_to.lat, new_to.lon) < COINCIDENT_FIX_NM
         ):
             self._start_pattern(new_wp, self._arrival_track_true(prev_from, reached_to))
+        # The track the leg just flown ended on: this cycle's desired track,
+        # computed before it sequenced.
+        self._df_turn_start(new_wp, reached_to, self._cycle_dtk_true, self._cycle_gs_kt)
 
     @staticmethod
     def _arrival_track_true(fr, fix):
@@ -1743,6 +1862,7 @@ class Engine:
                 "seg_rem": 0.0,
                 "alert": False,
                 "fail": False,
+                "turn": "",
                 # No active waypoint: the 0.0/0.0 above is a placeholder, not
                 # Null Island. Flagged failed so nothing downstream (the
                 # bearing pointer via GPSBRGT, XTRACK) treats it as a fix --
@@ -1770,6 +1890,13 @@ class Engine:
         if to_wp.pt in PT_HOLD and self._leg_phase in LEGPHASES_PATTERN:
             self._ensure_hold_dims(gs_kt)   # restored mid-hold from a pre-#45 state file
         anchor, atd, xtk, dtk_true = self._leg_geometry(to_wp, fr, to, ac_lat, ac_lon, magvar_deg)
+        if self._leg_phase == LEGPHASE_DF_TURN and atd <= 0.0:
+            # Past the tangent point: the DF is now the line from it.
+            self._leg_phase = None
+            self._prev_atd = None
+            anchor, atd, xtk, dtk_true = self._leg_geometry(to_wp, fr, to, ac_lat, ac_lon, magvar_deg)
+        df_turning = self._leg_phase == LEGPHASE_DF_TURN
+        self._cycle_dtk_true = dtk_true
 
         alert = False
         final = self._is_final(self.act_leg)
@@ -1777,7 +1904,11 @@ class Engine:
         # altitude -- never on distance, since neither has a real endpoint
         # to be "reached". Checked every cycle regardless of atd/d_ta.
         alt_terminated = to_wp.pt == "CA" or (to_wp.pt == "FA" and self._leg_phase == LEGPHASE_FA_COURSE)
-        if not final and not self.suspended:
+        if df_turning:
+            # In a DF's coded turn the fix is still ahead of the turn's end,
+            # and nothing sequences or alerts until the turn is flown.
+            pass
+        elif not final and not self.suspended:
             if alt_terminated:
                 reached = alt_ft is not None and _alt_reached_wp(to_wp, alt_ft)
             else:
@@ -1894,6 +2025,9 @@ class Engine:
             "fail": False,
             "wp_fail": False,
             "fr_fail": False,
+            # FPLTURN (AER-4541): the coded direction of the DF turn being
+            # flown, for the display to annunciate.
+            "turn": to_wp.turn if self._leg_phase == LEGPHASE_DF_TURN else "",
         }
         if to_wp.pt in PT_HOLD and self._leg_phase in LEGPHASES_PATTERN:
             result["hold"] = True
@@ -1933,6 +2067,7 @@ class Engine:
             "fail": False,
             "wp_fail": to is None,
             "fr_fail": fr is None,
+            "turn": "",
             "vectors": True,
         }
 
