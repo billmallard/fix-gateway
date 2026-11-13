@@ -109,6 +109,28 @@ Same columns as the FP8 trace. Regenerated the same way, from session
 switching to PAROL 0.2 nm before DOYLE (XPB-001) as the session ends, which
 the engine, on the same position, has not yet done.
 
+## `turn2b_v27_gvo_xplane_2026-11-01.csv.gz`
+
+V27 slice 1, KSBA GVO GOLET KWANG DEANO HENER VTU: pilotless sim bench
+session `d419efeeea66`, 2026-11-01 07:44Z, X-Plane 12, night 2 of SIM2b
+(AER-4464). The live engine sequenced every fix that night, before TURN2.
+GVO turns 153.8 deg. X-Plane's GPS anticipated it, so the aircraft began
+turning 1.22 nm before GVO and came no nearer than 0.741 nm. It never got
+abeam GVO, which is why the engine, which flies brief 3.3.1 row 3 as a
+fly-over since TURN2, stayed on GVO for good until TURN2b (AER-5172,
+AER-5324). The trace starts 2.9 nm before GVO and ends at VTU, at
+t = 1621 s.
+
+Columns: `t lat lon alt_ft gs_kt trk xp_wpt xp_crs`, as in the FP8 trace,
+less X-Plane's deviation and TO/FROM. This copy carries only what the
+AER-5172 replay took from the session (`~/bench-scratch/aer5172/s1.json` on
+the Beelink), so no CDI comparison can be made
+on it. It is flown with `v27_route_block.json`, ACT 2, MAGVAR -11.67, the
+value the AER-5172 replay wrote. `tests/sim/test_turn2b_reversal_replay.py`
+checks that the engine sequences every fix X-Plane did, in order and
+within 10 s, and GVO past the closest approach. On the engine before
+TURN2b it fails: no sequence at all after ACT.
+
 ## `v27_route_block.json`
 
 The route block the bench loaded for that flight: KSBA, V27 GVO..AVOLS as

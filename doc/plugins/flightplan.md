@@ -193,7 +193,13 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   floor), `FPLCRS` moves to the next leg and `FPLALERT` ends. A turn over
   120 deg is flown as a fly-over instead (TURN2, AER-4760): no turn start
   and no arc; it sequences abeam the fix and `FPLXTK` is from the next
-  leg's line, as at a coded fly-over fix.
+  leg's line, as at a coded fly-over fix. An aircraft that turns back
+  short of such a fix (hand-flown or in HDG) never gets abeam it, so it
+  also sequences once the distance to the fix has opened 0.05 nm past its
+  closest approach, if that closest approach was within the lead a fly-by
+  turn would take, `d_ta` at the full course change (TURN2b, AER-5324). In
+  straight flight the closest approach is abeam, so nothing else changes.
+  A coded fly-over fix and a Tier-2 transition still sequence abeam only.
   From turn start to the end of the turn's arc, on both sides of the
   bisector, `FPLXTK` and `FPLCDI` are measured from that arc (AER-4715),
   so a turn flown on it shows a centred CDI. The arc is tangent to both
