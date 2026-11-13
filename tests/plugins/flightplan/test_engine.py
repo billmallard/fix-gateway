@@ -240,6 +240,88 @@ def test_a_150_deg_turn_flown_through_shows_the_overshoot_not_a_tight_arc():
     assert max(out["xtk"] for out in after) == pytest.approx(r_rate * (1 - math.cos(math.radians(150.0))), abs=0.03)
 
 
+def _fly_hand_turn(e, lat, lon, t0, turn_at_lon, turn_deg, seconds, gs_kt=120.0, dt=0.25, rate_deg_s=3.0):
+    """Fly east from (lat, lon), ignoring the engine (hand-flown, or HDG
+    mode): at turn_at_lon turn left at rate_deg_s through turn_deg, then
+    fly straight. Returns one (t, lat, lon, out) per cycle."""
+    hdg, turned = 90.0, 0.0
+    rows = []
+    t = t0
+    while t < t0 + seconds:
+        out = e.update(lat, lon, gs_kt, 0.0, True, None, None, t)
+        rows.append((t, lat, lon, out))
+        if lon >= turn_at_lon and turned < turn_deg:
+            step = min(rate_deg_s * dt, turn_deg - turned)
+            hdg, turned = geo.wrap360(hdg - step), turned + step
+        lat, lon = geo.destination_point(lat, lon, hdg, gs_kt * dt / 3600.0)
+        t += dt
+    return rows
+
+
+@pytest.mark.parametrize("turn_deg", [150.0, 179.0])
+def test_a_reversal_turned_back_short_sequences_past_its_closest_approach(turn_deg):
+    # TURN2b (AER-5324, Bill's card 2026-11-12): row 3 sequences abeam the
+    # fix, and an aircraft that turns back 1 nm short never gets abeam.
+    # Until TURN2b the engine stayed on B for good. It now sequences once
+    # the distance to B has opened REVERSAL_PASSED_NM past its closest
+    # approach, which is inside the lead a fly-by turn would take.
+    e = engine.Engine()
+    route = _left_turn_route(turn_deg)
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+    a, b = route[0], route[1]
+    rows = _fly_hand_turn(e, 0.0, b.lon - nm_to_deg_lon(3.0), 1000.0, b.lon - nm_to_deg_lon(1.0), turn_deg, 180.0)
+    seq = next(i for i, r in enumerate(rows) if r[3]["act_leg"] == 3)
+    dist = [geo.distance_nm(lat, lon, b.lat, b.lon) for _, lat, lon, _ in rows]
+    closest = min(dist[:seq])
+    assert rows[seq][3]["wp_name"] == "C"
+    assert all(geo.along_track_distance_to_waypoint_nm(a.lat, a.lon, b.lat, b.lon, lat, lon) > 0.0
+               for _, lat, lon, _ in rows)  # never abeam B
+    assert closest <= engine.turn_anticipation_nm(120.0, turn_deg)
+    assert dist[seq] >= closest + engine.REVERSAL_PASSED_NM
+    assert dist[seq - 1] < closest + engine.REVERSAL_PASSED_NM
+    assert all(r[3]["act_leg"] == 3 for r in rows[seq:])
+
+
+def test_the_same_turn_back_at_a_coded_flyover_fix_does_not_sequence():
+    # Row 4 is unchanged: a coded fly-over fix must be overflown, so an
+    # aircraft that turns back short of it is still guided back to it.
+    e = engine.Engine()
+    route = _left_turn_route(150.0)
+    route[1] = wp("B", route[1].lat, route[1].lon, flags=engine.FLAG_FLYOVER)
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+    b = route[1]
+    rows = _fly_hand_turn(e, 0.0, b.lon - nm_to_deg_lon(3.0), 1000.0, b.lon - nm_to_deg_lon(1.0), 150.0, 180.0)
+    assert all(r[3]["act_leg"] == 2 for r in rows)
+
+
+def test_straight_flight_off_course_past_a_reversal_fix_still_sequences_abeam():
+    # In straight flight the closest approach to the fix is the abeam
+    # point, so the TURN2b trigger never fires before abeam does.
+    e = engine.Engine()
+    route = _left_turn_route(150.0)
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+    b = route[1]
+    off = -0.5 / 60.0  # 0.5 nm right of A->B, away from the turn
+    rows = _fly_hand_turn(e, off, b.lon - nm_to_deg_lon(3.0), 1000.0, b.lon + 1.0, 0.0, 120.0)
+    seq = next(i for i, r in enumerate(rows) if r[3]["act_leg"] == 3)
+    assert rows[seq - 1][2] < b.lon <= rows[seq][2]
+
+
+def test_an_orbit_outside_the_turns_lead_does_not_sequence_a_reversal_fix():
+    # The trigger is gated on the lead a fly-by turn would take (2.92 nm
+    # at 150 deg and 120 kt). A 360 flown 5 nm before B comes no nearer.
+    e = engine.Engine()
+    route = _left_turn_route(150.0)
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+    b = route[1]
+    rows = _fly_hand_turn(e, 0.0, b.lon - nm_to_deg_lon(8.0), 1000.0, b.lon - nm_to_deg_lon(5.0), 360.0, 150.0)
+    assert all(r[3]["act_leg"] == 2 for r in rows)
+
+
 def _fly_turn(e, lat, lon, t0, seconds, gs_kt=120.0, dt=0.25, rate_deg_s=3.0):
     """Fly an aircraft that steers onto the engine's FPLCRS at up to
     rate_deg_s, from (lat, lon) heading east. Returns one (t, lat, lon,
