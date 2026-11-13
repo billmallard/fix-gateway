@@ -45,8 +45,9 @@
 #     outlasts the window (0.118 at GEARE, 6.1 s after the bisector).
 #     The first half of the GEARE turn puts the CDIs 0.075 apart, the
 #     largest difference compared on the trace.
-# The turn direction at GANLE (QA's F3) is not judged here: no FPL key
-# carries it.
+# The turn direction at GANLE (QA's F3) is not judged here: X-Plane's
+# driver went Direct-To GANLE, so X-Plane flew no coded turn to set the
+# box's against.
 name: qa1-kssf-r28-xplane-2026-11-01
 profile: qa1-missed-coded-turn-kssf-r28
 trace: qa1_kssf_r28_xplane_2026-11-01.csv.gz
