@@ -1,0 +1,167 @@
+# Autopilot and flight director FIX key contract (AFC1, AER-5569;
+# makerplane/briefs/autopilot_control_head_plan.md section 5.2 in the
+# maos-workspace repo -- Bill's rulings D1-D7, 2026-10-26).
+#
+# The head asks, the autopilot decides (brief section 3). A control-head
+# button writes a request; the autopilot source (the X-Plane adapter on the
+# bench, AFC2; later a MAVLink adapter or our own guidance computer) writes
+# the state it actually entered. Buttons and annunciators show the reported
+# state, never the press.
+#
+# Five groups, each with its own writer rule:
+#
+#   Targets    VSSEL, IASSEL. Pilot settings: the control head, the PFD boxes
+#              and hardware knobs may all write them, like HEADBUG (ahrs.yaml)
+#              and ALTSEL (gcu.yaml), which this contract uses as they are and
+#              does not redefine. tol 0: written on change, so a tol would flag
+#              a good setting old seconds after every edit
+#              (docs/primary_flight_key_tol.md).
+#   Requests   APCMD, then APCMDSEQ bumped last (D3), the same "write, then
+#              bump the counter" idea as FPLSEQ, so two presses of one button
+#              are two commands. Pilot-written. tol 0: a request is an event.
+#   State      APENG, FDENG, YDENG, APLAT, APLATARM, APVERT, APVERTARM,
+#              APALTCAP. The autopilot source only (one writer).
+#   FD         FDPITCH, FDROLL. The autopilot source only.
+#   Health     APCAPS, APMSG, APDISC. The autopilot source only.
+#
+# Every state, FD and health key has a nonzero tol, and the source rewrites
+# each of them at least once per tol even when nothing changed. That is what
+# lets every display remove a stale annunciation or FD bar instead of freezing
+# it (brief section 5.7, "stale is removed, not frozen"); a test fails if one
+# of them loses its tol. FD bars are 1 s, the rest 2 s.
+#
+# Mode names are fixed strings. "" means none. Armed lists are
+# comma-separated strings with no spaces, the idiom FPLfALT already uses.
+#
+# Included before custom.yaml, like gcu.yaml, so a user definition there
+# still wins. This fork leads the contract (ORG-011); CAN-FIX follows after
+# the bench proves the keys (D7, AFC6). See doc/autopilot_keys.md for every
+# key's meaning and the divergence from upstream.
+
+items:
+
+# --- Targets (pilot settings; several writers; tol 0) ---------------------
+# VSSEL mirrors CAN-FIX 459 (0x1CB) "Selected Vertical Speed" (INT, ft/min,
+# -30000 to 30000); IASSEL mirrors 460 (0x1CC) "Selected Airspeed" (UINT x0.1,
+# knots, 0 to 999.9). Neither is in canfix/map.yaml yet.
+- key: VSSEL
+  description: Selected Vertical Speed (autopilot VS target)
+  type: int
+  min: -30000
+  max: 30000
+  units: ft/min
+  initial: 0
+  tol: 0
+
+- key: IASSEL
+  description: Selected Airspeed (autopilot IAS target, 0 = not set)
+  type: float
+  min: 0.0
+  max: 999.9
+  units: knots
+  initial: 0.0
+  tol: 0
+
+# --- Requests (pilot writes APCMD, then bumps APCMDSEQ; tol 0) -------------
+- key: APCMD
+  description: "Autopilot request: AP, FD, YD, LVL, HDG, TRK, NAV, APR, IAS, VNAV, VS, ALT or DISC. Acted on only when APCMDSEQ changes"
+  type: str
+  initial: ""
+  tol: 0
+
+- key: APCMDSEQ
+  description: Autopilot request counter, bumped after every APCMD write
+  type: int
+  min: 0
+  max: 2147483647
+  initial: 0
+  tol: 0
+
+# --- State (autopilot source only; tol 2000) -------------------------------
+- key: APENG
+  description: Autopilot engaged (servos coupled)
+  type: bool
+  initial: false
+  tol: 2000
+
+- key: FDENG
+  description: Flight director on
+  type: bool
+  initial: false
+  tol: 2000
+
+- key: YDENG
+  description: Yaw damper engaged
+  type: bool
+  initial: false
+  tol: 2000
+
+- key: APLAT
+  description: "Active lateral mode: ROL, HDG, TRK, GPS, VOR, LOC, BC, LVL or \"\" (none)"
+  type: str
+  initial: ""
+  tol: 2000
+
+- key: APLATARM
+  description: "Armed lateral modes, comma-separated, from the APLAT names (\"\" none)"
+  type: str
+  initial: ""
+  tol: 2000
+
+- key: APVERT
+  description: "Active vertical mode: PIT, ALT, VS, IAS, VNAV, GS, GP, LVL or \"\" (none)"
+  type: str
+  initial: ""
+  tol: 2000
+
+- key: APVERTARM
+  description: "Armed vertical modes, comma-separated, from the APVERT names (\"\" none)"
+  type: str
+  initial: ""
+  tol: 2000
+
+- key: APALTCAP
+  description: Capturing the selected altitude (ALTSEL), the transition into ALT
+  type: bool
+  initial: false
+  tol: 2000
+
+# --- Flight director (autopilot source only; tol 1000) ---------------------
+# Commanded attitude, absolute, in the same sense as PITCH and ROLL
+# (ahrs.yaml): nose up and right wing down are positive.
+- key: FDPITCH
+  description: Flight director commanded pitch attitude
+  type: float
+  min: -90.0
+  max: 90.0
+  units: deg
+  initial: 0.0
+  tol: 1000
+
+- key: FDROLL
+  description: Flight director commanded roll attitude
+  type: float
+  min: -180.0
+  max: 180.0
+  units: deg
+  initial: 0.0
+  tol: 1000
+
+# --- Health (autopilot source only; tol 2000) ------------------------------
+- key: APCAPS
+  description: "Requests the autopilot source supports, comma-separated APCMD names (\"\" none)"
+  type: str
+  initial: ""
+  tol: 2000
+
+- key: APMSG
+  description: Autopilot message for the pilot, e.g. why a request was refused (64 chars max)
+  type: str
+  initial: ""
+  tol: 2000
+
+- key: APDISC
+  description: Autopilot disconnect alert, latched until the pilot acknowledges it with APCMD DISC
+  type: bool
+  initial: false
+  tol: 2000
