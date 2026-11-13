@@ -1375,6 +1375,7 @@ def test_flight_plan_keys_exist_with_specified_types_and_ranges(database):
         "FPLREMDIS": ("float", 0.0, None),
         "FPLREMETE": ("int", 0, None),
         "FPLALERT": ("bool", None, None),
+        "FPLTURN": ("str", None, None),
         "GPSSRC": ("int", 0, 1),
         "EXTCRS": ("float", 0.0, 359.9),
         "EXTCDI": ("float", -1.0, 1.0),
