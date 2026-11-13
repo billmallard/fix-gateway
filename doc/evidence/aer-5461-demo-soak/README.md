@@ -29,8 +29,31 @@ systemd-run --user --unit=aer5461-demo-soak --working-directory=$D \
     $D/config/default.yaml 24.1 300 $D/soak.jsonl
 ```
 
-`soak.jsonl` is copied here when the run ends, and the results go below.
+The run that counts was at 1e5020d, the merged head with DEMO7 traffic. It
+started 2026-11-12 21:28Z and logged to `soak.jsonl`, copied here. An earlier
+run at 0cab387, before the merge and without traffic, was stopped after 7 h
+so the 24 h would cover the code that ships. Its log is
+`soak-0cab387-partial.jsonl`.
 
 ## Results
 
-Pending: the run is in progress.
+At 1e5020d, from 2026-11-12 21:28Z to 2026-11-13 21:34Z (24.1 h, 290
+samples). The unit exited on its own, with result `success`.
+
+| What | Result |
+|---|---|
+| Loops completed | 73, counted up with no gaps |
+| Demo state | `flying` and alive in every sample: it never refused or stopped |
+| Route accepted by the engine | `FPLSEQ` equal to `FPLLDSEQ` in all 290 samples, reaching 147. `FPLCMDACK` reached 148 |
+| RSS | 38,372 to 38,420 kB over the whole day. The last 12 samples (1 h) were all 38,420 |
+| Threads | 8 in every sample |
+| Keys with two writers | none in any sample |
+| `LAT` flagged bad at a sample | 0. The 5 s restart hold fell between samples |
+| Journal (`CRITICAL`, `ERROR`, `WARNING`, `Traceback`) | 1 line: `flightplan: could not write flightplan_state.json`, the pre-existing persist race (fix-gateway #169, BACKLOG G85), not the demo |
+
+Not sampled: `soak.py` logs no TFC keys, so this run shows the traffic was up
+only at the start (`TFCCOUNT` 3 and `TFC1CS` `DEMO1` read over netfix at
+21:28Z), not that it lasted all 24 h.
+
+The pre-merge run (0cab387, 7 h, 21 loops) showed the same: counters in step,
+8 threads, RSS about 39 MB, and 6 lines of the same flightplan race.
