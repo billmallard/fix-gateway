@@ -1,0 +1,577 @@
+# Scenario profiles (simulated flights, SYN1)
+
+A scenario profile is one YAML file that says what to fly and what the run
+must show. Two tiers read the same file:
+
+- **Synthetic (SYN, this package).** `fixgw.sim` turns the profile plus
+  CIFP into a FIX bus stream: a simple aircraft flies the procedure, and a
+  reference navigator, written independently of the engine, publishes the
+  truth (`REF*` keys).
+- **X-Plane (SIM, a separate driver).** The driver flies the same profile in
+  X-Plane with X-Plane's own FMS and autopilot. X-Plane's course and
+  deviation (`EXTCRS`/`EXTCDI`) are the truth there.
+
+So nothing in a profile is specific to either tier: no X-Plane datarefs or
+aircraft files, no generator tuning. A profile describes the flight a pilot
+would be asked to fly, the pilot's inputs, and the checks.
+
+Profiles live in `src/fixgw/sim/profiles/`. The first one is
+`fp8-ksmx-rnav30-missed.yaml` (FP8 session 2, AER-809). The `qa1-*` profiles
+are QA's (AER-4211): hold entries from each sector in both turn directions,
+a missed approach coded to turn the long way round, GPS losses of fix, and
+(AER-4223) a dead GPS link, and a status or a position stream that stops on
+its own; their checks and
+tolerances are QA's and are not edited to fit a result.
+`sim2b-v27-s2-hener-doyle.yaml` is the first en-route profile (SIM3b,
+AER-5173): V27 from HENER to DOYLE, the slice X-Plane flew as SIM2b's
+session `9b6d523db79a`. `demo9-ksmx-rw30-climb-out-gvo.yaml` is the first
+to open with a departure (DEMO9, AER-5463): a climb-out from KSMX RW30, then
+direct GVO and V27.
+
+## The rule for the reference
+
+`REF*` keys come from `fixgw/sim/refnav.py`, which imports nothing from the
+navigation engine (`fixgw.plugins.flightplan`) or `fixgw.geo`: WGS-84
+geodesics from GeographicLib, its own leg sequencing, CDI scaling written
+from DO-229. If the two sides shared code, a bug there would make both
+wrong in the same way and the comparison would prove nothing.
+`tests/sim/test_generator.py::test_the_synthetic_tier_imports_nothing_from_the_engine`
+fails if an import creeps in.
+
+What the tier still shares, and so cannot catch: the CIFP decoding
+(`fixgw/sim/cifp.py`), airway expansion included, feeds both the reference
+and the route block the engine is loaded with. A misread record would be
+flown wrong by both. The
+X-Plane tier, which reads X-Plane's own navigation data, is the check on
+that.
+
+## Format
+
+```yaml
+name: fp8-ksmx-rnav30-missed          # required; also the run's name in reports
+description: free text                # optional
+
+cifp:                                 # required
+  cycle: "2611"                       # required: the AIRAC cycle, pinned
+  file: cifp/FAACIFP18-2611-KSMX-R30  # relative to the profile; a full FAACIFP18 also works
+
+aircraft:                             # optional, these are the defaults
+  tas_kt: 110                         # flown as TAS; IAS is published as standard-day EAS at the current ALT
+  climb_fpm: 700
+  descent_fpm: 600
+  bank_max_deg: 25
+  turn_rate_deg_s: 3.0
+
+environment:
+  magvar_deg: -11.9                   # required: FIX MAGVAR, positive WEST (MAG = TRUE + MAGVAR)
+  wind: {from_deg: 0, kt: 0}          # optional, steady wind; default calm
+
+start: {fix: PAMJI, before_nm: 2.0, alt_ft: 2500, heading: on_course}
+
+route:                                # what the box is loaded with
+  - procedure: {airport: KSMX, approach: R30, transition: GVO, missed: true}
+
+pilot:
+  missed_after_map_s: 5               # go missed (RESUME) this long after the MAP
+
+events:
+  - id: right
+    at: {leg: HANNU-WINCH, after_s: 5}
+    do: {offset_nm: 1.0, hold_s: 30}
+  - id: left
+    at: {after: right}
+    do: {offset_nm: -1.0, hold_s: 30}
+  - id: hold
+    at: {hold_at: WINCH}
+    do: {hold_min: 5}
+
+end: {after_event: hold, max_s: 3600}
+
+checks:
+  - {key_pair: [FPLCRS, REFCRS], tol_deg: 0.5, except_s_around_sequence: 5}
+  - {key_pair: [FPLCDI, REFCDI], tol: 0.05, same_sign: true, except_s_around_sequence: 5}
+  - {key_pair: [WPDIS, REFDIS], tol: 0.015, tol_rel: 0.005, skip_when: {REFWPT: ""}}
+  - {sequence: [PAMJI, CIMSO, ANIBY, RW30, HANNU, WINCH], keys: [WPNAME, REFWPT]}
+```
+
+Unknown keys anywhere are an error, so a typo never silently means "not
+set".
+
+### `cifp`
+
+`cycle` is required and must match the file's `HDR01` cycle; the generator
+refuses a mismatch. Pinning keeps a fixture from drifting when the cycle
+rolls. A trimmed excerpt (the header record plus the records the procedure
+needs) can be committed beside the profile, as `profiles/cifp/` does; a
+full `FAACIFP18` can be passed instead with `--cifp`.
+
+### `departure`, `destination`
+
+Airport idents, both optional with a procedure. `departure`, when named, is
+the route's first slot (and the reference's second terminal radius, below).
+A route that opens with a `climb_out` must name its `departure`: the
+runway is looked up at that airport.
+A route with no procedure must name its `destination`, which is then its
+last slot. With a procedure, a `destination` must be the procedure's
+airport.
+
+### `start`
+
+The aircraft starts on the leg into `fix`, `before_nm` short of it, at
+`alt_ft`, on course. `fix` may be any fix on the route after the first:
+an en-route fix as well as a procedure's. The box is loaded with the route and the pilot
+activates that leg (`FPLCMD ACT <slot>`). `heading` only accepts
+`on_course` so far.
+
+`start: {runway: RW30, alt_ft: 311}` instead starts over that runway's
+threshold, on the runway's heading, at `alt_ft`, with the climb-out's `CA`
+the active leg. It goes with a `climb_out` from the same runway, and takes
+no `before_nm`. `alt_ft` must be at or above the threshold elevation (the
+runway record's) and below the climb-out altitude. Profiles start airborne,
+so this is the airplane just off the ground: there is no takeoff roll. The
+leg after the climb-out is flown direct from wherever the climb ends, so a
+`start.fix` there is refused; start on the runway.
+
+### `route`
+
+The items the box is loaded with, in order: at most one `climb_out`, first,
+then any number of en-route items, then at most one `procedure`, last. They are the route-segment kinds of
+RS1 (`doc/flightplan_keys.md`, the route segment table) and the shape the
+X-Plane tier reads (xplane-bench `fca936a`):
+
+```yaml
+departure: KSBA
+destination: KSMX
+route:
+  - waypoint: GVO                    # one fix, flown as a TF from the fix before it
+  - airway: {id: V27, exit: AVOLS}   # entry: the waypoint before it
+end: {after_fix: DOYLE, max_s: 2100}
+```
+
+| Item | RS1 | Slots |
+|---|---|---|
+| `climb_out: {runway, alt_ft}` | a kind 2 (departure) row, `ID` the runway | two: the runway threshold, then a `CA` with no ident on the runway's magnetic bearing, `ALT` `+<alt_ft>` |
+| `waypoint: FIX` | a kind 0 (waypoint) row | one, `FIX`: an en-route waypoint, a VHF navaid or an airport, by name |
+| `airway: {id, exit}` | a kind 1 (airway) row, `ID` the airway | its entry fix, every fix the airway passes through, and `exit`. The entry is the `waypoint` before it, which becomes the airway's first slot rather than a row of its own: RS1 puts the entry fix in the airway's segment |
+| `procedure: {...}` | kind 4 (approach) and 5 (missed) rows | as below |
+
+The airway comes from the CIFP's en-route airway (`ER`) records: the run of
+records with that ident, in sequence-number order, that holds both fixes,
+reversed when flown against that order; each fix is then the record it names
+(section and ICAO region). En-route slots are `TF` legs with no altitude,
+course or flags (an airway's minimum altitudes are not encoded yet, and the
+airplane holds its start altitude), so the reference flies them as straight
+legs between the expanded fixes, fly-by at each, as on a procedure.
+
+A `climb_out` is a runway-heading departure: a `CA` (course to an
+altitude) on the runway's magnetic bearing from the CIFP runway record (cols
+28-31), run from the threshold, that ends when the aircraft reaches
+`alt_ft`. It is not a published departure procedure, so its slots do not
+carry the coded-procedure flag `0x20`, and its course comes from the runway
+record, not from a SID's leg. The aircraft climbs at `aircraft.climb_fpm`
+on it. A climb-out ends on altitude wherever the aircraft is, so the
+item after it must be a `waypoint`, and it is flown and sent to the box as
+a `DF` from that point, not as a `TF`. ARINC 424 does not let a `CA` be
+followed by a `TF`. The engine flies a `TF` after a `CA` from the same
+point, so the gate cannot tell the two codings apart; the `DF` is there
+because it is the legal one. A SID by name is not supported: KSMX's
+(BUELT4) follows its `CA` with a `VI`, which the reference does not fly.
+
+**Tier SYN only, so far.** The X-Plane tier's driver refuses a
+`climb_out` (xplane-bench `873733c`, `driver/xpbench/profile.py`: "is not
+a waypoint, airway or procedure"), and it reads `start.fix` only. A profile
+that uses either is flown by the synthetic tier and the gate, and cannot be
+sent to X-Plane until the driver reads them.
+
+Refused, rather than flown a guessed way: an airway with no waypoint before
+it, an airway straight after another (the junction fix would belong to both
+segments), and en-route items whose last fix is the procedure's first (a
+pilot would not file it, and the X-Plane driver would turn back to it after
+sequencing it).
+
+A `procedure` has `airport`, `approach` (the CIFP procedure ident, `R30`),
+`transition` (`GVO`), and `missed` (fly the missed approach; when false the
+run ends at the MAP). The reference flies the transition, the final and the
+missed approach as coded. The box gets the same legs as pyEfis's PROC
+page would publish them (`fixgw/sim/fplroute.py` lists the encoding
+choices; pyEfis `tests/flightplan/test_fplroute_conformance.py` checks
+them against its procedure loader for every profile here, so a new or
+changed profile means regenerating that test's fixture).
+
+Leg types the reference flies: `IF TF DF CA HM`. Anything else refuses the
+whole profile rather than flying a guess.
+
+### `pilot`
+
+What the pilot does that the scenario does not spell out as an event.
+`missed_after_map_s`: the box suspends at the MAP; this long after crossing
+it the pilot goes missed (`FPLCMD RESUME` in tier SYN, the missed-approach
+command in tier SIM).
+
+### `events`
+
+Each event has an `id`, one trigger under `at`, and one action under `do`.
+
+| `at` | Fires when |
+|---|---|
+| `leg: A-B, after_s: n` | `n` seconds after the reference starts the leg from fix A to fix B |
+| `after: <id>` | the named (earlier) event has finished |
+| `hold_at: FIX` | the reference starts flying the coded hold at FIX |
+
+| `do` | Means | Finishes when |
+|---|---|---|
+| `offset_nm: d` (+ `hold_s: n`) | fly `d` nm off the desired track, positive right | established (within 0.05 nm) and held `n` s. The offset stays until another event changes it |
+| `hold_min: n` | stay in the hold | `n` minutes after it fired |
+| `gps_loss_s: n` | the GPS has no fix | `n` seconds after it fired |
+| `gps_link_loss_s: n` | the GPS receiver or its link goes dead | `n` seconds after it fired |
+| `gps_status_loss_s: n` | the receiver's status stream stops, position keeps coming | `n` seconds after it fired |
+| `gps_position_loss_s: n` | the position stops, the status stream keeps saying 3D | `n` seconds after it fired |
+
+While a GPS event is active the generator withholds keys; the other sensor
+keys and the `REF*` truth carry on, and the aircraft keeps flying the
+reference's guidance, as a pilot holding the course would.
+
+| Event | Not published | `GPS_FIX_TYPE` |
+|---|---|---|
+| `gps_loss_s` | `LAT LONG TRACK GS GPS_ACCURACY_HORIZ` | 1, what the gpsd plugin publishes below a 2D fix |
+| `gps_link_loss_s` | `LAT LONG TRACK GS GPS_ACCURACY_HORIZ GPS_FIX_TYPE` | not written: the last value, 3, stands |
+| `gps_status_loss_s` | `GPS_FIX_TYPE GPS_ACCURACY_HORIZ` | not written: the last value, 3, stands |
+| `gps_position_loss_s` | `LAT LONG` | 3, still written |
+
+`gps_status_loss_s` and `gps_position_loss_s` are the mavlink shapes: that
+plugin takes the fix type and accuracy from `GPS_RAW_INT` and the position
+from `GLOBAL_POSITION_INT`, the autopilot's fused estimate, so either stream
+can stop without the other. `gps_position_loss_s` is also the only dead-input
+case where nothing but the position's own age can tell the box it is dead.
+
+The gate (`tests/sim/profile_gate.py`) flies a profile with any GPS event
+through the `flightplan` plugin itself (`tests/sim/plugin_replay.py`, the
+real plugin and database on the stream's clock) rather than through the
+engine alone: what the box does with an input that stops arriving is the
+plugin's job, and `engine_replay` only models it.
+
+### `end`
+
+`after_event`: the run stops when that event finishes. `after_fix`: the run
+stops once that en-route fix is sequenced, on the row where the next fix
+becomes the TO fix, as the X-Plane tier ends a session; it must name a fix
+of the en-route items. A route with no procedure also stops once the
+destination is the TO fix, as the X-Plane tier does. Whichever comes first
+ends the run. `max_s` (default 3600): a run still going then is an error
+naming the events that never finished, never a silent short run.
+
+### `checks`
+
+Tier-independent comparisons on the recorded bus. Each is one of:
+
+- `key_pair: [ENGINE_KEY, REFERENCE_KEY]` with `tol_deg` (angles, wrapped),
+  or `tol` (absolute) plus optional `tol_rel` (fraction of the reference
+  value), or neither (values must be equal, e.g. idents). `same_sign: true`
+  also fails a row where both values are beyond `tol` and of opposite sign.
+  `except_s_around_sequence: s` skips `s` seconds either side of every
+  change of the sequence keys (the TO fix, on either side), so a turn's
+  transition is not judged. `skip_when: {KEY: value}` skips rows where a key
+  has that value. `after_s` (default 1) skips the start.
+  `unless_flagged: true` skips rows where the engine key was last written
+  bad or failed -- annunciated guidance is not compared, and the count is
+  reported. `tolerate_s: s` forgives a run of consecutive failing rows
+  shorter than `s` (reported as transients), for two navigators switching a
+  phase one update apart. `around_keys: [KEY, ...]` names the keys whose
+  changes open the `except_s_around_sequence` window, instead of the
+  sequence keys (a box that blanks its TO fix without a GPS fix would
+  otherwise open a window around the loss itself). `skip_when_silent:
+  {KEY: s}` skips rows where KEY has not been written for more than `s`
+  seconds (counted, with `silent`, in the report): guidance from an input
+  that has stopped is judged by a `flagged` check instead.
+  `skip_when_differ: [KEY, KEY]` skips rows where the keys disagree, for
+  comparing two navigators only where both guide to the same fix
+  (`[WPNAME, gps_id]` on an X-Plane recording, where X-Plane changes its TO
+  fix about 0.2 nm early at a straight-through fix, XPB-001).
+  `min_compared_share: f` (0 < f <= 1) fails the check when fewer than
+  that share of the rows at or after `after_s` were compared, even if every
+  compared row agreed. Set it per check, below the share the log compares
+  today: the skips above are opened by keys the engine writes (`FPLALERT`,
+  `WPNAME`), and an engine that changes them constantly would otherwise
+  excuse itself and pass on a handful of rows (AER-4693).
+- `flagged: [KEY, ...]` with `while_no_fix: true`, `within_s`,
+  `clear_within_s`: each key must be flagged (bad or failed) on every row
+  where `GPS_FIX_TYPE` has been below 3 for at least `within_s`, and must not
+  be flagged on any row where it has been 3 or more for at least
+  `clear_within_s`. A log with no loss of fix fails the check rather than
+  passing it vacuously.
+- `flagged: [KEY, ...]` with `while_silent: [INPUT, ...]`, `within_s`,
+  `clear_within_s`: each key must be flagged on every row where one of the
+  inputs has not been written for at least `within_s`, and must not be
+  flagged on any row where all of them have been live (written within the
+  last 1 s, the slowest position output AC 20-138D 15-7.3 contemplates) for
+  at least `clear_within_s`. The value an input last had does not matter: a
+  dead link leaves a good-looking one behind. A log with no such silence
+  fails the check.
+
+A recorder row holds exactly the keys written in its interval, so a
+recorded log shows when each key was last written; the first row of each
+recorder file is a snapshot of every key and does not count as a write.
+- `sequence: [FIX, ...]` with `keys` (default `[WPNAME, REFWPT]`): each key's
+  run of TO fixes, blanks dropped, must equal the list. The report also gives
+  the time difference at which each fix became the TO fix.
+
+## Reference keys (`database/sim.yaml`)
+
+| Key | Meaning |
+|---|---|
+| `REFCRS` | desired track, magnetic, deg |
+| `REFXTK` | cross-track, nm, positive right of track |
+| `REFCDI` | `-REFXTK / full scale`, clamped to +-1 (the `FPLCDI` convention) |
+| `REFDIS` | distance to the TO fix, nm (0 on a leg with no fix) |
+| `REFWPT` | TO fix ident (`""` on a `CA` leg) |
+| `REFPT` | the reference's active leg type (`TF`, `CA`, `HM`...) |
+
+How the reference flies, briefly (details in `refnav.py`): at a fly-by fix
+the course moves to the next leg at the start of the turn (`R tan(delta/2)`)
+and the TO fix sequences at the turn bisector, with the cross-track from
+the turn's arc from turn start to the arc's end; fly-over fixes and the MAP
+abeam; the MAP suspends until the pilot goes missed; a `CA` ends on
+altitude; an `HM` is the published racetrack with a standard entry (direct,
+teardrop or parallel by the AIM sectors). CDI full scale 2.0 nm en route,
+1.0 nm within 30 nm of the destination or the `departure` airport (TSO-C129a
+terminal mode, as the engine does), a linear ramp to 0.3 nm over the 2 nm
+before the FAF, 0.3 nm to the MAP and until the missed approach is
+initiated, then 1.0 nm.
+
+## The CI gate (SYN3)
+
+Every `*.yaml` in `profiles/` is flown headless through the navigation
+engine on every PR and push, and its `checks:` evaluated: the "Simulated
+flights" job in `.github/workflows/ci.yml`, and
+`tests/sim/test_profiles.py` under a plain `pytest`. A failing check fails
+the PR, one line per check naming the profile, the keys and tolerance, the
+time and values of the first failing row, and the largest error and when.
+The job summary carries each profile's full check table. Committing a
+profile is all it takes to put it under the gate; to fly one locally:
+
+```
+python -m tests.sim.profile_gate [src/fixgw/sim/profiles/<name>.yaml ...]
+```
+
+An open finding is a profile that is right while the box disagrees with it.
+Its owner lists it in the module-level `OPEN = {profile stem: reason}` of
+the test module that owns the profile (`tests/sim/test_qa1_profiles.py` for
+the `qa1-*` profiles; the gate's list of such modules is
+`OPEN_FINDINGS_FROM` in `profile_gate.py`). The gate reads those lists and
+does not edit them. A listed profile that still fails is reported as
+`XFAIL`, with warnings rather than errors, and passes the gate. A listed
+profile that passes is `XPASS` and fails the gate until the finding is
+closed and the entry removed. An entry naming no committed profile also
+fails it. Listing a finding never changes a check or a tolerance.
+
+### Recorded X-Plane flights (SYN4)
+
+The gate also flies every recording in `tests/sim/fixtures/*.yaml`: a real
+X-Plane session's truth trace, with the engine flown headless along X-Plane's
+own trajectory and X-Plane's navigator as the expected values. A recording
+names its `profile` (for the route) and its `trace`, and carries its own
+`checks:` in the format above. The profile's checks are written against the
+synthetic reference, and X-Plane is a different navigator. It sequences
+earlier (XPB-001: a fixed ~0.2 nm before every fly-by fix, even with no turn, a
+sim quirk we do not model), holds its own way (XPB-004), and has no `REF*`
+keys. So a recording bounds X-Plane's sequence points by distance (0.3 nm,
+`tests/sim/test_fp8_xplane_replay.py`), not by the profile's 5 s window, and
+its checks use the keys the bench writes X-Plane's navigator to:
+
+| Key | From the trace |
+|---|---|
+| `EXTCRS` | `gps_crs_mag` (as `connections/xplane.yaml` maps `gps_course_degtm`) |
+| `EXTCDI` | `gps_hdef_dot` x 0.4, held to +-1 |
+| `EXTTF` | `gps_fromto` (1 TO, 2 FROM; mapped since fix-gateway#41, after FP8 was recorded) |
+| `gps_id` | X-Plane's active waypoint (no bus key) |
+
+`tests/sim/test_fp8_bench_bus.py` checks that mapping against the bench's
+own bus log of the same flight. See `tests/sim/fixtures/README.md`.
+
+**Every place X-Plane differs from real avionics, from our engine or from the
+synthetic reference is entered in `XPLANE_BEHAVIORS.md`** beside this file,
+classified and with its evidence. A recording's skip or tolerance cites its
+`XPB-NNN` entry. A new disagreement goes in there as `unknown` before any
+check, tolerance or engine code is changed to fit it.
+
+## Running it
+
+```
+python -m fixgw.sim generate src/fixgw/sim/profiles/fp8-ksmx-rnav30-missed.yaml -o run.json --timeline run.timeline.json
+python -m fixgw.sim check src/fixgw/sim/profiles/fp8-ksmx-rnav30-missed.yaml <recorded files...>
+```
+
+`generate` writes the `data_recorder` format (a `{"frequency", "starttime"}`
+header, then one row per tick), which `data_playback` replays unchanged.
+To run it through a gateway, enable `data_playback` with `files:` naming
+the output, `flightplan`, and `data_recorder` (the engine's and the `REF*`
+keys), then `check` the recorded files. `gateway-replay.yaml` beside this
+file is the exact config the first bench replay used, with the commands.
+
+## Live mode (SYN2)
+
+`live` flies the same profile into a gateway that is already running, over
+netfix, so the display on a bench moves as if the airplane were flying it.
+No simulator, no `data_playback`:
+
+```
+python -m fixgw.sim live src/fixgw/sim/profiles/fp8-ksmx-rnav30-missed.yaml \
+    --host 127.0.0.1 --port 3490 --speed 1 --log run.marks.jsonl \
+    --hook 'my-screenshot.sh'
+```
+
+What it does, in order:
+
+1. Connects, then **watches `LAT`/`LONG` for `--watch-s` (3 s)**. If either
+   moves while it is not writing, another source (X-Plane, a GPS, a demo,
+   a forgotten writer) is publishing a position. It refuses with exit `3`
+   unless `--allow-other-writer`: two writers on one key is a flight nobody
+   flew.
+2. Reads `FPLSEQ` and `FPLCMDACK`. The run commits its route as `FPLSEQ`
+   one past the gateway's, and numbers its commands after the last ack, so
+   a box that has already loaded routes and taken commands sees a new route
+   and new commands, not a repeat.
+3. Names every key the run writes that the gateway's database does not
+   have. netfix drops a write to an unknown key silently; this says so
+   first (a gateway without `database/sim.yaml` drops the `REF*` keys, which
+   nothing on the glass reads).
+4. Writes the rows at the profile's times divided by `--speed`. The
+   schedule is absolute, so a slow write is caught up, not accumulated;
+   the closing line reports the worst lateness of any row.
+5. At each timeline mark (`start`, each `sequence`, `map`, `pilot`, each
+   `event`/`established`/`done`, `end`) it waits `--hook-delay-s` (3 s, for
+   the glass to draw the change), reads `--readback` keys from the gateway
+   (default `WPNAME,FPLCRS,FPLCDI,FPLMSG`: what the engine is doing at that
+   moment), runs `--hook` if the mark is one of `--hook-on` (default
+   `start,sequence,map,end`), and prints and logs one JSON line. The hook
+   is a shell command with `SYN_INDEX` (01, 02, ...), `SYN_WHAT`, `SYN_FIX`,
+   `SYN_T`, `SYN_WALL_S` and `SYN_PROFILE` in its environment. A hook that
+   fails is counted and makes the exit `1`; it never stops the flight.
+   Marks on the last row (`end`, and any `done` at the same tick) are read
+   `--hook-delay-s` after the feed stopped, so they show a box going stale:
+   with the default 3 s the position and `GPS_ACCURACY_HORIZ` (2 s `tol`)
+   are already old. An engine with the 2 s position bound (AER-4217) blanks
+   `WPNAME` and zeroes `FPLCRS`/`FPLCDI`; one without it posts `NO
+   INTEGRITY DATA` to `FPLMSG`. Either is the engine noticing the feed has
+   ended, not a fault in the flight.
+
+Exit codes: `0` flown, `1` flown but a hook failed, `2` no gateway at
+`--host:--port`, `3` another writer, `130` stopped (Ctrl-C or `SIGTERM`
+end the run between rows).
+
+What it leaves behind: the run's route stays loaded in the box and the last
+position stays on the bus until it goes old (each key's `tol`). It changes
+the box's flight plan; on a shared bench that is the point, so say so on
+the issue.
+
+**`--speed` above 1 is for looking, not for checks.** The engine runs on
+the wall clock (its update rate, alert timing, turn anticipation from
+`GS`), so at x4 the airplane covers ground four times faster than its own
+`GS` says. Sequencing still happens, a little late. Run `check` on a
+recording at x1 only; above that a disagreement is the time warp, not the
+engine. Writes scale with speed too (about 20 keys per row, 5 rows per
+second at x1).
+
+The run is one netfix client and writes nothing else, so it can be pointed
+at another box's gateway across the LAN (`--host`). It needs `geographiclib`
+and `yaml` where it runs, not on the box it drives.
+
+### On a bench
+
+Hold the bench lock for the whole run (`processes/bench_deploy.md`): a
+live run is twenty minutes of a moving display, and a deploy restarting
+`fixgw` in the middle would end it.
+
+```
+flock -o -w 900 /tmp/pyefis-bench.lock timeout 45m \
+    python -m fixgw.sim live <profile> --log ~/syn2/marks.jsonl \
+        --hook 'DISPLAY=:0 ffmpeg -loglevel error -y -f x11grab -draw_mouse 0 \
+                -video_size 1920x1080 -i :0 -frames:v 1 ~/syn2/$SYN_INDEX-$SYN_WHAT-$SYN_FIX.png'
+```
+
+`x11grab`, not pyEfis's SIGUSR1 screenshot: GL does not render into the
+SIGUSR1 grab, so its SVS panel is always blank. The Pi 5 has
+no screenshot of any kind (eglfs); drive it the same way with `--host`,
+and its proof is the readback log and someone looking at the glass.
+
+## In the gateway: the demo source (DEMO2)
+
+The `demo` plugin (`fixgw/plugins/demo`, on in the shipped config) is live
+mode run inside the gateway instead of over netfix, so the writer registry
+(AER-4476) names every write `demo`. It flies `profile` (default
+`fp8-ksmx-rnav30-missed.yaml`) at x1 and starts over at the end. The steps
+are the ones above, with these differences:
+
+- It writes the generator's sensor keys and the route block and `FPLCMD`,
+  never `REF*`: the reference navigator is the CI check, not part of the
+  demo. A key the database lacks is named once and skipped.
+- Before writing anything it refuses when another plugin has written one of
+  the sensor keys, and when `LAT`/`LONG` move during `watch_s` (3 s). The
+  second check is the one that sees a writer outside any plugin.
+- While it flies, another plugin writing a sensor key stops it for good
+  (plugin status `stopped`, a critical log line). The route keys are not
+  watched: the engine republishes them on restore, and an editor may commit
+  a route.
+- At the end of the route it clears the plan (an empty route, committed),
+  flags `LAT`/`LONG` bad, waits `restart_s` (5 s), and commits the route
+  again under the next `FPLSEQ`, with commands numbered after the last ack.
+- It runs at x1 only, and refuses a `speed` other than 1.
+- With `traffic` on (the default), three ADS-B targets orbit the route's
+  hold fix at its altitude, through the stratux plugin's GDL90 decoder
+  (DEMO7). The TFC block is then watched like the sensor keys.
+- It runs an engine (DEMO3, `fixgw/plugins/demo/engine.py`) and writes its
+  sensors once a second: `TACH1`, `MAP1`, `FUELF1`, `FUELP1`, `OILP1`,
+  `OILT1`, `CHT11`-`14`, `EGT11`-`14`, `VOLT`, `CURRNT`, `FUELQ1`, `FUELQ2`
+  and `OAT`. Power follows the phase the rows show: a hold on an `HM` leg,
+  climb above +300 fpm (its first 60 s at takeoff or go-around power),
+  descent below -300 fpm, cruise otherwise. The tanks start each loop at
+  18 gal and burn by `FUELF1`. The engine keys are watched like the sensor
+  keys, and the restart repeats their last reading so the gauges stay fresh.
+- In the first climb cylinder 3 runs hot: its CHT heads for 10 deg C past
+  the `CHT13.highAlarm` the database holds, crosses `highWarn` and then
+  `highAlarm`, and after 20 s past the alarm the pilot enriches (fuel flow
+  up, EGTs down) and it falls back under `highWarn`. The demo writes only
+  the CHT. The gauge colours and the flag come from the configured limits
+  and the shipped `annunciate` plugin, as in flight. With no `highWarn`
+  below a `highAlarm` there is no event, said once in the log.
+- (DEMO4) It writes its own two keys, `database/demo.yaml`. `DEMOLIVE` is
+  true about once a second while it runs, false when it stops, and old 2 s
+  after the last write: pyEfis draws its DEMO marking from it. `DEMOPAGE` is
+  the page the `pages` schedule names at that point in the route, `SCREEN`
+  or `SCREEN/TAB`, written on the route's own clock each loop; a pyEfis in
+  kiosk mode shows it. Both are watched like the sensor keys, and the demo
+  refuses to start on a database without them, so it never runs unmarked.
+
+Its plugin status reports `State` (`watching`, `flying`, `restarting`,
+`refused`, `stopped`), the profile, the route's length in seconds, the
+loops completed, and when the CHT event ran.
+
+## What changed from the plan's sketch (`briefs/sim_bench_plan.md` section 3)
+
+- `cifp_cycle` became `cifp: {cycle, file}`: the cycle is checked against
+  the file, and the file is named so a run is reproducible.
+- `environment.magvar_deg` is new and required: both navigators read the
+  same `MAGVAR`, and a coded `CA`/`HM` course is magnetic.
+- `start.before_nm`: starting exactly at PAMJI would skip PAMJI's own
+  sequence, which the checks list.
+- (SIM3b) `route` takes en-route items before the procedure, and
+  `departure`, `destination` and `end.after_fix` are new: the names
+  xplane-bench gave them first, unchanged.
+- (DEMO9) `route` can open with a `climb_out`, and `start` can name a
+  `runway` instead of a `fix`, so a route can begin with a departure. On a
+  `CA` outside the missed approach the aircraft now climbs to the leg's
+  altitude. Before, it climbed only in the missed approach, so a `CA`
+  anywhere else would never have ended.
+- `missed: true` moved into the procedure, and the pilot's RESUME timing
+  into `pilot.missed_after_map_s`. A profile still says "go missed", not how
+  either tier does it.
+- Events got ids, `at: {after: id}` and `hold_s` (time established at the
+  offset): the sketch's fixed `after_s: 10` / `after_s: 50` would have
+  started the second offset before the first was established. `hold_min`
+  fires on `hold_at` rather than on reaching the fix, because the coded
+  hold starts at the fix.
+- Checks gained `tol_rel`, `skip_when`, `keys` and equality for idents, and
+  `FPLXTK`/`REFXTK` and `WPDIS`/`REFDIS` pairs. `REFXTK` and `REFPT` are
+  added to the four `REF*` keys: cross-track separates a geometry
+  disagreement from a scaling one, and `REFPT` tells the hold apart from the
+  leg into the same fix in the per-leg report.

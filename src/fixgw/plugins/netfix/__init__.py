@@ -51,7 +51,14 @@ class Connection(object):
             else 1024
         )
         self.subscriptions = set()
-        self.output_inhibit = False
+        # The key this connection is writing right now, or None. Its own
+        # write must not echo back to it, but only that key: a plugin can
+        # answer synchronously inside the same db_write (the flightplan
+        # engine writes FPLCMDACK from its FPLCMD callback), and a boolean
+        # here was consumed by that answer instead of the echo, so the
+        # writer never saw its own ack (AER-812). Held only for the
+        # duration of the synchronous write -- see _write_inhibited.
+        self.output_inhibit = None
 
     # This sends a standard Net-FIX value update message to the queue.
     def __send_value(self, id, value):
@@ -150,10 +157,9 @@ class Connection(object):
             self.queue.put("@w{0}!003\n".format(a[0]).encode())
             return
         try:
-            self.output_inhibit = True
             # Track inputs so we do not send back to same client
             client_block[self.addr[0]].add(a[0])
-            self.parent.db_write(a[0], a[1])
+            self._write_inhibited(a[0], a[1])
         except KeyError:
             self.queue.put("@w{0}!001\n".format(a[0]).encode())
             return
@@ -174,7 +180,12 @@ class Connection(object):
             self.queue.put("@w{};{};{}\n".format(a[0], val[0], flags).encode())
 
     def handle_request(self, d):
+        if not d:  # Empty line, nothing to do
+            return
         if d[0] == "@":  # It's a command frame
+            if len(d) < 2:  # Bare '@' with no command
+                self.queue.put("{}!004\n".format(d).encode())
+                return
             if d[1] == "l":
                 self.__send_list()
                 return
@@ -229,57 +240,67 @@ class Connection(object):
         else:  # If no '@' then it must be a value update
             try:
                 x = d.strip().split(";")
-                if len(x) != 3:
+                if len(x) not in (2, 3):
                     self.log.debug(
                         "Bad Frame {0} from {1}".format(d.strip(), self.addr[0])
                     )
-                if x[2] != "0000" or x[2] != "000":
-                    item = self.parent.db_get_item(x[0])
-                    a = x[2][0]
-                    b = x[2][1]
-                    f = x[2][2]
-                    if len(x[2]) == 4:
-                        s = x[2][3]
-                    else:
-                        s = "0"
-                    if a and a == "1":
-                        # self.output_inhibit = True
-                        item.annunciate = True
-                    elif a and a == "0":
-                        # self.output_inhibit = True
-                        item.annunciate = False
-                    if b and b == "1":
-                        # self.output_inhibit = True
-                        item.bad = True
-                    elif b and b == "0":
-                        # self.output_inhibit = True
-                        item.bad = False
-                    if f and f == "1":
-                        # self.output_inhibit = True
-                        item.fail = True
-                    elif f and f == "0":
-                        # self.output_inhibit = True
-                        item.fail = False
-                    if s and s == "1":
-                        # self.output_inhibit = True
-                        item.secfail = True
-                    elif s and s == "0":
-                        # self.output_inhibit = True
-                        item.secfail = False
-                self.output_inhibit = True
+                    return
+                # Omitted flags are assumed 0, as the spec says: `IAS;122.4`
+                # writes with every flag clear (fix-gateway #128).
+                flags = (x[2] if len(x) > 2 else "").ljust(4, "0")
+                item = self.parent.db_get_item(x[0])
+                a = flags[0]
+                b = flags[1]
+                f = flags[2]
+                s = flags[3]
+                if a and a == "1":
+                    # self.output_inhibit = True
+                    item.annunciate = True
+                elif a and a == "0":
+                    # self.output_inhibit = True
+                    item.annunciate = False
+                if b and b == "1":
+                    # self.output_inhibit = True
+                    item.bad = True
+                elif b and b == "0":
+                    # self.output_inhibit = True
+                    item.bad = False
+                if f and f == "1":
+                    # self.output_inhibit = True
+                    item.fail = True
+                elif f and f == "0":
+                    # self.output_inhibit = True
+                    item.fail = False
+                if s and s == "1":
+                    # self.output_inhibit = True
+                    item.secfail = True
+                elif s and s == "0":
+                    # self.output_inhibit = True
+                    item.secfail = False
                 # Track inputs so we do not send back to same client
                 client_block[self.addr[0]].add(x[0])
-                self.parent.db_write(x[0], x[1])
+                self._write_inhibited(x[0], x[1])
             except Exception as e:
                 # We pretty much ignore this stuff for now
                 self.log.debug("Problem with input {0}: {1}".format(d.strip(), e))
 
+    def _write_inhibited(self, key, value):
+        """Write *key* for this client without echoing it back. Database
+        callbacks run synchronously inside db_write, so the echo -- if the
+        write produces one at all -- happens before this returns; clearing
+        afterwards means a write that fires no callback cannot leave the
+        inhibit armed to swallow a later, unrelated update."""
+        self.output_inhibit = key
+        try:
+            self.parent.db_write(key, value)
+        finally:
+            self.output_inhibit = None
+
     # Callback function used for subscriptions
     def subscription_handler(self, id, value, udata):
-        if self.output_inhibit:
-            self.output_inhibit = False
-        else:
-            self.__send_value(id, value)
+        if id == self.output_inhibit:
+            return
+        self.__send_value(id, value)
 
 
 # Two threads are started for each connection.  This one is for receiving the data
@@ -405,33 +426,22 @@ class ServerThread(threading.Thread):
         self.getout = False
 
     def run(self):
-        while True:
-            if self.getout:
-                break
-            try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                s.settimeout(self.timeout)
-                s.bind((self.host, self.port))
-                s.listen(5)
+        # Bind and listen once.  The socket used to be re-created after every
+        # accept(), so a client connecting in the gap before the next bind()
+        # was refused (fix-gateway #43).  The timeout only paces the getout
+        # check and the thread maintenance below.
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.settimeout(self.timeout)
+        try:
+            s.bind((self.host, self.port))
+            s.listen(5)
+            while not self.getout:
                 try:
                     conn, addr = s.accept()
                 except socket.timeout:
-                    # if the getout flag is set let's bail.
-                    if self.getout:
-                        try:
-                            s.shutdown(socket.SHUT_RDWR)
-                        except Exception as e:
-                            # For now just log the exception
-                            self.log.debug(e)
-                        for each in self.threads:
-                            each[0].stop()
-                            each[0].join()
-                            each[1].stop()
-                            each[1].join()
-                        break
                     # General thread maintainance
-                    for each in self.threads:
+                    for each in list(self.threads):
                         # The receive thread will stop running when the client closes
                         # This shoudl stop the send thread and clean it all up.
                         if not each[0].running:
@@ -439,7 +449,6 @@ class ServerThread(threading.Thread):
                             each[1].stop()
                             each[1].join()
                             self.threads.remove(each)
-
                 else:
                     co = Connection(self.parent, conn, addr)
                     receivethread = ReceiveThread(co)
@@ -448,8 +457,18 @@ class ServerThread(threading.Thread):
                     self.threads.append((receivethread, sendthread))
                     receivethread.start()
                     sendthread.start()
-            finally:
-                s.close()
+            try:
+                s.shutdown(socket.SHUT_RDWR)
+            except Exception as e:
+                # For now just log the exception
+                self.log.debug(e)
+            for each in self.threads:
+                each[0].stop()
+                each[0].join()
+                each[1].stop()
+                each[1].join()
+        finally:
+            s.close()
 
     def stop(self):
         self.getout = True

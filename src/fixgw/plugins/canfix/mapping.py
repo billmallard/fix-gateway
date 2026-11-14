@@ -104,7 +104,9 @@ class Mapping(object):
             ix = each["canid"] - 0x100
             if self.input_mapping[ix] is None:
                 self.input_mapping[ix] = [None] * 256
-            self.input_mapping[ix][each["index"]] = self.getInputFunction(each["fixid"])
+            self.input_mapping[ix][each["index"]] = self.getInputFunction(
+                each["fixid"], each.get("scale")
+            )
             self.input_nodespecific[each["canid"]] = each.get("nodespecific", False)
         # each input mapping item := [CANID, Index, FIX DB ID, Priority]
         for each in maps["encoders"]:
@@ -132,8 +134,10 @@ class Mapping(object):
     # performance reasons which is why we are using closures.
 
     # This is a closure that holds the information we need to transfer data
-    # from the CAN-FIX port to the FIXGW Database
-    def getInputFunction(self, dbKey):
+    # from the CAN-FIX port to the FIXGW Database.  scale, when given, multiplies
+    # the decoded value (and any aux value) before it is written, for a FIX key
+    # whose units differ from the CAN-FIX parameter's.
+    def getInputFunction(self, dbKey, scale=None):
         try:
             dbItem = database.get_raw_item(dbKey)
         except KeyError:
@@ -157,9 +161,12 @@ class Mapping(object):
             output_exclude = False
 
         def InputFunc(cfpar):
+            value = cfpar.value
+            if scale is not None and value is not None:
+                value = value * scale
             if output_exclude:
                 self.output_mapping[dbItem.key]["exclude"] = True
-                self.output_mapping[dbItem.key]["lastValue"] = cfpar.value
+                self.output_mapping[dbItem.key]["lastValue"] = value
             if cfpar.meta:
                 try:
                     # Check to see if we have a replacement string in the dictionary
@@ -167,7 +174,7 @@ class Mapping(object):
                         m = self.meta_replacements_in[cfpar.meta]
                     else:  # Just use the one we were sent
                         m = cfpar.meta
-                    dbItem.set_aux_value(m, cfpar.value)
+                    dbItem.set_aux_value(m, value)
                 except:
                     self.recvinvalidcount += 1
                     self.log.warning(
@@ -175,13 +182,13 @@ class Mapping(object):
                     )
             else:
                 if (
-                    cfpar.value is not None
+                    value is not None
                     and cfpar.annunciate is not None
                     and cfpar.quality is not None
                     and cfpar.failure is not None
                 ):
                     dbItem.value = (
-                        cfpar.value,
+                        value,
                         cfpar.annunciate,
                         cfpar.quality,
                         cfpar.failure,
@@ -502,5 +509,14 @@ class Mapping(object):
                     meta[index],
                     "nodespecific",
                     True,
+                )
+            )
+        scale = data.get("scale")
+        if scale is not None and (
+            isinstance(scale, bool) or not isinstance(scale, (int, float)) or scale == 0
+        ):
+            raise ValueError(
+                cfg.message(
+                    "scale should be a non-zero number", meta[index], "scale", True
                 )
             )

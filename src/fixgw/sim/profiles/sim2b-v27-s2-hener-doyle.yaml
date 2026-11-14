@@ -1,0 +1,55 @@
+# SIM2b slice 2 (AER-4464): V27 from 3 nm before HENER through VTU and EXERT
+# to DOYLE, on the RS3 golden route KSBA GVO V27 AVOLS KSMX. The X-Plane tier
+# flew this route, start and end as session 9b6d523db79a (2026-11-01),
+# submitted inline before this loader read en-route items (SIM3b, AER-5173);
+# that flight is tests/sim/fixtures/sim2b_v27_xplane_2026-11-01.yaml.
+# Format: ../PROFILE_FORMAT.md
+#
+# The CIFP excerpt is the 2611 header, V27's records 0130-0230 (AVOLS..GVO;
+# flown GVO->AVOLS, against their order), the fix records they name (region
+# K2) and the KSBA and KSMX airport records.
+name: sim2b-v27-s2-hener-doyle
+description: >
+  KSBA GVO V27 AVOLS KSMX, flown from 3 nm before HENER at 7,000 ft through
+  VTU and EXERT, ending once DOYLE is sequenced.
+
+departure: KSBA
+destination: KSMX
+
+cifp:
+  cycle: "2611"
+  file: cifp/FAACIFP18-2611-V27-GVO-AVOLS
+
+aircraft: {tas_kt: 110}
+
+environment:
+  magvar_deg: -11.45               # FIX MAGVAR, positive west: the bench bus's during the X-Plane flight
+
+start: {fix: HENER, before_nm: 3.0, alt_ft: 7000, heading: on_course}   # V27 MEA here is 6,400
+
+route:
+  - waypoint: GVO
+  - airway: {id: V27, exit: AVOLS}
+
+end: {after_fix: DOYLE, max_s: 2100}
+
+checks:
+  - key_pair: [FPLCRS, REFCRS]
+    tol_deg: 0.5
+    except_s_around_sequence: 5
+  - key_pair: [FPLXTK, REFXTK]
+    tol: 0.02
+    except_s_around_sequence: 5
+  - key_pair: [FPLCDI, REFCDI]
+    tol: 0.05
+    same_sign: true
+    except_s_around_sequence: 5
+  - key_pair: [WPDIS, REFDIS]
+    # 0.5%: sphere vs WGS-84 distance; 0.015 nm: two 0.2 s updates at 110 kt
+    tol: 0.015
+    tol_rel: 0.005
+    except_s_around_sequence: 5
+  - key_pair: [WPNAME, REFWPT]
+    except_s_around_sequence: 5
+  - sequence: [HENER, VTU, EXERT, DOYLE, PAROL]
+    keys: [WPNAME, REFWPT]

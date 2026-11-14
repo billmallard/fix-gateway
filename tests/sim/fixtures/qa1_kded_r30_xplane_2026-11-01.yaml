@@ -1,0 +1,69 @@
+# A recorded X-Plane flight, replayed by the simulated-flight gate (SYN4):
+# QA1's KDED RNAV (GPS) 30 missed approach to the left-hand BARBS hold
+# (AER-4219, session ea108163a87d). See README.md beside this file. The
+# profile and its synthetic-tier checks are QA's; these checks are the
+# X-Plane tier's, and QA's entry verdict stays QA's.
+#
+# magvar: X-Plane's own variation, which the bench would have written as FIX
+# MAGVAR. The session logged no bus, so it is recovered from X-Plane's
+# navigator: the median of (X-Plane's course - the engine's true course) on
+# the five legs before the hold, 6.99 to 7.19 deg. On FP8, where the bus was
+# logged, the same method lands within 0.05 deg of the bus MAGVAR on every
+# leg. It is not the profile's 5.0 (the CIFP airport record, W005): with
+# that, every course reads 2.0-2.2 deg off, over the 2 deg bound.
+# pilot: the profile's own (missed_after_map_s), RESUME 5 s after the MAP.
+#
+# Checks: the FP8 brief's acceptance, as in fp8_xplane_2026-10-29.yaml: DTK
+# within 2 deg, CDI within 0.1 of full scale and of the same sign. Skipped:
+#   FPLSTATE 3 (XPB-005): the engine is suspended at the MAP, where the
+#     pilot's command, not the leg, decides what it shows.
+#   FPLPHASE HOLD (XPB-004): the engine flies the AIM entry and turns the
+#     course with the aircraft; X-Plane shows its hold course throughout.
+#     The inbound leg is compared in test_qa1_xplane_replay.py.
+#   EXTTF 2 (XPB-001, XPB-004): X-Plane is FROM, from about 0.2 nm before
+#     each fix, and in the hold.
+#   skip_when_differ [WPNAME, gps_id]: the two navigators guide to different
+#     fixes. At a straight-through fix X-Plane changes its TO fix about
+#     0.2 nm early (XPB-001). In the 85 deg turn at XEHMO both now change it
+#     at the bisector, in the same row, and at CUGAK (17 deg) one row apart
+#     (AER-4675).
+#   within 6 s of the engine's turn start (around_keys FPLALERT, which the
+#     engine drops at turn start, beside the TO-fix keys): X-Plane turns its
+#     course at 0.63 nm before XEHMO, 4.0 s before the engine does at
+#     0.51 nm (15 deg bank, TURN1), and 4.3 s before it at CUGAK (XPB-001:
+#     4.9 and 4.8 s at standard rate; at these speeds X-Plane turns earlier
+#     than either).
+#   In the turn the engine's cross-track is from the turn's arc, to the
+#     arc's end (AER-4715), and the CDI is compared there. X-Plane's follows
+#     an arc until the bisector and the next leg's straight line after it
+#     (XPB-023). From the bisector to the arc's end the two measure
+#     different paths, so the CDI check skips those rows
+#     (eng_arc_after_bisector, the replay's flag for them). Before TURN1
+#     the 6 s window above hid most of that step; with the 15 deg arc it
+#     outlasts the window (0.118 at GEARE, 6.1 s after the bisector).
+#     Before the bisector X-Plane's wider arc puts the CDIs 0.099 apart at
+#     XEHMO (0.093 at standard rate), the largest difference on the trace.
+name: qa1-kded-r30-xplane-2026-11-01
+profile: qa1-hold-teardrop-left-kded-r30
+trace: qa1_kded_r30_xplane_2026-11-01.csv.gz
+magvar: 7.09
+pilot:
+  - {resume_after_map_s: 5}
+checks:
+  - key_pair: [FPLCRS, EXTCRS]
+    min_compared_share: 0.5  # 60% of rows compared on this trace (AER-4693)
+    tol_deg: 2.0
+    except_s_around_sequence: 6  # XPB-001: X-Plane turns 4.0-4.3 s before the engine (above)
+    around_keys: [WPNAME, gps_id, FPLALERT]
+    skip_when: {FPLSTATE: 3, FPLPHASE: HOLD, EXTTF: 2}
+    skip_when_differ: [WPNAME, gps_id]
+  - key_pair: [FPLCDI, EXTCDI]
+    min_compared_share: 0.5  # 60% of rows compared on this trace (AER-4693)
+    tol: 0.1
+    same_sign: true
+    except_s_around_sequence: 6  # XPB-001: X-Plane turns 4.0-4.3 s before the engine (above)
+    around_keys: [WPNAME, gps_id, FPLALERT]
+    skip_when: {FPLSTATE: 3, FPLPHASE: HOLD, EXTTF: 2, eng_arc_after_bisector: 1}
+    skip_when_differ: [WPNAME, gps_id]
+  - sequence: [CUGAK, YEBBU, RW30, XEHMO, BARBS]
+    keys: [WPNAME, gps_id]

@@ -18,6 +18,15 @@ values are wired up by editing YAML, with no code changes.  The shipped
 ``connections/xplane.yaml`` is heavily commented and is the best line-by-line
 reference; this page explains the concepts and each configuration section.
 
+.. warning::
+
+   **One key, one writer.** Do not enable this plugin together with the
+   ``demo`` plugin. Both write attitude, air data and position, and
+   FIX-Gateway does not choose between sources. The plugin refuses to start,
+   and logs why, if ``demo`` is loaded. ``DEMO`` is enabled in the stock
+   ``preferences.yaml``, so disable it in ``preferences.yaml.custom`` when you
+   enable ``XPLANE``. (The ``fgfs`` plugin refuses to start beside this one.)
+
 Data paths
 ==========
 
@@ -80,6 +89,12 @@ Configuration
     # RREF stream rate, Hz (how often X-Plane sends subscribed datarefs back).
     dataref_hz: 10
 
+    # Seconds between re-sends of every RREF subscription.  X-Plane forgets
+    # its subscriptions when it exits, so this is what makes an X-Plane started
+    # after FIX-Gateway, or restarted under it, stream without a gateway
+    # restart.  A repeat subscription is a no-op to a running X-Plane.
+    rref_resubscribe: 5.0
+
 recv -- indexed Data Output (X-Plane to FIX)
 --------------------------------------------
 
@@ -103,10 +118,16 @@ datarefs -- RREF subscriptions (X-Plane to FIX)
 For values the indexed rows do not carry -- notably the nav-radio OBS course and
 lateral/vertical deflection the HSI needs -- subscribe to X-Plane datarefs by
 name.  FIX-Gateway issues an ``RREF`` request for each, so X-Plane needs no
-extra Data Output checkboxes.  Two forms are accepted:
+extra Data Output checkboxes.  Three forms are accepted:
 
 * ``FIX_KEY: dataref`` -- written to the key as-is.
 * ``FIX_KEY: [dataref, scale]`` -- written multiplied by ``scale``.
+* ``FIX_KEY: [dataref, {code: value, ...}]`` -- for an enumerated dataref whose
+  X-Plane codes are not the FIX key's.  The raw value is rounded and looked up;
+  a code not listed writes ``0``.
+
+An array element is named with its index, ``dataref[n]``.  Quote it inside a
+``[...]`` list, where YAML would otherwise read the brackets.
 
 ::
 
@@ -118,6 +139,8 @@ extra Data Output checkboxes.  Two forms are accepted:
     NAV1CRS: sim/cockpit/radios/nav1_obs_degm
     NAV1CDI: [sim/cockpit/radios/nav1_hdef_dot, 0.4]
     HEADBUG: sim/cockpit/autopilot/heading_mag
+    # X-Plane navaid codes 3=VOR, 4=ILS, 5=LOC onto NAV1TYPE's 1=VOR, 2=LOC.
+    NAV1TYPE: ["sim/cockpit/radios/nav_type[0]", {3: 1, 4: 2, 5: 2}]
 
 dataref_writes -- DREF writes (FIX to X-Plane)
 ----------------------------------------------
@@ -165,7 +188,9 @@ The mechanism uses this plugin together with the :doc:`compute` plugin:
 #. The compute plugin's ``select`` function routes the chosen source's
    per-source keys (``NAV1CRS`` / ``NAV2CRS`` / ``GPSCRS``, etc., populated by
    the ``datarefs`` section above) into the canonical ``COURSE`` / ``CDI`` /
-   ``GSI`` keys.
+   ``GSI`` keys.  ``NAV1TYPE`` / ``NAV2TYPE`` are selected into ``NAVTYPE``
+   the same way, which the HSI reads to label the source ``VOR1`` or ``LOC1``
+   rather than ``VLOC1``.
 #. ``NAVSRC`` already matches X-Plane's own source ordering (``0`` = NAV1,
    ``1`` = NAV2, ``2`` = GPS), so the compute plugin's ``remap`` copies it to
    ``XPHSISRC`` unchanged (an identity map).

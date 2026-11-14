@@ -1,0 +1,10 @@
+# Sim Innovations Knobster (16d0:0e8a) for the fix-gateway knobster plugin.
+# No kernel driver binds to it; this lets members of plugdev (and the logged-in
+# seat user, via uaccess) open it with libusb without sudo.
+#
+#   sudo cp 70-knobster.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+#
+# then unplug and replug the Knobster. The fixgw user must be in plugdev
+# (`id` to check; `sudo usermod -aG plugdev <user>` and log in again if not).
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="16d0", ATTR{idProduct}=="0e8a", MODE="0660", GROUP="plugdev", TAG+="uaccess"

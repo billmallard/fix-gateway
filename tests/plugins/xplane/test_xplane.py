@@ -6,10 +6,13 @@ on ``socket.socket`` so the tests don't bind any ports.
 """
 
 import struct
+import sys
+import types
 from unittest.mock import MagicMock, patch, call
 
 import pytest
 
+import fixgw.plugin as plugin_base
 from fixgw.plugins.xplane import (
     HEADER,
     NO_VALUE,
@@ -307,6 +310,58 @@ def test_ingest_rref_writes_scaled_values(mock_parent, main_thread_nav):
     assert by_key["CDI"] == pytest.approx(0.5)              # 1.25 * 0.4
 
 
+# fix-gateway#20: with a localizer tuned but not received, X-Plane sent
+# nav1_hdef_dot and nav1_vdef_dot as the same raw float32, bits 0x80000004 (a
+# negative subnormal). Scaled by the shipped +0.4 / -0.4 it read back as
+# -2.2420775429197074e-45 / +2.2420775429197074e-45 on CDI / GSI.
+NOT_RECEIVED_BYTES = struct.pack("<I", 0x80000004)
+
+
+@pytest.fixture
+def main_thread_dev(mock_parent):
+    cfg = dict(mock_parent.config)
+    cfg["datarefs"] = {
+        "NAV1CDI": ["sim/cockpit/radios/nav1_hdef_dot", 0.4],
+        "NAV1GSI": ["sim/cockpit/radios/nav1_vdef_dot", -0.4],
+    }
+    mock_parent.config = cfg
+    with patch("socket.socket"):
+        return MainThread(mock_parent)
+
+
+def _rref_raw(index, value_bytes):
+    return struct.pack("<I", index) + value_bytes
+
+
+def test_ingest_rref_flushes_subnormal_to_clean_zero(mock_parent, main_thread_dev):
+    idx = {e[0]: i for i, e in main_thread_dev.dataref_map.items()}
+    pkt = (b"RREF,"
+           + _rref_raw(idx["NAV1CDI"], NOT_RECEIVED_BYTES)
+           + _rref_raw(idx["NAV1GSI"], NOT_RECEIVED_BYTES))
+    main_thread_dev._ingest_rref(pkt)
+    by_key = {c.args[0]: c.args[1] for c in mock_parent.db_write.call_args_list}
+    # A clean, positive 0.0 at both scales -- not +/-2.24e-45, and not -0.0.
+    for key in ("NAV1CDI", "NAV1GSI"):
+        assert by_key[key] == 0.0
+        assert repr(by_key[key]) == "0.0"
+
+
+def test_ingest_rref_flush_leaves_real_deflections_alone(mock_parent, main_thread_dev):
+    idx = {e[0]: i for i, e in main_thread_dev.dataref_map.items()}
+    # Full scale, a small real deflection, and the smallest normal float32.
+    for raw in (2.5, -2.5, 0.01, -0.01, 1.1754943508222875e-38):
+        mock_parent.db_write.reset_mock()
+        pkt = (b"RREF,"
+               + struct.pack("<If", idx["NAV1CDI"], raw)
+               + struct.pack("<If", idx["NAV1GSI"], raw))
+        main_thread_dev._ingest_rref(pkt)
+        by_key = {c.args[0]: c.args[1] for c in mock_parent.db_write.call_args_list}
+        f32 = struct.unpack("<f", struct.pack("<f", raw))[0]
+        assert by_key["NAV1CDI"] == f32 * 0.4
+        assert by_key["NAV1GSI"] == f32 * -0.4
+        assert by_key["NAV1CDI"] != 0.0
+
+
 def test_ingest_rref_ignores_unknown_index(mock_parent, main_thread_nav):
     main_thread_nav._ingest_rref(b"RREF," + struct.pack("<If", 99999, 12.0))
     mock_parent.db_write.assert_not_called()
@@ -349,3 +404,44 @@ def test_plugin_lifecycle(mock_parent):
         mock_start.assert_called_once()
         plugin_instance.stop()
         mock_stop.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# One key, one writer: refuse to start beside the demo source
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def fake_server(monkeypatch):
+    mod = types.ModuleType("fixgw.server")
+    mod.plugins = {}
+    monkeypatch.setitem(sys.modules, "fixgw.server", mod)
+    return mod
+
+
+def test_plugin_refuses_to_start_beside_demo(mock_parent, fake_server):
+    demo = type("Plugin", (), {"__module__": "fixgw.plugins.demo"})()
+    cfg = dict(mock_parent.config,
+               datarefs={"COURSE": "sim/cockpit/radios/nav1_obs_degm"})
+    with patch("socket.socket"):
+        p = Plugin("xplane", cfg, MagicMock())
+    fake_server.plugins.update({"demo": demo, "xplane": p})
+    with patch.object(p.thread, "start") as mock_start:
+        with pytest.raises(plugin_base.PluginFail,
+                           match="xplane: not starting: demo also loaded"):
+            p.start()
+        mock_start.assert_not_called()
+    assert not p.is_running()
+    assert p.thread.sock_closed             # the udp_in port is released
+    p.shutdown()                            # server stops every plugin at exit
+    p.thread.sock.sendto.assert_not_called()  # no RREF cancel on a closed socket
+
+
+def test_plugin_starts_beside_unrelated_plugins(mock_parent, fake_server):
+    other = type("Plugin", (), {"__module__": "fixgw.plugins.netfix"})()
+    with patch("socket.socket"):
+        p = Plugin("xplane", mock_parent.config, MagicMock())
+    fake_server.plugins.update({"netfix": other, "xplane": p})
+    with patch.object(p.thread, "start") as mock_start:
+        p.start()
+        mock_start.assert_called_once()
+    assert p.is_running()

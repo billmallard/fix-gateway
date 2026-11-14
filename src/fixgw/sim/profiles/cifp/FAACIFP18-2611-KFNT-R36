@@ -1,0 +1,22 @@
+HDR01FAACIFP18      001P013203973042611  07-OCT-202615:55:03  U.S.A. DOT FAA                                                9D60747B
+SUSAEAENRT   CLIOO K50    W     N43063276W083520568                       W0071     NAR           CLIOO                    315832203
+SUSAEAENRT   ERRYS K50    C     N42514550W084085444                       W0068     NAR           ERRYS                    343072504
+SUSAP KFNTK5AFNT     0     078YHN42575567W083444106W006000782         1800018000C    MNAR    BISHOP INTL                   935022307
+SUSAP KFNTK5CCEGNA K50    W     N43002185W083443895                       W0071     NAR           CEGNA                    935042504
+SUSAP KFNTK5CCOKIN K50    W     N42460241W083510837                       W0070     NAR           COKIN                    935072504
+SUSAP KFNTK5CDUVIH K50    W     N42542830W083443157                       W0071     NAR           DUVIH                    935092504
+SUSAP KFNTK5CHITMO K50    W     N42460722W083442113                       W0071     NAR           HITMO                    935182008
+SUSAP KFNTK5CJORDI K50    W     N42521299W083442875                       W0071     NAR           JORDI                    935212008
+SUSAP KFNTK5FR36   AERRYS 010ERRYSK5EA0E       IF                                             18000                 A JS   936150804
+SUSAP KFNTK5FR36   AERRYS 020COKINK5PC0E  A 020TF                     11950143    + 02700                           A JS   936161310
+SUSAP KFNTK5FR36   AERRYS 030HITMOK5PC0EE B 010TF                     09500050    + 02700                           A JS   936171806
+SUSAP KFNTK5FR36   R      010HITMOK5PC0E  I    IF                                 + 02700     18000                 A JS   936221310
+SUSAP KFNTK5FR36   R      020JORDIK5PC1E  F 010TF                     00510061    + 02400                 RW36  K5PGA JS   936231806
+SUSAP KFNTK5FR36   R      020JORDIK5PC2WALPV       ALNAV/VNAV ALNAV                                                   JS   936241310
+SUSAP KFNTK5FR36   R      021DUVIHK5PC0E S  031TF                     00510023    V 0166001672        -300          A JS   936251806
+SUSAP KFNTK5FR36   R      030RW36 K5PG0GY M 031TF                     00510026      00833             -300          A JS   936260909
+SUSAP KFNTK5FR36   R      040         0  M     CA                     0051        + 01123                           A JS   936270909
+SUSAP KFNTK5FR36   R      050CEGNAK5PC0E    010DF                                                                   A JS   936281310
+SUSAP KFNTK5FR36   R      060CLIOOK5EA0EY   010TF                     32460083    + 03000                           A JS   936291806
+SUSAP KFNTK5FR36   R      070CLIOOK5EA0EE  R   HM                     33400040    + 03000                           A JS   936301806
+SUSAP KFNTK5GRW36    0078520050 N42570431W083443483         +0203600779000054150R                                          936342307

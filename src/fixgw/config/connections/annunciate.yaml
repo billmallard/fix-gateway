@@ -14,23 +14,33 @@ annunciate:
 
     # No annunciation until the value first climbs above the set point
     start_bypass: no
-    # Bypasses the value on a condition
+    # Bypasses the value on a condition, or on a list of conditions that
+    # must all hold.  A condition whose input is old, bad or failed never
+    # holds, so a lost bypass sensor leaves the alarm armed.  Do not bypass
+    # an alarm on one input: a single failed sensor would silence it.
+    # The right side is a number or a FIX value (IAS.Vgnd), read each time;
+    # an unset or untrusted value never holds.
     cond_bypass: None
-    #cond_bypass: TACH1 < 1000
+    #cond_bypass: [TACH1 < 1000, IAS < IAS.Vgnd]
     # Once triggered the annunication will not clear until the value clears
     # the setpoint plus the deadband.  This cuts down "flashing" annunications
     # that are caused by values that are very near the set point.  The value
     # can be in absolute units or in percentage of full range.
     deadband: 1%
   items:
+    # The engine alarms are bypassed only with the engine stopped AND the
+    # aircraft slow enough to be on the ground.  A tach that fails and reads
+    # 0 in flight leaves them armed (AER-4370).  "Slow enough" is the
+    # aircraft's IAS.Vgnd, set in init_data (default 40 kt) or the
+    # configurator: keep it below the slowest airborne IAS (AER-4619).
     - key: OILT1
       start_bypass: yes
-      cond_bypass: TACH1 < 500
+      cond_bypass: [TACH1 < 500, IAS < IAS.Vgnd]
       deadband: 4
 
     - key: OILP1
       start_bypass: yes
-      cond_bypass: TACH1 < 500
+      cond_bypass: [TACH1 < 500, IAS < IAS.Vgnd]
       deadband: 2
 
     - key: CHT11
@@ -45,7 +55,7 @@ annunciate:
 
     - key: CURRNT
     - key: VOLT
-      cond_bypass: TACH1 < 500
+      cond_bypass: [TACH1 < 500, IAS < IAS.Vgnd]
 
     - key: FUELP1
     - key: FUELQ1
@@ -54,3 +64,17 @@ annunciate:
 
     - key: OAT
 
+    # Altitude deviation (pyEfis EFIS-ALTSEL-005/-009/-010): annunciate
+    # ALTSEL while ALT is more than `threshold` ft from it. arm_on_capture:
+    # the alert arms only once ALT has come within threshold of ALTSEL, and
+    # selecting a new altitude disarms it, so a climb or descent to a new
+    # target is not an alert; leaving a captured altitude is. Once set, the
+    # flag holds until ALT is back within threshold - deadband, so altimeter
+    # noise at the boundary does not flash it. The defaults above do not
+    # apply to a deviation item. No alert while ALT or ALTSEL is old, bad or
+    # failed.
+    - key: ALTSEL
+      deviation_from: ALT
+      threshold: 200
+      deadband: 20
+      arm_on_capture: true

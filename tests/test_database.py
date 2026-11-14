@@ -1109,11 +1109,24 @@ def test_old_bad_and_secfail_properties_and_str():
     item.bad = True
     assert item.bad is True
     item.secfail = True
-    assert item.secfail is False
+    assert item.secfail is True
     assert item.fail is False
     assert item.min is None
     assert item.max is None
-    assert str(item) == "TEST = (1.5, False, False, True, False, True)"
+    # The value tuple carries the old flag that was set, though the item is
+    # fresh (AER-4450).
+    assert str(item) == "TEST = (1.5, False, True, True, False, True)"
+
+
+# fix-gateway#68: the secfail getter returned _fail. Set the two flags to
+# opposite values, both ways round, so a getter reading the other flag fails.
+@pytest.mark.parametrize("fail, secfail", [(True, False), (False, True)])
+def test_secfail_and_fail_getters_read_their_own_flags(fail, secfail):
+    item = database.db_item("TEST", "float")
+    item.fail = fail
+    item.secfail = secfail
+    assert item.fail is fail
+    assert item.secfail is secfail
 
 
 def test_add_item_returns_none_for_invalid_entry_type():
@@ -1295,3 +1308,393 @@ def test_getters_and_setters_for_quality_flags(database):
     assert item.bad is True
     item.old = True
     assert item.old is True
+
+
+# FP1/PA3 (fix-gateway#22, #27): the flight plan FIX key contract. Loads the
+# real database.yaml (via the `database` fixture) and asserts the indexed
+# route block, command channel, engine outputs and GPSSRC/EXT* keys exist
+# with the types/ranges makerplane/briefs/procedures_and_airways_plan.md
+# section 3.2 specifies. PA3 (Bill's ruling, 2026-09-18) replaced the FP1
+# point-only slot (FPLfROLE, 50 slots) with a leg-typed one (FPLfPT/CRS/DST/
+# ALT/SPD/SEG/FLAGS, 100 slots) plus block-level procedure provenance --
+# guardrail 6 (compatibility) was struck, so this is a breaking rewrite of
+# the old assertions below, not an addition to them.
+def test_flight_plan_keys_exist_with_specified_types_and_ranges(database):
+    expectations = {
+        "FPL1ID": ("str", None, None),
+        "FPL100ID": ("str", None, None),
+        "FPL1LAT": ("float", -90.0, 90.0),
+        "FPL1LON": ("float", -180.0, 180.0),
+        "FPL100TYPE": ("int", 0, 6),
+        "FPL100PT": ("str", None, None),
+        "FPL100CRS": ("float", 0.0, 359.9),
+        "FPL100DST": ("float", 0.0, None),
+        "FPL100ALT": ("str", None, None),
+        "FPL100SPD": ("int", 0, 400),
+        "FPL100SGI": ("int", 0, 100),
+        "FPL100FLAGS": ("int", 0, 63),
+        "FPLCOUNT": ("int", 0, 100),
+        "FPLNAME": ("str", None, None),
+        "FPLSEQ": ("int", 0, None),
+        "FPLS1KIND": ("int", 0, 5),
+        "FPLS100KIND": ("int", 0, 5),
+        "FPLS100ID": ("str", None, None),
+        "FPLS100ENT": ("str", None, None),
+        "FPLS100EXT": ("str", None, None),
+        "FPLS100FIRST": ("int", 0, 100),
+        "FPLS100LAST": ("int", 0, 100),
+        "FPLSEGCNT": ("int", 0, 100),
+        "FPLACTSEG": ("int", 0, 100),
+        "FPLSEGREM": ("float", 0.0, None),
+        "FPLAPRTYPE": ("str", None, None),
+        "FPLDBCYC": ("str", None, None),
+        "DTOID": ("str", None, None),
+        "DTOLAT": ("float", -90.0, 90.0),
+        "DTOLON": ("float", -180.0, 180.0),
+        "DTOTYPE": ("int", 0, 6),
+        "FPLCMD": ("str", None, None),
+        "FPLCMDACK": ("int", None, None),
+        "FPLMSG": ("str", None, None),
+        "FPLSTATE": ("int", 0, 3),
+        "FPLSUSPMAP": ("int", 0, 1),
+        "FPLACTLEG": ("int", 0, 100),
+        "FPLPHASE": ("str", None, None),
+        "FPLAPR": ("int", 0, 3),
+        "FPLINTEG": ("bool", None, None),
+        "CDISCALE": ("float", 0.3, 2.0),
+        "FPLCRS": ("float", 0.0, 359.9),
+        "FPLXTK": ("float", -100.0, 100.0),
+        "FPLCDI": ("float", -1.0, 1.0),
+        "FPLTF": ("int", 0, 2),
+        "FPLFRLAT": ("float", -90.0, 90.0),
+        "FPLFRLON": ("float", -180.0, 180.0),
+        "WPFROM": ("str", None, None),
+        "WPNEXT": ("str", None, None),
+        "WPDIS": ("float", 0.0, None),
+        "WPETE": ("int", 0, None),
+        "FPLREMDIS": ("float", 0.0, None),
+        "FPLREMETE": ("int", 0, None),
+        "FPLALERT": ("bool", None, None),
+        "FPLTURN": ("str", None, None),
+        "GPSSRC": ("int", 0, 1),
+        "EXTCRS": ("float", 0.0, 359.9),
+        "EXTCDI": ("float", -1.0, 1.0),
+        "EXTTF": ("int", 0, 2),
+        "EXTXTK": ("float", -100.0, 100.0),
+    }
+    for key, (typestring, minval, maxval) in expectations.items():
+        item = database.get_raw_item(key)
+        assert item.typestring == typestring, key
+        if minval is not None:
+            assert item.min == pytest.approx(minval), key
+        if maxval is not None:
+            assert item.max == pytest.approx(maxval), key
+
+    # All 100 route slots expand (not just slot 1 and 100), and FPLfROLE is
+    # gone -- replaced by FPLfFLAGS (PA3).
+    for i in range(1, 101):
+        database.get_raw_item(f"FPL{i}ID")
+        database.get_raw_item(f"FPL{i}LAT")
+        database.get_raw_item(f"FPL{i}LON")
+        database.get_raw_item(f"FPL{i}TYPE")
+        database.get_raw_item(f"FPL{i}PT")
+        database.get_raw_item(f"FPL{i}CRS")
+        database.get_raw_item(f"FPL{i}DST")
+        database.get_raw_item(f"FPL{i}ALT")
+        database.get_raw_item(f"FPL{i}SPD")
+        database.get_raw_item(f"FPL{i}SGI")
+        database.get_raw_item(f"FPL{i}FLAGS")
+    with pytest.raises(KeyError):
+        database.get_raw_item("FPL1ROLE")
+
+    # RS1: all 100 segment rows expand, and no 101st. FPLfSEG and the
+    # block-level procedure idents it pointed at are retired into the table.
+    for k in range(1, 101):
+        for field in ("KIND", "ID", "ENT", "EXT", "FIRST", "LAST"):
+            database.get_raw_item(f"FPLS{k}{field}")
+    for gone in ("FPLS101KIND", "FPL1SEG", "FPLDPID", "FPLSTARID", "FPLAPRID"):
+        with pytest.raises(KeyError):
+            database.get_raw_item(gone)
+    # Editor-written route keys never auto-flag stale; engine outputs do.
+    for key in ("FPL1SGI", "FPLS1KIND", "FPLS1ID", "FPLS1FIRST", "FPLSEGCNT"):
+        assert database.get_raw_item(key).tol == 0, key
+    for key in ("FPLACTSEG", "FPLSEGREM"):
+        assert database.get_raw_item(key).tol == 5000, key
+
+
+# RS1, Bill's ruling of 2026-10-26: one segment row per entered waypoint, so
+# a route can need as many rows as it has slots, and the segment table must
+# never be the limit -- only the slot count can. The table is indexed by the
+# slot block's own variable (`f`), so the row counts agree by construction;
+# this pins that, and pins every range that counts slots or segments to the
+# same number, so raising or lowering `f` cannot leave one of them behind.
+def test_segment_table_is_exactly_as_long_as_the_slot_block(database):
+    import re
+
+    keys = database.listkeys()
+    slot_rows = {int(m.group(1)) for k in keys if (m := re.fullmatch(r"FPL(\d+)ID", k))}
+    seg_rows = {int(m.group(1)) for k in keys if (m := re.fullmatch(r"FPLS(\d+)KIND", k))}
+    assert slot_rows == set(range(1, len(slot_rows) + 1))
+    assert seg_rows == slot_rows
+
+    n = len(slot_rows)
+    for key in ("FPLCOUNT", "FPLSEGCNT", "FPLACTLEG", "FPLACTSEG", "FPL1SGI", f"FPL{n}SGI",
+                "FPLS1FIRST", f"FPLS{n}LAST"):
+        assert database.get_raw_item(key).max == n, key
+
+    # WPLON's clamp bug (min/max were +-90) is fixed to +-180: both extremes
+    # must round-trip, not clamp.
+    wplon = database.get_raw_item("WPLON")
+    assert wplon.min == pytest.approx(-180.0)
+    assert wplon.max == pytest.approx(180.0)
+    wplon.value = -179.9
+    assert wplon.value[0] == pytest.approx(-179.9)
+    wplon.value = 179.9
+    assert wplon.value[0] == pytest.approx(179.9)
+
+
+# Regression: netfix's "@q" definition report is `;`-joined
+# (fixgw/plugins/netfix/__init__.py __send_report,
+# "{id};{description};{typestring};{min};{max};{units};{tol};{aux}") with no
+# escaping. FPLNAME's description used to embed a literal `;` -- it shifted
+# every field after it, so pyEfis's fix client received a corrupted
+# typestring and raised (unhandled) inside DB_Item.dtype's setter, crashing
+# the client's startup entirely. Caught staging AER-805's bench deploy: the
+# bug was already on `dev` (FP1/#24), unrelated to that PR's own changes.
+def test_no_description_contains_the_netfix_delimiter(database):
+    offenders = [key for key in database.listkeys()
+                 if ";" in database.get_raw_item(key).description]
+    assert not offenders, (
+        f"description contains ';' (breaks netfix's @q report): {offenders}")
+
+
+@pytest.mark.parametrize("key", ["LAT", "LONG"])
+def test_shipped_position_keys_go_old_two_seconds_after_the_last_write(database, monkeypatch, key):
+    # AER-4217: a dead GPS link reads as old on every consumer (pyEfis's map
+    # greys the ownship and shows NO POS) two seconds after the last fix, not
+    # twenty. One missed epoch of a 1 Hz receiver plus one epoch of jitter.
+    now = [time.time()]
+    monkeypatch.setattr(time, "time", lambda: now[0])
+    database.write(key, 10.0)
+
+    now[0] += 1.9
+    assert database.read(key)[2] is False
+    now[0] += 0.2
+    assert database.read(key)[2] is True
+
+    database.write(key, 10.1)  # the next fix clears it at once
+    assert database.read(key)[2] is False
+
+
+# AER-4246: going old must reach the callbacks (and so netfix clients) no
+# matter who observes the expiry first. The value getter used to set _old
+# itself when read past the tol, so a read between the expiry and the next
+# maintenance update() left update()'s `item.old = True` with nothing to
+# change, and no callback ever fired.
+def test_age_out_fires_callback_when_value_read_before_update(database):
+    item = database.get_raw_item("PITCH")
+    item.tol = 100
+    item.value = 1.0
+    cb = MagicMock()
+    item.callbacks.append(("cb", cb, None))
+
+    time.sleep(0.2)
+    assert item.value[2] is True  # a reader sees the expiry first
+    database.update()
+
+    cb.assert_called_once()
+    key, value, _ = cb.call_args.args
+    assert key == "PITCH"
+    assert value[2] is True
+
+
+def test_age_out_fires_callback_when_nothing_reads_first(database):
+    item = database.get_raw_item("PITCH")
+    item.tol = 100
+    item.value = 1.0
+    cb = MagicMock()
+    item.callbacks.append(("cb", cb, None))
+
+    time.sleep(0.2)
+    database.update()
+    database.update()  # a second tick must not repeat the notification
+
+    cb.assert_called_once()
+    assert cb.call_args.args[1][2] is True
+
+
+def test_fresh_write_after_age_out_clears_old_and_next_age_out_notifies(database):
+    item = database.get_raw_item("PITCH")
+    item.tol = 100
+    item.value = 1.0
+    cb = MagicMock()
+    item.callbacks.append(("cb", cb, None))
+
+    time.sleep(0.2)
+    item.value  # noqa: B018 -- the read is the point
+    database.update()
+    item.value = 2.0
+    assert cb.call_args.args[1][2] is False
+    time.sleep(0.2)
+    item.value  # noqa: B018
+    database.update()
+
+    assert cb.call_count == 3
+    assert cb.call_args.args[1][2] is True
+
+
+# AER-4450: a compute output is written fresh and then flagged old because an
+# input is stale. The getter worked old out from the output's own age, so the
+# flag was dropped by the first read, which the old setter's own callbacks
+# make. Old set by the writer now holds, like bad and fail, until the writer
+# clears it.
+def test_old_set_by_writer_on_a_fresh_item_reaches_callbacks_and_readers(database):
+    item = database.get_raw_item("PITCH")
+    item.tol = 2000
+    item.value = 1.0
+    cb = MagicMock()
+    item.callbacks.append(("cb", cb, None))
+
+    item.old = True
+
+    cb.assert_called_once()
+    assert cb.call_args.args[1][2] is True
+    assert item.value[2] is True
+    assert item.value[2] is True  # and a second read
+    assert item.old is True
+
+
+def test_old_set_by_writer_holds_across_writes_until_cleared(database):
+    item = database.get_raw_item("PITCH")
+    item.tol = 2000
+    item.value = 1.0
+    item.old = True
+    cb = MagicMock()
+    item.callbacks.append(("cb", cb, None))
+
+    item.value = 2.0  # a recompute that is still from a stale input
+    assert cb.call_args.args[1][2] is True
+    item.old = True  # no change, no second callback
+    assert cb.call_count == 1
+
+    item.old = False
+    assert cb.call_count == 2
+    assert cb.call_args.args[1][2] is False
+    assert item.value[2] is False
+
+
+# AER-4338: raw magnetometer vector, ratified by Bill 2026-10-31.  Written as
+# received (gauss) by the dronecan plugin; a compute stage derives HEAD.
+@pytest.mark.parametrize("key", ["MAGX", "MAGY", "MAGZ"])
+def test_magnetometer_vector_keys(database, key):
+    item = database.get_raw_item(key)
+    assert item.typestring == "float"
+    assert (item.min, item.max) == (-10.0, 10.0)
+    assert item.units == "gauss"
+    assert item.tol == 2000
+    assert item.value[0] == 0.0
+
+
+# AER-4476: one key, one writer.  The writer is the innermost fixgw.plugins
+# module on the stack, so a write is attributed however the plugin reached the
+# item (db_write, db_get_item, or database.get_raw_item as canfix does).
+def _plugin(module):
+    g = {"__name__": "fixgw.plugins." + module}
+    exec(
+        "def write(item, v):\n"
+        "    item.value = v\n"
+        "def set_old(item, v):\n"
+        "    item.set(v, old=True)\n"
+        "def flag_fail(item):\n"
+        "    item.fail = True\n"
+        "def write_aux(item, v):\n"
+        "    item.set_aux_value('Min', v)\n"
+        "def annunciate(item):\n"
+        "    item.annunciate = True\n",
+        g,
+    )
+    return g
+
+
+def test_second_plugin_writing_a_key_warns_once_naming_both(database):
+    item = database.get_raw_item("PITCH")
+    canfix, demo = _plugin("canfix"), _plugin("demo")
+    with patch.object(database, "log") as log:
+        canfix["write"](item, 1.0)
+        canfix["write"](item, 2.0)
+        log.warning.assert_not_called()
+        demo["write"](item, 3.0)
+        demo["write"](item, 4.0)
+        canfix["write"](item, 5.0)
+    log.warning.assert_called_once()
+    msg = log.warning.call_args.args[0]
+    assert "PITCH" in msg and "canfix" in msg and "demo" in msg
+    assert item.writers == ["canfix", "demo"]
+    assert database.writers()["PITCH"] == ["canfix", "demo"]
+
+
+def test_a_third_writer_warns_again(database):
+    item = database.get_raw_item("PITCH")
+    with patch.object(database, "log") as log:
+        for m in ["canfix", "demo", "netfix", "demo"]:
+            _plugin(m)["write"](item, 1.0)
+    assert log.warning.call_count == 2
+    assert item.writers == ["canfix", "demo", "netfix"]
+
+
+def test_set_and_quality_flag_writes_count_as_writes(database):
+    a, b = database.get_raw_item("PITCH"), database.get_raw_item("ROLL")
+    with patch.object(database, "log") as log:
+        _plugin("compute")["set_old"](a, 1.0)
+        _plugin("canfix")["flag_fail"](a)
+        _plugin("compute")["write"](b, 1.0)
+        _plugin("canfix")["flag_fail"](b)
+    assert a.writers == ["compute", "canfix"]
+    assert b.writers == ["compute", "canfix"]
+    assert log.warning.call_count == 2
+
+
+def test_aux_annunciate_and_non_plugin_writes_are_not_attributed(database):
+    item = database.get_raw_item("OILP1")
+    _plugin("canfix")["write"](item, 50.0)
+    _plugin("netfix")["write_aux"](item, 10.0)
+    _plugin("annunciate")["annunciate"](item)
+    _plugin("state_persist")["write"](item, 55.0)  # a restored setting
+    item.value = 60.0  # database init, the server's ini files, a test
+    database.write("OILP1", 70.0)
+    assert item.writers == ["canfix"]
+
+
+def test_submodule_counts_as_its_plugin(database):
+    item = database.get_raw_item("PITCH")
+    _plugin("canfix.mapping")["write"](item, 1.0)
+    assert item.writers == ["canfix"]
+
+
+def test_compute_writing_from_inside_another_plugins_callback_is_compute(database):
+    inp, out = database.get_raw_item("PITCH"), database.get_raw_item("ROLL")
+    compute = {"__name__": "fixgw.plugins.compute", "out": out}
+    exec("def cb(key, value, udata):\n    out.value = value[0]\n", compute)
+    inp.callbacks.append(("compute", compute["cb"], None))
+    _plugin("canfix")["write"](inp, 3.0)
+    assert out.value[0] == 3.0
+    assert inp.writers == ["canfix"]
+    assert out.writers == ["compute"]
+
+
+def test_no_shipped_key_text_breaks_the_netfix_report():
+    # netfix's report (@q) sends a key's description, type, units and aux
+    # names joined by ";", and clients split on it. A ";" inside the text
+    # shifts every later field: pyEfis read DEMOLIVE's type as the tail of its
+    # description and stalled at connect (AER-5626, on the Beelink bench).
+    database.init("src/fixgw/config/database.yaml")
+    try:
+        bad = []
+        for key in database.listkeys():
+            item = database.get_raw_item(key)
+            texts = [item.description, item.units] + list(item.aux or {})
+            if any(";" in str(t) or "\n" in str(t) for t in texts):
+                bad.append(key)
+        assert bad == []
+    finally:
+        database._stop_update_thread()

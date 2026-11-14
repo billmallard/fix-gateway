@@ -32,6 +32,7 @@ Config schema (``connections/xplane.yaml``):
         udp_in:  49001           # local UDP port we receive on
         udp_out: 49000           # X-Plane's "port we receive on" (commands)
         send_interval: 0.1       # seconds between FIX -> X-Plane bursts
+        rref_resubscribe: 5.0    # seconds between RREF subscription re-sends
 
         # X-Plane -> FIX. Eight slots per index. ``_`` / ``x`` / blank skip.
         recv:
@@ -48,13 +49,24 @@ Config schema (``connections/xplane.yaml``):
 Legacy ``idxN: KEY1,KEY2,...`` entries at the top level are still
 honoured and treated as ``send`` mappings (matching the old plugin's
 behaviour).
+
+One key, one writer: this plugin refuses to start when the ``demo`` plugin
+is also loaded, because both write attitude, air data and position and
+fix-gateway has no arbitration between them. (``fgfs`` refuses to start
+beside this plugin, so that pair is already covered from the other side.)
 """
 import threading
+import time
 import socket
 import select
 import struct
+import sys
 
 import fixgw.plugin as plugin
+
+# Plugins that write the same flight keys. Loading one of them alongside this
+# plugin gives each key two writers, and the last write silently wins.
+CONFLICTING_MODULES = ("fixgw.plugins.demo",)
 
 
 # X-Plane packet framing.
@@ -71,6 +83,11 @@ SLOTS_PER_ROW = 8
 # index back to a FIX key. Protocol mirrors the proven MAOS-FCS xplane_bridge.
 RREF_HEADER = b"RREF"
 RREF_BASE = 1000               # first request index (X-Plane echoes it back)
+# Smallest normal float32. X-Plane can send a not-received nav deflection as a
+# subnormal (seen: bits 0x80000004, fix-gateway#20); no real dataref value lives
+# below this, so the ingest flushes it to a clean 0.0. Cosmetic only -- it keeps
+# the value from looking like data, it does not say the signal is invalid.
+FLT32_MIN_NORMAL = 1.1754943508222875e-38
 
 # DREF: write a named dataref back to X-Plane. Packet is "DREF" + null + a
 # 4-byte float value + the 500-byte null-padded dataref path (509 bytes total).
@@ -132,7 +149,12 @@ def _build_dataref_map(spec):
     """Turn a ``{FIX_KEY: dataref}`` (or ``{FIX_KEY: [dataref, scale]}``) dict
     into ``{rref_index: (key, dataref, scale)}`` with sequential request
     indices. ``scale`` multiplies the raw dataref value before it's written to
-    FIX (e.g. nav deflection dots +/-2.5 -> HSI +/-1 needs scale 0.4)."""
+    FIX (e.g. nav deflection dots +/-2.5 -> HSI +/-1 needs scale 0.4).
+
+    ``scale`` may instead be a ``{code: value}`` dict, for an enumerated
+    dataref whose X-Plane codes are not the FIX key's: the rounded raw value
+    is looked up and an unlisted code writes 0 (e.g. X-Plane's nav_type
+    3=VOR, 4=ILS, 5=LOC onto NAV1TYPE's 1=VOR, 2=LOC)."""
     out = {}
     if not isinstance(spec, dict):
         return out
@@ -143,7 +165,10 @@ def _build_dataref_map(spec):
             continue
         if isinstance(raw_val, (list, tuple)):
             dref = str(raw_val[0]).strip()
-            scale = float(raw_val[1]) if len(raw_val) > 1 else 1.0
+            if len(raw_val) > 1 and isinstance(raw_val[1], dict):
+                scale = {int(k): float(v) for k, v in raw_val[1].items()}
+            else:
+                scale = float(raw_val[1]) if len(raw_val) > 1 else 1.0
         else:
             dref, scale = str(raw_val).strip(), 1.0
         if not dref:
@@ -193,9 +218,12 @@ class MainThread(threading.Thread):
         # source isn't blasted at the loop rate.
         self.dref_writes = dict(cfg.get("dataref_writes", {}))
         self._dref_last = {}
-        # Re-send subscriptions every ~5s so they survive an X-Plane (re)start
-        # or a lost subscribe packet, expressed in select-loop iterations.
-        self._resub_every = max(1, int(5.0 / self.send_interval))
+        # Re-send subscriptions every rref_resubscribe seconds so they survive
+        # an X-Plane (re)start or a lost subscribe packet. X-Plane treats a
+        # repeat subscription to the same index as a no-op. Kept unconditional
+        # rather than gated on silence: one lost subscribe packet leaves one
+        # dataref dark while the rest stream, which silence never detects.
+        self.rref_resubscribe = float(cfg.get("rref_resubscribe", 5.0))
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("0.0.0.0", self.udp_in))
@@ -284,6 +312,17 @@ class MainThread(threading.Thread):
             if entry is None:
                 continue
             key, _dref, scale = entry
+            if isinstance(scale, dict):
+                try:
+                    self.parent.db_write(key, scale.get(int(round(value)), 0.0))
+                except Exception as e:
+                    self.log.warning("xplane: db_write %s failed (%s)", key, e)
+                continue
+            # Flush before scaling: a subnormal (or -0.0) times a negative
+            # scale would otherwise land as -0.0 or a signed ~1e-45.
+            if abs(value) < FLT32_MIN_NORMAL:
+                value = 0.0
+                scale = 1.0
             try:
                 self.parent.db_write(key, float(value) * scale)
             except Exception as e:
@@ -344,7 +383,9 @@ class MainThread(threading.Thread):
     def run(self):
         if self.dataref_map:
             self.subscribe_datarefs(self.dataref_hz)
-        loops = 0
+        # Wall clock, not loop passes: every received packet is a pass, so a
+        # pass count shrinks the interval as the link gets busier.
+        next_resub = time.monotonic() + self.rref_resubscribe
         while not self.getout:
             ready, _, _ = select.select(
                 [self.sock], [], [], self.send_interval)
@@ -362,13 +403,13 @@ class MainThread(threading.Thread):
                 self.senddata()
             if self.dref_writes:
                 self.senddref()
-            loops += 1
-            if self.dataref_map and loops % self._resub_every == 0:
+            if self.dataref_map and time.monotonic() >= next_resub:
                 self.subscribe_datarefs(self.dataref_hz)   # survive X-Plane restart
+                next_resub = time.monotonic() + self.rref_resubscribe
 
     def stop(self):
         self.getout = True
-        if self.dataref_map:
+        if self.dataref_map and not self.sock_closed:
             try:
                 self.subscribe_datarefs(0)   # freq 0 cancels the subscriptions
             except Exception:
@@ -389,7 +430,23 @@ class Plugin(plugin.PluginBase):
         super().__init__(name, config, config_meta)
         self.thread = MainThread(self)
 
+    def conflicting_plugins(self):
+        """Names of other loaded plugins that write the same flight keys."""
+        server = sys.modules.get("fixgw.server")
+        loaded = getattr(server, "plugins", None) or {}
+        return sorted(
+            name for name, p in loaded.items()
+            if p is not self and type(p).__module__ in CONFLICTING_MODULES)
+
     def run(self):
+        conflicts = self.conflicting_plugins()
+        if conflicts:
+            msg = ("xplane: not starting: {} also loaded and writes the same "
+                   "keys. Enable one simulator source at a time.".format(
+                       ", ".join(conflicts)))
+            self.log.critical(msg)
+            self.thread.close()             # release udp_in
+            raise plugin.PluginFail(msg)
         self.thread.start()
 
     def stop(self):

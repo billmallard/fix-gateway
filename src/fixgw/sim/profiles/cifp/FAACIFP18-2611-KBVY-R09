@@ -1,0 +1,18 @@
+HDR01FAACIFP18      001P013203973042611  07-OCT-202615:55:03  U.S.A. DOT FAA                                                9D60747B
+SUSAEAENRT   EXXRO K60    W     N42343827W071113548                       W0140     NAR           EXXRO                    345012504
+SUSAEAENRT   WAKBI K60    W     N42474016W070515916                       W0141     NAR           WAKBI                    529732605
+SUSAP KBVYK6ABVY     0     050YHN42350291W070545812W016000107         1800018000C    MNAR    BEVERLY RGNL                  426762413
+SUSAP KBVYK6CCOLLE K60    W     N42393938W071160680                       W0139     NAR           COLLE                    426772605
+SUSAP KBVYK6CDIXNN K60    W     N42343518W071023426                       W0140     NAR           DIXNN                    426792605
+SUSAP KBVYK6CMEMAE K60    W     N42343862W070560972                       W0140     NAR           MEMAE                    426832605
+SUSAP KBVYK6CZAPOB K60    W     N42343776W070574998                       W0140     NAR           ZAPOB                    426892605
+SUSAP KBVYK6FR09   ACOLLE 010COLLEK6PC0E  A    IF                                 + 02000     18000                 A JS   427281612
+SUSAP KBVYK6FR09   ACOLLE 020EXXROK6EA0EE B 010TF                                 + 02000                           A JS   427292106
+SUSAP KBVYK6FR09   R      010EXXROK6EA0E  I    IF                                 + 02000     18000                 A JS   427321612
+SUSAP KBVYK6FR09   R      020DIXNNK6PC1E  F 010TF                                 + 01800                 MEMAE K6PCA JS   427332106
+SUSAP KBVYK6FR09   R      020DIXNNK6PC2WALP        N          ALNAV                                                   JS   427341612
+SUSAP KBVYK6FR09   R      021ZAPOBK6PC0E S  031TF                                 V 0070000700        -308          A JS   427352313
+SUSAP KBVYK6FR09   R      030MEMAEK6PC0EY M 031TF                                   00297             -308          A JS   427362313
+SUSAP KBVYK6FR09   R      040         0  M     CA                     1053        + 00600                           A JS   427372313
+SUSAP KBVYK6FR09   R      050WAKBIK6EA0EY  L010DF                                 + 02000                           A JS   427382209
+SUSAP KBVYK6FR09   R      060WAKBIK6EA0EE  L   HM                     02100040    + 02000                           A JS   427392209

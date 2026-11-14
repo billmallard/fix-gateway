@@ -1,3 +1,4 @@
+import math
 from unittest.mock import MagicMock
 
 import pytest
@@ -18,6 +19,14 @@ class FakeItem:
         self.fail = False
         self.secfail = False
         self.aux = {}
+        self.written = True  # a callback for a fake input stands for a write
+
+    def set(self, value, old=None, bad=None, fail=None, secfail=None):
+        self.value = value
+        flags = {"old": old, "bad": bad, "fail": fail, "secfail": secfail}
+        for name, flag in flags.items():
+            if flag is not None:
+                setattr(self, name, flag)
 
     def get_aux_value(self, name):
         return self.aux.get(name)
@@ -32,6 +41,11 @@ class FakeParent:
 
     def db_get_item(self, key):
         return self.items.setdefault(key, FakeItem(key))
+
+    # Every input reads fresh on the bus; the flags under test are the ones
+    # passed to the function.
+    def db_read(self, key):
+        return value_tuple(0.0)
 
 
 @pytest.fixture(autouse=True)
@@ -73,6 +87,118 @@ def test_alt_pressure_computes_without_failure():
     assert output.fail is False
 
 
+def test_alt_pressure_reference_values():
+    # Expected values from the ISA pressure-height relation written the other
+    # way round, h = (1 - (p / 29.92126) ** (1 / 5.25588)) / 6.87559e-6:
+    # PALT = ALT + h(BARO). Indicated 5500 ft at 30.42 inHg is 5042 ft.
+    parent = FakeParent()
+    func = compute.altPressure(["BARO", "ALT"], "PALT", require_leader=False)
+    func("BARO", value_tuple(30.42), parent)
+    func("ALT", value_tuple(5500.0), parent)
+    assert parent.db_get_item("PALT").value == pytest.approx(5042.0, abs=2.0)
+    func("BARO", value_tuple(29.42), parent)
+    assert parent.db_get_item("PALT").value == pytest.approx(5967.0, abs=2.0)
+
+
+def test_alt_pressure_reads_an_untouched_baro_from_the_database():
+    # P3c: BARO is only written when someone turns the knob. With no BARO
+    # callback ever, the first ALT must still compute against BARO's current
+    # database value, or PALT never goes live.
+    parent = FakeParent()
+    parent.items["BARO"] = FakeItem("BARO", value_tuple(29.92126))
+    func = compute.altPressure(["BARO", "ALT"], "PALT", require_leader=False)
+    func("ALT", value_tuple(3000.0), parent)
+    output = parent.db_get_item("PALT")
+    assert output.value == pytest.approx(3000.0)
+    assert (output.old, output.bad, output.fail) == (False, False, False)
+
+
+def test_alt_pressure_never_written_without_alt():
+    # ALT's schema initial is not an altitude: a BARO change before any ALT
+    # leaves PALT unwritten (reading its initial, old once its tol expires).
+    parent = FakeParent()
+    parent.items["ALT"] = FakeItem("ALT", value_tuple(0.0))
+    parent.items["PALT"] = FakeItem("PALT", "untouched")
+    func = compute.altPressure(["BARO", "ALT"], "PALT", require_leader=False)
+    func("BARO", value_tuple(30.10), parent)
+    assert parent.db_get_item("PALT").value == "untouched"
+
+
+def test_alt_pressure_old_alt_is_not_recomputed():
+    parent = FakeParent()
+    func = compute.altPressure(["BARO", "ALT"], "PALT", require_leader=False)
+    func("BARO", value_tuple(29.92126), parent)
+    func("ALT", value_tuple(4000.0), parent)
+    func("ALT", value_tuple(4100.0, old=True), parent)
+    output = parent.db_get_item("PALT")
+    assert output.value == pytest.approx(4000.0)
+    assert output.old is True
+    func("ALT", value_tuple(4200.0), parent)
+    assert output.value == pytest.approx(4200.0)
+    assert output.old is False
+
+
+@pytest.mark.parametrize("setting", [0.0, 24.9, 33.1])
+def test_alt_pressure_implausible_baro_is_bad(setting):
+    parent = FakeParent()
+    func = compute.altPressure(["BARO", "ALT"], "PALT", require_leader=False)
+    func("ALT", value_tuple(2000.0), parent)
+    func("BARO", value_tuple(setting), parent)
+    assert parent.db_get_item("PALT").bad is True
+    func("BARO", value_tuple(29.92126), parent)
+    assert parent.db_get_item("PALT").bad is False
+
+
+def test_alt_pressure_bad_and_failed_alt():
+    parent = FakeParent()
+    func = compute.altPressure(["BARO", "ALT"], "PALT", require_leader=False)
+    func("BARO", value_tuple(29.92126), parent)
+    func("ALT", value_tuple(2000.0, bad=True), parent)
+    output = parent.db_get_item("PALT")
+    assert output.bad is True and output.value == pytest.approx(2000.0)
+    func("ALT", value_tuple(2000.0, fail=True), parent)
+    assert output.fail is True and output.value == 0.0
+
+
+def test_alt_pressure_ages_out_with_alt_on_real_items(monkeypatch):
+    # The database's value getter derives `old` from age whenever tol != 0, so
+    # an `old` flag set on a freshly written PALT is invisible. What makes a
+    # stopped ALT show on PALT is not refreshing PALT's timestamp from it.
+    import fixgw.database as database
+
+    now = [1000.0]
+    monkeypatch.setattr(database.time, "time", lambda: now[0])
+    monkeypatch.setattr(database, "log", MagicMock(), raising=False)
+
+    def item(key, initial, tol, lo, hi):
+        i = database.db_item(key)
+        i.min, i.max, i.tol = lo, hi, tol
+        i.value = initial
+        return i
+
+    items = {
+        "BARO": item("BARO", 29.92, 0, 0.0, 35.0),
+        "ALT": item("ALT", 0.0, 2000, -2000.0, 60000.0),
+        "PALT": item("PALT", 0.0, 2000, -1000.0, 60000.0),
+    }
+    parent = MagicMock()
+    parent.db_get_item.side_effect = items.__getitem__
+    parent.db_read.side_effect = lambda key: items[key].value   # database.read
+    func = compute.altPressure(["BARO", "ALT"], "PALT", require_leader=False)
+    for key in ("BARO", "ALT"):
+        items[key].callbacks.append(("compute", func, parent))
+
+    items["ALT"].value = 6500.0          # BARO never written: 29.92 from the db
+    assert items["PALT"].value[0] == pytest.approx(6500.0, abs=2.0)
+    assert items["PALT"].value[2] is False
+
+    now[0] += 2.5                        # ALT stops arriving
+    monkeypatch.setattr(database, "__database", items)
+    database.update()                    # ALT -> old, callback fires
+    assert items["ALT"].value[2] is True
+    assert items["PALT"].value[2] is True    # same tick, not 2 s later
+
+
 def test_alt_density_waits_for_inputs_and_computes_value():
     parent = FakeParent()
     func = compute.altDensity(["PALT", "ALTMSL", "OAT"], "DALT", require_leader=True)
@@ -95,6 +221,7 @@ def test_alt_density_waits_for_inputs_and_computes_value():
         (compute.maxFunction, (["A", "B"], "OUT")),
         (compute.minFunction, (["A", "B"], "OUT")),
         (compute.spanFunction, (["A", "B"], "OUT")),
+        (compute.bearingFunction, (["LAT", "LONG", "WPLAT", "WPLON"], "OUT")),
         (compute.AOAFunction, (["PITCH", "IAS", "ANORM", "HEAD", "VS", 2, 3, 100, 100, 50, 5, 5, 3, 3], "OUT")),
     ],
 )
@@ -301,6 +428,55 @@ def test_max_and_min_forward_aux_metadata():
 
     assert parent.db_get_item("MAX").aux["highWarn"] == 90
     assert parent.db_get_item("MIN").aux["lowWarn"] == 10
+
+
+@pytest.mark.parametrize(
+    "a, b, expected",
+    [(0, 1, 0), (1, 0, 0), (0, -1, -1), (-1, 0, -1), (0, 0, 0), (2, 1, 1)],
+)
+def test_min_treats_zero_as_a_value_not_as_unset(a, b, expected):
+    # G68 / fix-gateway #136: `if vmin:` read an accumulated 0 as "not set
+    # yet", so min(0, 1) returned 1.
+    parent = FakeParent()
+    func = compute.minFunction(["A", "B"], "MIN", require_leader=False)
+
+    func("A", value_tuple(a), parent)
+    func("B", value_tuple(b), parent)
+
+    assert parent.db_get_item("MIN").value == expected
+
+
+@pytest.mark.parametrize(
+    "a, b, expected",
+    [(0, -1, 0), (-1, 0, 0), (0, 1, 1), (1, 0, 1), (0, 0, 0), (-2, -1, -1)],
+)
+def test_max_treats_zero_as_a_value_not_as_unset(a, b, expected):
+    parent = FakeParent()
+    func = compute.maxFunction(["A", "B"], "MAX", require_leader=False)
+
+    func("A", value_tuple(a), parent)
+    func("B", value_tuple(b), parent)
+
+    assert parent.db_get_item("MAX").value == expected
+
+
+def test_glideslope_valid_drops_when_the_localizer_is_lost():
+    # The repro table in fix-gateway #136, through the shipped compute.yaml
+    # gate NAV1GSV = min(NAV1DH, NAV1GSNF): with the glideslope still
+    # received, losing the localizer must take the diamond down.
+    parent = FakeParent()
+    func = compute.minFunction(["NAV1DH", "NAV1GSNF"], "NAV1GSV", require_leader=False)
+
+    func("NAV1DH", value_tuple(1), parent)
+    func("NAV1GSNF", value_tuple(1.0), parent)
+    assert parent.db_get_item("NAV1GSV").value == 1.0
+
+    func("NAV1DH", value_tuple(0), parent)
+    assert parent.db_get_item("NAV1GSV").value == 0
+
+    # Refreshes of the held glideslope input must not bring it back.
+    func("NAV1GSNF", value_tuple(1.0), parent)
+    assert parent.db_get_item("NAV1GSV").value == 0
 
 
 def test_alt_density_flag_paths_and_aux_metadata():
@@ -566,6 +742,284 @@ def test_xte_propagates_non_fail_quality_flags():
     assert output.secfail is True
 
 
+@pytest.mark.parametrize(
+    "wp_lat,wp_lon,expected",
+    [
+        (0.0, 10.0, 90.0),    # due east
+        (10.0, 0.0, 0.0),     # due north
+        (0.0, -10.0, 270.0),  # due west (atan2 -> -90, wrapped to [0,360))
+        (-10.0, 0.0, 180.0),  # due south
+    ],
+)
+def test_bearing_computes_cardinal_directions(wp_lat, wp_lon, expected):
+    parent = FakeParent()
+    func = compute.bearingFunction(
+        ["LAT", "LONG", "WPLAT", "WPLON"], "GPSBRGT", require_leader=False)
+
+    func("LAT", value_tuple(0.0), parent)
+    func("LONG", value_tuple(0.0), parent)
+    func("WPLAT", value_tuple(wp_lat), parent)
+    func("WPLON", value_tuple(wp_lon), parent)
+
+    out = parent.db_get_item("GPSBRGT")
+    assert out.value == pytest.approx(expected, abs=1e-6)
+    assert 0.0 <= out.value < 360.0
+    assert out.fail is False
+
+
+def test_bearing_matches_reference_great_circle_and_stays_wrapped():
+    # A non-cardinal case cross-checked against the shared helper, proving the
+    # fn wraps atan2's [-pi, pi] result into [0, 360) rather than leaving a
+    # negative bearing.
+    parent = FakeParent()
+    func = compute.bearingFunction(
+        ["LAT", "LONG", "WPLAT", "WPLON"], "GPSBRGT", require_leader=False)
+
+    # Aircraft in the northern hemisphere, waypoint to the southwest -> a bearing
+    # in the third quadrant (180-270), which comes out of atan2 negative.
+    func("LAT", value_tuple(40.0), parent)
+    func("LONG", value_tuple(-100.0), parent)
+    func("WPLAT", value_tuple(30.0), parent)
+    func("WPLON", value_tuple(-110.0), parent)
+
+    import math as _math
+    expected = _math.degrees(
+        compute._initial_bearing_rad(40.0, -100.0, 30.0, -110.0)) % 360.0
+    out = parent.db_get_item("GPSBRGT")
+    assert out.value == pytest.approx(expected, abs=1e-9)
+    assert 180.0 < out.value < 270.0  # third quadrant, and positively wrapped
+
+
+def test_bearing_waits_for_all_inputs():
+    parent = FakeParent()
+    parent.db_get_item("GPSBRGT").value = -1.0  # sentinel: proves no write
+    func = compute.bearingFunction(
+        ["LAT", "LONG", "WPLAT", "WPLON"], "GPSBRGT", require_leader=False)
+
+    func("LAT.Meta", 1, parent)            # meta ignored
+    func("LAT", value_tuple(0.0), parent)
+    func("LONG", value_tuple(0.0), parent)
+    func("WPLAT", value_tuple(10.0), parent)
+
+    assert parent.db_get_item("GPSBRGT").value == -1.0  # WPLON missing -> no write
+
+
+def test_bearing_propagates_non_fail_quality_flags():
+    parent = FakeParent()
+    func = compute.bearingFunction(
+        ["LAT", "LONG", "WPLAT", "WPLON"], "GPSBRGT", require_leader=False)
+
+    func("LAT", value_tuple(0.0, old=True), parent)
+    func("LONG", value_tuple(0.0, bad=True), parent)
+    func("WPLAT", value_tuple(0.0), parent)
+    func("WPLON", value_tuple(10.0, secfail=True), parent)
+
+    out = parent.db_get_item("GPSBRGT")
+    assert out.value == pytest.approx(90.0)
+    assert out.fail is False
+    assert out.old is True
+    assert out.bad is True
+    assert out.secfail is True
+
+
+def test_bearing_failed_input_zeroes_and_fails_output():
+    parent = FakeParent()
+    func = compute.bearingFunction(
+        ["LAT", "LONG", "WPLAT", "WPLON"], "GPSBRGT", require_leader=False)
+
+    func("LAT", value_tuple(0.0), parent)
+    func("LONG", value_tuple(0.0), parent)
+    func("WPLAT", value_tuple(0.0), parent)
+    func("WPLON", value_tuple(10.0, old=True, fail=True), parent)
+
+    out = parent.db_get_item("GPSBRGT")
+    assert out.value == 0.0
+    assert out.fail is True
+    assert out.old is True
+
+
+def test_bearing_select_arbitrates_pointer_among_three_sources():
+    # End-to-end of the pointer data layer: the per-pointer select routes one of
+    # {VOR1BRG, VOR2BRG, GPSBRG} into the canonical BRG1 the HSI needle reads.
+    # Mirrors the NAVSRC/COURSE select ordering: 0=VOR1, 1=VOR2, 2=GPS.
+    parent = FakeParent()
+    func = compute.selectFunction(
+        ["BRG1SRC", "VOR1BRG", "VOR2BRG", "GPSBRG"], "BRG1", require_leader=False)
+
+    func("VOR1BRG", value_tuple(120.0), parent)
+    func("VOR2BRG", value_tuple(200.0), parent)
+    func("GPSBRG", value_tuple(33.0), parent)
+
+    func("BRG1SRC", value_tuple(2.0), parent)   # GPS
+    assert parent.db_get_item("BRG1").value == 33.0
+    func("BRG1SRC", value_tuple(0.0), parent)   # VOR1
+    assert parent.db_get_item("BRG1").value == 120.0
+    func("BRG1SRC", value_tuple(1.0), parent)   # VOR2
+    assert parent.db_get_item("BRG1").value == 200.0
+
+
+def test_gpssrc_select_routes_internal_plan_vs_external_navigator():
+    # FP1 (fix-gateway#22): GPSSRC (0=internal plan, 1=external navigator)
+    # routes {FPLCRS, EXTCRS} -> GPSCRS, mirroring the NAVSRC/BRGnSRC pattern.
+    parent = FakeParent()
+    crs = compute.selectFunction(["GPSSRC", "FPLCRS", "EXTCRS"], "GPSCRS", require_leader=False)
+    cdi = compute.selectFunction(["GPSSRC", "FPLCDI", "EXTCDI"], "GPSCDI", require_leader=False)
+    tf = compute.selectFunction(["GPSSRC", "FPLTF", "EXTTF"], "GPSTF", require_leader=False)
+
+    crs("FPLCRS", value_tuple(45.0), parent)
+    crs("EXTCRS", value_tuple(310.0), parent)
+    cdi("FPLCDI", value_tuple(-0.5), parent)
+    cdi("EXTCDI", value_tuple(0.25), parent)
+    tf("FPLTF", value_tuple(1), parent)
+    tf("EXTTF", value_tuple(2), parent)
+
+    crs("GPSSRC", value_tuple(0.0), parent)     # internal plan
+    cdi("GPSSRC", value_tuple(0.0), parent)
+    tf("GPSSRC", value_tuple(0.0), parent)
+    assert parent.db_get_item("GPSCRS").value == 45.0
+    assert parent.db_get_item("GPSCDI").value == -0.5
+    assert parent.db_get_item("GPSTF").value == 1
+
+    crs("GPSSRC", value_tuple(1.0), parent)     # external navigator
+    cdi("GPSSRC", value_tuple(1.0), parent)
+    tf("GPSSRC", value_tuple(1.0), parent)
+    assert parent.db_get_item("GPSCRS").value == 310.0
+    assert parent.db_get_item("GPSCDI").value == 0.25
+    assert parent.db_get_item("GPSTF").value == 2
+
+
+def test_navsrc_select_still_lands_gps_in_course_cdi_tofrom():
+    # The pre-existing NAVSRC select (GPS = index 2) must still route whatever
+    # the GPSSRC select produced on GPSCRS/GPSCDI/GPSTF into COURSE/CDI/TOFROM
+    # unchanged by FP1 -- the two selects chain, they don't replace each other.
+    parent = FakeParent()
+    course = compute.selectFunction(
+        ["NAVSRC", "NAV1CRS", "NAV2CRS", "GPSCRS"], "COURSE", require_leader=False)
+    cdi = compute.selectFunction(
+        ["NAVSRC", "NAV1CDI", "NAV2CDI", "GPSCDI"], "CDI", require_leader=False)
+    tofrom = compute.selectFunction(
+        ["NAVSRC", "NAV1TF", "NAV2TF", "GPSTF"], "TOFROM", require_leader=False)
+
+    course("GPSCRS", value_tuple(88.0), parent)
+    cdi("GPSCDI", value_tuple(0.4), parent)
+    tofrom("GPSTF", value_tuple(1), parent)
+
+    course("NAVSRC", value_tuple(2.0), parent)   # 2 = GPS
+    cdi("NAVSRC", value_tuple(2.0), parent)
+    tofrom("NAVSRC", value_tuple(2.0), parent)
+
+    assert parent.db_get_item("COURSE").value == 88.0
+    assert parent.db_get_item("CDI").value == 0.4
+    assert parent.db_get_item("TOFROM").value == 1
+
+
+def test_select_numeric_option_is_a_fresh_valid_constant():
+    # A number in a select's source list is a constant: always fresh and valid,
+    # never "never published". Existing selects (all key names) are unaffected.
+    parent = FakeParent()
+    func = compute.selectFunction(
+        ["NAVSRC", "NAV1CDIV", "NAV2CDIV", 1.0], "CDIV", require_leader=False)
+    out = parent.db_get_item("CDIV")
+    out.fail = out.old = out.bad = True
+
+    func("NAVSRC", value_tuple(2.0), parent)          # 2 = GPS -> the constant
+    assert out.value == 1.0
+    assert (out.fail, out.old, out.bad, out.secfail) == (False, False, False, False)
+
+
+def _cdiv_chain():
+    # The shipped wiring: NAV#CDIV = min(NAV#DH), CDIV = select over NAVSRC.
+    nav1 = compute.minFunction(["NAV1DH"], "NAV1CDIV", require_leader=False)
+    nav2 = compute.minFunction(["NAV2DH"], "NAV2CDIV", require_leader=False)
+    sel = compute.selectFunction(
+        ["NAVSRC", "NAV1CDIV", "NAV2CDIV", 1.0], "CDIV", require_leader=False)
+    parent = FakeParent()
+
+    def write(key, value, **flags):
+        tup = value_tuple(value, **flags)
+        if key == "NAV1DH":
+            nav1(key, tup, parent)
+            o = parent.db_get_item("NAV1CDIV")
+            sel("NAV1CDIV", (o.value, False, o.old, o.bad, o.fail, o.secfail), parent)
+        elif key == "NAV2DH":
+            nav2(key, tup, parent)
+            o = parent.db_get_item("NAV2CDIV")
+            sel("NAV2CDIV", (o.value, False, o.old, o.bad, o.fail, o.secfail), parent)
+        else:
+            sel(key, tup, parent)
+        return parent.db_get_item("CDIV")
+
+    return write
+
+
+def test_cdiv_follows_the_selected_nav_radios_lateral_signal():
+    # fix-gateway#20: LOC 1 tuned but not received (nav1_display_horizontal=0)
+    # must read CDIV=0, so the HSI stops drawing a centred needle from no signal.
+    write = _cdiv_chain()
+    write("NAV1DH", 0.0)
+    write("NAV2DH", 1.0)
+
+    cdiv = write("NAVSRC", 0.0)                       # NAV1: tuned, no signal
+    assert cdiv.value == 0.0 and cdiv.fail is False
+    cdiv = write("NAVSRC", 1.0)                       # NAV2: receiving
+    assert cdiv.value == 1.0
+
+    write("NAVSRC", 0.0)
+    cdiv = write("NAV1DH", 1.0)                       # NAV1 captures the LOC
+    assert cdiv.value == 1.0
+    cdiv = write("NAV1DH", 0.0)                       # ... and loses it
+    assert cdiv.value == 0.0
+
+
+def test_cdiv_gps_leg_is_not_gated():
+    # No GPS lateral-validity source exists, so GPS reads CDIV=1 whatever the
+    # nav radios are doing; its needle stays on GPSCDI's own quality.
+    write = _cdiv_chain()
+    write("NAV1DH", 0.0)
+    write("NAV2DH", 0.0)
+    cdiv = write("NAVSRC", 2.0)
+    assert cdiv.value == 1.0 and cdiv.fail is False
+
+
+def test_cdiv_carries_nav_dh_quality():
+    # NAV#DH going stale (X-Plane feed stopped) shows up as a stale CDIV, the
+    # same way NAV#GSV carries it.
+    write = _cdiv_chain()
+    write("NAVSRC", 0.0)
+    cdiv = write("NAV1DH", 1.0, old=True)
+    assert cdiv.old is True
+    cdiv = write("NAV1DH", 1.0, fail=True)
+    assert cdiv.fail is True and cdiv.value == 0.0
+
+
+def test_cdiv_never_published_source_fails_the_output():
+    # Selecting NAV2 when NAV2DH has never arrived is the select's honest
+    # "no source": CDIV is flagged failed rather than keeping NAV1's 1.0.
+    write = _cdiv_chain()
+    write("NAV1DH", 1.0)
+    assert write("NAVSRC", 0.0).value == 1.0
+    assert write("NAVSRC", 1.0).fail is True
+
+
+def test_xte_is_fed_gpscrs_not_course():
+    # FP1: xte is re-fed GPSCRS (post-GPSSRC-select) instead of COURSE
+    # (post-NAVSRC-select) so XTRACK stays correct against the active plan/
+    # external navigator even while NAVSRC has the HSI showing a VOR.
+    parent = FakeParent()
+    func = compute.xteFunction(["LAT", "LONG", "WPLAT", "WPLON", "GPSCRS"], "XTRACK", require_leader=False)
+
+    func("LAT", value_tuple(34.60), parent)
+    func("LONG", value_tuple(-120.10), parent)
+    func("WPLAT", value_tuple(34.42621), parent)  # KSBA
+    func("WPLON", value_tuple(-119.84037), parent)
+    func("GPSCRS", value_tuple(313.13), parent)   # KSBA -> KSMX bearing
+
+    # Reference fixture from the flight-plan brief section 3.3: P(34.60,
+    # -120.10) is 1.146 nm left of the KSBA->KSMX course.
+    out = parent.db_get_item("XTRACK")
+    assert out.value == pytest.approx(-1.146, abs=0.01)
+
+
 def test_plugin_run_registers_special_functions_and_unknown_function():
     pl = compute.Plugin.__new__(compute.Plugin)
     pl.config = {
@@ -606,4 +1060,271 @@ def test_plugin_run_registers_special_functions_and_unknown_function():
     assert pl.db_callback_add.call_args_list[1].args[0] == "SW"
     assert pl.db_callback_add.call_args_list[2].args[0] == "A"
     pl.log.warning.assert_called_once_with("Unknown function - mystery")
+    pl.stop()
+
+
+# ---------------------------------------------------------------------------
+# windTriangle -- WINDSPD / WINDDIR from the GPS wind triangle (GS, TRACK,
+# TAS, HEAD).  WINDDIR is the direction the wind is FROM.
+# ---------------------------------------------------------------------------
+
+
+def _feed_wind_triangle(func, parent, gs, track, tas, head):
+    func("GS", value_tuple(gs), parent)
+    func("TRACK", value_tuple(track), parent)
+    func("TAS", value_tuple(tas), parent)
+    func("HEAD", value_tuple(head), parent)
+
+
+def test_wind_triangle_pure_headwind():
+    parent = FakeParent()
+    func = compute.windTriangle(
+        ["GS", "TRACK", "TAS", "HEAD"], ["WINDSPD", "WINDDIR"], require_leader=False)
+
+    # Flying due north, 100 kt TAS but only 80 kt over the ground -> 20 kt
+    # straight on the nose, wind FROM the north (000).
+    _feed_wind_triangle(func, parent, gs=80.0, track=0.0, tas=100.0, head=0.0)
+
+    assert parent.db_get_item("WINDSPD").value == pytest.approx(20.0)
+    assert parent.db_get_item("WINDDIR").value == pytest.approx(0.0)
+    assert parent.db_get_item("WINDSPD").fail is False
+    assert parent.db_get_item("WINDDIR").fail is False
+
+
+def test_wind_triangle_from_direction_convention():
+    parent = FakeParent()
+    func = compute.windTriangle(
+        ["GS", "TRACK", "TAS", "HEAD"], ["WINDSPD", "WINDDIR"], require_leader=False)
+
+    # Heading due north at 100 kt TAS, tracking 315 at 100*sqrt(2) kt GS: a
+    # 100 kt crosswind pushing the aircraft left -> the wind is FROM the right,
+    # i.e. FROM 090.  Verifies WINDDIR is the FROM direction, not the TO.
+    _feed_wind_triangle(
+        func, parent, gs=math.sqrt(2) * 100.0, track=315.0, tas=100.0, head=0.0)
+
+    assert parent.db_get_item("WINDSPD").value == pytest.approx(100.0)
+    assert parent.db_get_item("WINDDIR").value == pytest.approx(90.0)
+
+
+def test_wind_triangle_waits_for_all_inputs():
+    parent = FakeParent()
+    func = compute.windTriangle(
+        ["GS", "TRACK", "TAS", "HEAD"], ["WINDSPD", "WINDDIR"], require_leader=False)
+
+    func("GS", value_tuple(80.0), parent)
+    func("TRACK", value_tuple(0.0), parent)
+    func("TAS", value_tuple(100.0), parent)
+    # HEAD still missing -> nothing written to either output.
+    assert parent.db_get_item("WINDSPD").value == 0.0
+    assert parent.db_get_item("WINDDIR").value == 0.0
+
+
+def test_wind_triangle_respects_leader_requirement(monkeypatch):
+    parent = FakeParent()
+    func = compute.windTriangle(
+        ["GS", "TRACK", "TAS", "HEAD"], ["WINDSPD", "WINDDIR"], require_leader=True)
+    monkeypatch.setattr(compute.quorum, "leader", False)
+
+    _feed_wind_triangle(func, parent, gs=80.0, track=0.0, tas=100.0, head=0.0)
+
+    assert parent.db_get_item("WINDSPD").value == 0.0
+    assert parent.db_get_item("WINDDIR").value == 0.0
+
+
+def test_wind_triangle_ignores_meta_updates():
+    parent = FakeParent()
+    func = compute.windTriangle(
+        ["GS", "TRACK", "TAS", "HEAD"], ["WINDSPD", "WINDDIR"], require_leader=False)
+
+    func("GS.Min", 0.0, parent)   # non-tuple aux update -> ignored, no crash
+    assert parent.db_get_item("WINDSPD").value == 0.0
+
+
+def test_wind_triangle_propagates_old_bad_secfail_flags():
+    parent = FakeParent()
+    func = compute.windTriangle(
+        ["GS", "TRACK", "TAS", "HEAD"], ["WINDSPD", "WINDDIR"], require_leader=False)
+
+    func("GS", value_tuple(80.0, old=True), parent)
+    func("TRACK", value_tuple(0.0), parent)
+    func("TAS", value_tuple(100.0, bad=True), parent)
+    func("HEAD", value_tuple(0.0, secfail=True), parent)
+
+    for key in ["WINDSPD", "WINDDIR"]:
+        out = parent.db_get_item(key)
+        assert out.old is True
+        assert out.bad is True
+        assert out.secfail is True
+        assert out.fail is False
+    # non-failing inputs still yield the computed value
+    assert parent.db_get_item("WINDSPD").value == pytest.approx(20.0)
+
+
+def test_wind_triangle_failed_input_zeroes_and_fails_both_outputs():
+    parent = FakeParent()
+    func = compute.windTriangle(
+        ["GS", "TRACK", "TAS", "HEAD"], ["WINDSPD", "WINDDIR"], require_leader=False)
+
+    func("GS", value_tuple(80.0), parent)
+    func("TRACK", value_tuple(0.0), parent)
+    func("TAS", value_tuple(100.0), parent)
+    func("HEAD", value_tuple(0.0, fail=True), parent)
+
+    for key in ["WINDSPD", "WINDDIR"]:
+        out = parent.db_get_item(key)
+        assert out.value == 0.0
+        assert out.fail is True
+
+
+# ---------------------------------------------------------------------------
+# windComponents -- HWIND / XWIND from WINDSPD, WINDDIR, HEAD.
+# HWIND positive = headwind; XWIND positive = wind from the right.
+# ---------------------------------------------------------------------------
+
+
+def _feed_wind_components(func, parent, windspd, winddir, head):
+    func("WINDSPD", value_tuple(windspd), parent)
+    func("WINDDIR", value_tuple(winddir), parent)
+    func("HEAD", value_tuple(head), parent)
+
+
+def test_wind_components_pure_headwind():
+    parent = FakeParent()
+    func = compute.windComponents(
+        ["WINDSPD", "WINDDIR", "HEAD"], ["HWIND", "XWIND"], require_leader=False)
+
+    # Wind straight down the nose (FROM the heading) -> full headwind, no cross.
+    _feed_wind_components(func, parent, windspd=20.0, winddir=90.0, head=90.0)
+
+    assert parent.db_get_item("HWIND").value == pytest.approx(20.0)
+    assert parent.db_get_item("XWIND").value == pytest.approx(0.0, abs=1e-9)
+
+
+def test_wind_components_pure_tailwind_is_negative_headwind():
+    parent = FakeParent()
+    func = compute.windComponents(
+        ["WINDSPD", "WINDDIR", "HEAD"], ["HWIND", "XWIND"], require_leader=False)
+
+    # Heading 090, wind FROM 270 -> straight tailwind (negative headwind).
+    _feed_wind_components(func, parent, windspd=20.0, winddir=270.0, head=90.0)
+
+    assert parent.db_get_item("HWIND").value == pytest.approx(-20.0)
+    assert parent.db_get_item("XWIND").value == pytest.approx(0.0, abs=1e-9)
+
+
+def test_wind_components_crosswind_from_right_is_positive():
+    parent = FakeParent()
+    func = compute.windComponents(
+        ["WINDSPD", "WINDDIR", "HEAD"], ["HWIND", "XWIND"], require_leader=False)
+
+    # Heading north, wind FROM the east (090) -> crosswind from the right (+).
+    _feed_wind_components(func, parent, windspd=20.0, winddir=90.0, head=0.0)
+
+    assert parent.db_get_item("HWIND").value == pytest.approx(0.0, abs=1e-9)
+    assert parent.db_get_item("XWIND").value == pytest.approx(20.0)
+
+
+def test_wind_components_crosswind_from_left_is_negative():
+    parent = FakeParent()
+    func = compute.windComponents(
+        ["WINDSPD", "WINDDIR", "HEAD"], ["HWIND", "XWIND"], require_leader=False)
+
+    # Heading north, wind FROM the west (270) -> crosswind from the left (-).
+    _feed_wind_components(func, parent, windspd=20.0, winddir=270.0, head=0.0)
+
+    assert parent.db_get_item("XWIND").value == pytest.approx(-20.0)
+
+
+def test_wind_components_waits_for_all_inputs():
+    parent = FakeParent()
+    func = compute.windComponents(
+        ["WINDSPD", "WINDDIR", "HEAD"], ["HWIND", "XWIND"], require_leader=False)
+
+    func("WINDSPD", value_tuple(20.0), parent)
+    func("WINDDIR", value_tuple(90.0), parent)
+    # HEAD still missing -> nothing written.
+    assert parent.db_get_item("HWIND").value == 0.0
+    assert parent.db_get_item("XWIND").value == 0.0
+
+
+def test_wind_components_respects_leader_requirement(monkeypatch):
+    parent = FakeParent()
+    func = compute.windComponents(
+        ["WINDSPD", "WINDDIR", "HEAD"], ["HWIND", "XWIND"], require_leader=True)
+    monkeypatch.setattr(compute.quorum, "leader", False)
+
+    _feed_wind_components(func, parent, windspd=20.0, winddir=90.0, head=90.0)
+
+    assert parent.db_get_item("HWIND").value == 0.0
+    assert parent.db_get_item("XWIND").value == 0.0
+
+
+def test_wind_components_ignores_meta_updates():
+    parent = FakeParent()
+    func = compute.windComponents(
+        ["WINDSPD", "WINDDIR", "HEAD"], ["HWIND", "XWIND"], require_leader=False)
+
+    func("WINDSPD.Min", 0.0, parent)   # non-tuple aux update -> ignored
+    assert parent.db_get_item("HWIND").value == 0.0
+
+
+def test_wind_components_propagates_old_bad_secfail_flags():
+    parent = FakeParent()
+    func = compute.windComponents(
+        ["WINDSPD", "WINDDIR", "HEAD"], ["HWIND", "XWIND"], require_leader=False)
+
+    func("WINDSPD", value_tuple(20.0, old=True), parent)
+    func("WINDDIR", value_tuple(90.0, bad=True), parent)
+    func("HEAD", value_tuple(90.0, secfail=True), parent)
+
+    for key in ["HWIND", "XWIND"]:
+        out = parent.db_get_item(key)
+        assert out.old is True
+        assert out.bad is True
+        assert out.secfail is True
+        assert out.fail is False
+    assert parent.db_get_item("HWIND").value == pytest.approx(20.0)
+
+
+def test_wind_components_failed_input_zeroes_and_fails_both_outputs():
+    parent = FakeParent()
+    func = compute.windComponents(
+        ["WINDSPD", "WINDDIR", "HEAD"], ["HWIND", "XWIND"], require_leader=False)
+
+    func("WINDSPD", value_tuple(20.0), parent)
+    func("WINDDIR", value_tuple(90.0), parent)
+    func("HEAD", value_tuple(90.0, fail=True), parent)
+
+    for key in ["HWIND", "XWIND"]:
+        out = parent.db_get_item(key)
+        assert out.value == 0.0
+        assert out.fail is True
+
+
+def test_plugin_run_registers_wind_functions_on_generic_path():
+    pl = compute.Plugin.__new__(compute.Plugin)
+    pl.config = {
+        "functions": [
+            {
+                "function": "wind_triangle",
+                "inputs": ["GS", "TRACK", "TAS", "HEAD"],
+                "output": ["WINDSPD", "WINDDIR"],
+                "require_leader": False,
+            },
+            {
+                "function": "wind_components",
+                "inputs": ["WINDSPD", "WINDDIR", "HEAD"],
+                "output": ["HWIND", "XWIND"],
+                "require_leader": False,
+            },
+        ]
+    }
+    pl.db_callback_add = MagicMock()
+    pl.log = MagicMock()
+
+    pl.run()
+
+    registered = [c.args[0] for c in pl.db_callback_add.call_args_list]
+    assert registered == ["GS", "TRACK", "TAS", "HEAD", "WINDSPD", "WINDDIR", "HEAD"]
+    pl.log.warning.assert_not_called()
     pl.stop()

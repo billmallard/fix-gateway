@@ -39,7 +39,15 @@ includes:
   DYNON_CONFIG: connections/dynon.yaml
   DEMO_CONFIG: connections/demo.yaml
   RTL_433_CONFIG: connections/rtl_433.yaml
+  KNOBSTER_CONFIG: connections/knobster.yaml
   STATE_PERSIST_CONFIG: connections/state_persist.yaml
+  FLIGHTPLAN_CONFIG: connections/flightplan.yaml
+  NAVIGATOR_CONFIG: connections/navigator_adapter.yaml
+  GARMIN_GNX375_CONFIG: connections/garmin_gnx375.yaml
+  CANAEROSPACE_CONFIG: connections/canaerospace.yaml
+  DRONECAN_CONFIG: connections/dronecan.yaml
+  AVIONICSDUINO_CONFIG: connections/avionicsduino.yaml
+  ONSPEED_CONFIG: connections/onspeed.yaml
 # This section is used to turn things on or off
 enabled:
   QUORUM: false
@@ -74,3 +82,18 @@ enabled:
   DYNON: false
   DEMO: true
   RTL_433: false
+  FLIGHTPLAN: true
+  STATE_PERSIST: true
+  KNOBSTER: false
+  NAVIGATOR: false
+  GARMIN_GNX375: false
+  CANAEROSPACE: false
+  DRONECAN: false
+  AVIONICSDUINO: false
+  ONSPEED: false
+
+# Our own 24-bit ICAO address, hex, QUOTED (e.g. "A1B2C3"), for the stratux
+# traffic writer's ownship filter.  pyefis-data config-pull writes it into
+# preferences.yaml.custom from the configurator's aircraft registration; a
+# non-blank ownship_address in connections/stratux.yaml overrides it.
+# ownship_address: ""

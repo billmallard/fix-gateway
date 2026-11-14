@@ -1,0 +1,44 @@
+{
+ "host": "10.110.10.241",
+ "label": "beelink_before",
+ "t0": 1794492065.3051906,
+ "events": [
+  {
+   "local": [
+    "172.29.8.2",
+    35804
+   ],
+   "peer": [
+    "10.110.10.241",
+    3490
+   ],
+   "kind": "connected",
+   "t": 0.003
+  },
+  {
+   "line": "@sPITCH",
+   "kind": "subscribe_ack",
+   "t": 0.005
+  },
+  {
+   "line": "@rPITCH;0.0;01000",
+   "kind": "read_before",
+   "t": 0.006
+  },
+  {
+   "line": "PITCH;15.0;00000",
+   "kind": "subscriber_saw",
+   "t": 0.256
+  },
+  {
+   "line": "PITCH;15.0;00000",
+   "kind": "subscriber_saw",
+   "t": 1.257
+  },
+  {
+   "line": "@rPITCH;15.0;00000",
+   "kind": "read_during",
+   "t": 6.011
+  }
+ ]
+}

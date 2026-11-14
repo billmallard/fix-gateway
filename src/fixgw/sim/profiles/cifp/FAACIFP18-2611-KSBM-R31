@@ -1,0 +1,15 @@
+HDR01FAACIFP18      001P013203973042611  07-OCT-202615:55:03  U.S.A. DOT FAA                                                9D60747B
+SUSAEAENRT   WOKNO K50    W     N43290026W087465842                       W0042     NAR           WOKNO                    540022201
+SUSAP KSBMK5ASBM     0     068YHN43461117W087510620W002000755         1800018000C    MNAR    SHEBOYGAN COUNTY MEML INTL    100782504
+SUSAP KSBMK5CDECEK K50    W     N43423986W087452236                       W0043     NAR           DECEK                    100822403
+SUSAP KSBMK5CFONAB K50    W     N43385081W087385961                       W0044     NAR           FONAB                    100832605
+SUSAP KSBMK5FR31   AWOKNO 010WOKNOK5EA0E  A    IF                                             18000                 B PS   101222009
+SUSAP KSBMK5FR31   AWOKNO 020FONABK5PC0EE B 010TF                                 + 03000                           B PS   101232009
+SUSAP KSBMK5FR31   R      010FONABK5PC0E  I    IF                                 + 03000     18000                 B PS   101242009
+SUSAP KSBMK5FR31   R      020DECEKK5PC1E  F 010TF                                 + 02400                 RW31  K5PGB PS   101252009
+SUSAP KSBMK5FR31   R      020DECEKK5PC2WN          N          ALNAV                                                   PS   101262009
+SUSAP KSBMK5FR31   R      030RW31 K5PG0GY M 031TF                                   00780             -305          B PS   101272009
+SUSAP KSBMK5FR31   R      040         0  M     CA                     3115        + 01155                           B PS   101282009
+SUSAP KSBMK5FR31   R      050WOKNOK5EA0EY  L010DF                                 + 03000                           B PS   101292009
+SUSAP KSBMK5FR31   R      060WOKNOK5EA0EE  R   HM                     03250040    + 03000                           B PS   101302009
+SUSAP KSBMK5GRW31    0050023110 N43455047W087504193         +0189800740000040075R                                          101342504

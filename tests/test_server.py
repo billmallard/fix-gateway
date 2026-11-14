@@ -321,6 +321,72 @@ def test_main_setup_uses_default_config_copy_when_no_config_file_is_provided(tmp
     assert server.config_path == f"{tmp_path}/makerplane/fixgw/config"
 
 
+def run_main_setup_with_config_file(config_file):
+    config = {"database file": "{CONFIG}/db.yaml", "connections": {}}
+    args = make_args(config_file=open(config_file))
+    with (
+        patch.object(
+            argparse.ArgumentParser, "parse_known_args", return_value=(args, [])
+        ),
+        patch("fixgw.server.create_config_dir") as create_config_dir,
+        patch("fixgw.server.cfg.from_yaml", return_value=(config, {"connections": {}})),
+        patch("fixgw.server.database.init"),
+        patch("fixgw.server.database.write"),
+        patch("fixgw.server.status.initialize"),
+        patch("fixgw.server.signal.signal"),
+        patch("fixgw.server.logging.getLogger", return_value=MagicMock()),
+        patch("fixgw.server.logging.basicConfig"),
+    ):
+        try:
+            server.main_setup()
+        finally:
+            args.config_file.close()
+    return create_config_dir
+
+
+def test_main_setup_updates_config_dir_when_config_file_is_in_it(tmp_path, monkeypatch):
+    # The shipped systemd unit passes --config-file naming the default file;
+    # that install must still receive new and updated config files (#92).
+    config_dir = tmp_path / "makerplane" / "fixgw" / "config"
+    write_preferences(config_dir)
+    config_file = make_config_file(config_dir)
+    monkeypatch.setattr(server, "user_home", str(tmp_path))
+
+    create_config_dir = run_main_setup_with_config_file(config_file)
+
+    create_config_dir.assert_called_once_with(f"{tmp_path}/makerplane/fixgw")
+    assert server.config_path == str(config_dir)
+
+
+def test_main_setup_updates_config_dir_through_a_symlinked_path(tmp_path, monkeypatch):
+    config_dir = tmp_path / "home" / "makerplane" / "fixgw" / "config"
+    write_preferences(config_dir)
+    make_config_file(config_dir)
+    (tmp_path / "link").symlink_to(tmp_path / "home")
+    monkeypatch.setattr(server, "user_home", str(tmp_path / "home"))
+
+    create_config_dir = run_main_setup_with_config_file(
+        tmp_path / "link" / "makerplane" / "fixgw" / "config" / "default.yaml"
+    )
+
+    create_config_dir.assert_called_once_with(f"{tmp_path}/home/makerplane/fixgw")
+
+
+def test_main_setup_leaves_config_dir_alone_for_a_config_file_elsewhere(tmp_path, monkeypatch):
+    other_dir = tmp_path / "elsewhere"
+    write_preferences(other_dir)
+    config_file = make_config_file(other_dir)
+    # A sibling whose name merely starts with "config" is not the config dir
+    sibling_dir = tmp_path / "makerplane" / "fixgw" / "config-old"
+    write_preferences(sibling_dir)
+    sibling_file = make_config_file(sibling_dir)
+    monkeypatch.setattr(server, "user_home", str(tmp_path))
+
+    assert not run_main_setup_with_config_file(config_file).called
+    assert not run_main_setup_with_config_file(sibling_file).called
+    assert server.config_path == str(sibling_dir)
+
+
 def test_main_setup_exits_under_systemd_when_auto_start_disabled(tmp_path):
     config_file = make_config_file(tmp_path)
     write_preferences(tmp_path)
@@ -876,3 +942,98 @@ def test_main_block_executes_main_setup_and_main(tmp_path):
         patch("fixgw.plugin.jobQueue.get", return_value="QUIT"),
     ):
         runpy.run_path(server.__file__, run_name="__main__")
+
+
+# G39 (fix-gateway#42): the GCU contract keys ship in database/gcu.yaml, not
+# the user's custom.yaml, so an update delivers them. Reproduce a pre-GCU
+# install -- an unedited (timestamp-stamped) database.yaml with no gcu
+# include, no gcu.yaml, and a user-edited custom.yaml without the keys --
+# then run the real update against the packaged config and load the result.
+def _pre_gcu_install(tmp_path, custom_text):
+    import fixgw.database as database
+
+    root = tmp_path / "makerplane" / "fixgw"
+    server.create_config_dir(str(root))
+    config = root / "config"
+    (config / "database" / "gcu.yaml").unlink()
+    dbyaml = config / "database.yaml"
+    dbyaml.write_text(dbyaml.read_text().replace("- include: database/gcu.yaml\n", ""))
+    server.os.utime(dbyaml, (350039106.789, 350039106.789))
+    (config / "database" / "custom.yaml").write_text(custom_text)
+
+    database.init(str(dbyaml))
+    before = database.listkeys()
+
+    server.create_config_dir(str(root))
+    database.init(str(dbyaml))
+    return before, database
+
+
+def test_update_delivers_gcu_keys_to_an_install_without_them(tmp_path):
+    before, database = _pre_gcu_install(
+        tmp_path, "items:\n- key: MYKEY\n  type: str\n  initial: mine\n"
+    )
+    assert "ALTSEL" not in before and "GCUSEL" not in before   # AER-3915's bench
+
+    altsel = database.get_raw_item("ALTSEL")
+    assert altsel.dtype is int
+    assert (altsel.min, altsel.max, altsel.units) == (-1000, 60000, "ft")
+    assert database.read("ALTSEL")[0] == 3000
+    assert database.read("GCUSEL")[0] == "NONE"
+    assert database.read("MYKEY")[0] == "mine"               # the user's key survives
+
+
+def test_hand_added_altsel_in_custom_yaml_still_loads_and_wins(tmp_path):
+    _, database = _pre_gcu_install(
+        tmp_path,
+        "items:\n- key: ALTSEL\n  description: Selected Altitude\n  type: int\n"
+        "  min: -1000\n  max: 60000\n  units: ft\n  initial: 5000\n",
+    )
+
+    assert database.read("ALTSEL")[0] == 5000
+    assert database.read("GCUSEL")[0] == "NONE"
+
+
+# G11d (AER-5388): MAPNDMODE ships in custom.yaml beside MAPORIENT, so a map
+# button can step the ND mode. Its max is the mode count, so pyEfis's
+# "change value wrap" (span = max - min) cycles off -> expanded -> ctr -> off.
+# An install whose custom.yaml is still the stock (stamped) file receives it on
+# update; one whose custom.yaml was edited gets it only in custom.yaml.dist.
+def _install_with_custom_before_g11d(tmp_path, edited):
+    import fixgw.database as database
+
+    root = tmp_path / "makerplane" / "fixgw"
+    server.create_config_dir(str(root))
+    custom = root / "config" / "database" / "custom.yaml"
+    old = custom.read_text()
+    start = old.index("- key: MAPNDMODE")
+    custom.write_text(old[:start].rstrip() + "\n")
+    if edited:
+        server.os.utime(custom, (1700000000.0, 1700000000.0))
+    else:
+        server.os.utime(custom, (350039106.789, 350039106.789))
+    dbyaml = root / "config" / "database.yaml"
+    database.init(str(dbyaml))
+    before = database.listkeys()
+
+    server.create_config_dir(str(root))
+    database.init(str(dbyaml))
+    return before, database, custom
+
+
+def test_update_delivers_mapndmode_to_a_stock_custom_yaml(tmp_path):
+    before, database, _ = _install_with_custom_before_g11d(tmp_path, edited=False)
+    assert "MAPNDMODE" not in before and "MAPORIENT" in before
+
+    item = database.get_raw_item("MAPNDMODE")
+    assert item.dtype is int
+    assert (item.min, item.max, item.units) == (0, 3, "index")
+    assert item.tol == 0                       # a pilot setting, written on change
+    assert database.read("MAPNDMODE")[0] == 0  # off
+
+
+def test_edited_custom_yaml_gets_mapndmode_only_in_dist(tmp_path):
+    before, database, custom = _install_with_custom_before_g11d(tmp_path, edited=True)
+
+    assert "MAPNDMODE" not in database.listkeys()
+    assert "- key: MAPNDMODE" in (custom.parent / "custom.yaml.dist").read_text()

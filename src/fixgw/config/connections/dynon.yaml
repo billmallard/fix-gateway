@@ -1,4 +1,10 @@
 dynon:
   load: DYNON
   module: fixgw.plugins.dynon
+  # One writer per key: this plugin writes PALT (pressure altitude) from the
+  # Dynon's own reading. compute.yaml also derives PALT from the altimeter
+  # setting (BARO). When a Dynon is fitted, it owns PALT: delete the
+  # compute.yaml function whose output is PALT, or the two writers fight over
+  # the value and its old flag. DALT (density altitude) still computes from
+  # the Dynon's PALT.
   port: /dev/ttyUSB0

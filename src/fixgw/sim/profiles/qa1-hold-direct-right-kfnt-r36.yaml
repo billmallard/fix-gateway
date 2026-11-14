@@ -1,0 +1,68 @@
+# QA1 (AER-4211): a direct hold entry, right-hand pattern. QA-authored:
+# the scenario, the checks, the tolerances and the expected values are QA's.
+# KFNT RNAV (GPS) 36 via ERRYS, missed approach to the CLIOO hold
+# (inbound 334.0 M, R turns, 4.0 nm legs). The arrival at
+# CLIOO falls inside the AIM 5-3-8 direct sector, at least 15 deg from
+# either boundary, so either navigator choosing another entry is a defect,
+# not a judgement call at a sector line. Ten minutes in the hold covers the
+# entry and a full circuit. Format: ../PROFILE_FORMAT.md
+name: qa1-hold-direct-right-kfnt-r36
+description: >
+  KFNT RNAV 36 via ERRYS from 2 nm before COKIN, missed approach,
+  direct entry to the right-hand CLIOO hold, ten minutes in the hold.
+
+cifp:
+  cycle: "2611"
+  file: cifp/FAACIFP18-2611-KFNT-R36
+
+aircraft: {tas_kt: 110, climb_fpm: 700, descent_fpm: 600, bank_max_deg: 25}
+
+environment:
+  magvar_deg: 6.0              # FIX MAGVAR, positive west: CIFP airport record W0060
+  wind: {from_deg: 0, kt: 0}
+
+start: {fix: COKIN, before_nm: 2.0, alt_ft: 2700, heading: on_course}
+
+route:
+  - procedure: {airport: KFNT, approach: R36, transition: ERRYS, missed: true}
+
+pilot:
+  missed_after_map_s: 5
+
+events:
+  - id: hold
+    at: {hold_at: CLIOO}
+    do: {hold_min: 10}
+
+end: {after_event: hold, max_s: 5400}
+
+checks:
+  # QA's tolerances (AER-4211). A wrong entry is >= 30 deg of course and a
+  # wrong racetrack phase >= 90 deg; 1.5 deg passes a displayed-degree
+  # rounding step plus the sphere/WGS-84 difference measured in hold turns
+  # (<= 1.4 deg with cross-track agreeing to 0.002 nm). tolerate_s 0.1: the
+  # two navigators may switch racetrack phase one 0.2 s update apart, which
+  # shows as a single row of 90-180 deg difference. One row is tolerated;
+  # two consecutive rows fail.
+  - key_pair: [FPLCRS, REFCRS]
+    tol_deg: 1.5
+    except_s_around_sequence: 5
+    tolerate_s: 0.1
+  - key_pair: [FPLXTK, REFXTK]
+    tol: 0.02
+    except_s_around_sequence: 5
+    tolerate_s: 0.1
+  - key_pair: [FPLCDI, REFCDI]
+    tol: 0.05
+    same_sign: true
+    except_s_around_sequence: 5
+    tolerate_s: 0.1
+  - key_pair: [WPDIS, REFDIS]
+    tol: 0.015
+    tol_rel: 0.005
+    skip_when: {REFWPT: ""}
+    except_s_around_sequence: 5
+  - key_pair: [WPNAME, REFWPT]
+    except_s_around_sequence: 5
+  - sequence: [COKIN, HITMO, JORDI, DUVIH, RW36, CEGNA, CLIOO]
+    keys: [WPNAME, REFWPT]

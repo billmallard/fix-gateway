@@ -46,6 +46,18 @@ class FakeParent:
     def db_read(self, key):
         return self.values.get(key, (0, False, False, False, False, False))
 
+    def db_get_item(self, key):
+        return FakeItem(self, key)
+
+
+class FakeItem:
+    def __init__(self, parent, key):
+        self.parent = parent
+        self.key = key
+
+    def set(self, value, old=None):
+        self.parent.db_write(self.key, value)
+
 
 class FakeMavSender:
     def __init__(self):
@@ -144,6 +156,8 @@ def make_mav(messages=None, parent=None, options=None):
     mav._trimsSavedPitch = 0
     mav._trimsSavedYaw = 0
     mav._waypoint = str
+    mav._link_ok = False
+    mav._last_heartbeat = 0.0
     mav._interval = mav_module.defaultdict(lambda: 200000)
     mav._data = mav_module.defaultdict(list)
     mav._max_average = 15
@@ -302,13 +316,13 @@ def test_process_sensor_attitude_gps_position_pressure_and_servo_messages(monkey
     assert_write(parent, "ROT", ("rot", 20.0, 0.5))
     assert_write(parent, "PITCH", -14.32)
     assert_write(parent, "YAW", 57.3)
-    assert_write(parent, "COURSE", 123.45)
+    assert_write(parent, "TRACK", 123.45)
     assert_write(parent, "GPS_FIX_TYPE", 3)
     assert_write(parent, "GPS_ELLIPSOID_ALT", 1000.0)
     assert_write(parent, "GPS_SATS_VISIBLE", 8)
     assert_write(parent, "GPS_ACCURACY_SPEED", 3.89)
-    assert_write(parent, "GPS_ACCURACY_HORIZ", 1.0)
-    assert_write(parent, "GPS_ACCURACY_VERTICAL", 2.0)
+    assert_write(parent, "GPS_ACCURACY_HORIZ", 10.0)
+    assert_write(parent, "GPS_ACCURACY_VERTICAL", 20.0)
     assert_write(parent, "HEAD", 98.76)
     assert_write(parent, "AGL", 50.0)
     assert_write(parent, "ALT", 1000.0)
@@ -322,14 +336,36 @@ def test_process_sensor_attitude_gps_position_pressure_and_servo_messages(monkey
     assert mav._outputYaw == 10
 
 
-def test_process_gps_course_uses_heading_when_stationary():
+def _gps_raw(cog):
+    return Msg("GPS_RAW_INT", cog=cog, fix_type=0, alt_ellipsoid=0, satellites_visible=0, vel_acc=0, h_acc=0, v_acc=0)
+
+
+def test_process_gps_cog_is_track_not_course():
+    # cog is ground track; COURSE is compute's NAVSRC select output (AER-4475).
     parent = FakeParent()
-    mav = make_mav(parent=parent, messages=[Msg("GPS_RAW_INT", cog=9000, fix_type=0, alt_ellipsoid=0, satellites_visible=0, vel_acc=0, h_acc=0, v_acc=0)])
+    mav = make_mav(parent=parent, messages=[_gps_raw(9000)])
+    mav._data["GS"].append(60.0)
+
+    mav.process()
+
+    assert_write(parent, "TRACK", 90.0)
+    assert "COURSE" not in [k for k, _ in parent.writes]
+
+
+@pytest.mark.parametrize("gs,cog", [(0.0, 9000), (60.0, 65535)])
+def test_process_gps_no_track_when_stationary_or_cog_unknown(gs, cog):
+    # No ground track below 3 kt or with cog = UINT16_MAX. The old code put the
+    # magnetic heading into COURSE here; nothing substitutes for TRACK now.
+    parent = FakeParent()
+    mav = make_mav(parent=parent, messages=[_gps_raw(cog)])
+    mav._data["GS"].append(gs)
     mav._data["HEAD"].append(271.0)
 
     mav.process()
 
-    assert_write(parent, "COURSE", 271.0)
+    written = [k for k, _ in parent.writes]
+    assert "TRACK" not in written
+    assert "COURSE" not in written
 
 
 @pytest.mark.parametrize(
@@ -377,6 +413,115 @@ def test_process_heartbeat_unknown_mode_sets_error_and_ignores_other_vehicle_typ
 
     assert_write(parent, "MAVMODE", "UNKNOWN")
     assert_write(parent, "MAVSTATE", "ERROR")
+
+
+class DbParent(FakeParent):
+    """A parent on the real fixgw database, for the flags that live on items."""
+
+    def __init__(self, database):
+        super().__init__()
+        self.database = database
+
+    def db_write(self, key, value):
+        self.writes.append((key, value))
+        self.database.write(key, value)
+
+    def db_read(self, key):
+        return self.database.read(key)
+
+    def db_get_item(self, key):
+        return self.database.get_raw_item(key)
+
+
+# Three missed 1 Hz heartbeats.  A literal, so the test fails on the flag
+# rather than on a missing constant where the plugin has no timeout.
+LINK_TIMEOUT = 3.0
+
+
+def heartbeat(mode):
+    return Msg("HEARTBEAT", type=1, custom_mode=mode, base_mode=0)
+
+
+def link_loss_mav(database, monkeypatch, messages):
+    clock = [100.0]
+    monkeypatch.setattr(mav_module.time, "monotonic", lambda: clock[0])
+    parent = DbParent(database)
+    mav = make_mav(parent=parent, messages=messages)
+    mav._last_heartbeat = clock[0]
+    seen = []
+    item = database.get_raw_item("MAVMSG")
+    database.callback_add("test", "MAVMSG", lambda k, v, u: seen.append(v[:3]), None)
+    return mav, item, clock, seen
+
+
+def test_link_timeout_marks_mavmsg_old_and_next_heartbeat_clears_it(
+    database, monkeypatch
+):
+    # AER-5320: MAVMSG has tol 0, so a link loss left "Heading Hold" on the
+    # PFD as if current.
+    mav, item, clock, seen = link_loss_mav(
+        database, monkeypatch, [heartbeat(7), None, None, heartbeat(0)]
+    )
+
+    mav.process()
+    assert item.value[0] == "Heading Hold"
+    assert item.old is False
+
+    clock[0] += LINK_TIMEOUT
+    mav.process()
+    assert item.old is False  # not past the timeout yet
+
+    clock[0] += 0.1
+    mav.process()
+    assert item.value[0] == "Heading Hold"
+    assert item.old is True
+
+    seen.clear()
+    clock[0] += 10
+    mav.process()
+    assert item.value[0] == "Trim Mode"
+    assert item.old is False
+    # One update: the new mode is never shown old, nor the old one fresh.
+    assert seen == [("Trim Mode", False, False)]
+    assert mav_module.LINK_TIMEOUT == LINK_TIMEOUT
+
+
+def test_link_timeout_flag_survives_plugin_writes_until_a_heartbeat(
+    database, monkeypatch
+):
+    # The plugin's own messages during the outage ("Drop to Heading Hold",
+    # "Invalid Request") are not news from the autopilot.
+    mav, item, clock, _ = link_loss_mav(database, monkeypatch, [heartbeat(7), None])
+    mav.process()
+    clock[0] += LINK_TIMEOUT + 1
+    mav.process()
+    assert item.old is True
+
+    mav.parent.db_write("MAVMSG", "Drop to Heading Hold")
+    assert item.value[0] == "Drop to Heading Hold"
+    assert item.old is True
+
+    # Nor is a heartbeat from another kind of system on the link.
+    mav.conn.messages = [Msg("HEARTBEAT", type=27, custom_mode=0, base_mode=0)]
+    mav.process()
+    assert item.old is True
+
+
+def test_reconnected_link_clears_old_left_by_previous_connection(
+    database, monkeypatch
+):
+    # A new Mav after a reconnect starts with no link; the item is still old
+    # from the last one, and the first heartbeat must clear it.
+    database.get_raw_item("MAVMSG").old = True
+    mav, item, clock, _ = link_loss_mav(database, monkeypatch, [None, heartbeat(7)])
+
+    clock[0] += LINK_TIMEOUT + 1
+    mav.process()
+    assert item.old is True
+
+    mav.process()
+    assert item.value[0] == "Heading Hold"
+    assert item.old is False
 
 
 def test_process_sys_status_sends_arm_command_when_prearm_check_passes():

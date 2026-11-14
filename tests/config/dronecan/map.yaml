@@ -1,0 +1,27 @@
+# DroneCAN test mapfile.
+ignore_fixid_missing: false
+
+inputs:
+  - message: uavcan.equipment.ahrs.MagneticFieldStrength2
+    where: { sensor_id: 0 }
+    fields:
+      - { path: "magnetic_field_ga[0]", fixid: MAGX }
+      - { path: "magnetic_field_ga[1]", fixid: MAGY }
+      - { path: "magnetic_field_ga[2]", fixid: MAGZ }
+
+  - message: uavcan.equipment.power.CircuitStatus
+    where: { circuit_id: 0 }
+    fields:
+      - { path: voltage, fixid: VOLT }
+      - { path: current, fixid: CURRNT }
+
+  - message: uavcan.equipment.air_data.StaticTemperature
+    fields:
+      - { path: static_temperature, fixid: OAT, converter: k2c }
+
+  # Multi-frame transfer (8 frames), accepted from node 50 only.
+  - message: uavcan.equipment.gnss.Fix2
+    source_node: 50
+    fields:
+      - { path: latitude_deg_1e8, fixid: LAT, scale: 1.0e-8 }
+      - { path: longitude_deg_1e8, fixid: LONG, scale: 1.0e-8 }

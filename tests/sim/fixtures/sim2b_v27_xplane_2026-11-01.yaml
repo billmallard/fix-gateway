@@ -1,0 +1,60 @@
+# A recorded X-Plane flight on an airway, replayed by the simulated-flight
+# gate (SYN4): V27 from HENER through VTU and EXERT to DOYLE, slice 2 of the
+# RS3 golden route KSBA GVO V27 AVOLS KSMX (SIM2b, AER-4464). See README.md
+# beside this file.
+#
+# The recording carries the route block the bench was loaded with:
+# v27_route_block.json, as pyEfis's FixBridge.publish wrote it, and the slot
+# the bench activated (6, the leg into HENER). magvar is the bench bus's FIX
+# MAGVAR, median over the flight. `profile` names the profile the session
+# flew (submitted inline then; committed since SIM3b, AER-5173), which the
+# synthetic tier flies too. The route block, not the profile, is what this
+# replay loads; tests/sim/test_enroute.py checks the two agree.
+#
+# Checks: the FP8 brief's acceptance, as in fp8_xplane_2026-10-29.yaml: DTK
+# within 2 deg, CDI within 0.1 of full scale and of the same sign, compared
+# where both navigators guide to the same fix, plus the sequence. Skipped:
+#   EXTTF 2: X-Plane is FROM, from about 0.2 nm before each fix (XPB-001).
+#   Within 6 s of the engine's turn start (around_keys FPLALERT, which the
+#   engine drops at turn start, beside the TO-fix keys): in the 61 deg turn
+#   at HENER X-Plane turns its course 2.3 s before the engine (XPB-001;
+#   4.6 s while the engine sized turns at standard rate, before TURN1). Both
+#   change the TO fix at the
+#   bisector, in the same row (AER-4675).
+#   In the turn the engine's cross-track is from the turn's arc, to the
+#     arc's end (AER-4715), and the CDI is compared there. X-Plane's follows
+#     an arc until the bisector and the next leg's straight line after it
+#     (XPB-023). From the bisector to the arc's end the two measure
+#     different paths, so the CDI check skips those rows
+#     (eng_arc_after_bisector, the replay's flag for them). Before TURN1
+#     the 6 s window above hid most of that step; with the 15 deg arc it
+#     outlasts the window (0.118 at GEARE, 6.1 s after the bisector).
+# The trace stops at 1442.8 s, the row before X-Plane switched to PAROL: the
+# session ended there (end.after_fix DOYLE), 0.2 nm short of where the engine
+# sequences (XPB-001), so only X-Plane would have shown PAROL.
+# Measured on this trace, outside 6 s of each sequence and of the engine's
+# turn start (AER-4675): FPLCRS within 0.12 deg of EXTCRS, FPLCDI within
+# 0.001 of EXTCDI, on 5,733 rows (TURN1, AER-4759; 0.005 on 5,770 at
+# standard rate, AER-4715).
+name: sim2b-v27-xplane-2026-11-01
+profile: sim2b-v27-s2-hener-doyle
+route_block: v27_route_block.json
+act: 6
+magvar: -11.449
+trace: sim2b_v27_xplane_2026-11-01.csv.gz
+checks:
+  - key_pair: [FPLCRS, EXTCRS]
+    min_compared_share: 0.8  # 92% of rows compared on this trace (AER-4693)
+    tol_deg: 2.0
+    except_s_around_sequence: 6
+    around_keys: [WPNAME, gps_id, FPLALERT]
+    skip_when: {EXTTF: 2}
+  - key_pair: [FPLCDI, EXTCDI]
+    min_compared_share: 0.8  # 92% of rows compared on this trace (AER-4693)
+    tol: 0.1
+    same_sign: true
+    except_s_around_sequence: 6
+    around_keys: [WPNAME, gps_id, FPLALERT]
+    skip_when: {EXTTF: 2, eng_arc_after_bisector: 1}
+  - sequence: [HENER, VTU, EXERT, DOYLE]
+    keys: [WPNAME, gps_id]
