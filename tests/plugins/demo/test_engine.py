@@ -8,14 +8,15 @@ import sys
 
 import pytest
 
+import fixgw.plugin as plugin_base
+
 import fixgw.database as database
 from fixgw import cfg
 from fixgw.plugins.demo import engine
 
 pytest.importorskip("geographiclib")
 
-from fixgw.sim import generator  # noqa: E402
-from tests.plugins.demo.test_demo import PROFILE, db, flown, loops, make  # noqa: E402,F401
+from tests.plugins.demo.test_demo import FastClock, as_plugin, loops, make  # noqa: E402
 
 DEFAULT_INI = "src/fixgw/config/init_data/default.ini"
 ANNUNCIATE_YAML = "src/fixgw/config/connections/annunciate.yaml"
@@ -211,8 +212,6 @@ def test_without_limits_it_says_so_once_and_flies_without_the_event(db, caplog):
 
 
 def test_a_second_writer_on_an_engine_key_stops_it(db):
-    from tests.plugins.demo.test_demo import FastClock, as_plugin
-
     fast = FastClock(on_sleep=lambda n: as_plugin("canfix", "CHT12", 150.0) if n == 50 else None)
     p = make(fast=fast)
     p.start()
@@ -222,8 +221,6 @@ def test_a_second_writer_on_an_engine_key_stops_it(db):
 
 
 def test_refuses_at_start_beside_a_source_writing_the_engine(db):
-    import fixgw.plugin as plugin_base
-    from tests.plugins.demo.test_demo import as_plugin
 
     as_plugin("grand_rapids_eis", "TACH1", 2300)
     p = make()
@@ -232,8 +229,6 @@ def test_refuses_at_start_beside_a_source_writing_the_engine(db):
 
 
 def test_the_restart_hold_keeps_the_engine_gauges_fresh(db):
-    from tests.plugins.demo.test_demo import FastClock
-
     p = make({"restart_s": 4}, fast=FastClock())
     held = []
     hold = p.thread._hold

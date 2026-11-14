@@ -17,20 +17,7 @@ pytest.importorskip("geographiclib")
 from fixgw.sim import generator  # noqa: E402
 
 PROFILE = demo.Plugin._profile_path(demo.DEFAULT_PROFILE)
-
-
-@pytest.fixture(scope="module")
-def flown():
-    return generator.generate(PROFILE)
-
-
-@pytest.fixture
-def db(flown, monkeypatch):
-    database.init("src/fixgw/config/database.yaml")
-    database._stop_update_thread()
-    monkeypatch.setattr(generator, "generate", lambda *a, **k: flown)
-    yield
-    database._stop_update_thread()
+# the flown profile and the db fixture are in conftest.py
 
 
 def as_plugin(name, key, value):
