@@ -192,9 +192,11 @@ sequencing it).
 A `procedure` has `airport`, `approach` (the CIFP procedure ident, `R30`),
 `transition` (`GVO`), and `missed` (fly the missed approach; when false the
 run ends at the MAP). The reference flies the transition, the final and the
-missed approach as coded. The box gets the same legs as an editor would
-publish them (`fixgw/sim/fplroute.py` lists the encoding choices, since
-assembling a procedure into slots is not specified yet).
+missed approach as coded. The box gets the same legs as pyEfis's PROC
+page would publish them (`fixgw/sim/fplroute.py` lists the encoding
+choices; pyEfis `tests/flightplan/test_fplroute_conformance.py` checks
+them against its procedure loader for every profile here, so a new or
+changed profile means regenerating that test's fixture).
 
 Leg types the reference flies: `IF TF DF CA HM`. Anything else refuses the
 whole profile rather than flying a guess.
