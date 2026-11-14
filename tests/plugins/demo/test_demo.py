@@ -17,20 +17,7 @@ pytest.importorskip("geographiclib")
 from fixgw.sim import generator  # noqa: E402
 
 PROFILE = demo.Plugin._profile_path(demo.DEFAULT_PROFILE)
-
-
-@pytest.fixture(scope="module")
-def flown():
-    return generator.generate(PROFILE)
-
-
-@pytest.fixture
-def db(flown, monkeypatch):
-    database.init("src/fixgw/config/database.yaml")
-    database._stop_update_thread()
-    monkeypatch.setattr(generator, "generate", lambda *a, **k: flown)
-    yield
-    database._stop_update_thread()
+# the flown profile and the db fixture are in conftest.py
 
 
 def as_plugin(name, key, value):
@@ -155,9 +142,11 @@ def test_demo_writes_only_source_keys_and_the_editors_route_keys(db, monkeypatch
     editor = _editor_keys()
     route = {k for k in written if any(rx.match(k) for rx in editor)}
     tfc = {k for k in written if k.startswith("TFC")}
-    # every key it writes is a sensor's, its own two (DEMO4), the editor's,
-    # or the traffic block (DEMO7) through the stratux decoder
-    assert written - route - tfc == set(demo.SOURCE_KEYS + demo.DEMO_KEYS), sorted(written - route - tfc)
+    # every key it writes is a sensor's, the engine's (DEMO3), its own two
+    # (DEMO4), the editor's, or the traffic block (DEMO7) through the stratux
+    # decoder
+    assert written - route - tfc == set(demo.SOURCE_KEYS + demo.DEMO_KEYS) | set(demo.ENGINE_KEYS), \
+        sorted(written - route - tfc)
     assert {"TFC1TGT", "TFCCOUNT"} <= tfc
     assert all(database.get_raw_item(k).writers == ["demo"] for k in tfc)
     assert {"FPLSEQ", "FPLCMD", "FPLCOUNT", "FPLSEGCNT", "FPL1ID", "FPLS1KIND"} <= route
