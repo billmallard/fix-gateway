@@ -5,8 +5,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from fixgw import database
 from fixgw import plugin as plugin_base
-from fixgw.plugins import data_playback
+from fixgw.plugins import data_playback, data_recorder
 
 
 def _parent(tmp_path, files, config=None):
@@ -70,8 +71,8 @@ def test_run_replays_snapshot_values_from_config_relative_file(tmp_path):
     ):
         thread.run()
 
-    assert items["ENG1"].value == (101.5, 1, 0, 0, 0, 0)
-    assert items["ALT"].value == (2500, 0, 0, 0, 0, 0)
+    assert items["ENG1"].value == (101.5, 1, 0, 0, 0)
+    assert items["ALT"].value == (2500, 0, 0, 0, 0)
     assert len(sleeps) == 2
     parent.quit.assert_not_called()
 
@@ -106,7 +107,7 @@ def test_run_skips_snapshots_until_start_time(tmp_path):
     ):
         thread.run()
 
-    assert item.value == (300.0, 0, 0, 0, 0, 0)
+    assert item.value == (300.0, 0, 0, 0, 0)
     parent.quit.assert_called_once()
     assert sleeps[-1] == 5
 
@@ -136,6 +137,58 @@ def test_run_with_start_time_after_file_quits_without_writing_values(tmp_path):
 
     get_raw_item.assert_not_called()
     parent.quit.assert_called_once()
+
+
+def _db_item(tol, old=False, flags=(False, False, False, False)):
+    item = database.db_item("LAT")
+    item.tol = tol
+    item.value = (51.5,) + flags
+    if old:
+        if tol:
+            item.timestamp -= (tol + 1000) / 1000
+        else:
+            item.old = True
+    return item
+
+
+FLAGS = ["none", "annunciate", "old", "bad", "fail", "secfail"]
+
+
+@pytest.mark.parametrize("path", ["callback", "snapshot"])
+@pytest.mark.parametrize("tol", [0, 100])
+@pytest.mark.parametrize("flag", FLAGS)
+def test_each_flag_round_trips_through_record_and_playback(tmp_path, flag, tol, path):
+    # Recorded as the database reads it, (value, annunciate, old, bad, fail,
+    # secfail); played back onto an item with every flag set, so a flag
+    # that does not come back is as visible as one that comes back extra.
+    flags = tuple(f == flag for f in ["annunciate", "bad", "fail", "secfail"])
+    src = _db_item(tol, old=flag == "old", flags=flags)
+    recorded = src.value
+    assert recorded[FLAGS.index(flag)] if flag != "none" else not any(recorded[1:])
+
+    parent = MagicMock()
+    parent.config = {"key_prefixes": "all"}
+    parent.db_read = MagicMock(return_value=recorded)
+    with patch.object(data_recorder.database, "listkeys", return_value=["LAT"]):
+        recorder = data_recorder.MainThread(parent)
+        if path == "callback":
+            recorder.persist("LAT", recorded)
+        else:
+            recorder.get_all_data(callbacks=False)
+    _write_playback_file(tmp_path / "playback.json", snapshots=[json.loads(json.dumps(recorder.data))])
+
+    dst = _db_item(tol, old=True, flags=(True, True, True, True))
+    thread = data_playback.MainThread(_parent(tmp_path, ["{CONFIG}/playback.json"]))
+
+    def stop(duration):
+        thread.getout = True
+
+    with patch.object(data_playback.database, "get_raw_item", return_value=dst), patch.object(
+        data_playback.time, "sleep", side_effect=stop
+    ):
+        thread.run()
+
+    assert dst.value == recorded
 
 
 def test_stop_sets_getout_flag():

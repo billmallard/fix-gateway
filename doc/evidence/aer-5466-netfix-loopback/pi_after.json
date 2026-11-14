@@ -1,0 +1,12 @@
+{
+ "host": "10.110.10.199",
+ "label": "pi_after",
+ "t0": 1794493206.1102707,
+ "events": [
+  {
+   "error": "ConnectionRefusedError(111, 'Connection refused')",
+   "kind": "connect_refused",
+   "t": 0.002
+  }
+ ]
+}

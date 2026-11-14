@@ -1,3 +1,9 @@
+# ONE KEY, ONE WRITER. X-Plane writes the same attitude, air data and position
+# keys as the demo plugin, and fix-gateway does not arbitrate between sources.
+# Never enable XPLANE together with DEMO (DEMO is on in the stock
+# preferences.yaml, so turn it off in preferences.yaml.custom). The plugin
+# refuses to start if demo is loaded.
+#
 xplane:
     load: XPLANE
     module: fixgw.plugins.xplane
@@ -80,8 +86,16 @@ xplane:
         # canonical COURSE/CDI keys the HSI + autopilot read -- an EFIS
         # nav-source selector. hdef is +/-2.5 dots full scale and the HSI needle
         # is +/-1.0, so scale by 0.4 (use -0.4 to flip the deflection sense).
-        GPSCRS:  sim/cockpit/radios/gps_course_degtm
-        GPSCDI:  [sim/cockpit/radios/gps_hdef_dot, 0.4]
+        #
+        # X-Plane's FMS is the bench's external navigator (FP1, fix-gateway#22):
+        # these rows write EXTCRS/EXTCDI, not GPSCRS/GPSCDI directly, so a
+        # compute GPSSRC select can route between this and the internal flight
+        # plan (FPLCRS/FPLCDI, FP2) into the canonical GPSCRS/GPSCDI.
+        # EXTTF is the FMS's TO/FROM (1=TO, 2=FROM, same encoding as NAV1TF
+        # below), which the select routes into GPSTF (fix-gateway#41).
+        EXTCRS:  sim/cockpit/radios/gps_course_degtm
+        EXTCDI:  [sim/cockpit/radios/gps_hdef_dot, 0.4]
+        EXTTF:   sim/cockpit/radios/gps_fromto
         NAV1CRS: sim/cockpit/radios/nav1_obs_degm
         NAV1CDI: [sim/cockpit/radios/nav1_hdef_dot, 0.4]
         NAV2CRS: sim/cockpit/radios/nav2_obs_degm
@@ -90,7 +104,9 @@ xplane:
         # +/-2.5-dot -> +/-1.0 scaling. gps_vdef is the GPS LPV/glidepath.
         # Vertical deviation: negative scale flips X-Plane's vdef sense so that
         # below the glideslope drives the GS diamond UP (fly up), per HSI convention.
-        GPSGSI:  [sim/cockpit/radios/gps_vdef_dot, -0.4]
+        # The FMS glidepath is the external navigator's, so it writes EXTGSI and
+        # a compute GPSSRC select routes it into GPSGSI (AER-5145).
+        EXTGSI:  [sim/cockpit/radios/gps_vdef_dot, -0.4]
         NAV1GSI: [sim/cockpit/radios/nav1_vdef_dot, -0.4]
         NAV2GSI: [sim/cockpit/radios/nav2_vdef_dot, -0.4]
         # Glideslope flag (1 = no valid GS: a VOR, or an ILS outside the cone;
@@ -98,7 +114,7 @@ xplane:
         # the GS diamond flags/hides until the glideslope is actually received.
         NAV1GSF: sim/cockpit2/radios/indicators/nav1_flag_glideslope
         NAV2GSF: sim/cockpit2/radios/indicators/nav2_flag_glideslope
-        GPSGSF:  sim/cockpit2/radios/indicators/gps_flag_glideslope
+        EXTGSF:  sim/cockpit2/radios/indicators/gps_flag_glideslope
         # Localizer (lateral) display-valid per source. 1 = the LOC/VOR deviation
         # is in range / displayable; 0 = no valid lateral signal. The compute
         # plugin gates the ILS glideslope on this (NAV#GSV = min(NAV#DH,
@@ -109,6 +125,23 @@ xplane:
         # VOR TO/FROM (0=off, 1=TO, 2=FROM) -> the HSI TO/FROM triangle.
         NAV1TF:  sim/cockpit/radios/nav1_fromto
         NAV2TF:  sim/cockpit/radios/nav2_fromto
+        # Tuned navaid type per radio -> NAV1TYPE/NAV2TYPE, which the compute
+        # NAVSRC select routes into NAVTYPE (the HSI's VOR{n}/LOC{n} label and
+        # its OBS-push refusal on a localizer; fix-gateway#135). nav_type is an
+        # array (0=NAV1, 1=NAV2) of X-Plane's navaid codes: 3=VOR, 4=ILS
+        # localizer, 5=standalone localizer. The map translates them onto the FIX
+        # encoding (1=VOR, 2=LOC); any other code (nothing tuned, NDB, DME) reads
+        # 0, which the HSI labels VLOC{n}. X-Plane has no back-course navaid
+        # type, so 3=LOC-BC is never written from here.
+        NAV1TYPE: ["sim/cockpit/radios/nav_type[0]", {3: 1, 4: 2, 5: 2}]
+        NAV2TYPE: ["sim/cockpit/radios/nav_type[1]", {3: 1, 4: 2, 5: 2}]
+        # VOR bearing TO the tuned station, degrees magnetic -> the HSI bearing
+        # pointers (P5b.1). X-Plane publishes bearing-TO directly, so no radial
+        # +180 conversion is needed here (unlike the on-aircraft CAN-FiX radial
+        # path). The compute "select" (compute.yaml) routes VOR1BRG/VOR2BRG/GPSBRG
+        # into BRG1/BRG2 per the per-pointer source selector.
+        VOR1BRG: sim/cockpit2/radios/indicators/nav1_bearing_deg_mag
+        VOR2BRG: sim/cockpit2/radios/indicators/nav2_bearing_deg_mag
         # Autopilot selected heading (deg mag) -> cyan heading bug. X-Plane
         # always publishes this (no nav tuning needed), so it doubles as an
         # RREF health check. NOTE: this makes X-Plane drive HEADBUG, so it will

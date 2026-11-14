@@ -1,0 +1,18 @@
+HDR01FAACIFP18      001P013203973042611  07-OCT-202615:55:03  U.S.A. DOT FAA                                                9D60747B
+SUSAP KSSFK4ASSF     0     050YHN29201313W098281576E003000578         1800018000C    MNAR    STINSON MUNI                  233222508
+SUSAP KSSFK4CBEFOR K40    W     N29184608W098205655                       E0034     NAR           BEFOR                    233232605
+SUSAP KSSFK4CGANLE K40    W     N29090055W098231980                       E0034     NAR           GANLE                    233252605
+SUSAP KSSFK4CGEARE K40    W     N29172724W098141474                       E0034     NAR           GEARE                    233262605
+SUSAP KSSFK4CLANDD K40    W     N29194609W098260368                       E0035     NAR           LANDD                    233292605
+SUSAP KSSFK4CXTEND K40    W     N29113508W098154478                       E0034     NAR           XTEND                    233312605
+SUSAP KSSFK4FR28   AXTEND 010XTENDK4PC0E  A    IF                                             18000                 A JS   235412508
+SUSAP KSSFK4FR28   AXTEND 020GEAREK4PC0EE B 010TF                                 + 03100                           A JS   235422508
+SUSAP KSSFK4FR28   R      010GEAREK4PC0E  I    IF                                 + 03100     18000                 A JS   235432508
+SUSAP KSSFK4FR28   R      020BEFORK4PC1E  F 010TF                                 + 02600                 RW28  K4PGA JS   235442508
+SUSAP KSSFK4FR28   R      020BEFORK4PC2WALPV       ALNAV/VNAV ALNAV                                                   JS   235452508
+SUSAP KSSFK4FR28   R      021LANDDK4PC0E S  031TF                                 V 0114001140        -300          A JS   235462508
+SUSAP KSSFK4FR28   R      030RW28 K4PG0GY M 031TF                                   00605             -300          A JS   235472508
+SUSAP KSSFK4FR28   R      040         0  M     CA                     2796        + 01100                           A JS   235482508
+SUSAP KSSFK4FR28   R      050GANLEK4PC0EY  R010DF                                 + 03100                           A JS   235492508
+SUSAP KSSFK4FR28   R      060GANLEK4PC0EE  R   HM                     33690040    + 03100                           A JS   235502508
+SUSAP KSSFK4GRW28    0050002800 N29200803W098275623         +0146700565000040100R                                          235712508

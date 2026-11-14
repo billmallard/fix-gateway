@@ -1,0 +1,41 @@
+# A recorded X-Plane flight, replayed by the simulated-flight gate (SYN4):
+# the engine flies X-Plane's own trajectory headless, and X-Plane's navigator
+# in the same trace is the expected value. See README.md beside this file.
+#
+# The profile's own checks: are written against the synthetic reference
+# navigator. These are the X-Plane tier's, from the FP8 brief's acceptance
+# (section 6): DTK within 2 deg, CDI within 0.1 of full scale and of the same
+# sign. They compare only where both navigators guide to the same fix on the
+# same leg; each skip is a place X-Plane differs (the XPB-NNN entries are in
+# src/fixgw/sim/XPLANE_BEHAVIORS.md):
+#   FPLSTATE 3 (XPB-005): the engine is suspended at the MAP and short of
+#     HANNU, where the pilot's commands, not the leg, decide what it shows.
+#   FPLPHASE HOLD (XPB-004): the engine flies the AIM entry and turns the
+#     course with the aircraft (fix-gateway#49, Bill's call on AER-4076);
+#     X-Plane shows its hold course throughout (test_fp8_xplane_replay.py
+#     compares the inbound leg). EXTTF 2 (XPB-004, XPB-001): X-Plane is FROM
+#     past the MAP, and from 0.2 nm before WINCH, showing the hold's inbound course.
+name: fp8-xplane-2026-10-29
+profile: fp8-ksmx-rnav30-missed
+trace: fp8_xplane_2026-10-29.csv.gz
+# The bench's FIX MAGVAR (median of its 1 Hz bus log), and the pilot
+# commands its orchestrator issued (xplane_replay.fly).
+magvar: -11.912
+pilot:
+  - {resume_after_map_s: 10}
+  - {susp_before: HANNU, nm: 1.0}
+  - {resume_past: HANNU, max_s: 90}
+checks:
+  - key_pair: [FPLCRS, EXTCRS]
+    min_compared_share: 0.55  # 66% of rows compared on this trace (AER-4693)
+    tol_deg: 2.0
+    except_s_around_sequence: 5  # XPB-001: X-Plane sequences ~0.2 nm (6-7 s) early
+    skip_when: {FPLSTATE: 3, FPLPHASE: HOLD, EXTTF: 2}
+  - key_pair: [FPLCDI, EXTCDI]
+    min_compared_share: 0.55  # 66% of rows compared on this trace (AER-4693)
+    tol: 0.1
+    same_sign: true
+    except_s_around_sequence: 5  # XPB-001: X-Plane sequences ~0.2 nm (6-7 s) early
+    skip_when: {FPLSTATE: 3, FPLPHASE: HOLD, EXTTF: 2}
+  - sequence: [PAMJI, CIMSO, ANIBY, RW30, HANNU, WINCH]
+    keys: [WPNAME, gps_id]

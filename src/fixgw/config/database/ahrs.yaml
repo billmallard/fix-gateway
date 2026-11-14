@@ -7,6 +7,10 @@
 # Do that in the file custom.ini
 
 items:
+# LAT/LONG go old 2 s after the last write (AER-4217): one missed epoch of a
+# 1 Hz receiver plus a full epoch of jitter, the same tol as GPS_FIX_TYPE and
+# GPS_ACCURACY_HORIZ from the same receiver message. Every position source
+# here publishes at 1 Hz or faster.
 - key: LAT
   description: Latitude
   type: float
@@ -14,7 +18,7 @@ items:
   max: 90.0
   units: deg
   initial: 0.0
-  tol: 20000
+  tol: 2000
 
 - key: LONG
   description: Longitude
@@ -23,7 +27,7 @@ items:
   max: 180.0
   units: deg
   initial: 0.0
-  tol: 20000
+  tol: 2000
 
 - key: IAS
   description: Indicated Airspeed
@@ -33,7 +37,10 @@ items:
   units: knots
   initial: 0.0
   tol: 2000
-  aux: [Min,Max,V1,V2,Vne,Vfe,Vmc,Va,Vno,Vs,Vs0,Vx,Vy]
+  # Vgnd: below this IAS the aircraft may be on the ground; the engine
+  # alarms' stopped-engine bypass needs IAS below it (annunciate.yaml).
+  # Not a published V-speed: set it below the slowest airborne IAS.
+  aux: [Min,Max,V1,V2,Vne,Vfe,Vmc,Va,Vno,Vs,Vs0,Vx,Vy,Vgnd]
 
 - key: IASW
   description: Indicated Airspeed Warning
@@ -161,6 +168,10 @@ items:
   initial: 0.0
   tol: 2000
 
+# Writer: the pilot, through pyEfis (HDG knob, buttons); X-Plane streams it
+# from the sim's autopilot panel when that connection is on.
+# tol 0 (CERT2a, AER-5270): it is written on change, so a tol would flag a good
+# setting old seconds after every edit (docs/primary_flight_key_tol.md).
 - key: HEADBUG
   description: Selected Heading Bug
   type: float
@@ -168,7 +179,21 @@ items:
   max: 359.9
   units: deg
   initial: 0.0
-  tol: 2000
+  tol: 0
+
+# Target-bank bug (ATT1, AER-5149): the bank angle the pilot selects on the
+# attitude indicator's bank scale for a steep or standard-rate turn. Magnitude
+# only (pyEfis draws it on both sides); 0 = off. Writer: the pilot, through
+# pyEfis, as for HEADBUG. tol 0: it is written on change, so a tol would flag
+# a good setting old seconds after every edit (docs/primary_flight_key_tol.md).
+- key: BANKBUG
+  description: Selected Target Bank Angle (0 = off)
+  type: float
+  min: 0.0
+  max: 65.0
+  units: deg
+  initial: 0.0
+  tol: 0
 
 - key: MAGVAR
   description: Local Magnetic Variation (positive = west variation, MAG = TRUE + VAR)
@@ -209,6 +234,10 @@ items:
   initial: 0.0
   tol: 2000
 
+# Writer: compute's NAVSRC select (connections/compute.yaml), which copies the
+# selected source's value AND flags. tol 0 (CERT2a, AER-5270): COURSE is as
+# fresh as its source. GPSCRS going old makes COURSE old; NAV1CRS/NAV2CRS are
+# pilot settings, and a tol here would flag them old after every OBS edit.
 - key: COURSE
   description: Selected Course
   type: float
@@ -216,7 +245,7 @@ items:
   max: 359.9
   units: deg
   initial: 0.0
-  tol: 2000
+  tol: 0
 
 - key: CDI
   description: Course Deviation Indicator
@@ -243,13 +272,16 @@ items:
 # b1:b2) and X-Plane's HSI_source_select, so XPHSISRC is an identity map (no table
 # inversion) and a real nav radio's OBI Flags decodes straight into NAVSRC.
 # initial 2.0 keeps the boot default on GPS. Extensible to 3=GPS2 (max 4).
+# Writer: the pilot (CDI button, HSI tap); state_persist restores it at boot.
+# tol 0 (CERT2a, AER-5270): it is written on change, so a tol would flag a good
+# setting old seconds after every edit (docs/primary_flight_key_tol.md).
 - key: NAVSRC
   description: Selected Nav Source (0=NAV1, 1=NAV2, 2=GPS)
   type: float
   min: 0.0
   max: 3.0
   initial: 2.0
-  tol: 2000
+  tol: 0
 
 - key: GPSCRS
   description: GPS Course
@@ -268,6 +300,10 @@ items:
   initial: 0.0
   tol: 2000
 
+# Writer: the pilot, through the HSI's CRS knob; X-Plane streams it from the
+# sim's OBS when that connection is on.
+# tol 0 (CERT2a, AER-5270): it is written on change, so a tol would flag a good
+# setting old seconds after every edit (docs/primary_flight_key_tol.md).
 - key: NAV1CRS
   description: NAV1 OBS Course
   type: float
@@ -275,7 +311,7 @@ items:
   max: 359.9
   units: deg
   initial: 0.0
-  tol: 2000
+  tol: 0
 
 - key: NAV1CDI
   description: NAV1 Course Deviation
@@ -285,6 +321,7 @@ items:
   initial: 0.0
   tol: 2000
 
+# Writer and tol: as NAV1CRS.
 - key: NAV2CRS
   description: NAV2 OBS Course
   type: float
@@ -292,7 +329,7 @@ items:
   max: 359.9
   units: deg
   initial: 0.0
-  tol: 2000
+  tol: 0
 
 - key: NAV2CDI
   description: NAV2 Course Deviation
@@ -302,6 +339,8 @@ items:
   initial: 0.0
   tol: 2000
 
+# GPSGSI/GPSGSV are compute's GPSSRC selects (AER-5145): the external
+# navigator's EXTGSI/EXTGSV, or no glidepath under the internal plan.
 - key: GPSGSI
   description: GPS Vertical Deviation (glidepath)
   type: float
@@ -346,8 +385,11 @@ items:
   initial: 1.0
   tol: 2000
 
+# Deprecated (AER-5145): nothing writes or reads GPSGSF any more. The external
+# navigator's flag is EXTGSF. Kept declared so an old config that writes it
+# still loads.
 - key: GPSGSF
-  description: GPS glidepath flag (1=no valid glidepath)
+  description: "Deprecated, unused: GPS glidepath flag (use EXTGSF)"
   type: float
   min: 0.0
   max: 1.0
@@ -428,6 +470,37 @@ items:
   initial: 0.0
   tol: 2000
 
+# Lateral guidance validity (CDI) per source (1 = the radio is receiving lateral
+# guidance). Without it a localizer tuned but not received drew a centred needle,
+# hidden only on the CDI's own data quality (fix-gateway#20). NAV#CDIV comes from
+# NAV#DH, the same input NAV#GSV uses. There is no GPSCDIV: X-Plane publishes no
+# per-source GPS lateral-validity dataref, so the GPS leg is not gated (CDIV=1)
+# and its needle stays on GPSCDI's own quality. Design record: MAOS-DESIGN
+# roadmap section 9.1 "Lateral guidance validity (CDI)".
+- key: NAV1CDIV
+  description: NAV1 lateral guidance valid (1=LOC/VOR received)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+- key: NAV2CDIV
+  description: NAV2 lateral guidance valid (1=LOC/VOR received)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
+- key: CDIV
+  description: Selected-source lateral guidance valid (1=show CDI needle)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 2000
+
 # VOR TO/FROM per source (0=off/flag, 1=TO, 2=FROM). From X-Plane nav#_fromto;
 # GPS has no TO/FROM so GPSTF stays 0. The HSI draws a TO/FROM triangle on the
 # course line for the selected source.
@@ -463,12 +536,132 @@ items:
   initial: 0.0
   tol: 2000
 
+# Kind of navaid each NAV radio is tuned to (0=none/unknown, 1=VOR, 2=LOC,
+# 3=LOC back course), written by the source plugin from its own nav-type data
+# (X-Plane: sim/cockpit/radios/nav_type). The compute NAVSRC select routes the
+# selected radio into NAVTYPE, which the HSI reads for its VOR{n}/LOC{n} source
+# label and to refuse an OBS course push on a localizer (fix-gateway#135).
+- key: NAV1TYPE
+  description: NAV1 tuned navaid type (0=none/unknown, 1=VOR, 2=LOC, 3=LOC-BC)
+  type: float
+  min: 0.0
+  max: 3.0
+  initial: 0.0
+  tol: 2000
+
+- key: NAV2TYPE
+  description: NAV2 tuned navaid type (0=none/unknown, 1=VOR, 2=LOC, 3=LOC-BC)
+  type: float
+  min: 0.0
+  max: 3.0
+  initial: 0.0
+  tol: 2000
+
+- key: NAVTYPE
+  description: Selected-source navaid type (0=GPS or unknown, 1=VOR, 2=LOC, 3=LOC-BC)
+  type: float
+  min: 0.0
+  max: 3.0
+  initial: 0.0
+  tol: 2000
+
+# Writer: compute's remap of NAVSRC, on change. tol 0 as NAVSRC (CERT2a).
 - key: XPHSISRC
   description: X-Plane HSI source index (0=NAV1, 1=NAV2, 2=GPS) = NAVSRC (identity map)
   type: float
   min: 0.0
   max: 2.0
   initial: 2.0
+  tol: 0
+
+# HSI bearing pointers (P5b.1). Two selectable needles (BRG1/BRG2), each a
+# bearing TO a station/waypoint that the HSI draws relative to HEAD. Three
+# sources feed them -- two VOR radios (VOR1BRG/VOR2BRG) and GPS-to-waypoint
+# (GPSBRG) -- and a per-pointer selector (BRG1SRC/BRG2SRC) picks which source
+# each needle follows, via the compute "select" (connections/compute.yaml). All
+# bearings are degrees MAGNETIC so they register on the magnetic compass rose:
+#   - VOR1BRG/VOR2BRG: bearing TO the station. On the sim bench X-Plane's
+#     nav#_bearing_deg_mag supplies this directly; on a real aircraft the CAN-FiX
+#     VOR radial (canid 1228/1232) is bearing FROM the station, so the on-aircraft
+#     path converts radial + 180 (see connections/compute.yaml notes).
+#   - GPSBRG: true bearing-to-waypoint (GPSBRGT, the compute "bearing" fn) made
+#     magnetic by a wrap360 with MAGVAR, mirroring TRACK -> TRACKM.
+# One writer per key: each per-source key has exactly one producer, and each
+# BRG# is written only by its select.
+- key: GPSBRGT
+  description: GPS bearing to active waypoint (true)
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 2000
+
+- key: GPSBRG
+  description: GPS bearing to active waypoint (magnetic)
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 2000
+
+- key: VOR1BRG
+  description: VOR1 bearing to station (magnetic)
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 2000
+
+- key: VOR2BRG
+  description: VOR2 bearing to station (magnetic)
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 2000
+
+# Per-pointer source selectors (0=VOR1, 1=VOR2, 2=GPS). A button/HMI cycles
+# these; max = the cycle modulus (3 sources) so change-value-wrap steps
+# 0 -> 1 -> 2 -> 0. Defaults give two distinct pointers out of the box:
+# pointer 1 = GPS, pointer 2 = VOR1. Writer: the pilot (HSI tap).
+# tol 0 (CERT2a, AER-5270): it is written on change, so a tol would flag a good
+# setting old seconds after every edit (docs/primary_flight_key_tol.md).
+- key: BRG1SRC
+  description: Bearing pointer 1 source (0=VOR1, 1=VOR2, 2=GPS)
+  type: float
+  min: 0.0
+  max: 3.0
+  initial: 2.0
+  tol: 0
+
+- key: BRG2SRC
+  description: Bearing pointer 2 source (0=VOR1, 1=VOR2, 2=GPS)
+  type: float
+  min: 0.0
+  max: 3.0
+  initial: 0.0
+  tol: 0
+
+- key: BRG1
+  description: Bearing pointer 1 (selected source, magnetic)
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 2000
+
+- key: BRG2
+  description: Bearing pointer 2 (selected source, magnetic)
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
   tol: 2000
 
 - key: XTRACK
@@ -534,6 +727,10 @@ items:
   initial: 0
   tol: 2000
 
+# MAGX/MAGY/MAGZ: the raw, uncalibrated field a magnetometer reports, in wire
+# units (gauss), in the frame the sensor reports.  Ratified by Bill 2026-10-31
+# (AER-4338).  One writer each (the dronecan plugin); calibration, mount
+# alignment and the derived HEAD belong to a compute stage, which owns MAGW.
 - key: MAGW
   description: Magnetic sensor Warning
   type: int
@@ -541,6 +738,33 @@ items:
   max: 5
   units: warninglevel
   initial: 0
+  tol: 2000
+
+- key: MAGX
+  description: Raw magnetic field, body X axis
+  type: float
+  min: -10.0
+  max: 10.0
+  units: gauss
+  initial: 0.0
+  tol: 2000
+
+- key: MAGY
+  description: Raw magnetic field, body Y axis
+  type: float
+  min: -10.0
+  max: 10.0
+  units: gauss
+  initial: 0.0
+  tol: 2000
+
+- key: MAGZ
+  description: Raw magnetic field, body Z axis
+  type: float
+  min: -10.0
+  max: 10.0
+  units: gauss
+  initial: 0.0
   tol: 2000
 
 - key: PITCHSET
@@ -631,7 +855,10 @@ items:
   type: float
   units: ft
   min: 0
-  max: 200
+  # Must stay above every flightplan HAL (2.0 nm = 12,152 ft): a degraded
+  # HPL/HFOM runs to thousands of feet, and a value clamped below the HAL
+  # can never raise LOI (fix-gateway#52). 100,000 ft is about 16.5 nm.
+  max: 100000
   initial: 0
   tol: 2000
 

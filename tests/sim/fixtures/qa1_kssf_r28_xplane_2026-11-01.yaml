@@ -1,0 +1,74 @@
+# A recorded X-Plane flight, replayed by the simulated-flight gate (SYN4):
+# QA1's KSSF RNAV (GPS) 28 missed approach with the coded right turn direct
+# GANLE (AER-4219, session acdbb0757fca). See README.md beside this file.
+# The profile and its synthetic-tier checks are QA's; these checks are the
+# X-Plane tier's.
+#
+# magvar: X-Plane's own variation, which the bench would have written as FIX
+# MAGVAR. The session logged no bus, so it is recovered from X-Plane's
+# navigator: the median of (X-Plane's course - the engine's true course) on
+# the four approach legs, -3.29 to -3.44 deg. On FP8, where the bus was
+# logged, the same method lands within 0.05 deg of the bus MAGVAR on every
+# leg. It is not the profile's -3.0 (the CIFP airport record): with that,
+# every course reads 0.3-0.4 deg off.
+# pilot: the profile's own (missed_after_map_s), RESUME 5 s after the MAP.
+# X-Plane's driver went direct GANLE about 6 s after it.
+#
+# Checks: the FP8 brief's acceptance, as in fp8_xplane_2026-10-29.yaml: DTK
+# within 2 deg, CDI within 0.1 of full scale and of the same sign. Skipped:
+#   FPLSTATE 3 (XPB-005): the engine is suspended at the MAP, where the
+#     pilot's command, not the leg, decides what it shows.
+#   WPNAME GANLE: the missed approach and the hold. X-Plane's driver went
+#     Direct-To GANLE at the threshold, past the CA climb to 1,100 ft (QA on
+#     AER-4219), so X-Plane's DF starts where it began the turn and the
+#     engine's where its CA ended, 0.37 nm apart: their courses differ by
+#     3.0 deg and their CDIs by up to 0.7. That is two different legs, not
+#     a disagreement about one. The hold is skipped for XPB-004, as in FP8.
+#   EXTTF 2 (XPB-001): X-Plane is FROM, from about 0.2 nm before each fix.
+#   skip_when_differ [WPNAME, gps_id]: the two navigators guide to different
+#     fixes. At a straight-through fix X-Plane changes its TO fix about
+#     0.2 nm early (XPB-001). In the 90 deg turn at GEARE both now change it
+#     at the bisector, in the same row (AER-4675), so no row there is
+#     skipped by this.
+#   within 6 s of the engine's turn start (around_keys FPLALERT, which the
+#     engine drops at turn start, beside the TO-fix keys): X-Plane turns its
+#     course to BEFOR's at 0.81 nm before GEARE, 0.4 s before the engine
+#     does at 0.79 nm (15 deg bank, TURN1; 5.1 s at 0.63 nm at standard
+#     rate, XPB-001). The window still holds the bisector step (XPB-023).
+#   In the turn the engine's cross-track is from the turn's arc, to the
+#     arc's end (AER-4715), and the CDI is compared there. X-Plane's follows
+#     an arc until the bisector and the next leg's straight line after it
+#     (XPB-023). From the bisector to the arc's end the two measure
+#     different paths, so the CDI check skips those rows
+#     (eng_arc_after_bisector, the replay's flag for them). Before TURN1
+#     the 6 s window above hid most of that step; with the 15 deg arc it
+#     outlasts the window (0.118 at GEARE, 6.1 s after the bisector).
+#     The first half of the GEARE turn puts the CDIs 0.075 apart, the
+#     largest difference compared on the trace.
+# The turn direction at GANLE (QA's F3) is not judged here: X-Plane's
+# driver went Direct-To GANLE, so X-Plane flew no coded turn to set the
+# box's against.
+name: qa1-kssf-r28-xplane-2026-11-01
+profile: qa1-missed-coded-turn-kssf-r28
+trace: qa1_kssf_r28_xplane_2026-11-01.csv.gz
+magvar: -3.36
+pilot:
+  - {resume_after_map_s: 5}
+checks:
+  - key_pair: [FPLCRS, EXTCRS]
+    min_compared_share: 0.25  # 32% of rows compared on this trace (AER-4693)
+    tol_deg: 2.0
+    except_s_around_sequence: 6  # the bisector step at GEARE (XPB-023, above)
+    around_keys: [WPNAME, gps_id, FPLALERT]
+    skip_when: {FPLSTATE: 3, WPNAME: GANLE, EXTTF: 2}
+    skip_when_differ: [WPNAME, gps_id]
+  - key_pair: [FPLCDI, EXTCDI]
+    min_compared_share: 0.25  # 32% of rows compared on this trace (AER-4693)
+    tol: 0.1
+    same_sign: true
+    except_s_around_sequence: 6  # the bisector step at GEARE (XPB-023, above)
+    around_keys: [WPNAME, gps_id, FPLALERT]
+    skip_when: {FPLSTATE: 3, WPNAME: GANLE, EXTTF: 2, eng_arc_after_bisector: 1}
+    skip_when_differ: [WPNAME, gps_id]
+  - sequence: [GEARE, BEFOR, LANDD, RW28, GANLE]
+    keys: [WPNAME, gps_id]

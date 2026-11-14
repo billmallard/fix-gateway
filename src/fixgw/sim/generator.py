@@ -1,0 +1,332 @@
+#  SPDX-License-Identifier: GPL-2.0-or-later
+#
+#  Synthetic flight generator (SYN1).
+#
+"""Profile + CIFP -> a FIX bus stream.
+
+:func:`generate` flies the scenario and returns a :class:`Run`: one row per
+tick of the keys a GPS/AHRS/air-data box would publish (``LAT LONG ALT GS TRACK
+HEAD TAS IAS VS PITCH ROLL MAGVAR GPS_FIX_TYPE GPS_ACCURACY_HORIZ``, less what a
+GPS event withholds: see :data:`GPS_EVENTS`), the reference keys
+(``REFCRS REFXTK REFCDI REFDIS REFWPT REFPT``), and the pilot's inputs to the box
+under test: the route block once at the start, ``FPLCMD`` to activate the
+leg into the start fix, and ``FPLCMD RESUME`` when the pilot goes missed.
+
+:func:`write_recorder_file` writes a run in the ``data_recorder`` JSON-lines
+format (``{"frequency", "starttime"}`` header, then one key-to-value row per
+tick, values as ``[value, annunciate, old, bad, fail, secfail]``), which
+``data_playback`` replays unchanged. :mod:`fixgw.sim.live` (SYN2) streams
+``Run.rows`` into a running gateway over netfix instead.
+"""
+
+import datetime
+import json
+from dataclasses import dataclass, field
+
+from fixgw.sim import fplroute, refnav
+from fixgw.sim.aircraft import Aircraft, Performance, State
+from fixgw.sim.cifp import Cifp
+from fixgw.sim.profile import load_profile
+
+
+class GeneratorError(Exception):
+    pass
+
+
+REF_KEYS = ("REFCRS", "REFXTK", "REFCDI", "REFDIS", "REFWPT", "REFPT")
+SENSOR_KEYS = ("MAGVAR", "GPS_FIX_TYPE", "GPS_ACCURACY_HORIZ", "ALT", "GS", "TAS", "IAS", "VS",
+               "TRACK", "HEAD", "PITCH", "ROLL", "LAT", "LONG")
+ESTABLISHED_NM = 0.05
+
+# What each GPS event stops publishing, and the fix type written meanwhile
+# (None: GPS_FIX_TYPE is not written at all, so it keeps its last value).
+#   gps_loss_s        the receiver has no fix: what the gpsd plugin publishes
+#                     below a 2D fix, GPS_FIX_TYPE 1 and nothing needing a fix
+#   gps_link_loss_s   the receiver or its link goes dead: nothing at all, so
+#                     the last fix type (3) stands
+#   gps_status_loss_s only the receiver's status stream stops while position
+#                     keeps coming: the mavlink plugin takes GPS_FIX_TYPE and
+#                     GPS_ACCURACY_HORIZ from GPS_RAW_INT but LAT/LONG from
+#                     GLOBAL_POSITION_INT, the autopilot's fused estimate
+#   gps_position_loss_s the other way round: LAT/LONG stop while the status
+#                     stream still says 3D
+_GPS_POSITION = ("LAT", "LONG", "TRACK", "GS", "GPS_ACCURACY_HORIZ")
+GPS_EVENTS = {
+    "gps_loss_s": (_GPS_POSITION, 1),
+    "gps_link_loss_s": (_GPS_POSITION + ("GPS_FIX_TYPE",), None),
+    "gps_status_loss_s": (("GPS_FIX_TYPE", "GPS_ACCURACY_HORIZ"), None),
+    "gps_position_loss_s": (("LAT", "LONG"), 3),
+}
+
+
+def ias_kt(tas_kt, alt_ft):
+    """Indicated airspeed for ``tas_kt`` at ``alt_ft`` on a standard day:
+    EAS from the ISA troposphere density ratio, taking IAS = CAS = EAS (no
+    position error, no compressibility at these speeds). The air-data box
+    reports IAS; the profile flies TAS, so this is what it would read."""
+    sigma = (1.0 - 6.8755856e-6 * max(alt_ft, 0.0)) ** 4.2558797
+    return tas_kt * sigma ** 0.5
+
+
+@dataclass
+class Run:
+    profile: object
+    frequency_ms: int
+    rows: list                      # [(t_s, {key: value, ...}), ...] in write order
+    timeline: list = field(default_factory=list)
+    sequences: list = field(default_factory=list)
+
+
+def _alt_constraints(cifp, proc):
+    out = {}
+    for r in cifp.approach_legs(proc["airport"], proc["approach"]):
+        if r.fix and r.alt1 and r.path_term != "HM":
+            out.setdefault(r.fix, float(r.alt1))
+    return out
+
+
+def generate(profile, frequency_ms=200, cifp_path=None, fplseq=1, gps_accuracy_ft=30.0, cmd_seq_base=0):
+    if isinstance(profile, str):
+        profile = load_profile(profile, cifp_override=cifp_path)
+    cifp = Cifp(cifp_path or profile.cifp_file)
+    if cifp.cycle != profile.cifp_cycle:
+        raise GeneratorError(f"profile pins CIFP cycle {profile.cifp_cycle}, file {cifp.path} is {cifp.cycle}")
+
+    proc = profile.procedure
+    mv = profile.magvar_deg
+    try:
+        legs = refnav.legs_from_route(cifp, profile)
+        slots, segments, name, aprtype = fplroute.route_slots(cifp, profile)
+    except (ValueError, refnav.ReferenceError_) as e:
+        raise GeneratorError(f"{profile.name}: {e}")
+    apt = cifp.fix(profile.destination, section="PA")
+
+    route_ids = [f.ident for f, _ in cifp.expand_route(profile.enroute)]
+    end_fix = profile.end.get("after_fix")
+    if end_fix is not None and end_fix not in route_ids:
+        raise GeneratorError(f"end.after_fix {end_fix} is not an en-route fix of the route {route_ids}")
+    if "runway" in profile.start:
+        # over the threshold, on the climb-out's CA (the leg after the runway)
+        k = next(i for i, lg in enumerate(legs) if lg.pt == "CA")
+        act_slot = next(i for i, s in enumerate(slots, start=1) if s["PT"] == "CA")
+        rwy, _, elev_ft = cifp.runway(profile.departure, profile.start["runway"])
+        lat, lon, azi = rwy.lat, rwy.lon, legs[k].course_true
+        if not elev_ft <= float(profile.start["alt_ft"]) < legs[k].alt_ft:
+            raise GeneratorError(f"start.alt_ft {profile.start['alt_ft']} is not between the threshold "
+                                 f"elevation {elev_ft:.0f} and the climb-out altitude {legs[k].alt_ft:.0f}")
+    else:
+        start_fix = profile.start["fix"]
+        try:
+            k = next(i for i, lg in enumerate(legs) if lg.ident == start_fix and i > 0)
+            act_slot = next(i for i, s in enumerate(slots, start=1) if s["ID"] == start_fix and i > 1)
+        except StopIteration:
+            raise GeneratorError(f"start fix {start_fix} is not a fix after the first in the route")
+        prev = legs[k - 1]
+        to = legs[k]
+        if to.pt == "DF" or prev.lat is None:
+            raise GeneratorError(f"start fix {start_fix}: the leg into it is a {to.pt} from where the climb-out "
+                                 "ends; start on the runway instead")
+        line = refnav.GeoLine.between(prev.lat, prev.lon, to.lat, to.lon)
+        before = float(profile.start.get("before_nm", 0.0))
+        lat, lon, azi = line.position(max(0.0, line.length_nm - before))
+
+    a = profile.aircraft
+    perf = Performance(tas_kt=a.get("tas_kt", 110.0), climb_fpm=a.get("climb_fpm", 700.0),
+                       descent_fpm=a.get("descent_fpm", 600.0), bank_max_deg=a.get("bank_max_deg", 25.0),
+                       turn_rate_deg_s=a.get("turn_rate_deg_s", 3.0))
+    ac = Aircraft(perf, State(lat, lon, float(profile.start["alt_ft"]), azi),
+                  profile.wind_from_deg, profile.wind_kt)
+    dep = cifp.fix(profile.departure, section="PA") if profile.departure else None
+    ref = refnav.ReferenceNavigator(legs, mv, (apt.lat, apt.lon), k, perf.tas_kt,
+                                    perf.turn_rate_deg_s, perf.bank_max_deg,
+                                    departure=(dep.lat, dep.lon) if dep else None)
+    alts = _alt_constraints(cifp, proc) if proc else {}
+    missed_top = max([alts.get(lg.ident, 0.0) for lg in legs if lg.first_missed or ref_in_missed(legs, lg)] + [0.0])
+
+    dt = frequency_ms / 1000.0
+    rows = []
+    timeline = []
+    cmd_seq = cmd_seq_base          # a live gateway has already acked earlier commands
+    route = fplroute.route_block_writes(slots, segments, name, aprtype, cifp.cycle, fplseq)
+
+    events = {e.id: {"e": e, "state": "pending", "t0": None, "est": None} for e in profile.events}
+    leg_start_t = {k: 0.0}
+    t = 0.0
+    t_map = None
+    resume_after = float(profile.pilot.get("missed_after_map_s", 5.0))
+    max_s = float(profile.end.get("max_s", 3600.0))
+    end_event = profile.end.get("after_event")
+    out = None
+    tick = 0
+    while True:
+        s = ac.s
+        n_seq = len(ref.sequences)
+        out = ref.update(t, s.lat, s.lon, s.alt_ft, s.gs_kt, s.track_true)
+        route_done = False
+        for sq in ref.sequences[n_seq:]:
+            leg_start_t[sq.leg_index] = t
+            timeline.append({"t": round(t, 3), "what": "sequence", "from": sq.from_ident, "to": sq.to_ident})
+            # as the X-Plane tier ends: once end.after_fix is behind, or, with
+            # no procedure, once the destination is the TO fix
+            if sq.from_ident == end_fix or (proc is None and sq.leg_index == len(legs) - 1):
+                route_done = True
+
+        row = {}
+        cmds = []
+        if tick == 1:
+            cmd_seq += 1
+            cmds.append(f"{cmd_seq} ACT {act_slot}")
+            timeline.append({"t": round(t, 3), "what": "pilot", "cmd": cmds[-1]})
+        if ref.map_suspended and t_map is None:
+            t_map = t
+            timeline.append({"t": round(t, 3), "what": "map", "fix": out.wpt})
+        if t_map is not None and ref.map_suspended and t >= t_map + resume_after:
+            if not proc.get("missed", False):
+                break
+            ref.go_missed(t, (s.lat, s.lon), s.track_true, s.gs_kt)
+            leg_start_t[ref.i] = t
+            cmd_seq += 1
+            cmds.append(f"{cmd_seq} RESUME")
+            timeline.append({"t": round(t, 3), "what": "pilot", "cmd": cmds[-1]})
+            out = ref.update(t, s.lat, s.lon, s.alt_ft, s.gs_kt, s.track_true)
+
+        done_now = _run_events(events, ref, out, t, leg_start_t, ac, timeline)
+        withheld, fix_type = set(), 3
+        for ev in events.values():
+            for kind in GPS_EVENTS.keys() & ev["e"].do.keys():
+                if ev["state"] == "active":
+                    withheld.update(GPS_EVENTS[kind][0])
+                    # not written beats "no fix", which beats 3D
+                    ft = GPS_EVENTS[kind][1]
+                    fix_type = None if ft is None or fix_type is None else min(fix_type, ft)
+
+        # sensor keys first, LAT/LONG last: the engine computes on a position write.
+        sensors = {
+            "MAGVAR": mv,
+            "GPS_FIX_TYPE": fix_type,
+            "GPS_ACCURACY_HORIZ": gps_accuracy_ft,
+            "ALT": round(s.alt_ft, 2),
+            "GS": round(s.gs_kt, 3),
+            "TAS": round(perf.tas_kt, 3),
+            "IAS": round(ias_kt(perf.tas_kt, s.alt_ft), 3),
+            "VS": round(s.vs_fpm, 1),
+            "TRACK": round(refnav.wrap360(s.track_true), 3),
+            "HEAD": round(refnav.wrap360(s.heading_true + mv), 3),
+            "PITCH": round(s.pitch_deg, 2),
+            "ROLL": round(s.roll_deg, 2),
+            "LAT": round(s.lat, 8),
+            "LONG": round(s.lon, 8),
+        }
+        for key, value in sensors.items():
+            if key not in withheld and value is not None:
+                row[key] = value
+        row["REFCRS"] = round(out.crs_mag, 3)
+        row["REFXTK"] = round(out.xtk_nm, 5)
+        row["REFCDI"] = round(out.cdi, 5)
+        row["REFDIS"] = round(out.dis_nm, 4)
+        row["REFWPT"] = out.wpt
+        row["REFPT"] = out.pt
+        if tick == 0:
+            for key, value in route:
+                row[key] = value
+        for c in cmds:
+            row["FPLCMD"] = c
+        rows.append((round(t, 3), row))
+
+        if (end_event and end_event in done_now) or route_done:
+            break
+        if t > max_s:
+            pending = [i for i, ev in events.items() if ev["state"] != "done"]
+            raise GeneratorError(f"{profile.name}: still running at {max_s:.0f} s; events not done: {pending}")
+
+        # vertical: descend to the TO fix's constraint on the approach, climb to the top of the missed,
+        # and on any other CA (a climb-out) climb to its altitude, which is what ends the leg
+        if ref.missed:
+            target = missed_top
+            vs_lim = None
+        elif out.pt == "CA":
+            target = max(s.alt_ft, ref.legs[ref.i].alt_ft)
+            vs_lim = None
+        elif ref.map_suspended:
+            target = s.alt_ft
+            vs_lim = None
+        else:
+            target = min(s.alt_ft, alts.get(out.wpt, s.alt_ft))
+            vs_lim = perf.descent_fpm
+            if out.dis_nm > 0 and s.gs_kt > 0 and s.alt_ft > target:
+                need = (s.alt_ft - target) / (out.dis_nm / s.gs_kt * 60.0)
+                vs_lim = min(perf.max_descent_fpm, max(perf.descent_fpm, need))
+        ac.step(dt, out.dtk_true, out.xtk_nm, target, out.turn_hint, vs_lim)
+        t += dt
+        tick += 1
+
+    pending = [i for i, ev in events.items() if ev["state"] != "done"]
+    if pending and end_event and not route_done:
+        raise GeneratorError(f"{profile.name}: run ended with events not done: {pending}")
+    return Run(profile, frequency_ms, rows, timeline, [s.__dict__ for s in ref.sequences])
+
+
+def ref_in_missed(legs, leg):
+    seen = False
+    for lg in legs:
+        if lg.first_missed:
+            seen = True
+        if lg is leg:
+            return seen
+    return False
+
+
+def _run_events(events, ref, out, t, leg_start_t, ac, timeline):
+    done_now = set()
+    for eid, ev in events.items():
+        e = ev["e"]
+        if ev["state"] == "pending":
+            at = e.at
+            fire = False
+            if "leg" in at:
+                frm, _, to = at["leg"].partition("-")
+                i = ref.i
+                prev = ref._prev_fix(i)
+                if ref.legs[i].ident == to and prev is not None and prev.ident == frm and ref._hold is None:
+                    fire = t - leg_start_t.get(i, t) >= float(at.get("after_s", 0.0))
+            elif "after" in at:
+                fire = events[at["after"]]["state"] == "done"
+            elif "hold_at" in at:
+                fire = ref._hold is not None and ref.legs[ref.i].ident == at["hold_at"]
+            if fire:
+                ev["state"], ev["t0"] = "active", t
+                if "offset_nm" in e.do:
+                    ac.offset_nm = float(e.do["offset_nm"])
+                timeline.append({"t": round(t, 3), "what": "event", "id": eid, "do": e.do})
+        if ev["state"] == "active":
+            finished = False
+            if "offset_nm" in e.do:
+                if ev["est"] is None and abs(out.xtk_nm - ac.offset_nm) < ESTABLISHED_NM:
+                    ev["est"] = t
+                    timeline.append({"t": round(t, 3), "what": "established", "id": eid,
+                                     "xtk_nm": round(out.xtk_nm, 4)})
+                if ev["est"] is not None and t - ev["est"] >= float(e.do.get("hold_s", 0.0)):
+                    finished = True
+            elif "hold_min" in e.do:
+                if ref._hold is None:
+                    raise GeneratorError(f"event {eid}: hold_min with no hold being flown")
+                finished = t - ev["t0"] >= float(e.do["hold_min"]) * 60.0
+            elif GPS_EVENTS.keys() & e.do.keys():
+                kind = next(iter(GPS_EVENTS.keys() & e.do.keys()))
+                finished = t - ev["t0"] >= float(e.do[kind])
+            if finished:
+                ev["state"] = "done"
+                done_now.add(eid)
+                timeline.append({"t": round(t, 3), "what": "done", "id": eid})
+    return done_now
+
+
+def write_recorder_file(run, path, starttime=None):
+    """The data_recorder format: header, then every row as
+    ``key: [value, annunciate, old, bad, fail, secfail]``."""
+    starttime = starttime or datetime.datetime(2026, 1, 1, 0, 0, 0)
+    with open(path, "w") as f:
+        f.write(json.dumps({"frequency": f"{run.frequency_ms}", "starttime": starttime.isoformat()},
+                           separators=(",", ":")) + "\n")
+        for _, row in run.rows:
+            f.write(json.dumps({k: [v, 0, 0, 0, 0, 0] for k, v in row.items()}, separators=(",", ":")) + "\n")

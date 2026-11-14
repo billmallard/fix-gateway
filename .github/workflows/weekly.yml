@@ -1,0 +1,41 @@
+name: weekly
+
+# Run CI against dev once a week, so a date-dependent test (an AIRAC cycle or a
+# certificate that expires on a calendar day) goes red on a schedule rather than
+# on whichever PR happens to be open that week.
+#
+# GitHub only fires `schedule:` from the default branch (master), and a
+# scheduled run checks out master. dev is where the work is, so this dispatches
+# dev's own ci.yml -- one definition of CI, not a copy that drifts -- and waits
+# on it, so a failure turns this workflow red too.
+
+on:
+  schedule:
+    - cron: "17 9 * * 1"   # Mondays 09:17 UTC
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dev-ci:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+    - name: Run CI on dev and wait for it
+      run: |
+        since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        gh workflow run ci.yml --ref dev
+        id=""
+        for _ in $(seq 1 30); do
+          id=$(gh run list -w ci.yml -b dev -e workflow_dispatch --created ">=$since" \
+            -L 1 --json databaseId -q '.[0].databaseId')
+          [ -n "$id" ] && break
+          sleep 10
+        done
+        [ -n "$id" ] || { echo "::error::the dispatched CI run on dev never appeared"; exit 1; }
+        echo "CI on dev: $GITHUB_SERVER_URL/$GH_REPO/actions/runs/$id" | tee -a "$GITHUB_STEP_SUMMARY"
+        gh run watch "$id" --exit-status --interval 60

@@ -1,0 +1,2175 @@
+#  SPDX-License-Identifier: GPL-2.0-or-later
+#
+#  The flightplan navigation engine (FP2, fix-gateway#23).
+#
+#  Pure Python -- no fixgw.database dependency -- so it is directly unit
+#  testable. fixgw/plugins/flightplan/__init__.py wires this to the FIX
+#  database (callbacks in, key writes out) and to disk persistence.
+#
+#  Spec: makerplane/briefs/flight_plan_plan.md section 3.3 (the maos-workspace
+#  repo), Appendix A/C; Bill's ruling of 2026-09-08 makes CDI scaling the full
+#  DO-229 lateral behaviour including the approach phase -- there is no
+#  VFR-advisory mode.
+#
+#  PA3 (fix-gateway#27; makerplane/briefs/procedures_and_airways_plan.md
+#  section 3.2) widened the route slot from a bare point to a leg: a path
+#  terminator, course, distance, altitude/speed constraint and a flags
+#  bitfield (FAF/MAP/MAHP/IAF/fly-over/from-procedure) replacing the old
+#  single-value FPLfROLE.
+#
+#  PA4 (fix-gateway#28; section 2/9 of the same brief) adds the Tier-1 leg
+#  types -- IF/TF/CF/DF are 70% of approach legs and 91% of SID/STAR legs,
+#  all great-circle or course-to-a-point geometry this engine already had
+#  (IF/TF/DF fly the prior fix to this fix exactly as the old implicit-TF
+#  engine always did; CF is the one that needs a real published course
+#  rather than a computed bearing, _leg_from_anchor below) -- and the
+#  guardrail-1 safety gate: a leg whose path terminator this engine cannot
+#  fly rejects the WHOLE route, never a silent coercion to TF and never a
+#  partial load (unsupported_leg_reason, raised from load_route as
+#  RouteRejected). Vector legs (VA/VM/FM/VI -- a SID/STAR problem, not an
+#  approach one) cannot be flown by the box at all; guardrail 4 makes
+#  reaching one a SUSP annunciated VECTORS, never an invented heading.
+#
+#  PA13 (fix-gateway#29; section 2/6/9 of the same brief) adds the Tier-2
+#  leg types the brief phased out of PA4: RF/AF constant-radius arcs
+#  (_arc_geometry -- real circular geometry, not a straight-line trick),
+#  CA/FA altitude-terminated legs (course held until a live altitude input
+#  crosses the coded constraint, never a distance guess -- _leg_geometry's
+#  course-anchor branch, extended from CF), and HM/HF/HA holds plus PI
+#  procedure turns (_advance_hold_or_pt) -- the inbound leg reuses the exact
+#  CF anchor trick. A PI's outbound leg is a synthetic point on the coded
+#  reciprocal +-45 deg. A hold (fix-gateway#45) flies its AIM 5-3-8 entry
+#  and then the racetrack, turns included (_hold_geometry). VA stays a vector leg (PT_VECTOR,
+#  unchanged): it has no fix to fly to or from, only a heading, and
+#  guardrail 4 ("the box does not invent a heading") already covers it --
+#  moving it to Tier 2 would soften, not shrink, the rejected set. See
+#  doc/plugins/flightplan.md for the full behaviour writeup and the scoping
+#  decisions.
+#
+#  RS1 (fix-gateway#39; makerplane/briefs/route_segments_plan.md sections 3
+#  and 5) makes route segments first-class: every slot carries FPLfSGI, a
+#  1-based index into a segment table (FPLS1..100: kind, ident, entry/exit
+#  fix, first/last slot -- as many rows as there are slots), replacing PA3's kind-only FPLfSEG and the
+#  block-level FPLDPID/FPLSTARID/FPLAPRID. The engine still sequences legs
+#  exactly as before; it validates the table on every commit
+#  (segment_integrity_reason, the same whole-commit rejection as an
+#  unsupported leg), reports the active segment and the distance left in it,
+#  and persists the table with the route.
+
+import math
+
+from fixgw import geo
+
+# --- FPLfTYPE -------------------------------------------------------------
+TYPE_UNKNOWN = 0
+TYPE_AIRPORT = 1
+TYPE_VOR = 2
+TYPE_NDB = 3
+TYPE_FIX = 4
+TYPE_USER = 5
+TYPE_MAPPOINT = 6
+
+# --- FPLSfKIND (RS1) ---------------------------------------------------------
+SEGKIND_WAYPOINT = 0   # one waypoint the pilot entered -- not a Direct-To
+SEGKIND_AIRWAY = 1
+SEGKIND_DEPARTURE = 2
+SEGKIND_ARRIVAL = 3
+SEGKIND_APPROACH = 4
+SEGKIND_MISSED = 5
+SEGKINDS = frozenset(range(SEGKIND_WAYPOINT, SEGKIND_MISSED + 1))
+
+SEG_ID_MAX = 24      # FPLSfID length limit
+
+# --- FPLfFLAGS ---------------------------------------------------------
+FLAG_FLYOVER = 0x01
+FLAG_IAF = 0x02
+FLAG_FAF = 0x04
+FLAG_MAP = 0x08
+FLAG_MAHP = 0x10
+FLAG_FROM_PROCEDURE = 0x20
+
+# --- FPLfPT ------------------------------------------------------------
+PT_DEFAULT = "TF"  # the enroute/point-list default: a great-circle leg
+
+# --- Tier-1 leg-type support (PA4) --------------------------------------
+# Measured over FAACIFP18 (procedures_and_airways_plan.md section 2): IF +
+# TF + CF + DF is 70% of approach legs and 91% of SID/STAR legs, and all
+# four are great-circle or course-to-a-point geometry the engine already
+# has -- IF/TF/DF fly the prior fix to this fix exactly as the old
+# implicit-TF engine always did (no code change), CF needs the leg's
+# published course rather than a computed bearing (_leg_from_anchor).
+PT_TIER1 = frozenset({"IF", "TF", "CF", "DF"})
+
+# Vector legs cannot be flown by the box at all -- they terminate on pilot
+# or ATC action, never on geometry (a SID/STAR problem: VA/VM/FM/VI are
+# 6,705 SID/STAR legs, essentially zero approach legs). Guardrail 4: a
+# vector leg is a SUSP annunciated VECTORS, and the box never invents a
+# heading for it.
+PT_VECTOR = frozenset({"VA", "VM", "FM", "VI"})
+
+# --- Tier-2 leg-type support (PA13) --------------------------------------
+# Measured over FAACIFP18 (procedures_and_airways_plan.md section 2): holds
+# are 16,915 approach legs (13%) and arcs 2,603 (2%) -- real, not Tier 1,
+# and now flown rather than blanket-rejected.
+PT_ARC = frozenset({"RF", "AF"})          # constant-radius arc to a fix
+PT_ALT_TERM = frozenset({"CA", "FA"})     # course/fix held until an altitude
+PT_HOLD = frozenset({"HM", "HF", "HA"})   # hold: manual / single-circuit / to-altitude
+PT_PROC_TURN = frozenset({"PI"})          # 45/180 procedure turn
+PT_TIER2 = PT_ARC | PT_ALT_TERM | PT_HOLD | PT_PROC_TURN
+
+# Every path terminator this engine will load.
+PT_SUPPORTED = PT_TIER1 | PT_VECTOR | PT_TIER2
+
+# Distance behind a CF leg's fix, along the reciprocal of its published
+# course, used to synthesize a FROM anchor so the existing great-circle
+# cross-track/along-track math (built for a real fix-to-fix leg) applies
+# unchanged to a course-to-a-fix leg. Comfortably beyond any real
+# interception distance without courting antipodal weirdness. PA13 reuses
+# this same trick for CA (course-to-altitude) and for the inbound leg of a
+# hold/procedure-turn -- both are, geometrically, "hold course into this
+# fix" exactly like CF.
+CF_VIRTUAL_FROM_NM = 50.0
+
+# A hold/PT slot whose fix is within this of the point just sequenced past
+# is coded at that same fix (TF X, HM X): its fix has already been reached,
+# so it starts on its outbound leg rather than on a zero-length leg to the
+# fix (fix-gateway#44). Well under any real distance between two fixes.
+COINCIDENT_FIX_NM = 0.01
+
+# A fly-by course change below this has no arc to measure cross-track from
+# (AER-4715): the arc would be its two legs to within a few feet, and its
+# centre is 0/0 at a straight-through fix.
+ARC_MIN_DEG = 0.5
+# The largest course change flown fly-by (TURN2, AER-4760). Doc 9613 and
+# AC 90-105A define fly-by transitions only up to 120 deg below FL195; a
+# larger turn (a pilot-built reversal) is flown as a fly-over: no
+# anticipation, sequenced abeam, needle from the next leg (brief 3.3.1 row 3).
+MAX_FLYBY_TURN_DEG = 120.0
+# TURN2b (AER-5324): such a turn also sequences where the aircraft, turned
+# back short of the fix, has passed its closest approach to it -- within the
+# lead a fly-by turn would have taken (turn_anticipation_nm at the full
+# course change). The distance must open by this much past the closest
+# point, so position noise does not read as the turn back.
+REVERSAL_PASSED_NM = 0.05
+
+# --- Hold entries and racetrack (fix-gateway#45) ----------------------------
+# AIM 5-3-8 (the Instrument Flying Handbook, FAA-H-8083-15B ch. 10, still
+# cites it as 5-3-7): a line through the fix at 70 deg to the holding course
+# splits the arrivals into a parallel sector (110 deg), a teardrop sector
+# (70 deg) and a direct sector (180 deg). Parallel and teardrop fly an
+# entry leg for one minute -- the teardrop 30 deg off the outbound course
+# toward the holding side -- then turn back to the inbound course.
+HOLD_ENTRY_DIRECT = "DIRECT"
+HOLD_ENTRY_TEARDROP = "TEARDROP"
+HOLD_ENTRY_PARALLEL = "PARALLEL"
+HOLD_TEARDROP_SECTOR_DEG = 70.0
+HOLD_PARALLEL_SECTOR_DEG = 110.0
+HOLD_TEARDROP_OFFSET_DEG = 30.0
+HOLD_ENTRY_LEG_S = 60.0
+# A hold turn sweeps 180 deg. Its start can be read a little short of the
+# start radial (an entry that reaches the fix at an angle), so only a
+# remaining sweep beyond this is "past the end of the turn".
+HOLD_TURN_AHEAD_MAX_DEG = 270.0
+HOLD_MIN_NM = 0.1   # floor for the turn radius and entry leg at a near-zero GS
+
+
+def hold_entry(inbound_true, turn, arrival_true):
+    """The AIM 5-3-8 entry for a hold with this inbound course (true) and
+    turn direction, reached on arrival_true (the track into the fix, true).
+
+    Measured from the outbound course, an arrival that turns up to 70 deg
+    toward the holding side is a teardrop, one that turns up to 110 deg
+    away from it a parallel, and every other arrival a direct entry. The
+    holding side is right of the inbound course for a right-turn hold, so
+    seen along the outbound course it is on the left; a left-turn hold is
+    the mirror image."""
+    outbound_true = geo.wrap360(inbound_true + 180.0)
+    rel = (arrival_true - outbound_true + 180.0) % 360.0 - 180.0   # + is right of outbound
+    toward_holding_side = rel if turn == "L" else -rel
+    if 0.0 <= toward_holding_side <= HOLD_TEARDROP_SECTOR_DEG:
+        return HOLD_ENTRY_TEARDROP
+    if -HOLD_PARALLEL_SECTOR_DEG <= toward_holding_side < 0.0:
+        return HOLD_ENTRY_PARALLEL
+    return HOLD_ENTRY_DIRECT
+
+
+def unsupported_leg_reason(waypoints):
+    """None if every leg's path terminator is one this engine can fly, and
+    (PA13) every Tier-2 leg carries the fields its geometry needs;
+    otherwise a <=64-char FPLMSG reason naming the first offender.
+
+    Guardrail 1: an unsupported leg type rejects the WHOLE procedure, with
+    a reason on FPLMSG -- never a silent coercion to TF, never a partial
+    load. The most important test in PA4 is this one, run negative. PA13
+    extends the same rule to a *supported* Tier-2 type whose coded data is
+    incomplete (e.g. an arc with no center, a hold with no turn direction)
+    -- flying it would mean inventing a center, a radius or a turn
+    direction, which is exactly what guardrail 1 forbids for an
+    unrecognized terminator; incomplete data for a recognized one is no
+    safer a guess.
+    """
+    for i, w in enumerate(waypoints, start=1):
+        ident = w.id or f"SLOT{i}"
+        if w.pt not in PT_SUPPORTED:
+            return f"UNSUPP {w.pt or '??'} {ident}"[:64]
+        bad = _tier2_data_reason(w)
+        if bad is not None:
+            return f"{bad} {w.pt} {ident}"[:64]
+    return None
+
+
+def _tier2_data_reason(w):
+    """None if a Tier-2 leg's type-specific fields are complete enough to
+    fly without inventing anything; otherwise a short FPLMSG reason code.
+    A DF (Tier 1) is checked here too: it may carry a turn direction, and
+    one the engine cannot read rejects the route rather than being flown
+    the short way (AER-4541)."""
+    if w.pt == "DF":
+        if w.turn not in DF_TURNS:
+            return "BADTURN"
+    elif w.pt in PT_ARC:
+        if w.turn not in ("L", "R"):
+            return "BADTURN"
+        if w.dst <= 0.0:
+            return "BADRADIUS"
+        if w.ctrlat == 0.0 and w.ctrlon == 0.0:
+            return "BADCENTER"
+    elif w.pt in PT_ALT_TERM:
+        if _parse_alt_constraint(w.alt) is None:
+            return "BADALT"
+    elif w.pt in PT_HOLD:
+        if w.turn not in ("L", "R"):
+            return "BADTURN"
+        if w.dst <= 0.0:
+            return "BADLEGLEN"
+        if w.pt == "HA" and _parse_alt_constraint(w.alt) is None:
+            return "BADALT"
+    elif w.pt in PT_PROC_TURN:
+        if w.turn not in ("L", "R"):
+            return "BADTURN"
+        if w.dst <= 0.0:
+            return "BADLEGLEN"
+    return None
+
+
+def _parse_alt_constraint(alt_desc):
+    """Parse FPLfALT's packed guide notation into (threshold_ft,
+    at_or_above) -- the termination test for an altitude-terminated leg
+    (CA/FA) or an HA hold: "reached" is alt_ft >= threshold if
+    at_or_above else alt_ft <= threshold. None if alt_desc does not carry
+    a form this engine can evaluate (including "" -- a CA/FA/HA leg with
+    no altitude at all has no way to terminate, which unsupported_leg_reason
+    treats as incomplete data, not a free pass). "B lo,hi" (between) uses
+    the lower bound -- the first one reached climbing or descending into
+    it -- since a single-leg altitude termination has no way to express
+    "stop somewhere in this band" more precisely than that.
+    """
+    if not alt_desc:
+        return None
+    sign, rest = alt_desc[0], alt_desc[1:]
+    try:
+        if sign == "+":
+            return float(rest), True
+        if sign == "-":
+            return float(rest), False
+        if sign == "@":
+            return float(rest), True
+        if sign == "B":
+            lo, _hi = rest.split(",")
+            return float(lo), True
+    except ValueError:
+        return None
+    return None
+
+
+def _alt_reached_wp(w, alt_ft):
+    parsed = _parse_alt_constraint(w.alt)
+    if parsed is None:
+        return False
+    threshold, at_or_above = parsed
+    return alt_ft >= threshold if at_or_above else alt_ft <= threshold
+
+
+def segment_integrity_reason(waypoints, segments):
+    """None if the segment table (RS1) is consistent with the slots;
+    otherwise a <=64-char FPLMSG reason naming the first offender.
+
+    Guardrail 1, applied to route meaning rather than leg geometry: a
+    table that does not describe the slots exactly rejects the WHOLE
+    commit. The rules, in the order they are checked:
+
+    - FPLSEGCNT is 0 for an empty route and 1..FPLCOUNT otherwise
+      (SEGCNT). The table has as many rows as the slot block (both are
+      indexed by `f`), so it can never be the limit; only the slot count is.
+    - Every slot's FPLfSGI is 1..FPLSEGCNT (SEGSGI).
+    - Slots of a segment are contiguous (SEGNONCONTIG), and segments
+      appear in table order with none skipped: slot 1 is in segment 1 and
+      each slot is in the same segment as the one before it or the next
+      (SEGORDER). Together with SEGSGI this is "every slot belongs to
+      exactly one segment, and the table is the route's order".
+    - FPLSkKIND is 0..5 (SEGKIND).
+    - FPLSkFIRST/FPLSkLAST equal the first and last slot whose FPLfSGI
+      is k (SEGRANGE).
+    - FPLSkENT/FPLSkEXT equal the FPLfID of that first/last slot (SEGENT,
+      SEGEXT).
+    - A waypoint row holds exactly one slot -- one row per entered
+      waypoint (Bill, 2026-10-26) -- and an airway at least 2, its entry
+      and exit fixes (SEGLEN).
+    - FPLSkID is at most 24 chars, empty for a waypoint row and present
+      for an airway (SEGID).
+    """
+    n = len(waypoints)
+    cnt = len(segments)
+    if (n == 0 and cnt != 0) or (n > 0 and not 1 <= cnt <= n):
+        return f"SEGCNT {cnt}"
+
+    for i, w in enumerate(waypoints, start=1):
+        if not 1 <= w.sgi <= cnt:
+            return f"SEGSGI {i} {w.id or f'SLOT{i}'} {w.sgi}"[:64]
+
+    seen_closed = set()
+    prev = 0
+    for i, w in enumerate(waypoints, start=1):
+        k = w.sgi
+        if k == prev:
+            continue
+        if k in seen_closed:
+            return f"SEGNONCONTIG S{k} {w.id or f'SLOT{i}'}"[:64]
+        if k != prev + 1:
+            return f"SEGORDER S{k} {w.id or f'SLOT{i}'}"[:64]
+        if prev:
+            seen_closed.add(prev)
+        prev = k
+    if n and prev != cnt:
+        return f"SEGORDER S{prev + 1} UNUSED"
+
+    first = {}
+    last = {}
+    for i, w in enumerate(waypoints, start=1):
+        first.setdefault(w.sgi, i)
+        last[w.sgi] = i
+
+    for k, seg in enumerate(segments, start=1):
+        if seg.kind not in SEGKINDS:
+            return f"SEGKIND S{k} {seg.kind}"
+        if seg.first != first[k] or seg.last != last[k]:
+            return f"SEGRANGE S{k} {seg.first}-{seg.last}"[:64]
+        if seg.ent != waypoints[seg.first - 1].id:
+            return f"SEGENT S{k} {seg.ent or '??'}"[:64]
+        if seg.ext != waypoints[seg.last - 1].id:
+            return f"SEGEXT S{k} {seg.ext or '??'}"[:64]
+        legs = seg.last - seg.first + 1
+        if (seg.kind == SEGKIND_AIRWAY and legs < 2) or (seg.kind == SEGKIND_WAYPOINT and legs != 1):
+            return f"SEGLEN S{k} {seg.id or '-'} {legs}"[:64]
+        if (
+            len(seg.id) > SEG_ID_MAX
+            or (seg.kind == SEGKIND_WAYPOINT and seg.id)
+            or (seg.kind == SEGKIND_AIRWAY and not seg.id)
+        ):
+            return f"SEGID S{k} {seg.id or '-'}"[:64]
+    return None
+
+
+def waypoint_segments(waypoints):
+    """Describe a plain point list as RS1 segments: one waypoint row per
+    slot. Sets each waypoint's sgi to its own slot number and returns the
+    matching table. Used to migrate a pre-RS1 persisted plan, which carried
+    no segment table; a waypoint row claims nothing about airways or
+    procedures, so it adds no meaning the old file did not have."""
+    segments = []
+    for i, w in enumerate(waypoints, start=1):
+        w.sgi = i
+        segments.append(Segment(SEGKIND_WAYPOINT, "", w.id, w.id, i, i))
+    return segments
+
+
+# --- FPLSTATE ------------------------------------------------------------
+STATE_NONE = 0
+STATE_LEG = 1
+STATE_DIRECT = 2
+STATE_SUSP = 3
+
+# --- Tier-2 internal sub-leg phase (PA13; not on the wire, persisted only
+# for restart continuity) -- HM/HF/HA/PI fly the sub-legs below around the
+# fix; FA flies to the fix, then continues on
+# course past it. None means "flying the initial approach to the fix" for
+# all of these (indistinguishable from a plain DF/TF arrival).
+LEGPHASE_OUTBOUND = "OUTBOUND"
+LEGPHASE_INBOUND = "INBOUND"
+LEGPHASE_FA_COURSE = "FA_COURSE"
+# A hold (fix-gateway#45) also has a parallel/teardrop entry leg and the
+# two 180 deg turns of its racetrack: fix -> [ENTRY -> INBOUND -> fix] ->
+# TURN_OUT -> OUTBOUND -> TURN_IN -> INBOUND -> fix -> TURN_OUT ... A PI
+# procedure turn still flies only OUTBOUND -> INBOUND.
+LEGPHASE_ENTRY = "ENTRY"
+LEGPHASE_TURN_OUT = "TURN_OUT"
+LEGPHASE_TURN_IN = "TURN_IN"
+LEGPHASES_PATTERN = frozenset({LEGPHASE_ENTRY, LEGPHASE_TURN_OUT, LEGPHASE_OUTBOUND,
+                               LEGPHASE_TURN_IN, LEGPHASE_INBOUND})
+# A DF whose turn direction is coded (AER-4541) starts with a turn that way:
+# a circle from where the leg began, tangent to the track the aircraft
+# arrived on, until the tangent from it points at the fix. Then the leg is
+# the great circle from that tangent point (_df_turn_start).
+LEGPHASE_DF_TURN = "DF_TURN"
+
+# FPLfTURN values a DF may carry (AER-4541). A DF's turn direction is
+# optional: "" is the short way, and so is "E" (ARINC 424 "either", coded on
+# 2 SID DFs in cycle 2611). Anything else is BADTURN.
+DF_TURNS = frozenset({"", "L", "R", "E"})
+
+# --- FPLAPR ----------------------------------------------------------------
+APR_NONE = 0
+APR_ARMED = 1
+APR_ACTIVE = 2
+APR_MISSED = 3
+
+# --- FPLTF -----------------------------------------------------------------
+TF_OFF = 0
+TF_TO = 1
+TF_FROM = 2
+
+TERMINAL_NM_DEFAULT = 30.0
+APPROACH_RAMP_NM_DEFAULT = 2.0
+TURN_RATE_DEG_S_DEFAULT = 3.0
+# TURN1 (AER-4759): fly-by turns are sized from a nominal 15 deg bank, the
+# figure every Garmin guide that states one gives ("smooths adjacent leg
+# transitions based upon a nominal 15 deg bank angle"). Hold turns stay at
+# standard rate, bounded at 25 deg of bank (AIM 5-3-8).
+TURN_BANK_DEG_DEFAULT = 15.0
+HOLD_BANK_MAX_DEG = 25.0
+# R = GS^2 / (G_KT2_PER_NM tan(bank)): g = 9.80665 m/s^2 in kt^2 per nm,
+# 3600^2 * 9.80665 / 1852 (FAA Order 8260.58D formula 1-2-10's 68625.4).
+G_KT2_PER_NM = 3600.0 ** 2 * 9.80665 / 1852.0
+ALERT_S_DEFAULT = 10.0
+HAL_NM_DEFAULT = {"enr": 2.0, "term": 1.0, "lnav": 0.3}
+# How long after the fix it was computed from a position may still drive
+# guidance (AER-4217). Measured from the fix (the time LAT/LONG were written),
+# not from the last cycle that saw them, and not stacked on the database tol.
+# The slowest navigation source we take is a 1 Hz receiver (NMEA GGA/RMC, a
+# gpsd TPV per 1 Hz epoch); 2.0 s is one whole missed epoch plus a full epoch
+# of delivery jitter, so the second consecutive missing fix flags. It matches
+# the 2 s tol the database already gives GPS_FIX_TYPE and GPS_ACCURACY_HORIZ,
+# which arrive in the same receiver message. Frozen-position error at the bound
+# is ground speed x 2 s: 0.08 nm at 150 kt.
+POSITION_TIMEOUT_S = 2.0
+DTO_MATCH_TOLERANCE_DEG = 0.001
+DIRECT_TO_NEEDS_POSITION_REASON = "NO POSITION"
+
+
+class Waypoint:
+    """A route slot -- a leg (PA3): a point (id/lat/lon/type) plus the leg
+    that terminates on it (path terminator, course, distance, altitude/speed
+    constraint, flags) and, since RS1, the 1-based index of the segment it
+    belongs to (sgi, FPLfSGI). See doc/flightplan_keys.md for the wire
+    encoding this mirrors 1:1.
+
+    PA13 adds ctrlat/ctrlon (an RF/AF arc's center point) and turn (the "L"/
+    "R" turn direction an arc, hold or procedure turn needs and a Tier-1 leg
+    never did) -- the two fields PA3 scoped out of the leg struct as "rare"
+    before Tier 2 existed to need them (procedures_and_airways_plan.md
+    section 3.2).
+    """
+
+    __slots__ = ("id", "lat", "lon", "type", "pt", "crs", "dst", "alt", "spd", "sgi", "flags",
+                 "ctrlat", "ctrlon", "turn")
+
+    def __init__(self, id="", lat=0.0, lon=0.0, type=TYPE_UNKNOWN, pt=PT_DEFAULT,
+                 crs=0.0, dst=0.0, alt="", spd=0, sgi=0, flags=0,
+                 ctrlat=0.0, ctrlon=0.0, turn=""):
+        self.id = id
+        self.lat = lat
+        self.lon = lon
+        self.type = type
+        self.pt = pt
+        self.crs = crs
+        self.dst = dst
+        self.alt = alt
+        self.spd = spd
+        self.sgi = sgi
+        self.flags = flags
+        self.ctrlat = ctrlat
+        self.ctrlon = ctrlon
+        self.turn = turn
+
+    def to_dict(self):
+        return {
+            "id": self.id, "lat": self.lat, "lon": self.lon, "type": self.type,
+            "pt": self.pt, "crs": self.crs, "dst": self.dst, "alt": self.alt,
+            "spd": self.spd, "sgi": self.sgi, "flags": self.flags,
+            "ctrlat": self.ctrlat, "ctrlon": self.ctrlon, "turn": self.turn,
+        }
+
+    @classmethod
+    def from_dict(cls, d):
+        return cls(
+            d.get("id", ""), d.get("lat", 0.0), d.get("lon", 0.0), d.get("type", TYPE_UNKNOWN),
+            d.get("pt", PT_DEFAULT), d.get("crs", 0.0), d.get("dst", 0.0), d.get("alt", ""),
+            d.get("spd", 0), d.get("sgi", 0), d.get("flags", 0),
+            d.get("ctrlat", 0.0), d.get("ctrlon", 0.0), d.get("turn", ""),
+        )
+
+
+class Segment:
+    """A route segment (RS1): one row of the FPLS1..100 table. kind is
+    SEGKIND_*, id the airway or procedure ident ("" for a waypoint), ent/ext the
+    entry and exit fix idents, first/last the 1-based slot range. The legs
+    themselves stay in the slot block; this says where they came from."""
+
+    __slots__ = ("kind", "id", "ent", "ext", "first", "last")
+
+    def __init__(self, kind=SEGKIND_WAYPOINT, id="", ent="", ext="", first=0, last=0):
+        self.kind = kind
+        self.id = id
+        self.ent = ent
+        self.ext = ext
+        self.first = first
+        self.last = last
+
+    def to_dict(self):
+        return {
+            "kind": self.kind, "id": self.id, "ent": self.ent, "ext": self.ext,
+            "first": self.first, "last": self.last,
+        }
+
+    @classmethod
+    def from_dict(cls, d):
+        return cls(
+            d.get("kind", SEGKIND_WAYPOINT), d.get("id", ""), d.get("ent", ""), d.get("ext", ""),
+            d.get("first", 0), d.get("last", 0),
+        )
+
+
+class Point:
+    """A FROM/TO anchor: either a plan waypoint or an ad hoc activation
+    point / direct-to target -- always has a position, an ident is optional
+    (empty for an activation point, e.g. "FROM = present position")."""
+
+    __slots__ = ("lat", "lon", "id")
+
+    def __init__(self, lat, lon, id=""):
+        self.lat = lat
+        self.lon = lon
+        self.id = id
+
+    def to_dict(self):
+        return {"lat": self.lat, "lon": self.lon, "id": self.id}
+
+    @classmethod
+    def from_dict(cls, d):
+        return cls(d["lat"], d["lon"], d.get("id", ""))
+
+    @classmethod
+    def from_waypoint(cls, wp):
+        return cls(wp.lat, wp.lon, wp.id)
+
+
+class RouteRejected(Exception):
+    """Raised by Engine.load_route (PA4, guardrail 1) when a leg's path
+    terminator is not one this engine can fly, or (RS1) when the segment
+    table does not describe the slots. The previously loaded route,
+    activation state and all, is left completely untouched -- there is no
+    partial load."""
+
+    def __init__(self, reason):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def bank_turn_radius_nm(gs_kt, bank_deg):
+    """Radius of a coordinated turn at this ground speed and bank, nm."""
+    return gs_kt * gs_kt / (G_KT2_PER_NM * math.tan(math.radians(bank_deg)))
+
+
+def turn_anticipation_nm(gs_kt, delta_deg, turn_bank_deg=TURN_BANK_DEG_DEFAULT):
+    """d_ta = R_turn * tan(delta/2), R_turn the radius at turn_bank_deg
+    (TURN1: a nominal 15 deg, 0.783 nm at 120 kt; standard rate before).
+
+    No floor (AER-4675): a straight-through fix has no turn to anticipate,
+    so its course changes at the fix, where its waypoint does. No cap on
+    delta either (TURN2, AER-4760): the engine does not anticipate a turn
+    over MAX_FLYBY_TURN_DEG at all, so capping it here only hid that.
+    """
+    delta_deg = abs(delta_deg)
+    r_turn = bank_turn_radius_nm(gs_kt, turn_bank_deg)
+    d_ta = r_turn * math.tan(math.radians(delta_deg) / 2.0)
+    return min(5.0, d_ta)
+
+
+def hold_turn_radius_nm(gs_kt, turn_rate_deg_s=TURN_RATE_DEG_S_DEFAULT):
+    """Radius of a hold's turns: AIM 5-3-8, standard rate (188.5 = GS per
+    nm of radius at 3 deg/s) or 25 deg of bank, whichever needs less bank,
+    so the wider of the two radii. Not the fly-by turn's 15 deg (TURN1)."""
+    r_rate = (gs_kt / 188.5) * (TURN_RATE_DEG_S_DEFAULT / turn_rate_deg_s)
+    return max(HOLD_MIN_NM, r_rate, bank_turn_radius_nm(gs_kt, HOLD_BANK_MAX_DEG))
+
+
+def _course_change_deg(course_a, course_b):
+    diff = (course_b - course_a + 180.0) % 360.0 - 180.0
+    return abs(diff)
+
+
+def _check_route(waypoints, segments):
+    reason = unsupported_leg_reason(waypoints)
+    if reason is None:
+        reason = segment_integrity_reason(waypoints, segments)
+    if reason is not None:
+        raise RouteRejected(reason)
+
+
+class Engine:
+    def __init__(self, config=None):
+        config = config or {}
+        self.terminal_nm = float(config.get("terminal_nm", TERMINAL_NM_DEFAULT))
+        self.approach_ramp_nm = float(config.get("approach_ramp_nm", APPROACH_RAMP_NM_DEFAULT))
+        self.turn_rate_deg_s = float(config.get("turn_rate_deg_s", TURN_RATE_DEG_S_DEFAULT))
+        self.turn_bank_deg = float(config.get("turn_bank_deg", TURN_BANK_DEG_DEFAULT))
+        self.alert_s = float(config.get("alert_s", ALERT_S_DEFAULT))
+        self.hal_nm = dict(config.get("hal_nm", HAL_NM_DEFAULT))
+
+        self.route = []          # list[Waypoint]
+        self.route_name = ""
+        self.seq = None          # last-applied FPLSEQ
+
+        # Route segments (RS1) -- FPLS1..FPLSEGCNT, list[Segment]. Each
+        # waypoint's sgi indexes this list, 1-based.
+        self.segments = []
+
+        # Block-level provenance (PA3) -- FPLAPRTYPE/FPLDBCYC. Carried
+        # through, not yet acted on (PA9 annunciates FPLDBCYC's currency).
+        # The procedure idents PA3 also kept here (FPLDPID/FPLSTARID/
+        # FPLAPRID) moved into the segment table in RS1.
+        self.aprtype = ""
+        self.dbcyc = ""
+
+        self.mode = "NONE"       # NONE | LEG | DIRECT
+        self.suspended = False
+        self.act_leg = 0         # 1-based slot of the TO waypoint, 0 = none
+        self.from_point = None   # Point
+        self.to_point = None     # Point
+
+        # Tier-2 sub-leg state (PA13) -- see LEGPHASE_* above.
+        self._leg_phase = None
+        self._hold_exit_requested = False  # RESUME on an HM hold: exit at next fix passage
+        # The hold being flown (fix-gateway#45): its entry, and the turn
+        # radius and entry-leg length fixed from the GS on reaching the fix.
+        self._hold_entry = None
+        self._hold_r_nm = None
+        self._hold_entry_nm = None
+        # The coded turn that opens a DF (AER-4541), fixed when the DF leg
+        # starts: its circle and the tangent point it leaves the circle at.
+        # Kept after the turn, as the anchor of the line to the fix.
+        self._df_turn = None
+        # This cycle's GS and MAGVAR, for a hold started mid-cycle, and the
+        # true desired track of the leg flown this cycle, the track a DF's
+        # coded turn starts from.
+        self._cycle_gs_kt = 0.0
+        self._cycle_magvar_deg = 0.0
+        self._cycle_dtk_true = None
+
+        self.scale_manual = None  # None (AUTO) or 0.3/1.0/2.0
+
+        self.apr = APR_NONE
+        self._map_suspended = False   # sitting at the MAP awaiting RESUME
+        self._missed = False          # RESUME past the MAP has been actioned
+        self._approach_suppressed = False  # DTO between FAF and MAP
+
+        self._integrity_msg_posted = True  # nothing active yet -> nothing to post
+        self._prev_atd = None
+        # In a fly-by turn (AER-4675): past turn start, the desired track is
+        # the next leg's, but the waypoint does not sequence until the turn
+        # bisector. See _compute_guidance.
+        self._turning = False
+        # The arc of that turn (AER-4715), fixed at turn start: cross-track
+        # is measured from it until the aircraft is past its end, on both
+        # sides of the bisector. None outside a fly-by turn.
+        self._turn_arc = None
+        # Closest approach to the TO fix of a turn over MAX_FLYBY_TURN_DEG
+        # (TURN2b): (leg key, nm). A new key starts it again.
+        self._reversal_closest = None
+
+        self._last_good_time = None
+        self._last_lat = None
+        self._last_lon = None
+        self._cmd_msg = None
+        self._pending_msg = None
+
+    # ------------------------------------------------------------------
+    # Route loading
+    # ------------------------------------------------------------------
+    def load_route(self, waypoints, name, seq, segments, aprtype="", dbcyc=""):
+        """waypoints: list[Waypoint]; segments: list[Segment], the RS1
+        segment table the waypoints' sgi index into. Any FPLSEQ change is
+        treated as a new plan: the previous activation is dropped (mode ->
+        NONE) and the pilot re-activates it with ACT/DTO. See
+        doc/plugins/flightplan.md for why edit-preserving activation was
+        not attempted in this first cut.
+
+        aprtype/dbcyc: block-level provenance (PA3) -- FPLAPRTYPE/FPLDBCYC.
+
+        Raises RouteRejected (guardrail 1) -- leaving the previously loaded
+        route and activation state completely untouched -- if any leg's
+        path terminator is not in PT_SUPPORTED (PA4), or the segment table
+        does not describe the slots (RS1, segment_integrity_reason)."""
+        _check_route(waypoints, segments)
+        self.route = list(waypoints)
+        self.segments = list(segments)
+        self.route_name = name
+        self.seq = seq
+        self.aprtype = aprtype
+        self.dbcyc = dbcyc
+        self._reset_activation()
+
+    def _reset_activation(self):
+        self.mode = "NONE"
+        self.suspended = False
+        self.act_leg = 0
+        self.from_point = None
+        self.to_point = None
+        self.apr = APR_NONE
+        self._map_suspended = False
+        self._missed = False
+        self._approach_suppressed = False
+        self._integrity_msg_posted = True
+        self._prev_atd = None
+        self._turning = False
+        self._turn_arc = None
+        self._clear_leg_phase()
+
+    # ------------------------------------------------------------------
+    # Persistence (state_persist discipline: atomic JSON, restored after a
+    # delay by the plugin wrapper -- this is just the (de)serialization).
+    # ------------------------------------------------------------------
+    def to_persisted_dict(self):
+        return {
+            "route": [wp.to_dict() for wp in self.route],
+            "segments": [seg.to_dict() for seg in self.segments],
+            "name": self.route_name,
+            "seq": self.seq,
+            "aprtype": self.aprtype,
+            "dbcyc": self.dbcyc,
+            "mode": self.mode,
+            "suspended": self.suspended,
+            "act_leg": self.act_leg,
+            "from_point": self.from_point.to_dict() if self.from_point else None,
+            "to_point": self.to_point.to_dict() if self.to_point else None,
+            "scale_manual": self.scale_manual,
+            "apr": self.apr,
+            "map_suspended": self._map_suspended,
+            "missed": self._missed,
+            "approach_suppressed": self._approach_suppressed,
+            "integrity_msg_posted": self._integrity_msg_posted,
+            "leg_phase": self._leg_phase,
+            "hold_exit_requested": self._hold_exit_requested,
+            "hold_entry": self._hold_entry,
+            "hold_r_nm": self._hold_r_nm,
+            "hold_entry_nm": self._hold_entry_nm,
+            "turning": self._turning,
+            "turn_arc": self._turn_arc,
+            "df_turn": self._df_turn,
+        }
+
+    def restore_from_dict(self, d):
+        """Restore a persisted plan. The route and its segment table are
+        checked exactly as a bus commit is, before anything is changed: a
+        state file that would not load from the bus is not flown either
+        (RouteRejected, engine untouched). A pre-RS1 file has no segment
+        table; each slot is migrated to its own waypoint row
+        (waypoint_segments), which is all the old file ever said about it."""
+        route = [Waypoint.from_dict(w) for w in d.get("route", [])]
+        if "segments" in d:
+            segments = [Segment.from_dict(sg) for sg in d["segments"]]
+        else:
+            segments = waypoint_segments(route)
+        _check_route(route, segments)
+        self.route = route
+        self.segments = segments
+        self.route_name = d.get("name", "")
+        self.seq = d.get("seq")
+        self.aprtype = d.get("aprtype", "")
+        self.dbcyc = d.get("dbcyc", "")
+        self.mode = d.get("mode", "NONE")
+        self.suspended = d.get("suspended", False)
+        self.act_leg = d.get("act_leg", 0)
+        fp = d.get("from_point")
+        tp = d.get("to_point")
+        self.from_point = Point.from_dict(fp) if fp else None
+        self.to_point = Point.from_dict(tp) if tp else None
+        self.scale_manual = d.get("scale_manual")
+        self.apr = d.get("apr", APR_NONE)
+        self._map_suspended = d.get("map_suspended", False)
+        self._missed = d.get("missed", False)
+        self._approach_suppressed = d.get("approach_suppressed", False)
+        self._integrity_msg_posted = d.get("integrity_msg_posted", True)
+        self._leg_phase = d.get("leg_phase")
+        self._hold_exit_requested = d.get("hold_exit_requested", False)
+        # A pre-#45 file has none of these; the radius and entry leg are
+        # then re-derived from the GS on the next cycle.
+        self._hold_entry = d.get("hold_entry")
+        self._hold_r_nm = d.get("hold_r_nm")
+        self._hold_entry_nm = d.get("hold_entry_nm")
+        self._turning = d.get("turning", False)
+        # A file from before AER-4715 has no arc: the rest of that turn
+        # measures cross-track from the next leg's line, as it did then.
+        self._turn_arc = d.get("turn_arc")
+        # A file from before AER-4541 has no DF turn, and no DF_TURN phase
+        # either: its DF flies the line from the FROM point, as it did then.
+        self._df_turn = d.get("df_turn")
+        if self._leg_phase == LEGPHASE_DF_TURN and self._df_turn is None:
+            self._leg_phase = None
+        self._prev_atd = None
+
+    # ------------------------------------------------------------------
+    # Plan geometry helpers
+    # ------------------------------------------------------------------
+    @property
+    def count(self):
+        return len(self.route)
+
+    def _segment_index(self, slot):
+        """FPLACTSEG for a TO slot (RS1): the segment the slot belongs to,
+        0 for no slot (no plan active, or an off-route direct-to)."""
+        if not 1 <= slot <= self.count:
+            return 0
+        return self.route[slot - 1].sgi
+
+    def _segment_remaining_nm(self, wp_dis):
+        """FPLSEGREM (RS1): distance to the active TO fix plus the legs
+        from it to the active segment's last slot."""
+        k = self._segment_index(self.act_leg)
+        if k == 0:
+            return 0.0
+        rem = wp_dis
+        for i in range(self.act_leg, self.segments[k - 1].last):
+            rem += geo.distance_nm(
+                self.route[i - 1].lat, self.route[i - 1].lon, self.route[i].lat, self.route[i].lon
+            )
+        return rem
+
+    def _faf_map_idx(self):
+        faf_idx = map_idx = None
+        for i, wp in enumerate(self.route, start=1):
+            if wp.flags & FLAG_FAF and faf_idx is None:
+                faf_idx = i
+            if wp.flags & FLAG_MAP and map_idx is None:
+                map_idx = i
+        if faf_idx is not None and map_idx is not None and faf_idx < map_idx:
+            return faf_idx, map_idx
+        return None, None
+
+    def _is_final(self, slot):
+        """A slot that never auto-sequences: the last waypoint, or a waypoint
+        marked MAP."""
+        if slot <= 0:
+            return True
+        if slot >= self.count:
+            return True
+        return bool(self.route[slot - 1].flags & FLAG_MAP)
+
+    def _on_vector_leg(self):
+        """True when the active (TO) leg is a vector type (PA4, guardrail
+        4) -- derived fresh from route data every call, not a persisted
+        flag, so a pilot RESUME (which moves act_leg off the vector leg,
+        see _resume_from_vectors) is never fought by a stale flag on the
+        next cycle."""
+        if not (1 <= self.act_leg <= self.count):
+            return False
+        return self.route[self.act_leg - 1].pt in PT_VECTOR
+
+    def _on_hm_hold(self):
+        """True while the active leg is a published HM hold actually being
+        flown (PA13) -- outbound or inbound, not still on the initial
+        approach to the fix. RESUME's meaning here ("exit at the next fix
+        passage") only makes sense once the aircraft is in the pattern."""
+        if not (1 <= self.act_leg <= self.count):
+            return False
+        wp = self.route[self.act_leg - 1]
+        return wp.pt == "HM" and self._leg_phase in LEGPHASES_PATTERN
+
+    def _clear_leg_phase(self):
+        self._leg_phase = None
+        self._hold_exit_requested = False
+        self._hold_entry = None
+        self._hold_r_nm = None
+        self._hold_entry_nm = None
+        self._df_turn = None
+
+    @staticmethod
+    def _df_coded_turn(wp):
+        """True for a DF whose coded turn direction the engine flies."""
+        return wp is not None and wp.pt == "DF" and wp.turn in ("L", "R")
+
+    def _df_turn_start(self, wp, start, arrival_true, gs_kt):
+        """Start a DF's coded turn (AER-4541) at `start`, the point the leg
+        begins, on arrival_true, the true track the aircraft arrives on.
+
+        The path is the one FAA Order 8260.58D appendix C checks a DF
+        against: a turn of a set radius from the turn point, in the coded
+        direction, then direct to the fix. The radius is a hold's
+        (hold_turn_radius_nm: standard rate, or 25 deg of bank if wider),
+        from the GS now. The circle is tangent to arrival_true at `start`;
+        the turn ends at the tangent point whose tangent, flown the coded
+        way, points at the fix. A turn is set up whenever one is coded,
+        also when the coded side is the short way.
+
+        No turn is set up -- the leg is the line from `start`, the short
+        way -- with no arrival track (the leg was started by ACT, DTO or a
+        RESUME off vectors, where the engine knows no track), or with the
+        fix inside the turn's circle, where no tangent reaches it. 8260.58D
+        C-3.a requires a DF's fix outside every such path, so a published
+        DF does not do that."""
+        if arrival_true is None or not self._df_coded_turn(wp):
+            return
+        cw = wp.turn == "R"
+        r = hold_turn_radius_nm(gs_kt, self.turn_rate_deg_s)
+        c_lat, c_lon = geo.destination_point(start.lat, start.lon,
+                                             geo.wrap360(arrival_true + (90.0 if cw else -90.0)), r)
+        d = geo.distance_nm(c_lat, c_lon, wp.lat, wp.lon)
+        if d <= r:
+            return
+        theta = math.degrees(math.acos(r / d))
+        to_fix = geo.bearing_deg(c_lat, c_lon, wp.lat, wp.lon)
+        start_radial = geo.bearing_deg(c_lat, c_lon, start.lat, start.lon)
+        exit_radial = geo.wrap360(to_fix - theta if cw else to_fix + theta)
+        x_lat, x_lon = geo.destination_point(c_lat, c_lon, exit_radial, r)
+        self._df_turn = {
+            "lat": c_lat,
+            "lon": c_lon,
+            "r_nm": r,
+            "cw": cw,
+            "sweep_deg": geo.arc_sweep_deg(start_radial, exit_radial, cw),
+            "exit_lat": x_lat,
+            "exit_lon": x_lon,
+        }
+        self._leg_phase = LEGPHASE_DF_TURN
+
+    def _df_turn_geometry(self, ac_lat, ac_lon):
+        """Anchor, atd (arc length left to the tangent point), xtk and true
+        DTK on a DF's coded turn. A remaining sweep up to 10 deg more than
+        the whole turn reads as just short of its start (the aircraft a
+        little behind the point the leg began); past that, as past its end.
+
+        The anchor (FPLFRLAT/FPLFRLON, which the map draws the active leg
+        from) is the tangent point throughout, so the map shows the line the
+        turn rolls out on, not a line swinging round with the aircraft."""
+        t = self._df_turn
+        ahead_max = min(359.0, t["sweep_deg"] + 10.0)
+        exit_pt = Point(t["exit_lat"], t["exit_lon"])
+        _, atd, xtk, dtk_true = self._circle_geometry(Point(t["lat"], t["lon"]), t["r_nm"], t["cw"],
+                                                      exit_pt, ac_lat, ac_lon, ahead_max)
+        return exit_pt, atd, xtk, dtk_true
+
+    def _leg_from_anchor(self, to_wp, fr, to, magvar_deg):
+        """The FROM anchor used for this leg's course/xtk/atd math: the
+        real previous point for IF/TF/DF (a great circle from the prior
+        fix -- the same geometry this engine has always flown), or a
+        synthetic point on the leg's published magnetic course for a leg
+        that is a course flown into a fix rather than a fix-to-fix path --
+        CF (Tier 1), CA (PA13: course held to an altitude), and the inbound
+        leg of a hold or procedure turn (PA13: turn back and re-intercept
+        the coded inbound course into the fix) are geometrically the same
+        problem, so they share this one synthetic-anchor construction.
+        FA (PA13) only joins this set once it has passed the fix and is
+        holding course past it (LEGPHASE_FA_COURSE) -- on the way to the
+        fix it is flown like any other fix arrival, no special anchor.
+        """
+        uses_course_anchor = (
+            to_wp.pt == "CF"
+            or to_wp.pt == "CA"
+            or (to_wp.pt == "FA" and self._leg_phase == LEGPHASE_FA_COURSE)
+            or (to_wp.pt in (PT_HOLD | PT_PROC_TURN) and self._leg_phase == LEGPHASE_INBOUND)
+        )
+        if uses_course_anchor:
+            true_course = geo.wrap360(to_wp.crs - magvar_deg)
+            # A hold's inbound course is built on WGS-84 like the rest of
+            # its racetrack (_hold_geometry), so the turn inbound ends on
+            # it rather than up to 0.006 nm beside it.
+            dest = geo.destination_point_wgs84 if to_wp.pt in PT_HOLD else geo.destination_point
+            back_lat, back_lon = dest(to.lat, to.lon, geo.wrap360(true_course + 180.0), CF_VIRTUAL_FROM_NM)
+            return Point(back_lat, back_lon)
+        if to_wp.pt == "DF" and self._df_turn is not None:
+            # A DF that opened with its coded turn (AER-4541) is the line
+            # from where that turn ends.
+            return Point(self._df_turn["exit_lat"], self._df_turn["exit_lon"])
+        return fr
+
+    @staticmethod
+    def _line_geometry(anchor, target, ac_lat, ac_lon):
+        atd = geo.along_track_distance_to_waypoint_nm(anchor.lat, anchor.lon, target.lat, target.lon, ac_lat, ac_lon)
+        xtk = geo.cross_track_nm(anchor.lat, anchor.lon, target.lat, target.lon, ac_lat, ac_lon)
+        dtk_true = geo.desired_track_true(anchor.lat, anchor.lon, target.lat, target.lon, ac_lat, ac_lon)
+        return atd, xtk, dtk_true
+
+    def _arc_geometry(self, to_wp, ac_lat, ac_lon):
+        """Real constant-radius arc guidance (RF/AF, PA13) -- not a
+        straight-line trick, an actual circle: center ctrlat/ctrlon,
+        radius dst, direction turn ("R" clockwise viewed from above, "L"
+        counterclockwise). XTK is computed by handing the aircraft's
+        position to the existing, already-tested cross_track_nm against
+        the tangent line at the aircraft's own radial (the point on the
+        circle directly abeam it, and one nm further along the direction
+        of travel) -- this reuses the codebase's one cross-track sign
+        convention instead of re-deriving inside/outside-of-turn signs by
+        hand. Progress/remaining distance come from the sweep angle
+        (geo.arc_sweep_deg) between the aircraft's radial and the exit
+        fix's radial, in the coded turn direction, converted to arc length
+        by the radius -- the same role atd plays for a straight leg.
+        """
+        return self._circle_geometry(Point(to_wp.ctrlat, to_wp.ctrlon), to_wp.dst, to_wp.turn == "R",
+                                     Point(to_wp.lat, to_wp.lon), ac_lat, ac_lon)
+
+    @staticmethod
+    def _circle_geometry(center, radius_nm, clockwise, exit_pt, ac_lat, ac_lon, ahead_max_deg=180.0,
+                         destination_point=geo.destination_point):
+        """Guidance on a circle around center, flown clockwise or not, up to
+        the radial through exit_pt: the RF/AF arc above, and (fix-gateway#45)
+        the two turns of a hold's racetrack. A remaining sweep past
+        ahead_max_deg reads as already past the exit radial. A hold passes
+        the WGS-84 destination_point its racetrack is built with, so the
+        circle has the radius it was built with."""
+        ac_radial = geo.bearing_deg(center.lat, center.lon, ac_lat, ac_lon)
+        to_radial = geo.bearing_deg(center.lat, center.lon, exit_pt.lat, exit_pt.lon)
+        tangent_brg = geo.wrap360(ac_radial + (90.0 if clockwise else -90.0))
+
+        on_arc_lat, on_arc_lon = destination_point(center.lat, center.lon, ac_radial, radius_nm)
+        ahead_lat, ahead_lon = destination_point(on_arc_lat, on_arc_lon, tangent_brg, 1.0)
+        xtk = geo.cross_track_nm(on_arc_lat, on_arc_lon, ahead_lat, ahead_lon, ac_lat, ac_lon)
+
+        remaining_sweep = geo.arc_sweep_deg(ac_radial, to_radial, clockwise)
+        if remaining_sweep <= ahead_max_deg:
+            atd = radius_nm * math.radians(remaining_sweep)
+        else:
+            # Past the exit radial -- the short way is backward, not the
+            # long way forward around the rest of the circle.
+            atd = -radius_nm * math.radians(360.0 - remaining_sweep)
+
+        return Point(on_arc_lat, on_arc_lon), atd, xtk, tangent_brg
+
+    def _hold_geometry(self, to_wp, ac_lat, ac_lon, magvar_deg):
+        """Anchor, atd, xtk and true DTK on a hold's entry leg, turns and
+        outbound leg (fix-gateway#45; the inbound leg is the CF course
+        anchor, _leg_from_anchor). All are fixed to the ground at the fix:
+
+        - ENTRY: from the fix for one minute at the GS it was reached at,
+          on the outbound course (parallel) or 30 deg off it toward the
+          holding side (teardrop).
+        - TURN_OUT: a half circle of the hold's turn radius from the fix to
+          two radii abeam it on the holding side.
+        - OUTBOUND: the reciprocal course from there, ending when the
+          along-track distance from the fix reaches the coded leg length
+          (FAA-H-8083-16B ch. 3: for a GPS hold "the end of the outbound
+          leg is determined by the ATD").
+        - TURN_IN: the half circle back onto the inbound course, that far
+          out from the fix.
+
+        So the outbound needle is centred on the racetrack's outbound side,
+        two turn radii from the inbound course, not on the inbound course
+        extended. A pilot flying the reciprocal heading sees it centred;
+        an autopilot coupled to the needle flies the same racetrack instead
+        of steering back to the inbound course line."""
+        fix = Point(to_wp.lat, to_wp.lon, to_wp.id)
+        inbound_true = geo.wrap360(to_wp.crs - magvar_deg)
+        outbound_true = geo.wrap360(inbound_true + 180.0)
+        clockwise = to_wp.turn == "R"
+        side_true = geo.wrap360(inbound_true + (90.0 if clockwise else -90.0))
+        r = self._hold_r_nm
+
+        # Every point here is built on WGS-84 (AER-4218). The sphere puts
+        # the turn-in point, a coded leg length out, up to 0.05 nm off,
+        # and the turn's tangent swings by atan(offset / r) -- 1.6 deg on a
+        # 5 nm leg at 110 kt, several degrees on the longest coded legs.
+        def at(p, brg, nm):
+            return Point(*geo.destination_point_wgs84(p.lat, p.lon, brg, nm))
+
+        if self._leg_phase == LEGPHASE_ENTRY:
+            course = outbound_true
+            if self._hold_entry == HOLD_ENTRY_TEARDROP:
+                course = geo.wrap360(outbound_true + (-HOLD_TEARDROP_OFFSET_DEG if clockwise
+                                                      else HOLD_TEARDROP_OFFSET_DEG))
+            target = at(fix, course, self._hold_entry_nm)
+            atd, xtk, dtk_true = self._line_geometry(fix, target, ac_lat, ac_lon)
+            return fix, atd, xtk, dtk_true
+        if self._leg_phase == LEGPHASE_TURN_OUT:
+            return self._circle_geometry(at(fix, side_true, r), r, clockwise, at(fix, side_true, 2.0 * r),
+                                         ac_lat, ac_lon, HOLD_TURN_AHEAD_MAX_DEG, geo.destination_point_wgs84)
+        if self._leg_phase == LEGPHASE_OUTBOUND:
+            start = at(fix, side_true, 2.0 * r)
+            atd, xtk, dtk_true = self._line_geometry(start, at(start, outbound_true, to_wp.dst), ac_lat, ac_lon)
+            return start, atd, xtk, dtk_true
+        # TURN_IN
+        turn_end = at(fix, outbound_true, to_wp.dst)
+        return self._circle_geometry(at(turn_end, side_true, r), r, clockwise, turn_end,
+                                     ac_lat, ac_lon, HOLD_TURN_AHEAD_MAX_DEG, geo.destination_point_wgs84)
+
+    def _hold_outbound_target(self, to_wp, magvar_deg):
+        """The synthetic endpoint of a PI procedure turn's outbound leg
+        (PA13): dst nm from the fix, on the reciprocal of the coded inbound
+        course offset a further +-45 deg (turn "R" offsets right, matching
+        the published outbound track a 45/180 procedure turn flies before
+        reversing to intercept the inbound course). A hold's outbound leg
+        is _hold_geometry's."""
+        inbound_true = geo.wrap360(to_wp.crs - magvar_deg)
+        outbound_true = geo.wrap360(inbound_true + 180.0)
+        if to_wp.pt in PT_PROC_TURN:
+            outbound_true = geo.wrap360(outbound_true + (45.0 if to_wp.turn == "R" else -45.0))
+        lat, lon = geo.destination_point(to_wp.lat, to_wp.lon, outbound_true, to_wp.dst)
+        return Point(lat, lon)
+
+    def _leg_geometry(self, to_wp, fr, to, ac_lat, ac_lon, magvar_deg):
+        if to_wp.pt == "DF" and self._leg_phase == LEGPHASE_DF_TURN:
+            return self._df_turn_geometry(ac_lat, ac_lon)
+        if to_wp.pt in PT_ARC:
+            return self._arc_geometry(to_wp, ac_lat, ac_lon)
+        if to_wp.pt in PT_HOLD and self._leg_phase in (LEGPHASES_PATTERN - {LEGPHASE_INBOUND}):
+            return self._hold_geometry(to_wp, ac_lat, ac_lon, magvar_deg)
+        if to_wp.pt in PT_PROC_TURN and self._leg_phase == LEGPHASE_OUTBOUND:
+            anchor = Point(to_wp.lat, to_wp.lon, to_wp.id)
+            target = self._hold_outbound_target(to_wp, magvar_deg)
+            atd, xtk, dtk_true = self._line_geometry(anchor, target, ac_lat, ac_lon)
+            return anchor, atd, xtk, dtk_true
+        anchor = self._leg_from_anchor(to_wp, fr, to, magvar_deg)
+        atd, xtk, dtk_true = self._line_geometry(anchor, to, ac_lat, ac_lon)
+        return anchor, atd, xtk, dtk_true
+
+    # ------------------------------------------------------------------
+    # Commands
+    # ------------------------------------------------------------------
+    def handle_command(self, cmd_str, position, dto_staged=None):
+        """position: (lat, lon, ok) -- current aircraft position and whether
+        it is fresh/good. dto_staged: (id, lat, lon, type) for a bare "DTO"
+        (the editor's staged direct-to keys), or None.
+
+        Returns (ack_value, msg) to write to FPLCMDACK/FPLMSG. ack_value is
+        `seq` on success, `-seq` on rejection (or -1 if seq itself could not
+        be parsed).
+        """
+        seq, verb, arg = self._parse(cmd_str)
+        if seq is None:
+            return -1, "PARSE"
+
+        self._cmd_msg = None
+        try:
+            self._dispatch(verb, arg, position, dto_staged)
+        except _Reject as r:
+            return -seq, r.reason
+        return seq, (self._cmd_msg or "")
+
+    @staticmethod
+    def _parse(cmd_str):
+        parts = (cmd_str or "").split()
+        if len(parts) < 2:
+            return None, None, None
+        try:
+            seq = int(parts[0])
+        except ValueError:
+            return None, None, None
+        verb = parts[1].upper()
+        arg = parts[2] if len(parts) > 2 else None
+        return seq, verb, arg
+
+    def _dispatch(self, verb, arg, position, dto_staged):
+        if verb == "ACT":
+            self._cmd_act(arg, position)
+        elif verb == "DTO":
+            self._cmd_dto(arg, position, dto_staged)
+        elif verb == "DTOX":
+            self._cmd_dtox(position)
+        elif verb == "SUSP":
+            self._cmd_susp()
+        elif verb == "RESUME":
+            self._cmd_resume(position)
+        elif verb == "SCALE":
+            self._cmd_scale(arg)
+        else:
+            raise _Reject("PARSE")
+
+    def _require_position(self, position):
+        if position is None or not position[2]:
+            raise _Reject(DIRECT_TO_NEEDS_POSITION_REASON)
+        return position[0], position[1]
+
+    def _slot_arg(self, arg):
+        if self.count == 0:
+            raise _Reject("NO PLAN")
+        try:
+            k = int(arg)
+        except (TypeError, ValueError):
+            raise _Reject("BAD SLOT")
+        if k < 1 or k > self.count:
+            raise _Reject("BAD SLOT")
+        return k
+
+    def _begin_activation(self):
+        """Common bookkeeping for any activating command (ACT/DTO/DTOX)."""
+        was_none = self.mode == "NONE"
+        self._missed = False
+        self._map_suspended = False
+        self._approach_suppressed = False
+        self.suspended = False
+        if was_none:
+            self._integrity_msg_posted = False
+        self._prev_atd = None
+        self._turning = False
+        self._turn_arc = None
+        # A fresh activation always starts a leg's "approach the fix" phase
+        # (PA13) -- never mid-hold or past-the-fix-on-course from whatever
+        # leg was previously active.
+        self._clear_leg_phase()
+
+    def _cmd_act(self, arg, position):
+        k = self._slot_arg(arg)
+        if k == 1:
+            lat, lon = self._require_position(position)
+            from_pt = Point(lat, lon)
+        else:
+            from_pt = Point.from_waypoint(self.route[k - 2])
+        self._begin_activation()
+        self.mode = "LEG"
+        self.act_leg = k
+        self.from_point = from_pt
+        self.to_point = Point.from_waypoint(self.route[k - 1])
+
+    def _cmd_dto(self, arg, position, dto_staged):
+        if arg is not None:
+            k = self._slot_arg(arg)
+            self._activate_direct_to_slot(k, position)
+            return
+
+        if not dto_staged or not dto_staged[0]:
+            raise _Reject("BAD SLOT")
+        ident, lat, lon, wtype = dto_staged
+        match_slot = None
+        for i, wp in enumerate(self.route, start=1):
+            if (
+                wp.id == ident
+                and abs(wp.lat - lat) <= DTO_MATCH_TOLERANCE_DEG
+                and abs(wp.lon - lon) <= DTO_MATCH_TOLERANCE_DEG
+            ):
+                match_slot = i
+                break
+        if match_slot is not None:
+            self._activate_direct_to_slot(match_slot, position)
+            return
+
+        # Off-route direct-to: the plan (if any) stays loaded but inactive.
+        ac_lat, ac_lon = self._require_position(position)
+        self._begin_activation()
+        self.mode = "DIRECT"
+        self.act_leg = 0
+        self.from_point = Point(ac_lat, ac_lon)
+        self.to_point = Point(lat, lon, ident)
+
+    def _activate_direct_to_slot(self, k, position):
+        # RS1: a direct-to a fix inside an airway (or procedure) leaves the
+        # segment table alone. Slots k..LAST are still that one segment, so
+        # FPLACTSEG keeps reporting it and FPLSEGREM counts from the
+        # aircraft to k and on to the exit. The table is the editor's to
+        # write (one key, one writer), and an editor re-commit would drop
+        # this activation anyway (load_route).
+        ac_lat, ac_lon = self._require_position(position)
+        faf_idx, map_idx = self._faf_map_idx()
+        self._begin_activation()
+        self.mode = "DIRECT"
+        self.act_leg = k
+        self.from_point = Point(ac_lat, ac_lon)
+        self.to_point = Point.from_waypoint(self.route[k - 1])
+        if faf_idx is not None and map_idx is not None and faf_idx < k < map_idx:
+            # Direct-to a fix between the FAF and the MAP does not activate
+            # approach scaling (guide 3-47).
+            self._approach_suppressed = True
+
+    def _cmd_dtox(self, position):
+        if self.count == 0:
+            # A bare DTO is accepted with no plan loaded, so DIRECT-with-no-
+            # plan is reachable. With no leg to rejoin, cancelling it just
+            # drops navigation back to NONE (fix-gateway #81).
+            if self.mode == "DIRECT":
+                self._reset_activation()
+                return
+            raise _Reject("NO PLAN")
+        ac_lat, ac_lon = self._require_position(position)
+
+        best_slot = None
+        best_xtk = None
+        for i in range(2, self.count + 1):
+            wp_from = self.route[i - 2]
+            wp_to = self.route[i - 1]
+            leg_len = geo.distance_nm(wp_from.lat, wp_from.lon, wp_to.lat, wp_to.lon)
+            atd = geo.along_track_nm(wp_from.lat, wp_from.lon, wp_to.lat, wp_to.lon, ac_lat, ac_lon)
+            if 0.0 <= atd <= leg_len:
+                xtk = abs(geo.cross_track_nm(wp_from.lat, wp_from.lon, wp_to.lat, wp_to.lon, ac_lat, ac_lon))
+                if best_xtk is None or xtk < best_xtk:
+                    best_xtk = xtk
+                    best_slot = i
+
+        self._begin_activation()
+        self.mode = "LEG"
+        if best_slot is not None:
+            self.act_leg = best_slot
+            self.from_point = Point.from_waypoint(self.route[best_slot - 2])
+            self.to_point = Point.from_waypoint(self.route[best_slot - 1])
+        else:
+            nearest_i = min(
+                range(1, self.count + 1),
+                key=lambda i: geo.distance_nm(ac_lat, ac_lon, self.route[i - 1].lat, self.route[i - 1].lon),
+            )
+            self.act_leg = nearest_i
+            self.to_point = Point.from_waypoint(self.route[nearest_i - 1])
+            if nearest_i > 1:
+                self.from_point = Point.from_waypoint(self.route[nearest_i - 2])
+            else:
+                self.from_point = Point(ac_lat, ac_lon)
+
+    def _cmd_susp(self):
+        if self.mode == "NONE":
+            raise _Reject("NO PLAN")
+        self.suspended = True
+        # SUSP keeps the TO waypoint, so it keeps that waypoint's leg too:
+        # a SUSP in a fly-by turn takes the desired track back from the
+        # next leg. RESUME re-enters the turn if it is still ahead.
+        self._turning = False
+        self._turn_arc = None
+
+    def _cmd_resume(self, position):
+        if self._map_suspended:
+            faf_idx, map_idx = self._faf_map_idx()
+            self._missed = True
+            self._map_suspended = False
+            self.suspended = False
+            if map_idx is not None and map_idx < self.count:
+                self.from_point = Point.from_waypoint(self.route[map_idx - 1])
+                self.act_leg = map_idx + 1
+                self.to_point = Point.from_waypoint(self.route[map_idx])
+                self.mode = "LEG"
+                self._cmd_msg = f"SEQ {self.route[map_idx - 1].id} -> {self.route[map_idx].id}"
+            else:
+                self._cmd_msg = "NO MISSED APPROACH LEGS"
+            self._prev_atd = None
+            self._clear_leg_phase()
+            if map_idx is not None and map_idx < self.count and position is not None and position[2]:
+                # A missed approach that opens with a coded DF turns from
+                # where the aircraft is, on the final course it was flying
+                # past the MAP (AER-4541).
+                self._df_turn_start(self.route[map_idx], Point(position[0], position[1]),
+                                    self._cycle_dtk_true, self._cycle_gs_kt)
+            return
+        if self._on_vector_leg():
+            self._resume_from_vectors(position)
+            return
+        if self._on_hm_hold():
+            # RESUME while flying a published HM hold (PA13) means "exit at
+            # completion of the current circuit", not "un-suspend" -- the
+            # hold is actively flown (live CDI, not blanked like a vector
+            # SUSP), so there is nothing to resume into except the plan's
+            # normal suspended flag if the pilot had also frozen it.
+            self._hold_exit_requested = True
+            self.suspended = False
+            self._cmd_msg = "HOLD EXIT ARMED"
+            return
+        if self.mode == "NONE":
+            raise _Reject("NO PLAN")
+        self.suspended = False
+
+    def _resume_from_vectors(self, position):
+        """RESUME off a vector leg (PA4, guardrail 4): the box never
+        invented a heading while suspended, so there is no track to
+        rejoin -- sequence onto the next leg direct from wherever the
+        aircraft actually is now, exactly like a DTO. With no next leg to
+        join, stay suspended (there is nothing safe to fly toward) and
+        just post the reason -- unlike the MAP case, there is no extended
+        final-approach course to keep flying here."""
+        ac_lat, ac_lon = self._require_position(position)
+        next_idx = self.act_leg + 1
+        if next_idx > self.count:
+            self._cmd_msg = "NO NEXT LEG"
+            return
+        self._begin_activation()
+        self.mode = "LEG"
+        self.act_leg = next_idx
+        self.from_point = Point(ac_lat, ac_lon)
+        self.to_point = Point.from_waypoint(self.route[next_idx - 1])
+        self._cmd_msg = f"RESUME NAV -> {self.route[next_idx - 1].id}"
+
+    def _cmd_scale(self, arg):
+        mapping = {"0.3": 0.3, "1.0": 1.0, "2.0": 2.0}
+        if arg == "AUTO":
+            self.scale_manual = None
+        elif arg in mapping:
+            self.scale_manual = mapping[arg]
+        else:
+            raise _Reject("PARSE")
+
+    # ------------------------------------------------------------------
+    # Per-cycle guidance update
+    # ------------------------------------------------------------------
+    def update(self, ac_lat, ac_lon, gs_kt, magvar_deg, position_ok, fix_type_ok, accuracy_nm, now, alt_ft=None,
+               position_time=None):
+        """Recompute all engine outputs for one position/timer cycle.
+
+        fix_type_ok: True/False/None (None = the fix-type key is not
+        actively publishing -- skip that gate, matching the bench's X-Plane
+        FMS which writes neither GPS_FIX_TYPE nor GPS_ACCURACY_HORIZ).
+        accuracy_nm: horizontal accuracy in nm, or None if not published.
+        alt_ft: current indicated altitude in feet, or None if not
+        published (PA13) -- the termination input for CA/FA and HA holds;
+        None never terminates one (guardrail 1's "never invent" extended to
+        altitude the same way position_ok's staleness gate already treats
+        "no data" as "don't guess").
+        position_time: when ac_lat/ac_lon were produced (AER-4217), or None
+        for "now". The staleness bound runs from this time, so a position
+        that is still flagged good but has not been refreshed fails after
+        POSITION_TIMEOUT_S like any other.
+
+        Returns a dict of output values (see OUTPUT_KEYS below) plus an
+        optional "msg" key (only present when there is a new FPLMSG to post).
+        """
+        self._pending_msg = None
+
+        if position_ok:
+            self._last_good_time = now if position_time is None else position_time
+            self._last_lat, self._last_lon = ac_lat, ac_lon
+        elif self._last_lat is not None:
+            ac_lat, ac_lon = self._last_lat, self._last_lon
+
+        stale = self._last_good_time is None or (now - self._last_good_time) > POSITION_TIMEOUT_S
+        if stale:
+            return self._fail_outputs()
+
+        if fix_type_ok is False:
+            return self._fail_outputs()
+
+        out = self._compute_guidance(ac_lat, ac_lon, gs_kt, magvar_deg, alt_ft)
+        self._compute_phase_and_integrity(out, ac_lat, ac_lon, accuracy_nm)
+        if out.pop("vectors", False):
+            out["phase"] = "VECTORS"  # PA4 guardrail 4 -- wins over ENR/TERM/LNAV
+        elif out.pop("hold", False):
+            out["phase"] = "HOLD"     # PA13 -- flying a published HM/HF/HA circuit
+        elif out.pop("pturn", False):
+            out["phase"] = "PTURN"    # PA13 -- flying a PI procedure turn
+        out["susp_map"] = self._suspended_at_map()
+        if self._pending_msg is not None:
+            out["msg"] = self._pending_msg
+        return out
+
+    def _fail_outputs(self):
+        out = {
+            "state": self._display_state(),
+            "susp_map": self._suspended_at_map(),
+            "act_leg": self.act_leg,
+            "phase": "",
+            "apr": self.apr,
+            "integ": True,
+            "cdiscale": 2.0,
+            "crs": 0.0,
+            "xtk": 0.0,
+            "cdi": 0.0,
+            "tf": TF_OFF,
+            "fr_lat": 0.0,
+            "fr_lon": 0.0,
+            "wp_from": "",
+            "wp_next": "",
+            "wp_lat": 0.0,
+            "wp_lon": 0.0,
+            "wp_name": "",
+            "wp_dis": 0.0,
+            "wp_ete": 0,
+            "rem_dis": 0.0,
+            "rem_ete": 0,
+            "act_seg": self._segment_index(self.act_leg),
+            "seg_rem": 0.0,
+            "alert": False,
+            "fail": True,
+            "turn": "",
+            # The waypoint positions are blanked here, so they are flagged
+            # failed too: 0.0/0.0 is not a waypoint (NULLWP1).
+            "wp_fail": True,
+            "fr_fail": True,
+        }
+        return out
+
+    def _display_state(self):
+        if self.suspended:
+            return STATE_SUSP
+        return {"NONE": STATE_NONE, "LEG": STATE_LEG, "DIRECT": STATE_DIRECT}[self.mode]
+
+    def _suspended_at_map(self):
+        """FPLSUSPMAP (G49): 1 only while the SUSP is the MAP auto-suspend,
+        the one RESUME turns into the missed approach. A pilot SUSP is 0
+        even past the MAP: held from before the MAP (the auto-suspend never
+        fires over an existing SUSP) or after a missed with no MAHP leg."""
+        return 1 if self.suspended and self._map_suspended else 0
+
+    def _turn_anticipation_for(self, to_wp, anchor, to, gs_kt, next_idx=None):
+        """d_ta for the active leg, or 0.0 (fly-over: no predictive
+        anticipation) for a TO fix coded fly-over (FLAG_FLYOVER) or (PA13)
+        a transition into or out of any Tier-2 leg -- an arc's exit
+        tangent, a hold/PT's outbound/inbound pair and a CA/FA's open-ended
+        course are not the simple bearing-delta case this anticipation
+        formula was built for, so those transitions are abeam-triggered
+        only, never anticipated early (fix-gateway#44: a hold coded at the
+        TO fix also makes the next leg zero-length, so its bearing is
+        meaningless as a turn). The FAF and the fixes between it and the
+        MAP follow their coding like any other fix (TURN4, AER-4761): the
+        procedure design criteria allow a turn at the FAF only when it is
+        fly-by. The MAP never gets here: it never auto-sequences. A turn
+        over MAX_FLYBY_TURN_DEG is flown as a fly-over too (TURN2).
+        `next_idx` is the route index of the leg after the turn, the active
+        leg's by default; turn_anticipations passes the ones ahead."""
+        if to_wp.pt in PT_TIER2:
+            return 0.0
+        if to_wp.flags & FLAG_FLYOVER:
+            return 0.0
+        next_idx = self.act_leg if next_idx is None else next_idx
+        next_wp = self.route[next_idx] if next_idx < self.count else None
+        # Into a DF with a coded turn (AER-4541) the turn is the DF's own,
+        # flown from the fix: no fly-by turn ahead of it.
+        if next_wp is None or next_wp.pt in PT_TIER2 or self._df_coded_turn(next_wp):
+            return 0.0
+        in_course, out_course = self._turn_courses(anchor, to, next_wp)
+        delta = _course_change_deg(in_course, out_course)
+        if delta > MAX_FLYBY_TURN_DEG:
+            return 0.0
+        return turn_anticipation_nm(gs_kt, delta, self.turn_bank_deg)
+
+    def _reversal_lead_nm(self, to_wp, anchor, to, gs_kt):
+        """The lead a fly-by turn would take at the fix `to`, for a turn
+        flown as a fly-over only because it is over MAX_FLYBY_TURN_DEG
+        (brief 3.3.1 row 3); None for every other fix. Coded fly-over fixes
+        and Tier-2 transitions are fly-over by the procedure, not by the
+        engine, and keep sequencing abeam only (row 4, row 7)."""
+        if to_wp.pt in PT_TIER2 or to_wp.flags & FLAG_FLYOVER:
+            return None
+        next_wp = self.route[self.act_leg] if 0 < self.act_leg < self.count else None
+        if (next_wp is None or next_wp.pt in PT_TIER2 or next_wp.pt in PT_VECTOR
+                or self._df_coded_turn(next_wp)):
+            return None
+        in_course, out_course = self._turn_courses(anchor, to, next_wp)
+        delta = _course_change_deg(in_course, out_course)
+        if delta <= MAX_FLYBY_TURN_DEG:
+            return None
+        return turn_anticipation_nm(gs_kt, delta, self.turn_bank_deg)
+
+    def _turned_back_short(self, to_wp, anchor, to, gs_kt, ac_lat, ac_lon):
+        """True once an aircraft that turned back short of a row-3 fix has
+        passed its closest approach to it (TURN2b, AER-5324). In straight
+        flight the closest approach is abeam, where the abeam rule fires
+        anyway; this only adds the turn that never gets there."""
+        lead = self._reversal_lead_nm(to_wp, anchor, to, gs_kt)
+        if lead is None:
+            self._reversal_closest = None
+            return False
+        key = (self.act_leg, anchor.lat, anchor.lon, to.lat, to.lon)
+        dist = geo.distance_nm(ac_lat, ac_lon, to.lat, to.lon)
+        if self._reversal_closest is None or self._reversal_closest[0] != key:
+            self._reversal_closest = (key, dist)
+            return False
+        closest = min(self._reversal_closest[1], dist)
+        self._reversal_closest = (key, closest)
+        return closest <= lead and dist >= closest + REVERSAL_PASSED_NM
+
+    @staticmethod
+    def _turn_courses(anchor, to, next_wp):
+        """True courses at the fix `to`: arriving on the great circle from
+        anchor, and leaving toward next_wp. The arrival course is taken at
+        the fix, not at anchor, so a long leg's convergence is not read as
+        a turn."""
+        in_course = geo.wrap360(geo.bearing_deg(to.lat, to.lon, anchor.lat, anchor.lon) + 180.0)
+        out_course = geo.bearing_deg(to.lat, to.lon, next_wp.lat, next_wp.lon)
+        return in_course, out_course
+
+    def _past_turn_bisector(self, anchor, to, ac_lat, ac_lon):
+        """True once the aircraft has crossed the bisector of the turn at
+        the fix `to` (AER-4675): the line through the fix at right angles
+        to the mean of the arrival and departure courses. The arc of a
+        fly-by turn crosses it at its midpoint. At a straight-through fix
+        it is the abeam line."""
+        in_course, out_course = self._turn_courses(anchor, to, self.route[self.act_leg])
+        mean = geo.wrap360(in_course + ((out_course - in_course + 180.0) % 360.0 - 180.0) / 2.0)
+        back_lat, back_lon = geo.destination_point(to.lat, to.lon, geo.wrap360(mean + 180.0), 1.0)
+        return geo.along_track_distance_to_waypoint_nm(back_lat, back_lon, to.lat, to.lon, ac_lat, ac_lon) <= 0.0
+
+    def _fly_by_arc(self, anchor, to, d_ta):
+        """The arc of the fly-by turn at the fix `to` that starts d_ta
+        before it (AER-4715): tangent to the arriving leg at turn start and
+        to the next leg d_ta past the fix, so its radius is
+        d_ta / tan(delta/2). That is the turn radius d_ta was computed from,
+        except where turn_anticipation_nm capped d_ta at 5 nm: there it is
+        the tighter arc that still joins the two legs from where the turn
+        started. A turn over MAX_FLYBY_TURN_DEG never gets here (TURN2).
+        None for a course change too small to bend the path (ARC_MIN_DEG)."""
+        in_course, out_course = self._turn_courses(anchor, to, self.route[self.act_leg])
+        delta = (out_course - in_course + 180.0) % 360.0 - 180.0
+        if abs(delta) < ARC_MIN_DEG or d_ta <= 0.0:
+            return None
+        half = math.radians(abs(delta)) / 2.0
+        back = geo.wrap360(in_course + 180.0)
+        inside = geo.wrap360(back + ((out_course - back + 180.0) % 360.0 - 180.0) / 2.0)
+        c_lat, c_lon = geo.destination_point(to.lat, to.lon, inside, d_ta / math.sin(half))
+        x_lat, x_lon = geo.destination_point(to.lat, to.lon, out_course, d_ta)
+        return {
+            "leg": self.act_leg,
+            "lat": c_lat,
+            "lon": c_lon,
+            "r_nm": d_ta / math.tan(half),
+            "cw": delta > 0.0,
+            "sweep_deg": abs(delta),
+            "exit_lat": x_lat,
+            "exit_lon": x_lon,
+        }
+
+    def turn_anticipations(self, gs_kt, magvar_deg):
+        """FPLfTA (TURN3, AER-5418): for each slot, the d_ta of the fly-by
+        turn at its fix, or 0.0 where the engine will not turn there by
+        anticipation. The map draws a slot's turn as the arc tangent to the
+        leg into the fix and the leg out of it, d_ta from the fix on both
+        (_fly_by_arc), so the engine decides every case and the map only
+        draws.
+
+        - The turn in progress, from turn start until _turn_arc_xtk drops
+          its arc (across the bisector, to the arc's end): the d_ta of the
+          arc fixed at turn start, which the needle is measured from.
+        - The active fix before turn start: the d_ta the engine is testing
+          against this cycle, from the active leg's own anchor (a direct-to
+          or a CF course included).
+        - Fixes ahead: the same rule at the current groundspeed, with the
+          leg in from the slot before (or the coded course, for CF). They
+          are predictions: each one is fixed when its turn starts.
+        - 0.0 for a fix already passed, a fix the engine never anticipates
+          (fly-over, Tier 2 either side, over MAX_FLYBY_TURN_DEG, into a
+          vector leg, the last slot and the MAP), a course change under
+          ARC_MIN_DEG, while suspended or turning with no arc, and with no
+          plan leg active.
+
+        Call after update(), so the turn state is this cycle's."""
+        ta = [0.0] * self.count
+        if self.mode == "NONE" or not self.act_leg or self.to_point is None:
+            return ta
+        arc = self._turn_arc
+        if arc is not None:
+            half = math.radians(arc["sweep_deg"]) / 2.0
+            ta[arc["leg"] - 1] = arc["r_nm"] * math.tan(half)
+        gs_kt = gs_kt or 0.0
+        for slot in range(self.act_leg, self.count):
+            if arc is not None and slot <= arc["leg"]:
+                continue
+            if self._is_final(slot) or gs_kt <= 0.0:
+                continue
+            to_wp = self.route[slot - 1]
+            next_wp = self.route[slot]
+            if to_wp.pt in PT_VECTOR or next_wp.pt in PT_VECTOR:
+                continue
+            to = Point.from_waypoint(to_wp)
+            if slot == self.act_leg:
+                if self.suspended or self._turning:
+                    continue
+                anchor = self._leg_from_anchor(to_wp, self.from_point, self.to_point, magvar_deg)
+                to = self.to_point
+            elif to_wp.pt == "CF":
+                back = geo.wrap360(to_wp.crs - magvar_deg + 180.0)
+                anchor = Point(*geo.destination_point(to.lat, to.lon, back, CF_VIRTUAL_FROM_NM))
+            else:
+                prev = self.route[slot - 2]
+                anchor = Point(prev.lat, prev.lon)
+            d_ta = self._turn_anticipation_for(to_wp, anchor, to, gs_kt, next_idx=slot)
+            in_course, out_course = self._turn_courses(anchor, to, next_wp)
+            if d_ta > 0.0 and abs(_course_change_deg(in_course, out_course)) >= ARC_MIN_DEG:
+                ta[slot - 1] = d_ta
+        return ta
+
+    def _turn_arc_xtk(self, ac_lat, ac_lon):
+        """Cross-track from the fly-by arc (AER-4715), or None where it does
+        not apply: outside the turn it belongs to, or with the aircraft's
+        radial from the arc's center not between the arc's ends. Clears the
+        arc for good once the turn is over: the leg after the turn is
+        active and the aircraft is past the arc's end, or neither the
+        turn's waypoint nor the one after it is active any more."""
+        arc = self._turn_arc
+        if arc is None:
+            return None
+        before_seq = self._turning and self.act_leg == arc["leg"]
+        after_seq = not self._turning and self.act_leg == arc["leg"] + 1
+        if not (before_seq or after_seq):
+            self._turn_arc = None
+            return None
+        _, to_go, xtk, _ = self._circle_geometry(
+            Point(arc["lat"], arc["lon"]), arc["r_nm"], arc["cw"],
+            Point(arc["exit_lat"], arc["exit_lon"]), ac_lat, ac_lon)
+        if to_go < 0.0:
+            if after_seq:
+                self._turn_arc = None
+            return None
+        if to_go > arc["r_nm"] * math.radians(arc["sweep_deg"]):
+            return None  # short of the arc's start radial
+        return xtk
+
+    def _next_leg_geometry(self, to, ac_lat, ac_lon, magvar_deg):
+        """atd, xtk and true DTK on the leg after the TO fix `to`, flown
+        from that fix: the desired track in a fly-by turn (AER-4675). Only
+        reached for a next leg turn anticipation applies to (not Tier 2)."""
+        next_wp = self.route[self.act_leg]
+        next_to = Point.from_waypoint(next_wp)
+        anchor = self._leg_from_anchor(next_wp, to, next_to, magvar_deg)
+        return self._line_geometry(anchor, next_to, ac_lat, ac_lon)
+
+    def _sequence(self, reached_to):
+        prev_from = self.from_point
+        if self._df_turn is not None:
+            # A DF that opened with its coded turn arrived along the line
+            # from the turn's end (AER-4541): a hold at its fix is entered
+            # from that track, not from the line from where the DF began.
+            prev_from = Point(self._df_turn["exit_lat"], self._df_turn["exit_lon"])
+        self.from_point = reached_to
+        self.act_leg += 1
+        new_to = Point.from_waypoint(self.route[self.act_leg - 1])
+        self.to_point = new_to
+        self.mode = "LEG"
+        label = reached_to.id or "ALT"  # PA13: CA/FA-course terminate at the aircraft's position, no ident
+        self._pending_msg = f"SEQ {label} -> {new_to.id}"
+        self._prev_atd = None
+        self._turning = False
+        self._clear_leg_phase()
+        new_wp = self.route[self.act_leg - 1]
+        if (
+            new_wp.pt in (PT_HOLD | PT_PROC_TURN)
+            and geo.distance_nm(reached_to.lat, reached_to.lon, new_to.lat, new_to.lon) < COINCIDENT_FIX_NM
+        ):
+            self._start_pattern(new_wp, self._arrival_track_true(prev_from, reached_to))
+        # The track the leg just flown ended on: this cycle's desired track,
+        # computed before it sequenced.
+        self._df_turn_start(new_wp, reached_to, self._cycle_dtk_true, self._cycle_gs_kt)
+
+    @staticmethod
+    def _arrival_track_true(fr, fix):
+        """The track at fix of the great circle from fr, or None if there is
+        no distinct FROM point to have come from."""
+        if fr is None or geo.distance_nm(fr.lat, fr.lon, fix.lat, fix.lon) < COINCIDENT_FIX_NM:
+            return None
+        return geo.wrap360(geo.bearing_deg(fix.lat, fix.lon, fr.lat, fr.lon) + 180.0)
+
+    def _start_pattern(self, to_wp, arrival_true):
+        """The hold/PT fix has just been reached on arrival_true (true, None
+        if unknown). A PI turns outbound. A hold picks its AIM 5-3-8 entry
+        (direct when the arrival track is unknown) and fixes its turn
+        radius and entry leg from this cycle's GS."""
+        self._prev_atd = None
+        if to_wp.pt not in PT_HOLD:
+            self._leg_phase = LEGPHASE_OUTBOUND
+            return
+        inbound_true = geo.wrap360(to_wp.crs - self._cycle_magvar_deg)
+        if arrival_true is None:
+            self._hold_entry = HOLD_ENTRY_DIRECT
+        else:
+            self._hold_entry = hold_entry(inbound_true, to_wp.turn, arrival_true)
+        self._ensure_hold_dims(self._cycle_gs_kt)
+        self._leg_phase = LEGPHASE_TURN_OUT if self._hold_entry == HOLD_ENTRY_DIRECT else LEGPHASE_ENTRY
+
+    def _ensure_hold_dims(self, gs_kt):
+        if self._hold_r_nm is None:
+            self._hold_r_nm = hold_turn_radius_nm(gs_kt, self.turn_rate_deg_s)
+        if self._hold_entry_nm is None:
+            self._hold_entry_nm = max(HOLD_MIN_NM, gs_kt * HOLD_ENTRY_LEG_S / 3600.0)
+
+    def _advance_hold_or_pt(self, to_wp, to, alt_ft, can_exit=True):
+        """Phase transition for HM/HF/HA/PI once the current sub-leg's
+        endpoint is reached (PA13).
+
+        A PI: None -> OUTBOUND on first reaching the fix, OUTBOUND ->
+        INBOUND once the outbound leg is flown, then exit at the fix.
+
+        A hold (fix-gateway#45): on first reaching the fix, the entry
+        (_start_pattern) -- direct goes straight into TURN_OUT, parallel and
+        teardrop fly ENTRY and then INBOUND back to the fix. Then TURN_OUT
+        -> OUTBOUND -> TURN_IN -> INBOUND around the racetrack.
+
+        Every arrival at the fix on INBOUND (including the return from a
+        parallel or teardrop entry) either exits to the next slot or goes
+        around again -- HF and PI always exit, HM exits only once RESUME has
+        armed it (_on_hm_hold/_cmd_resume), HA exits once alt_ft has reached
+        the coded altitude. can_exit is False for a hold/PT coded as the last
+        slot, which has nothing to exit to."""
+        nxt = {
+            LEGPHASE_ENTRY: LEGPHASE_INBOUND,
+            LEGPHASE_TURN_OUT: LEGPHASE_OUTBOUND,
+            LEGPHASE_OUTBOUND: LEGPHASE_TURN_IN if to_wp.pt in PT_HOLD else LEGPHASE_INBOUND,
+            LEGPHASE_TURN_IN: LEGPHASE_INBOUND,
+        }
+        if self._leg_phase is None:
+            self._start_pattern(to_wp, self._arrival_track_true(self.from_point, to))
+            return
+        if self._leg_phase in nxt:
+            self._leg_phase = nxt[self._leg_phase]
+            self._prev_atd = None
+            return
+        exit_now = can_exit
+        if to_wp.pt == "HM":
+            exit_now = exit_now and self._hold_exit_requested
+        elif to_wp.pt == "HA":
+            exit_now = exit_now and alt_ft is not None and _alt_reached_wp(to_wp, alt_ft)
+        if exit_now:
+            self._sequence(to)
+        else:
+            self._leg_phase = LEGPHASE_TURN_OUT if to_wp.pt in PT_HOLD else LEGPHASE_OUTBOUND
+            self._prev_atd = None
+
+    def _advance_leg(self, to_wp, to, alt_ft, ac_lat, ac_lon):
+        """Dispatch for "this leg's termination condition has just been
+        met" (PA13) -- the single place that decides what reaching a leg's
+        endpoint means, since it is no longer always "sequence to the next
+        slot" the way every Tier-1 leg was. An arc sequences like any
+        other leg once its exit radial is reached. CA has no real
+        endpoint fix -- it terminates on altitude wherever the aircraft
+        happens to be, so the new FROM point is the aircraft's own
+        position (guardrail-4-style: no invented ident for a point the
+        data never gave one). FA reaches its real fix first (like DF) and
+        only then starts the same altitude-terminated course CA flies.
+        Holds and procedure turns hand off to _advance_hold_or_pt.
+        """
+        if to_wp.pt in PT_ARC:
+            self._sequence(to)
+        elif to_wp.pt == "CA":
+            self._sequence(Point(ac_lat, ac_lon))
+        elif to_wp.pt == "FA":
+            if self._leg_phase != LEGPHASE_FA_COURSE:
+                self._leg_phase = LEGPHASE_FA_COURSE
+                self._prev_atd = None
+            else:
+                self._sequence(Point(ac_lat, ac_lon))
+        elif to_wp.pt in (PT_HOLD | PT_PROC_TURN):
+            self._advance_hold_or_pt(to_wp, to, alt_ft)
+        else:
+            self._sequence(to)
+
+    def _compute_guidance(self, ac_lat, ac_lon, gs_kt, magvar_deg, alt_ft=None):
+        if self.mode == "NONE" or self.to_point is None:
+            return {
+                "state": self._display_state(),
+                "act_leg": 0,
+                "crs": 0.0,
+                "xtk": 0.0,
+                "cdi": 0.0,
+                "tf": TF_OFF,
+                "fr_lat": 0.0,
+                "fr_lon": 0.0,
+                "wp_from": "",
+                "wp_next": "",
+                "wp_lat": 0.0,
+                "wp_lon": 0.0,
+                "wp_name": "",
+                "wp_dis": 0.0,
+                "wp_ete": 0,
+                "rem_dis": 0.0,
+                "rem_ete": 0,
+                "act_seg": 0,
+                "seg_rem": 0.0,
+                "alert": False,
+                "fail": False,
+                "turn": "",
+                # No active waypoint: the 0.0/0.0 above is a placeholder, not
+                # Null Island. Flagged failed so nothing downstream (the
+                # bearing pointer via GPSBRGT, XTRACK) treats it as a fix --
+                # independent of ownship position, which may be perfectly
+                # good (NULLWP1).
+                "wp_fail": True,
+                "fr_fail": True,
+            }
+
+        if self._on_vector_leg():
+            self.suspended = True
+            return self._vector_guidance()
+
+        fr = self.from_point
+        to = self.to_point
+        if self.act_leg:
+            to_wp = self.route[self.act_leg - 1]
+        else:
+            # Off-route direct-to: the target is not a plan slot, so it is a
+            # plain TF from the aircraft. route[-1] here borrowed the last
+            # slot's leg (a CF course, a hold) and, with no plan loaded,
+            # raised IndexError (fix-gateway #81).
+            to_wp = Waypoint(to.id, to.lat, to.lon)
+        self._cycle_gs_kt, self._cycle_magvar_deg = gs_kt, magvar_deg
+        if to_wp.pt in PT_HOLD and self._leg_phase in LEGPHASES_PATTERN:
+            self._ensure_hold_dims(gs_kt)   # restored mid-hold from a pre-#45 state file
+        anchor, atd, xtk, dtk_true = self._leg_geometry(to_wp, fr, to, ac_lat, ac_lon, magvar_deg)
+        if self._leg_phase == LEGPHASE_DF_TURN and atd <= 0.0:
+            # Past the tangent point: the DF is now the line from it.
+            self._leg_phase = None
+            self._prev_atd = None
+            anchor, atd, xtk, dtk_true = self._leg_geometry(to_wp, fr, to, ac_lat, ac_lon, magvar_deg)
+        df_turning = self._leg_phase == LEGPHASE_DF_TURN
+        self._cycle_dtk_true = dtk_true
+
+        alert = False
+        final = self._is_final(self.act_leg)
+        # PA13: CA always, and FA once it has passed its fix, terminate on
+        # altitude -- never on distance, since neither has a real endpoint
+        # to be "reached". Checked every cycle regardless of atd/d_ta.
+        alt_terminated = to_wp.pt == "CA" or (to_wp.pt == "FA" and self._leg_phase == LEGPHASE_FA_COURSE)
+        if df_turning:
+            # In a DF's coded turn the fix is still ahead of the turn's end,
+            # and nothing sequences or alerts until the turn is flown.
+            pass
+        elif not final and not self.suspended:
+            if alt_terminated:
+                reached = alt_ft is not None and _alt_reached_wp(to_wp, alt_ft)
+            else:
+                # A fly-by fix is two events (AER-4675). At turn start
+                # (atd <= d_ta) the desired track moves to the next leg; at
+                # the turn bisector the waypoint sequences. In between,
+                # _turning holds the turn even if d_ta shrinks with the GS.
+                # The abeam backstop (atd <= 0) sequences either way. Into a
+                # vector leg there is no next track to turn onto, so it
+                # stays one event, at turn start.
+                d_ta = self._turn_anticipation_for(to_wp, anchor, to, gs_kt)
+                alert_dist = d_ta + max(gs_kt * self.alert_s / 3600.0, 1.0)
+                if (not self._turning and 0.0 < atd <= d_ta
+                        and self.route[self.act_leg].pt not in PT_VECTOR):
+                    self._turning = True
+                    self._turn_arc = self._fly_by_arc(anchor, to, d_ta)
+                alert = not self._turning and 0.0 <= atd <= alert_dist
+                reached = (
+                    atd <= 0.0
+                    or (self._turning and self._past_turn_bisector(anchor, to, ac_lat, ac_lon))
+                    or (not self._turning and atd <= d_ta)
+                    or self._turned_back_short(to_wp, anchor, to, gs_kt, ac_lat, ac_lon)
+                )
+
+            if reached:
+                self._advance_leg(to_wp, to, alt_ft, ac_lat, ac_lon)
+                if self._on_vector_leg():
+                    self.suspended = True
+                    return self._vector_guidance()
+                to = self.to_point
+                fr = self.from_point
+                to_wp = self.route[self.act_leg - 1]
+                anchor, atd, xtk, dtk_true = self._leg_geometry(to_wp, fr, to, ac_lat, ac_lon, magvar_deg)
+                final = self._is_final(self.act_leg)
+
+        elif final and self.route and self.act_leg and self.route[self.act_leg - 1].flags & FLAG_MAP:
+            # Auto-suspend the first time the aircraft is found past the MAP.
+            # Not edge-triggered off the previous cycle's atd (a restart or a
+            # coarse timestep could land the very first post-activation cycle
+            # already past the MAP) -- `not self._missed` is what stops this
+            # from re-firing every cycle after a no-MAHP RESUME leaves act_leg
+            # sitting on the MAP with the aircraft still flying away from it.
+            if not self.suspended and not self._missed and atd < 0.0:
+                self.suspended = True
+                self._map_suspended = True
+
+        elif final and to_wp.pt in (PT_HOLD | PT_PROC_TURN) and not self.suspended:
+            # A hold/PT coded as the very last slot has nowhere to
+            # sequence to -- keep flying the pattern (entry, then around
+            # the racetrack) rather than freezing on arrival, the same
+            # "nothing after it" backstop _resume_from_vectors already has
+            # for a vector leg with no next slot.
+            if atd <= 0.0:
+                self._advance_hold_or_pt(to_wp, to, alt_ft, can_exit=False)
+                anchor, atd, xtk, dtk_true = self._leg_geometry(to_wp, fr, to, ac_lat, ac_lon, magvar_deg)
+
+        if self._turning:
+            # Turn start passed, bisector not yet: the course and deviation
+            # are the next leg's. Everything that names the waypoint (and
+            # the FROM anchor, which the map draws the active leg from)
+            # stays on the fix being turned at until it sequences.
+            _, xtk, dtk_true = self._next_leg_geometry(to, ac_lat, ac_lon, magvar_deg)
+        # From turn start to the arc's end, across the bisector, the
+        # deviation is from the turn's arc (AER-4715): the path a fly-by
+        # turn flies, so a turn flown on it shows a centred CDI. The course
+        # stays the next leg's.
+        arc_xtk = self._turn_arc_xtk(ac_lat, ac_lon)
+        if arc_xtk is not None:
+            xtk = arc_xtk
+
+        self._prev_atd = atd
+
+        tf = TF_TO if atd >= 0.0 else TF_FROM
+        wp_dis = geo.distance_nm(ac_lat, ac_lon, to.lat, to.lon)
+        if to_wp.pt in PT_ARC:
+            wp_dis = abs(atd)  # arc length remaining, not the fix's straight-line chord distance
+        wp_ete_bad = gs_kt < 30.0
+        wp_ete = int(round(wp_dis / gs_kt * 3600.0)) if gs_kt > 0 else 0
+
+        rem_dis = wp_dis
+        if self.act_leg > 0:
+            for i in range(self.act_leg, self.count):
+                rem_dis += geo.distance_nm(
+                    self.route[i - 1].lat, self.route[i - 1].lon, self.route[i].lat, self.route[i].lon
+                )
+        rem_ete = int(round(rem_dis / gs_kt * 3600.0)) if gs_kt > 0 else 0
+
+        wp_next = ""
+        if self.act_leg and self.act_leg < self.count:
+            wp_next = self.route[self.act_leg].id
+
+        result = {
+            "state": self._display_state(),
+            "act_leg": self.act_leg,
+            "crs": geo.wrap360(dtk_true + magvar_deg),
+            "xtk": xtk,
+            "cdi": None,  # filled in after CDISCALE is known
+            "tf": tf,
+            "fr_lat": anchor.lat,  # the geometry anchor -- the synthetic CF point, not necessarily fr
+            "fr_lon": anchor.lon,
+            "wp_from": fr.id,
+            "wp_next": wp_next,
+            "wp_lat": to.lat,
+            "wp_lon": to.lon,
+            "wp_name": to.id,
+            "wp_dis": wp_dis,
+            "wp_ete": wp_ete,
+            "wp_ete_bad": wp_ete_bad,
+            "rem_dis": rem_dis,
+            "rem_ete": rem_ete,
+            "act_seg": self._segment_index(self.act_leg),
+            "seg_rem": self._segment_remaining_nm(wp_dis),
+            "alert": alert,
+            "fail": False,
+            "wp_fail": False,
+            "fr_fail": False,
+            # FPLTURN (AER-4541): the coded direction of the DF turn being
+            # flown, for the display to annunciate.
+            "turn": to_wp.turn if self._leg_phase == LEGPHASE_DF_TURN else "",
+        }
+        if to_wp.pt in PT_HOLD and self._leg_phase in LEGPHASES_PATTERN:
+            result["hold"] = True
+        elif to_wp.pt in PT_PROC_TURN and self._leg_phase in (LEGPHASE_OUTBOUND, LEGPHASE_INBOUND):
+            result["pturn"] = True
+        return result
+
+    def _vector_guidance(self):
+        """Output while the active leg is a vector type (PA4, guardrail
+        4): identification only (state/act_leg/wp_from/wp_name) and no
+        course, cross-track, distance or ETE at all -- the box does not
+        invent a heading, and it does not invent a distance to one either.
+        `update()` promotes FPLPHASE to "VECTORS" for this cycle."""
+        fr = self.from_point
+        to = self.to_point
+        return {
+            "state": self._display_state(),
+            "act_leg": self.act_leg,
+            "crs": 0.0,
+            "xtk": 0.0,
+            "cdi": 0.0,
+            "tf": TF_OFF,
+            "fr_lat": fr.lat if fr else 0.0,
+            "fr_lon": fr.lon if fr else 0.0,
+            "wp_from": fr.id if fr else "",
+            "wp_next": "",
+            "wp_lat": to.lat if to else 0.0,
+            "wp_lon": to.lon if to else 0.0,
+            "wp_name": to.id if to else "",
+            "wp_dis": 0.0,
+            "wp_ete": 0,
+            "rem_dis": 0.0,
+            "rem_ete": 0,
+            "act_seg": self._segment_index(self.act_leg),
+            "seg_rem": 0.0,
+            "alert": False,
+            "fail": False,
+            "wp_fail": to is None,
+            "fr_fail": fr is None,
+            "turn": "",
+            "vectors": True,
+        }
+
+    def _compute_phase_and_integrity(self, out, ac_lat, ac_lon, accuracy_nm):
+        faf_idx, map_idx = self._faf_map_idx()
+        approach_marked = faf_idx is not None
+
+        dep_wp = self.route[0] if self.route else None
+        dest_wp = self.route[-1] if self.route else None
+
+        near_dep = dep_wp is not None and dep_wp.type == TYPE_AIRPORT and \
+            geo.distance_nm(ac_lat, ac_lon, dep_wp.lat, dep_wp.lon) <= self.terminal_nm
+        if approach_marked:
+            dist_to_map = geo.distance_nm(ac_lat, ac_lon, self.route[map_idx - 1].lat, self.route[map_idx - 1].lon)
+            if dest_wp is not None and dest_wp.type == TYPE_AIRPORT:
+                near_dest = geo.distance_nm(ac_lat, ac_lon, dest_wp.lat, dest_wp.lon) <= self.terminal_nm
+            else:
+                near_dest = dist_to_map <= self.terminal_nm
+        else:
+            dist_to_map = None
+            near_dest = dest_wp is not None and dest_wp.type == TYPE_AIRPORT and \
+                geo.distance_nm(ac_lat, ac_lon, dest_wp.lat, dest_wp.lon) <= self.terminal_nm
+
+        base_phase = "TERM" if (near_dep or near_dest) else "ENR"
+        base_scale = 1.0 if base_phase == "TERM" else 2.0
+        phase_key = "term" if base_phase == "TERM" else "enr"
+
+        apr = APR_NONE
+        phase_label = base_phase
+        scale = base_scale
+
+        if approach_marked and not self._missed:
+            before_or_at_faf = self.act_leg == 0 or self.act_leg <= faf_idx
+            armed = dist_to_map <= self.terminal_nm and before_or_at_faf
+
+            active = False
+            if not self._approach_suppressed and self.act_leg and faf_idx <= self.act_leg <= map_idx:
+                if self.act_leg == faf_idx:
+                    dist_to_faf = geo.distance_nm(
+                        ac_lat, ac_lon, self.route[faf_idx - 1].lat, self.route[faf_idx - 1].lon
+                    )
+                    active = dist_to_faf <= self.approach_ramp_nm
+                else:
+                    active = True
+                    dist_to_faf = 0.0
+
+            if active:
+                apr = APR_ACTIVE
+                phase_key = "lnav"
+                phase_label = "LNAV"
+                if self.act_leg == faf_idx:
+                    t = max(0.0, min(1.0, (self.approach_ramp_nm - dist_to_faf) / self.approach_ramp_nm))
+                    scale = 1.0 - 0.7 * t
+                else:
+                    scale = 0.3
+            elif armed:
+                apr = APR_ARMED
+                phase_key = "term"
+                phase_label = "TERM"
+                scale = 1.0
+        elif self._missed:
+            apr = APR_MISSED
+            phase_label = base_phase
+            scale = base_scale
+
+        # Integrity gate: horizontal accuracy above the phase's HAL.
+        integ = True
+        if accuracy_nm is not None:
+            hal = self.hal_nm.get(phase_key, HAL_NM_DEFAULT[phase_key])
+            if accuracy_nm > hal:
+                integ = False
+                phase_label = "LOI"
+                if apr == APR_ACTIVE:
+                    apr = APR_ARMED
+                    scale = 1.0
+        else:
+            if self.mode != "NONE" and not self._integrity_msg_posted:
+                self._integrity_msg_posted = True
+                # Don't clobber a "SEQ X -> Y" sequencing message from this
+                # same cycle -- both share FPLMSG, but a sequence event took
+                # priority since it just happened this instant.
+                if self._pending_msg is None:
+                    self._pending_msg = "NO INTEGRITY DATA"
+
+        effective_scale = scale
+        if self.scale_manual is not None:
+            effective_scale = min(scale, self.scale_manual)
+            if self.scale_manual < scale and integ:
+                phase_label = "%.2f NM" % self.scale_manual
+
+        self.apr = apr
+        out["phase"] = phase_label
+        out["apr"] = apr
+        out["integ"] = integ
+        out["cdiscale"] = effective_scale
+        out["bad"] = not integ
+
+        cdi = -out["xtk"] / effective_scale if effective_scale else 0.0
+        out["cdi"] = max(-1.0, min(1.0, cdi))
+
+
+class _Reject(Exception):
+    def __init__(self, reason):
+        super().__init__(reason)
+        self.reason = reason

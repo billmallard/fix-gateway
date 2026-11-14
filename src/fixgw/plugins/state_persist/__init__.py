@@ -43,8 +43,10 @@ class MainThread(threading.Thread):
         self.log = parent.log
         cfg = parent.config
 
-        default_path = os.path.join(cfg.get("CONFIGPATH", "."), "persist_state.json")
-        self.path = cfg.get("state_file", default_path)
+        config_dir = cfg.get("CONFIGPATH", ".")
+        default_path = os.path.join(config_dir, "persist_state.json")
+        # "{CONFIG}" expands to the config directory, as for canfix's mapfile.
+        self.path = cfg["state_file"].format(CONFIG=config_dir) if "state_file" in cfg else default_path
         self.keys = list(cfg.get("keys", []))
         self.restore_delay = float(cfg.get("restore_delay", 2.0))
         self._lock = threading.Lock()

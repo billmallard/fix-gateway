@@ -1,38 +1,48 @@
-# FlightGear Flight Simulator Module
-# To start FlightGear with these paramaters, use the following command...
-#   >fgfs --generic=socket,out,10,localhost,5500,udp,fix_fgfs --generic=socket,in,1,,5501,udp,fix_fgfs
-# The config file connection/fix_fgfs.xml file should be in the FG_ROOT/Protocols directory which should be
-# in one of the following locations...
-# LINUX: /usr/share/games/flightgear/
-# OSX: /Applications/FlightGear.app/Contents/Resources/data/
-# WINDOWS: c:\Program Files\FlightGear\data\
-# When running as a snap we do not have access to the flight gear root directory.
-# In this case we refer to the file in the fixgw config folder.
-# The default configuration here will work under snap or not.
-# What is important, if you edit the fix_fgfs.xml file, ENSURE you updated it in the flightgear folder too
+# FlightGear Flight Simulator Module (open-source alternative to X-Plane)
+#
+# ONE KEY, ONE WRITER. FlightGear writes the same attitude, air data, position
+# and nav keys as the X-Plane plugin, and fix-gateway does not arbitrate
+# between sources. Never enable FLIGHT_GEAR together with XPLANE or DEMO
+# (DEMO is on in the stock preferences.yaml, so turn it off in
+# preferences.yaml.custom). The plugin refuses to start if either is loaded.
+#
+# Start FlightGear with:
+#   fgfs --generic=socket,out,10,localhost,5500,udp,fix_fgfs
+# and, only if you turn on "send" below, also:
+#   --generic=socket,in,10,,5501,udp,fix_fgfs
+#
+# FlightGear looks for fix_fgfs.xml in $FG_ROOT/Protocol/. Copy or link
+# connections/fgfs/fix_fgfs.xml from this config folder there:
+#   LINUX: /usr/share/games/flightgear/Protocol/
+#   OSX: /Applications/FlightGear.app/Contents/Resources/data/Protocol/
+#   WINDOWS: C:\Program Files\FlightGear\data\Protocol\
+# Both programs must read the same file. If they differ, the plugin drops
+# every sentence and logs the field-count mismatch.
 fgfs:
   load: FLIGHT_GEAR
   module: fixgw.plugins.fgfs
-  # This should be the same as $FG_ROOT on your system.  It is used to help
-  # fixgw find the xml configuration files
-  # When running under snap we do not have access to the flightgear folder
-  # So we refer to a copy of the file in the fixgw config folder
+  # Where fix-gateway looks for xml_file: fg_root/Protocol/, then fg_root/,
+  # then the copy shipped with fix-gateway. The default is the copy in this
+  # config folder, which also works under snap.
   fg_root: ~/makerplane/fixgw/config/connections/fgfs
+  # fg_root: /usr/share/games/flightgear/
   # fg_root: /Applications/FlightGear.app/Contents/Resources/data/
   # fg_root: c:\Program Files\FlightGear\data\
-  # This is the name of the protocol config file that fixgw and fgfs will use to
-  # define the protocol. It is very important that both programs are looking at
-  # the same file.
   xml_file: fix_fgfs.xml
-  # UDP Address and Ports used for communication to FlightGear.
-  # Host address to listen on
+  # Address and port fix-gateway listens on: the --generic "out" connection.
   recv_host: localhost
-  # port used for the -out argument to FlightGear
   recv_port: 5500
-  # host address where FlightGear is running
-  send_host: localhost
-  # port used for the -in argument to FlightGear
-  send_port: 5501
-  # Update rate for sending data to FlightGear
-  rate: 10  # updates / second
 
+  # ---------------------------------------------------------------------
+  # FIX -> FlightGear. OFF BY DEFAULT.
+  # When on, every <input> chunk in the XML is sent at "rate", whether or not
+  # anything publishes the key: an unpublished key sends its initial value.
+  # The X-Plane plugin's send path commanded the throttle closed the first
+  # time it reached a real port. Only turn this on for keys that real
+  # hardware or pyEfis actually drives (the shipped XML sends BARO only).
+  # ---------------------------------------------------------------------
+  send: false
+  # Host and port for the --generic "in" connection.
+  send_host: localhost
+  send_port: 5501
+  rate: 10  # sentences / second

@@ -1,0 +1,18 @@
+HDR01FAACIFP18      001P013203973042611  07-OCT-202615:55:03  U.S.A. DOT FAA                                                9D60747B
+SUSAEAENRT   BARBS K70    C   L N29182684W081243152                       W0070     NAR           BARBS                    284952605
+SUSAEAENRT   OAKIE K70    C   L N28510426W080555235                       W0073     NAR           OAKIE                    456562605
+SUSAP KDEDK7ADED     0     060YHN29040131W081170153W005000079         1800018000C    MNAR    DELAND MUNI-SIDNEY H TAYLOR FL662322507
+SUSAP KDEDK7CCUGAK K70    W     N28583914W081045225                       W0072     NAR           CUGAK                    662332605
+SUSAP KDEDK7CXEHMO K70    W     N29092060W081284510                       W0070     NAR           XEHMO                    662402605
+SUSAP KDEDK7CYEBBU K70    W     N29014756W081115170                       W0071     NAR           YEBBU                    662412605
+SUSAP KDEDK7FR30   AOAKIE 010OAKIEK7EA0E  A    IF                                             18000                 B PS   662842406
+SUSAP KDEDK7FR30   AOAKIE 020CUGAKK7PC0EE B 010TF                                 + 02000                           B PS   662852406
+SUSAP KDEDK7FR30   R      010CUGAKK7PC0E  I    IF                                 + 02000     18000                 B PS   662882406
+SUSAP KDEDK7FR30   R      020YEBBUK7PC1E  F 010TF                                 + 01600                 RW30  K7PGB PS   662892406
+SUSAP KDEDK7FR30   R      020YEBBUK7PC2WN          N          ALNAV                                                   PS   662902406
+SUSAP KDEDK7FR30   R      030RW30 K7PG0GY M 031TF                                   00110             -300          B PS   662912406
+SUSAP KDEDK7FR30   R      040         0  M     CA                     3020        + 00480                           B PS   662922406
+SUSAP KDEDK7FR30   R      050XEHMOK7PC0E    010DF                                                                   B PS   662932406
+SUSAP KDEDK7FR30   R      060BARBSK7EA0EY   010TF                                 + 03000                           B PS   662942406
+SUSAP KDEDK7FR30   R      070BARBSK7EA0EE  L   HM                     17500050    + 03000                           B PS   662952406
+SUSAP KDEDK7GRW30    0060013020 N29035370W081163321         -0006700070000040100R                                          662991809

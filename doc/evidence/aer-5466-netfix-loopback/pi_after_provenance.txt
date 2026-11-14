@@ -1,0 +1,18 @@
+LOCKED 2026-11-12T14:20:05Z
+MainPID=890922
+ActiveEnterTimestamp=Thu 2026-11-12 08:18:42 CST
+MainPID=890937
+ActiveEnterTimestamp=Thu 2026-11-12 08:18:46 CST
+active
+8aad0c5e5d3eac6ce1015ad9d47164b408a08d46
+ab8703093b158cb08b8039590a840e2b325bfad2
+8:    # set host: to the address of the one interface that faces it, and see
+10:    host: 127.0.0.1
+LISTEN 0      5          127.0.0.1:3490      0.0.0.0:*   
+ESTAB 0      0          127.0.0.1:3490     127.0.0.1:58134 users:(("fixgw",pid=890922,fd=5))  
+ESTAB 0      0          127.0.0.1:58134    127.0.0.1:3490  users:(("python",pid=890937,fd=25))
+READY
+LOCALREAD
+loopback: @rPITCH;0.0;01000
+END 2026-11-12T14:20:18Z
+MainPID=890922

@@ -61,6 +61,27 @@ _GROUPS = [
 # key (initial live value, tol) is runtime, not profile.
 _BAND_AUX = ["Min", "Max", "lowWarn", "highWarn", "lowAlarm", "highAlarm"]
 
+# Aux slots that are settings rather than published limits: the label,
+# bounds (in the key's units), shipped default and builder guidance the
+# form shows. The default must match init_data/default.ini.
+_AUX_META = {
+    "IAS": {
+        "Vgnd": {
+            "label": "Engine alarms: on-ground IAS limit",
+            "min": 10,
+            "max": 100,
+            "default": 40,
+            "help": (
+                "Oil pressure, oil temperature and volts alarms are "
+                "silenced with the engine stopped only while IAS is below "
+                "this. Set it below the slowest IAS the aircraft flies at "
+                "(below the stall speed in landing configuration), never "
+                "above it, or the alarms can go quiet in flight."
+            ),
+        },
+    },
+}
+
 
 def _load_defs(config_dir: Path) -> dict:
     defs = {}
@@ -122,6 +143,8 @@ def build_schema(config_dir: Path = _CONFIG) -> dict:
                 "max": d.get("max"),
                 "aux": aux,
                 "band_aux": [a for a in aux if a in _BAND_AUX],
+                "aux_meta": {a: m for a, m in _AUX_META.get(tmpl, {}).items()
+                             if a in aux},
                 "canfix_id": canfix_ids.get(tmpl),
             })
         out = {k: g[k] for k in ("id", "label", "repeat") }

@@ -20,6 +20,11 @@ import yaml
 import socket
 import logging
 
+import pytest
+
+import fixgw.plugins.netfix
+from fixgw import cfg
+
 
 
 def test_value_write(plugin,database):
@@ -52,8 +57,7 @@ def test_subscription(plugin,database):
     assert status['Connection 0']['Subscriptions'] == 1
 
 def test_multiple_subscription_fail(plugin,database):
-    """Test that we receive an error if we try to subscribe to the same
-    point again"""
+    """Subscribing to the same point a second time returns an error"""
     plugin.sock.sendall("@sALT\n".encode())
     res = plugin.sock.recv(1024).decode()
     assert res == "@sALT\n"
@@ -123,6 +127,68 @@ def test_normal_write(plugin,database):
     time.sleep(0.1)
     x = database.read("IAS")
     assert x == (121.6, False, False, False, False, True)
+
+
+def _set_client_flags(database, key):
+    item = database.get_raw_item(key)
+    item.annunciate = True
+    item.bad = True
+    item.fail = True
+    item.secfail = True
+
+
+@pytest.mark.parametrize("sentence", ["IAS;122.4\n", "IAS;122.4;\n"])
+def test_short_sentence_writes_with_flags_cleared(plugin, database, sentence):
+    """Omitted flags are assumed 0, as the spec says. A sentence with no
+    flags used to raise an IndexError, logged at debug, and write nothing
+    (fix-gateway #128)."""
+    _set_client_flags(database, "IAS")
+    plugin.sock.sendall(sentence.encode())
+    time.sleep(0.1)
+    assert database.read("IAS") == (122.4, False, False, False, False, False)
+
+
+@pytest.mark.parametrize(
+    "flags, expected",
+    [
+        ("1", (True, False, False, False)),
+        ("01", (False, True, False, False)),
+        ("011", (False, True, True, False)),
+    ],
+)
+def test_partial_flags_default_the_rest_to_zero(plugin, database, flags, expected):
+    _set_client_flags(database, "IAS")
+    plugin.sock.sendall("IAS;122.5;{}\n".format(flags).encode())
+    time.sleep(0.1)
+    a, b, f, s = expected
+    assert database.read("IAS") == (122.5, a, False, b, f, s)
+
+
+def test_bool_wire_format_is_python_true_false(plugin, database):
+    """Booleans go out as True/False; on the way in, true/yes/1 in any case
+    is true and anything else is false -- including the old spec's T."""
+    for sent, stored in [("True", True), ("False", False), ("yes", True),
+                         ("1", True), ("0", False), ("T", False)]:
+        plugin.sock.sendall("BTN1;{};0000\n".format(sent).encode())
+        time.sleep(0.1)
+        assert database.read("BTN1")[0] is stored, sent
+        plugin.sock.sendall("@rBTN1\n".encode())
+        res = plugin.sock.recv(1024).decode()
+        assert res == "@rBTN1;{};00000\n".format(stored)
+
+
+def test_string_wire_format_has_no_prefix(plugin, database):
+    """A string is sent bare. Nothing adds or strips a leading '&', so one a
+    client sends is stored as part of the value."""
+    plugin.sock.sendall("ACID;N123AB;0000\n".encode())
+    time.sleep(0.1)
+    assert database.read("ACID")[0] == "N123AB"
+    plugin.sock.sendall("ACID;&N123AB;0000\n".encode())
+    time.sleep(0.1)
+    assert database.read("ACID")[0] == "&N123AB"
+    plugin.sock.sendall("@rACID\n".encode())
+    res = plugin.sock.recv(1024).decode()
+    assert res == "@rACID;&N123AB;00000\n"
 
 def test_read(plugin,database):
     database.write("IAS", 105.4)
@@ -211,7 +277,7 @@ def test_write_errors(plugin,database):
 
 
 def test_value_write_with_subscription(plugin,database):
-    """Make sure we don't get a response to a value write on our subscriptions"""
+    """A value write on a subscribed point gets no response"""
     plugin.sock.sendall("@sALT\n".encode())
     res = plugin.sock.recv(1024).decode()
     assert res == "@sALT\n"
@@ -465,6 +531,20 @@ def test_unknown_command(plugin):
     assert res == "@oALT!004\n"
 
 
+def test_empty_and_bare_at_frames_keep_connection_alive(plugin, database):
+    """An empty line and a bare '@' used to raise IndexError in the
+    connection thread, leaving the client deaf (#67)."""
+    database.write("IAS", 105.4)
+    plugin.sock.sendall("\n\n@\n@rIAS\n".encode())
+    res = ""
+    while res.count("\n") < 2:
+        chunk = plugin.sock.recv(1024).decode()
+        if not chunk:  # Server closed the connection
+            break
+        res += chunk
+    assert res == "@!004\n@rIAS;105.4;00000\n"
+
+
 def test_status_command(plugin):
     plugin.sock.sendall("@xstatus\n".encode())
     res = plugin.sock.recv(1024).decode()
@@ -507,18 +587,81 @@ def test_read_non_tuple_fixid(plugin,database):
     a = res.split(';')
     assert a[1] == "20.5\n"
 
-def test_send_invalid_value_update(plugin,caplog):
+def test_send_invalid_value_update(plugin, database, caplog):
+    """A frame that is neither ID;value nor ID;value;flags is logged and
+    nothing is written. (`IAS;10` used to be the example here: it is now a
+    valid write with its flags omitted, fix-gateway #128.)"""
     with caplog.at_level(logging.DEBUG):
-        plugin.sock.sendall("IAS;10\n".encode())
+        plugin.sock.sendall("IAS\n".encode())
         time.sleep(0.1)
-        assert 'Bad Frame IAS;10 from 127.0.0.1' in caplog.text
-        assert 'Problem with input IAS;10: list index out of range' in caplog.text
+        assert 'Bad Frame IAS from 127.0.0.1' in caplog.text
+        assert database.read("IAS")[0] == 0.0
 
-def test_send_invalid_value_update2(plugin,caplog):
+def test_send_invalid_value_update2(plugin, database, caplog):
     with caplog.at_level(logging.DEBUG):
         plugin.sock.sendall("IAS;10;10;10;10;10\n".encode())
         time.sleep(0.1)
         assert 'Bad Frame IAS;10;10;10;10;10 from 127.0.0.1' in caplog.text
-        assert 'Problem with input IAS;10;10;10;10;10: string index out of range' in caplog.text        
+        assert database.read("IAS")[0] == 0.0
 
 
+
+
+def test_subscriber_gets_old_flag_when_another_reader_sees_expiry_first(plugin, database):
+    """AER-4246: a key aging out reaches the subscriber even when some other
+    reader (FLIGHTPLAN reading LAT, say) touches it before update() runs"""
+    database.get_raw_item("IAS").tol = 100
+    plugin.sock.sendall("@sIAS\n".encode())
+    assert plugin.sock.recv(1024).decode() == "@sIAS\n"
+    database.write("IAS", 120.0)
+    assert plugin.sock.recv(1024).decode() == "IAS;120.0;00000\n"
+
+    time.sleep(0.2)
+    assert database.read("IAS")[2] is True  # the other reader
+    database.update()
+
+    assert plugin.sock.recv(1024).decode() == "IAS;120.0;01000\n"
+
+
+def test_back_to_back_connections_not_refused(plugin, database):
+    """One-shot clients that connect, read and close in quick succession must
+    never be refused.  The listening socket used to be re-created after every
+    accept(), so a connect that landed in the gap before the next bind() got
+    ECONNREFUSED, and one still queued in the old socket's backlog when it
+    was closed got ECONNRESET (fix-gateway #43)."""
+    database.write("ALT", 2000)
+    refused = 0
+    for _ in range(100):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(1.0)
+        try:
+            s.connect(("127.0.0.1", 34901))
+        except ConnectionRefusedError:
+            refused += 1
+            continue
+        try:
+            s.sendall("@rALT\n".encode())
+            assert s.recv(1024).decode() == "@rALT;2000.0;00000\n"
+        finally:
+            s.close()
+    assert refused == 0
+
+
+def test_stop_releases_listening_socket(netfix_config, database):
+    """stop() still ends the server thread on the accept timeout and closes
+    the listening socket, so the port stops accepting."""
+    nc, nc_meta = cfg.from_yaml(netfix_config, metadata=True)
+    pl = fixgw.plugins.netfix.Plugin("netfix", nc, nc_meta)
+    pl.start()
+    time.sleep(0.1)
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(1.0)
+    s.connect(("127.0.0.1", 34901))
+    s.close()
+    pl.stop()
+    assert not pl.thread.is_alive()
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(1.0)
+    with pytest.raises(ConnectionRefusedError):
+        s.connect(("127.0.0.1", 34901))
+    s.close()

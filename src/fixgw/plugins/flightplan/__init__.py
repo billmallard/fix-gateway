@@ -1,0 +1,561 @@
+#  SPDX-License-Identifier: GPL-2.0-or-later
+#
+#  The flightplan navigation engine plugin (FP2, fix-gateway#23).
+#
+"""The flight-plan navigation engine: fixgw.plugins.flightplan.
+
+A compute-only plugin -- it never needs a nav database, only coordinates.
+It reads the route block (``FPL1..100``, ``FPLCOUNT``, the segment table
+``FPLS1..100``/``FPLSEGCNT`` (RS1), the ``FPLAPRTYPE``/``FPLDBCYC``
+provenance, on ``FPLSEQ`` change), ``DTO*``, ``FPLCMD``,
+``LAT``/``LONG``/``GS``/``MAGVAR``,
+and writes the engine output keys defined by FP1 (``doc/flightplan_keys.md``):
+leg guidance (DTK/XTK/CDI/TO-FROM), sequencing, Direct-To, SUSP/RESUME, the
+full DO-229 CDI-scaling/flight-phase behaviour including the approach
+(Bill's ruling of 2026-09-08 -- there is no VFR-advisory mode), and
+persistence. PA3 widened the route slot to a leg (path terminator, course,
+distance, altitude/speed, segment, flags); PA4 (fix-gateway#28) adds Tier-1
+path-terminator geometry (IF/TF/CF/DF), rejects a route containing any other
+terminator outright (guardrail 1 -- this module writes the reason to
+``FPLMSG`` and leaves the previously loaded route untouched) and flies a
+vector leg (VA/VM/FM/VI) as a SUSP annunciated ``FPLPHASE=VECTORS``
+(guardrail 4). PA13 (fix-gateway#29) adds RF/AF arcs, CA/FA
+altitude-terminated legs (reading ``ALT`` by default, ``altitude_key``
+below) and HM/HF/HA/PI holds and procedure turns. RS1 (fix-gateway#39)
+adds the segment table: validated on every commit, persisted with the
+route, and reported as ``FPLACTSEG``/``FPLSEGREM``. TURN3 (AER-5418)
+publishes each slot's fly-by turn anticipation, ``FPLfTA``, so the map
+draws the turn arc the needle is measured from.
+
+The navigation logic itself lives in :mod:`fixgw.plugins.flightplan.engine`
+(pure Python, no fixgw.database dependency) so it is directly unit testable;
+this module is the callback/persistence wiring, precedented by
+``plugins/compute.py`` (callbacks), ``plugins/state_persist`` (atomic JSON,
+restore-after-delay) and ``plugins/skel.py`` (lifecycle).
+
+Config (``connections/flightplan.yaml``)::
+
+    flightplan:
+      load: FLIGHTPLAN
+      module: fixgw.plugins.flightplan
+      state_file: "{CONFIG}/flightplan_state.json"   # optional; default shown
+      restore_delay: 2.0
+      rate_hz: 5
+      turn_bank_deg: 15.0      # fly-by turns (TURN1)
+      turn_rate_deg_s: 3.0     # hold turns
+      terminal_nm: 30
+      approach_ramp_nm: 2.0
+      alert_s: 10
+      integrity_key: GPS_ACCURACY_HORIZ
+      hal_nm: {enr: 2.0, term: 1.0, lnav: 0.3}
+      altitude_key: ALT        # PA13: CA/FA/HA termination input; "" disables it
+"""
+
+import json
+import os
+import threading
+import time
+
+import fixgw.plugin as plugin
+from fixgw.plugins.flightplan.engine import Engine, RouteRejected, Segment, Waypoint
+
+GPS_ACCURACY_FT_PER_NM = 6076.12
+
+#: FPLfTA rewrites that only follow the groundspeed are paced to this
+#: (TURN3): each one makes the map rebuild the route's paths.
+TA_INTERVAL_S = 1.0
+
+
+def _quality_ok(value_tuple):
+    # (value, annunciate, old, bad, fail, secfail)
+    return not (value_tuple[2] or value_tuple[3] or value_tuple[4])
+
+
+class MainThread(threading.Thread):
+    def __init__(self, parent):
+        super().__init__()
+        self.getout = False
+        self.parent = parent
+        self.log = parent.log
+        cfg = parent.config
+
+        self.engine = Engine(
+            {
+                "terminal_nm": cfg.get("terminal_nm", 30.0),
+                "approach_ramp_nm": cfg.get("approach_ramp_nm", 2.0),
+                "turn_rate_deg_s": cfg.get("turn_rate_deg_s", 3.0),
+                "turn_bank_deg": cfg.get("turn_bank_deg", 15.0),
+                "alert_s": cfg.get("alert_s", 10.0),
+                "hal_nm": cfg.get("hal_nm", {"enr": 2.0, "term": 1.0, "lnav": 0.3}),
+            }
+        )
+
+        config_dir = cfg.get("CONFIGPATH", ".")
+        default_path = os.path.join(config_dir, "flightplan_state.json")
+        # "{CONFIG}" expands to the config directory, as for canfix's mapfile.
+        self.state_file = cfg["state_file"].format(CONFIG=config_dir) if "state_file" in cfg else default_path
+        self.restore_delay = float(cfg.get("restore_delay", 2.0))
+        self.rate_hz = float(cfg.get("rate_hz", 5.0))
+        self.min_interval = 1.0 / self.rate_hz if self.rate_hz > 0 else 0.0
+        self.integrity_key = cfg.get("integrity_key", "GPS_ACCURACY_HORIZ") or None
+        # PA13: the termination input for CA/FA and HA holds. "ALT" (Indicated
+        # Altitude, database/ahrs.yaml, ft) is published by mavlink/gpsd and by
+        # the bench's X-Plane source -- unlike integrity_key, this has a real
+        # bench source, so it defaults on rather than off.
+        self.altitude_key = cfg.get("altitude_key", "ALT") or None
+
+        # _maybe_persist runs on this thread's 1 Hz loop and inside the
+        # LAT/LONG and FPLCMD callbacks, on the writer's thread. Both write
+        # the one .tmp path: unserialized, one replace() takes the other's
+        # file and the second fails ENOENT, or an older snapshot lands over a
+        # newer one (fix-gateway#169).
+        self._persist_lock = threading.Lock()
+        # FPLfTA as last written, by 0-based slot (TURN3).
+        self._ta_written = {}
+        self._ta_act_leg = None
+        self._ta_time = 0.0
+        self._ta_missing = False
+        self._turn_missing = False
+        self._last_update_time = 0.0
+        self._restoring = False
+        self._last_persisted = None
+        # Nothing is persisted until _restore() has run. LAT/LONG callbacks
+        # drive the guidance cycle (and its persist hook) from the first live
+        # position write, which on a real GPS lands inside restore_delay while
+        # the engine is still empty -- persisting then replaced the plan on
+        # disk before it was read (fix-gateway#50).
+        self._restore_done = False
+        # LAT/LONG default to 0.0 and are not flagged "old" until their tol
+        # elapses -- the same grace window _read_integrity relies on for
+        # GPS_FIX_TYPE/GPS_ACCURACY_HORIZ. For a position input that is
+        # trusted for real geometry (unlike the integrity keys, where "no
+        # data yet" is itself a valid, expected state), that grace window is
+        # dangerous: the periodic 1Hz tick can run guidance -- including
+        # fly-by auto-sequencing -- against (0, 0) before any real LAT/LONG
+        # write has ever landed this process, silently discarding a restored
+        # Direct-To. Gate on an actual write, not just "not old".
+        self._position_seen = False
+        # AER-4217: GPS_FIX_TYPE going "old" means two different things. If it
+        # has never been written this process, the installation has no
+        # fix-type source (the bench's X-Plane FMS) and the gate is skipped.
+        # If it was publishing and stopped, the receiver or its link is dead,
+        # and that is a failed input.
+        self._fix_type_seen = False
+
+        self.parent.db_callback_add("FPLSEQ", self._on_fplseq)
+        self.parent.db_callback_add("FPLCMD", self._on_fplcmd)
+        self.parent.db_callback_add("LAT", self._on_position)
+        self.parent.db_callback_add("LONG", self._on_position)
+        self.parent.db_callback_add("GPS_FIX_TYPE", self._on_fix_type)
+
+    # ------------------------------------------------------------------
+    # DB helpers
+    # ------------------------------------------------------------------
+    def _read(self, key):
+        return self.parent.db_read(key)[0]
+
+    def _read_tuple(self, key):
+        return self.parent.db_read(key)
+
+    def _setval(self, key, value, fail=False, bad=False):
+        item = self.parent.db_get_item(key)
+        # Value and flags in one write, so a subscriber never sees the new
+        # value under the old flags -- e.g. a placeholder WPLAT 0.0 still
+        # marked valid for one callback as a plan is cleared (NULLWP1).
+        item.value = (value, item.annunciate, bool(bad), bool(fail))
+
+    # ------------------------------------------------------------------
+    # Route block
+    # ------------------------------------------------------------------
+    def _on_fplseq(self, key, value, udata=None):
+        if not isinstance(value, tuple):
+            return
+        if self._restoring:
+            return
+        self._load_route_from_db()
+
+    def _load_route_from_db(self):
+        count = int(self._read("FPLCOUNT"))
+        name = self._read("FPLNAME")
+        seq = int(self._read("FPLSEQ"))
+        waypoints = []
+        for i in range(1, count + 1):
+            waypoints.append(
+                Waypoint(
+                    id=self._read(f"FPL{i}ID"),
+                    lat=self._read(f"FPL{i}LAT"),
+                    lon=self._read(f"FPL{i}LON"),
+                    type=int(self._read(f"FPL{i}TYPE")),
+                    pt=self._read(f"FPL{i}PT"),
+                    crs=self._read(f"FPL{i}CRS"),
+                    dst=self._read(f"FPL{i}DST"),
+                    alt=self._read(f"FPL{i}ALT"),
+                    spd=int(self._read(f"FPL{i}SPD")),
+                    sgi=int(self._read(f"FPL{i}SGI")),
+                    flags=int(self._read(f"FPL{i}FLAGS")),
+                    ctrlat=self._read(f"FPL{i}CTRLAT"),
+                    ctrlon=self._read(f"FPL{i}CTRLON"),
+                    turn=self._read(f"FPL{i}TURN"),
+                )
+            )
+        # FPLSEGCNT is range-clamped by the database to the slot count, and
+        # the table has one row per slot, so every FPLS<k> read here
+        # exists; the engine checks the table against the slots.
+        segments = []
+        for k in range(1, int(self._read("FPLSEGCNT")) + 1):
+            segments.append(
+                Segment(
+                    kind=int(self._read(f"FPLS{k}KIND")),
+                    id=self._read(f"FPLS{k}ID"),
+                    ent=self._read(f"FPLS{k}ENT"),
+                    ext=self._read(f"FPLS{k}EXT"),
+                    first=int(self._read(f"FPLS{k}FIRST")),
+                    last=int(self._read(f"FPLS{k}LAST")),
+                )
+            )
+        try:
+            self.engine.load_route(
+                waypoints, name, seq, segments,
+                aprtype=self._read("FPLAPRTYPE"),
+                dbcyc=self._read("FPLDBCYC"),
+            )
+        except RouteRejected as r:
+            # Guardrail 1 (PA4): never a partial load -- the previously
+            # loaded route (if any) is exactly as engine.load_route left
+            # it. FPLSEQ has already landed on the bus at the rejected
+            # value; a corrected route needs its own new FPLSEQ to retry.
+            self.parent.db_write("FPLMSG", r.reason)
+            self.log.warning(f"flightplan: rejected route '{name}' (FPLSEQ {seq}): {r.reason}")
+            return
+        # FPLLDSEQ (PA8): the commit the engine now flies. After a rejection
+        # it keeps the previous value, so a display can tell the slots on the
+        # bus (the refused route) from the route actually loaded.
+        self.parent.db_write("FPLLDSEQ", seq)
+
+    def _republish_route(self):
+        for i, wp in enumerate(self.engine.route, start=1):
+            self.parent.db_write(f"FPL{i}ID", wp.id)
+            self.parent.db_write(f"FPL{i}LAT", wp.lat)
+            self.parent.db_write(f"FPL{i}LON", wp.lon)
+            self.parent.db_write(f"FPL{i}TYPE", wp.type)
+            self.parent.db_write(f"FPL{i}PT", wp.pt)
+            self.parent.db_write(f"FPL{i}CRS", wp.crs)
+            self.parent.db_write(f"FPL{i}DST", wp.dst)
+            self.parent.db_write(f"FPL{i}ALT", wp.alt)
+            self.parent.db_write(f"FPL{i}SPD", wp.spd)
+            self.parent.db_write(f"FPL{i}SGI", wp.sgi)
+            self.parent.db_write(f"FPL{i}FLAGS", wp.flags)
+            self.parent.db_write(f"FPL{i}CTRLAT", wp.ctrlat)
+            self.parent.db_write(f"FPL{i}CTRLON", wp.ctrlon)
+            self.parent.db_write(f"FPL{i}TURN", wp.turn)
+        self.parent.db_write("FPLCOUNT", len(self.engine.route))
+        self.parent.db_write("FPLNAME", self.engine.route_name)
+        for k, seg in enumerate(self.engine.segments, start=1):
+            self.parent.db_write(f"FPLS{k}KIND", seg.kind)
+            self.parent.db_write(f"FPLS{k}ID", seg.id)
+            self.parent.db_write(f"FPLS{k}ENT", seg.ent)
+            self.parent.db_write(f"FPLS{k}EXT", seg.ext)
+            self.parent.db_write(f"FPLS{k}FIRST", seg.first)
+            self.parent.db_write(f"FPLS{k}LAST", seg.last)
+        self.parent.db_write("FPLSEGCNT", len(self.engine.segments))
+        self.parent.db_write("FPLAPRTYPE", self.engine.aprtype)
+        self.parent.db_write("FPLDBCYC", self.engine.dbcyc)
+        if self.engine.seq is not None:
+            self.parent.db_write("FPLSEQ", self.engine.seq)
+            self.parent.db_write("FPLLDSEQ", self.engine.seq)
+
+    # ------------------------------------------------------------------
+    # Commands
+    # ------------------------------------------------------------------
+    def _on_fplcmd(self, key, value, udata=None):
+        if not isinstance(value, tuple):
+            return
+        cmd_str = value[0]
+        if not cmd_str:
+            return
+        position = self._position_tuple()
+        dto = self._read_dto_staging()
+        ack, msg = self.engine.handle_command(cmd_str, position, dto)
+        # FPLMSG first: a consumer acts on the FPLCMDACK change (Appendix C)
+        # and reads the reason then, so it must already be on the bus.
+        if msg:
+            self.parent.db_write("FPLMSG", msg)
+        self.parent.db_write("FPLCMDACK", ack)
+        self._run_update_cycle()
+
+    def _read_dto_staging(self):
+        ident = self._read("DTOID")
+        if not ident:
+            return None
+        return (ident, self._read("DTOLAT"), self._read("DTOLON"), int(self._read("DTOTYPE")))
+
+    def _position_tuple(self):
+        lat_t = self._read_tuple("LAT")
+        lon_t = self._read_tuple("LONG")
+        ok = self._position_seen and _quality_ok(lat_t) and _quality_ok(lon_t)
+        return (lat_t[0], lon_t[0], ok)
+
+    # ------------------------------------------------------------------
+    # Guidance cycle
+    # ------------------------------------------------------------------
+    def _on_position(self, key, value, udata=None):
+        if not isinstance(value, tuple):
+            return
+        self._position_seen = True
+        now = time.time()
+        if now - self._last_update_time < self.min_interval:
+            return
+        self._last_update_time = now
+        self._run_update_cycle(now)
+
+    def _on_fix_type(self, key, value, udata=None):
+        # Only a write is a fix-type source. The database also calls this
+        # when the key expires -- (value, annunciate, old=True, ...) -- and
+        # a never-written key expires about 3 s after startup, which would
+        # otherwise read as "was publishing and went silent" and fail every
+        # guidance output for good on an installation with no fix-type
+        # source (the bench's X-Plane FMS; AER-4464, after fix-gateway
+        # 21d06fa made every expiry notify).
+        if isinstance(value, tuple) and len(value) > 2 and value[2]:
+            return
+        self._fix_type_seen = True
+
+    def _position_time(self):
+        # When the position was produced: the older of the two halves.
+        return min(self.parent.db_get_item("LAT").timestamp, self.parent.db_get_item("LONG").timestamp)
+
+    def _read_integrity(self):
+        fix_t = self._read_tuple("GPS_FIX_TYPE")
+        if fix_t[2] and not self._fix_type_seen:  # old -- never actively published (e.g. X-Plane's FMS)
+            fix_type_ok = None
+        elif fix_t[2]:  # old -- was publishing and went silent (AER-4217)
+            fix_type_ok = False
+        else:
+            fix_type_ok = (fix_t[0] >= 3) and not fix_t[4]
+
+        accuracy_nm = None
+        if self.integrity_key:
+            acc_t = self._read_tuple(self.integrity_key)
+            if not acc_t[2]:
+                accuracy_nm = acc_t[0] / GPS_ACCURACY_FT_PER_NM
+        return fix_type_ok, accuracy_nm
+
+    def _read_altitude(self):
+        # PA13: None (never terminates a CA/FA/HA leg) when the configured
+        # source is disabled or hasn't actively published yet -- the same
+        # "no data" treatment _read_integrity already gives GPS_ACCURACY_HORIZ.
+        if not self.altitude_key:
+            return None
+        alt_t = self._read_tuple(self.altitude_key)
+        return None if alt_t[2] else alt_t[0]
+
+    def _run_update_cycle(self, now=None):
+        now = now if now is not None else time.time()
+        lat_t = self._read_tuple("LAT")
+        lon_t = self._read_tuple("LONG")
+        position_ok = self._position_seen and _quality_ok(lat_t) and _quality_ok(lon_t)
+        gs = self._read("GS")
+        magvar = self._read("MAGVAR")
+        fix_type_ok, accuracy_nm = self._read_integrity()
+        alt_ft = self._read_altitude()
+
+        out = self.engine.update(lat_t[0], lon_t[0], gs, magvar, position_ok, fix_type_ok, accuracy_nm, now, alt_ft,
+                                 position_time=self._position_time())
+        self._write_outputs(out)
+        self._write_turn_ta(self.engine.turn_anticipations(gs, magvar), out["act_leg"], now)
+        self._maybe_persist()
+
+    def _write_turn_ta(self, ta, act_leg, now):
+        """FPLfTA (TURN3): each slot's fly-by turn anticipation, written
+        only where it moved by 0.01 nm. A fix ahead follows the
+        groundspeed, so the rewrites are paced to TA_INTERVAL_S; a turn
+        appearing or going away, or a new active leg, is written at once.
+        Slots past the route that were nonzero are cleared. A clock that
+        stepped back does not hold the rewrites off. A database without
+        the key (a config edited before TURN3, which an update leaves as
+        it was) turns the output off with one log line: guidance does not
+        depend on it, and the map then draws square corners."""
+        if self._ta_missing:
+            return
+        n = max([len(ta)] + [i + 1 for i in self._ta_written])
+        new = {i: round(ta[i], 2) if i < len(ta) else 0.0 for i in range(n)}
+        changed = {i: v for i, v in new.items() if self._ta_written.get(i, 0.0) != v}
+        if not changed:
+            return
+        structural = act_leg != self._ta_act_leg or any(
+            (v == 0.0) != (self._ta_written.get(i, 0.0) == 0.0) for i, v in changed.items())
+        if not structural and 0.0 <= now - self._ta_time < TA_INTERVAL_S:
+            return
+        for i, v in changed.items():
+            try:
+                self.parent.db_write(f"FPL{i + 1}TA", v)
+            except KeyError:
+                self._ta_missing = True
+                self.log.warning("flightplan: no FPL%dTA in the database, so fly-by turns are not "
+                                 "published (database/flightplan.yaml predates TURN3)", i + 1)
+                return
+            self._ta_written[i] = v
+        self._ta_act_leg = act_leg
+        self._ta_time = now
+
+    def _write_turn(self, turn):
+        """FPLTURN (AER-4541): the direction of a DF's coded turn while it
+        is flown. A database without the key (a config edited before
+        AER-4541) turns the output off with one log line, as FPLfTA does:
+        the guidance does not depend on it, and the display then shows no
+        turn annunciation."""
+        if self._turn_missing:
+            return
+        try:
+            self._setval("FPLTURN", turn)
+        except KeyError:
+            self._turn_missing = True
+            self.log.warning("flightplan: no FPLTURN in the database, so a DF's coded turn is not "
+                             "annunciated (database/flightplan.yaml predates AER-4541)")
+
+    def _write_outputs(self, out):
+        fail = out.get("fail", False)
+        bad = out.get("bad", False)
+        wp_ete_bad = out.get("wp_ete_bad", False)
+        # Waypoint positions are flagged on whether there IS a waypoint, not on
+        # ownship position: a fix's location does not depend on the GPS
+        # (NULLWP1).
+        wp_fail = out.get("wp_fail", False)
+        fr_fail = out.get("fr_fail", False)
+
+        self._setval("FPLSTATE", out["state"])
+        self._setval("FPLSUSPMAP", out["susp_map"])
+        self._setval("FPLACTLEG", out["act_leg"])
+        self._setval("FPLPHASE", out["phase"])
+        self._setval("FPLAPR", out["apr"])
+        self._setval("FPLINTEG", out["integ"])
+        self._setval("CDISCALE", out["cdiscale"])
+        self._setval("FPLCRS", out["crs"], fail=fail, bad=bad)
+        self._setval("FPLXTK", out["xtk"], fail=fail, bad=bad)
+        self._setval("FPLCDI", out["cdi"], fail=fail, bad=bad)
+        self._setval("FPLTF", out["tf"], fail=fail, bad=bad)
+        self._setval("FPLFRLAT", out["fr_lat"], fail=fr_fail)
+        self._setval("FPLFRLON", out["fr_lon"], fail=fr_fail)
+        self._setval("WPFROM", out["wp_from"])
+        self._setval("WPNEXT", out["wp_next"])
+        self._setval("WPLAT", out["wp_lat"], fail=wp_fail)
+        self._setval("WPLON", out["wp_lon"], fail=wp_fail)
+        self._setval("WPNAME", out["wp_name"])
+        self._setval("WPDIS", out["wp_dis"], fail=fail, bad=bad)
+        self._setval("WPETE", out["wp_ete"], fail=fail, bad=bad or wp_ete_bad)
+        self._setval("FPLREMDIS", out["rem_dis"], fail=fail, bad=bad)
+        self._setval("FPLREMETE", out["rem_ete"], fail=fail, bad=bad or wp_ete_bad)
+        self._setval("FPLACTSEG", out["act_seg"])
+        self._setval("FPLSEGREM", out["seg_rem"], fail=fail, bad=bad)
+        self._setval("FPLALERT", out["alert"])
+        self._write_turn(out["turn"])
+        if out.get("msg"):
+            self.parent.db_write("FPLMSG", out["msg"])
+
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
+    def _load_persisted(self):
+        try:
+            with open(self.state_file, "r") as f:
+                return json.load(f)
+        except FileNotFoundError:
+            return None
+        except Exception as e:
+            self.log.warning(f"flightplan: could not read {self.state_file}: {e}")
+            return None
+
+    def _restore(self):
+        # Persistence opens only once the engine holds what was on disk (or
+        # there was nothing to restore): a position callback persisting
+        # between the file read and restore_from_dict() would write the empty
+        # engine and leave _last_persisted matching it.
+        try:
+            self._restore_from_file()
+        finally:
+            self._restore_done = True
+
+    def _restore_from_file(self):
+        data = self._load_persisted()
+        if data is None:
+            return
+        try:
+            self.engine.restore_from_dict(data)
+        except RouteRejected as r:
+            # The same gate a bus commit goes through: a state file that
+            # would be rejected from the bus is not flown after a restart
+            # either. The engine is untouched (no plan), and the file stays
+            # on disk for inspection until the next accepted commit
+            # replaces it -- _last_persisted is pointed at the empty state
+            # so _maybe_persist does not overwrite it first.
+            self.parent.db_write("FPLMSG", r.reason)
+            self.log.warning(f"flightplan: not restoring {self.state_file}: {r.reason}")
+            self._last_persisted = self.engine.to_persisted_dict()
+            return
+        self._restoring = True
+        try:
+            self._republish_route()
+        finally:
+            self._restoring = False
+        self._last_persisted = self.engine.to_persisted_dict()
+        self.log.info(f"flightplan: restored plan '{self.engine.route_name}' from {self.state_file}")
+
+    def _maybe_persist(self):
+        if not self._restore_done:
+            return
+        # The snapshot is taken inside the lock too, so the caller that
+        # writes last also wrote the newest state.
+        with self._persist_lock:
+            snapshot = self.engine.to_persisted_dict()
+            if snapshot == self._last_persisted:
+                return
+            tmp = self.state_file + ".tmp"
+            try:
+                with open(tmp, "w") as f:
+                    json.dump(snapshot, f)
+                os.replace(tmp, self.state_file)
+                self._last_persisted = snapshot
+            except Exception as e:
+                self.log.error(f"flightplan: could not write {self.state_file}: {e}")
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+    def run(self):
+        deadline = time.time() + self.restore_delay
+        while not self.getout and time.time() < deadline:
+            time.sleep(0.05)
+        if not self.getout:
+            self._restore()
+        while not self.getout:
+            time.sleep(1.0)
+            if self.getout:
+                break
+            self._run_update_cycle()
+        self._maybe_persist()
+
+    def stop(self):
+        self.getout = True
+
+
+class Plugin(plugin.PluginBase):
+    def __init__(self, name, config, config_meta):
+        super().__init__(name, config, config_meta)
+        self.thread = MainThread(self)
+
+    def run(self):
+        self.thread.start()
+
+    def stop(self):
+        self.thread.stop()
+        if self.thread.is_alive():
+            self.thread.join(2.0)
+        if self.thread.is_alive():
+            raise plugin.PluginFail
+
+    def get_status(self):
+        return {
+            "Route": self.thread.engine.route_name,
+            "State": self.thread.engine.mode,
+            "ActiveLeg": self.thread.engine.act_leg,
+        }

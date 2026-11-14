@@ -1,0 +1,64 @@
+# Extracted from maos-workspace makerplane/captures/knobster/libknobster_trace.log
+# (captured 2026-10-07 on Windows through the vendor libknobster.dll).
+# Each line: direction, the raw 16-byte USB packet exactly as on the wire
+# (stale padding included), and for IN packets the event name the vendor
+# library itself reported for that packet. OUT lines are the first 2 s of
+# host traffic: hello, 16, the one-time startup frames and the first cycles.
+OUT 03 ff 01 01 00 00 00 00 00 00 00 00 00 00 00 00
+IN  0b ff 09 02 07 00 07 05 05 00 02 03 fb ff 10 3f  CHANNEL_A
+OUT 03 ff 01 16 00 00 00 00 10 00 00 00 00 00 00 00
+OUT 0f ff 05 03 01 04 01 02 ff 05 03 00 04 01 02 ff
+OUT 0f 05 03 02 04 01 02 ff 05 03 03 04 01 02 ff 05
+OUT 0e 03 04 05 01 32 ff 07 04 00 01 02 01 00 02 00
+OUT 0f ff 05 03 00 04 01 02 ff 07 04 01 01 02 02 03
+OUT 01 02 00 00 00 04 01 02 00 00 00 00 00 00 00 00
+OUT 07 ff 05 03 02 04 01 02 00 00 00 00 00 00 00 00
+OUT 07 ff 05 03 03 04 01 02 00 00 00 00 00 00 00 00
+OUT 07 ff 05 03 04 05 01 32 00 00 00 00 00 00 00 00
+OUT 09 ff 07 04 00 01 02 01 00 02 00 00 00 00 00 00
+OUT 09 ff 07 04 00 01 02 01 00 02 00 00 00 00 00 00
+OUT 07 ff 05 03 01 04 01 02 00 00 00 00 00 00 00 00
+OUT 07 ff 05 03 00 04 01 02 00 00 00 00 00 00 00 00
+OUT 07 ff 05 03 02 04 01 02 00 00 00 00 00 00 00 00
+OUT 07 ff 05 03 03 04 01 02 00 00 00 00 00 00 00 00
+OUT 07 ff 05 03 04 05 01 32 00 00 00 00 00 00 00 00
+OUT 09 ff 07 04 00 01 02 01 00 02 00 00 00 00 00 00
+OUT 09 ff 07 04 00 01 02 01 00 02 00 00 00 00 00 00
+OUT 07 ff 05 03 01 04 01 02 00 00 00 00 00 00 00 00
+OUT 07 ff 05 03 00 04 01 02 00 00 00 00 00 00 00 00
+IN  04 ff 02 0c 00 04 00 04 ec 04 00 f7 fb ff 10 3f  MINOR_CCW
+IN  04 ff 02 0c 00 04 00 04 ec 04 00 f0 fb ff 10 3f  MINOR_CCW
+IN  04 ff 02 0c 00 04 00 04 ec 04 00 f0 fb ff 10 3f  MINOR_CCW
+IN  04 ff 02 0c 00 04 00 04 ec 04 00 f0 fb ff 10 3f  MINOR_CCW
+IN  04 ff 02 0c 00 04 00 04 ec 04 00 f0 fb ff 10 3f  MINOR_CCW
+IN  04 ff 02 0c 00 04 00 04 ec 04 00 f0 fb ff 10 3f  MINOR_CCW
+IN  04 ff 02 0c 00 04 00 04 ec 04 00 f0 fb ff 10 3f  MINOR_CCW
+IN  04 ff 02 0c 00 04 00 04 ec 04 00 f0 fb ff 10 3f  MINOR_CCW
+IN  04 ff 02 0c 00 04 00 04 ec 04 00 f0 fb ff 10 3f  MINOR_CCW
+IN  04 ff 02 0c 00 04 00 04 ec 04 00 f0 fb ff 10 3f  MINOR_CCW
+IN  04 ff 02 0c 01 04 00 04 ec 04 00 f0 fb ff 10 3f  MAJOR_CCW
+IN  04 ff 02 0c 01 04 00 04 ec 04 00 f0 fb ff 10 3f  MAJOR_CCW
+IN  04 ff 02 0c 01 04 00 04 ec 04 00 f0 fb ff 10 3f  MAJOR_CCW
+IN  04 ff 02 0c 01 04 00 04 ec 04 00 f0 fb ff 10 3f  MAJOR_CCW
+IN  04 ff 02 0c 01 04 00 04 ec 04 00 f0 fb ff 10 3f  MAJOR_CCW
+IN  04 ff 02 0c 01 04 00 04 ec 04 00 f0 fb ff 10 3f  MAJOR_CCW
+IN  04 ff 02 0c 01 04 00 04 ec 04 00 f0 fb ff 10 3f  MAJOR_CCW
+IN  04 ff 02 0c 01 04 00 04 ec 04 00 f0 fb ff 10 3f  MAJOR_CCW
+IN  04 ff 02 0c 01 04 00 04 ec 04 00 f0 fb ff 10 3f  MAJOR_CCW
+IN  04 ff 02 0c 01 04 00 04 ec 04 00 f0 fb ff 10 3f  MAJOR_CCW
+IN  04 ff 02 0b 01 04 00 04 ec 04 00 f0 fb ff 10 3f  MAJOR_CW
+IN  04 ff 02 0b 01 04 00 04 ec 04 00 f0 fb ff 10 3f  MAJOR_CW
+IN  04 ff 02 0b 01 04 00 04 ec 04 00 f0 fb ff 10 3f  MAJOR_CW
+IN  04 ff 02 0c 01 04 00 04 ec 04 00 f0 fb ff 10 3f  MAJOR_CCW
+IN  04 ff 02 0c 01 04 00 04 ec 04 00 f0 fb ff 10 3f  MAJOR_CCW
+IN  04 ff 02 0c 01 04 00 04 ec 04 00 f0 fb ff 10 3f  MAJOR_CCW
+IN  04 ff 02 0b 00 04 00 04 ec 04 00 f0 fb ff 10 3f  MINOR_CW
+IN  04 ff 02 0b 00 04 00 04 ec 04 00 f0 fb ff 10 3f  MINOR_CW
+IN  04 ff 02 0b 00 04 00 04 ec 04 00 f0 fb ff 10 3f  MINOR_CW
+IN  04 ff 02 0c 00 04 00 04 ec 04 00 f0 fb ff 10 3f  MINOR_CCW
+IN  04 ff 02 0c 00 04 00 04 ec 04 00 f0 fb ff 10 3f  MINOR_CCW
+IN  04 ff 02 0c 00 04 00 04 ec 04 00 f0 fb ff 10 3f  MINOR_CCW
+IN  04 ff 02 0d 04 04 00 04 ec 04 00 f0 fb ff 10 3f  BUTTON_PRESSED
+IN  04 ff 02 0e 04 04 00 04 ec 04 00 f0 fb ff 10 3f  BUTTON_RELEASED
+IN  04 ff 02 0d 04 04 00 04 ec 04 00 f0 fb ff 10 3f  BUTTON_PRESSED
+IN  04 ff 02 0e 04 04 00 04 ec 04 00 f0 fb ff 10 3f  BUTTON_RELEASED

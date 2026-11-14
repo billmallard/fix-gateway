@@ -15,6 +15,7 @@
 #  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 import logging
+import sys
 import threading
 import time
 import copy
@@ -24,6 +25,33 @@ __database = {}
 _update_thread = globals().get("_update_thread")
 _update_thread_stop = globals().get("_update_thread_stop")
 
+
+# One key, one writer (AER-4476).  A writer-held flag like old only means
+# something if a single plugin owns the key; a second writer silently
+# overwrites the first one's value and flags.  Plugins do not declare the keys
+# they write (canfix, netfix and mgl_serial build them at runtime) and several
+# reach items through get_raw_item rather than the plugin base, so the writer
+# is found at write time instead: the innermost fixgw.plugins module on the
+# stack.  Innermost matters -- a compute function runs inside the callbacks of
+# whatever wrote its input, and the write is compute's, not that plugin's.
+# Writes from outside any plugin (database init, the server's ini files) are
+# not attributed, and nor is state_persist: it restores a saved setting once at
+# start, an initial value like the ini files, and the pilot's later change
+# through netfix is the real write.  The name is the plugin module, so two
+# instances of one module count as one writer.
+_PLUGIN_PREFIX = "fixgw.plugins."
+_NOT_WRITERS = {"state_persist"}
+
+
+def _writer():
+    f = sys._getframe(1)
+    while f is not None:
+        name = f.f_globals.get("__name__", "")
+        if name.startswith(_PLUGIN_PREFIX):
+            plugin = name[len(_PLUGIN_PREFIX) :].split(".")[0]
+            return None if plugin in _NOT_WRITERS else plugin
+        f = f.f_back
+    return None
 
 
 class UpdateThread(threading.Thread):
@@ -71,7 +99,8 @@ class db_item(object):
         self.description = ""
         self.units = ""
         self._annunciate = False
-        self._old = False
+        self._old = False  # set by the writer, like bad and fail
+        self._expired = False  # set by update() when tol runs out
         self._bad = False
         self._fail = False
         self._secfail = False
@@ -81,6 +110,8 @@ class db_item(object):
         self.timestamp = time.time()
         self.aux = {}
         self.callbacks = []
+        self.writers = []  # plugins that have written this key, in order
+        self.written = False  # a value or quality-flag write has happened
         self.lock = threading.Lock()
 
     # initialize the auxiliary data dictionary.  aux should be a comma delimited
@@ -88,6 +119,26 @@ class db_item(object):
     def init_aux(self, aux):
         for each in aux:
             self.aux[each.strip()] = None
+
+    # Record the plugin making this write and warn, once per new writer, when
+    # it is not the first.  Caller holds the lock.  Value and quality-flag
+    # writes count; aux and annunciate do not -- aux is configuration any
+    # client may set, and the annunciate plugin flags keys it does not own by
+    # design.  Any such write also marks the item written; its expiry does
+    # not, so a key no source ever writes stays unwritten (AER-5391).
+    def _note_writer(self):
+        self.written = True
+        w = _writer()
+        if w is None or w in self.writers:
+            return
+        self.writers.append(w)
+        if len(self.writers) > 1:
+            log.warning(
+                "FIX key {} has a second writer: {} now writes it, {} "
+                "already did".format(
+                    self.key, w, ", ".join(self.writers[:-1])
+                )
+            )
 
     def get_aux_list(self):
         return list(self.aux.keys())
@@ -137,15 +188,22 @@ class db_item(object):
     @property
     def value(self):
         with self.lock:
-            if self.tol != 0:
-                if self.age > self.tol:
-                    self._old = True
-                else:
-                    self._old = False
+            # Old is the writer's flag OR the item's own expiry.  A reader
+            # may report the expiry but must not record it: only update()
+            # sets _expired, so the transition always fires the callbacks
+            # (AER-4246).  Nor may a reader clear the writer's flag: a
+            # compute output written fresh from a stale input must read old,
+            # or the flag is lost to the first callback that reads it
+            # (AER-4450).
+            old = (
+                self._old
+                or self._expired
+                or (self.tol != 0 and self.age > self.tol)
+            )
             return (
                 self._value,
                 self._annunciate,
-                self._old,
+                old,
                 self._bad,
                 self._fail,
                 self._secfail,
@@ -156,6 +214,7 @@ class db_item(object):
     @value.setter
     def value(self, x):
         with self.lock:
+            self._note_writer()
             if isinstance(x, tuple):
                 if len(x) < 4:
                     raise ValueError("Tuple too small for {}".format(self.key))
@@ -165,38 +224,62 @@ class db_item(object):
                 if len(x) >= 5:
                     self._secfail = x[4]
                 x = x[0]
-            if self.dtype is bool:
-                self._value = (
-                    x == True
-                    or (isinstance(x, str) and x.lower() in ["yes", "true", "1"])
-                    or (isinstance(x, int) and x != 0)
-                )
-            else:
-                try:
-                    if self.dtype is str and x is None:
-                        self._value = ""
-                    else:
-                        self._value = self.dtype(x)
-                except ValueError:
-                    log.error(
-                        "Bad value '" + str(x) + "' given for " + self.description
-                    )
-                    raise
-                if self.dtype is not str:
-                    # bounds check and cap
-                    try:
-                        if self._value < self._min:
-                            self._value = self._min
-                    except:  # Probably only fails if min has not been set
-                        pass  # ignore at this point
-                    try:
-                        if self._value > self._max:
-                            self._value = self._max
-                    except:  # Probably only fails if max has not been set
-                        pass  # ignore at this point
-                    # set the timestamp to right now
-            self.timestamp = time.time()
+            self._store(x)
         self.send_callbacks()
+
+    # Write the value and any of its quality flags as one update: everything
+    # changes under the lock and the callbacks fire once, after.  Setting the
+    # value and then each flag through its own setter fires the callbacks
+    # between steps, so a consumer sees the new value with the previous
+    # flags -- a value computed from a failed input, flagged good (AER-4470).
+    # A flag left as None keeps its current state.
+    def set(self, value, old=None, bad=None, fail=None, secfail=None):
+        with self.lock:
+            self._note_writer()
+            self._store(value)
+            if old is not None:
+                self._old = bool(old)
+            if bad is not None:
+                self._bad = bool(bad)
+            if fail is not None:
+                self._fail = bool(fail)
+            if secfail is not None:
+                self._secfail = bool(secfail)
+        self.send_callbacks()
+
+    # Coerce, bound and store a bare value and stamp it.  Caller holds the lock.
+    def _store(self, x):
+        if self.dtype is bool:
+            self._value = (
+                x == True
+                or (isinstance(x, str) and x.lower() in ["yes", "true", "1"])
+                or (isinstance(x, int) and x != 0)
+            )
+        else:
+            try:
+                if self.dtype is str and x is None:
+                    self._value = ""
+                else:
+                    self._value = self.dtype(x)
+            except ValueError:
+                log.error("Bad value '" + str(x) + "' given for " + self.description)
+                raise
+            if self.dtype is not str:
+                # bounds check and cap
+                try:
+                    if self._value < self._min:
+                        self._value = self._min
+                except:  # Probably only fails if min has not been set
+                    pass  # ignore at this point
+                try:
+                    if self._value > self._max:
+                        self._value = self._max
+                except:  # Probably only fails if max has not been set
+                    pass  # ignore at this point
+        # set the timestamp to right now
+        self.timestamp = time.time()
+        # A write ends the expiry, not the writer's own old flag.
+        self._expired = False
 
     @property
     def min(self):
@@ -253,14 +336,25 @@ class db_item(object):
     @property
     def old(self):
         with self.lock:
-            return self._old
+            return self._old or self._expired
 
     @old.setter
     def old(self, x):
         with self.lock:
-            last = self._old
+            self._note_writer()
+            last = self._old or self._expired
             self._old = bool(x)
-        if self._old != last:
+            now = self._old or self._expired
+        if now != last:
+            self.send_callbacks()
+
+    # Called by update() when the item has outlived its tol.  Fires the
+    # callbacks once, on the transition; the next write clears it.
+    def expire(self):
+        with self.lock:
+            last = self._old or self._expired
+            self._expired = True
+        if not last:
             self.send_callbacks()
 
     @property
@@ -271,6 +365,7 @@ class db_item(object):
     @bad.setter
     def bad(self, x):
         with self.lock:
+            self._note_writer()
             last = self._bad
             self._bad = bool(x)
         if self._bad != last:
@@ -284,6 +379,7 @@ class db_item(object):
     @fail.setter
     def fail(self, x):
         with self.lock:
+            self._note_writer()
             last = self._fail
             self._fail = bool(x)
         if self._fail != last:
@@ -292,11 +388,12 @@ class db_item(object):
     @property
     def secfail(self):
         with self.lock:
-            return self._fail
+            return self._secfail
 
     @secfail.setter
     def secfail(self, x):
         with self.lock:
+            self._note_writer()
             last = self._secfail
             self._secfail = bool(x)
         if self._secfail != last:
@@ -353,6 +450,7 @@ def add_item(entry):
     else:
         newitem.value = entry.get("initial", None)
     newitem.init_aux(entry.get("aux", []))
+    newitem.written = False  # the initial value is not a write
     __database[entry["key"]] = newitem
     return newitem
 
@@ -413,6 +511,11 @@ def get_raw_item(key):
     return __database[key]
 
 
+# The plugins that have written each key, for keys written by any plugin.
+def writers():
+    return {k: list(i.writers) for k, i in __database.items() if i.writers}
+
+
 def listkeys():
     return list(__database.keys())
 
@@ -445,5 +548,5 @@ def callback_del(name, key, function, udata):
 def update():
     for key, item in list(__database.items()):
         if item.age > item.tol and item.tol != 0:
-            log.debug(f"item.old set True for fixid {key}")
-            item.old = True
+            log.debug(f"item expired for fixid {key}")
+            item.expire()

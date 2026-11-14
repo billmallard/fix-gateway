@@ -7,6 +7,23 @@ import json
 import datetime
 
 
+def replay(item, recorded):
+    """Write one recorded [value, annunciate, old, bad, fail, secfail] to item.
+
+    The recorder stores the item as it reads, with old in the third slot,
+    but the value setter takes (value, annunciate, bad, fail, secfail) and
+    old has a setter of its own.  An item with a tol works old out from its
+    age on every read, so a recording that was old is written already past
+    its tol.
+    """
+    value, annunciate, old, bad, fail, secfail = recorded
+    item.value = (value, annunciate, bad, fail, secfail)
+    if old and item.tol:
+        with item.lock:
+            item.timestamp = time.time() - (item.tol + 1) / 1000
+    item.old = old
+
+
 class MainThread(threading.Thread):
     def __init__(self, parent):
         super(MainThread, self).__init__()
@@ -52,7 +69,7 @@ class MainThread(threading.Thread):
                                 self.log.debug(f"{file_time}  --  {start_time}")
                                 continue
                         for key in j:
-                            database.get_raw_item(key).value = tuple(j[key])
+                            replay(database.get_raw_item(key), j[key])
                         # Wait for remainder of frequency interval
                         time.sleep(
                             (freq / 1000)

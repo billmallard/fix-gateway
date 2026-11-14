@@ -1,105 +1,489 @@
+# DEMO2 (AER-5461): the demo is a source built on fixgw.sim.  These tests fly
+# the shipped profile on the real database, with the stream's clock
+# fast-forwarded, and check what it writes, what it refuses, and when it stops.
+
+import re
+import sys
+import threading
+
 import pytest
 
+import fixgw.database as database
 import fixgw.plugin as plugin_base
 import fixgw.plugins.demo as demo
 
+pytest.importorskip("geographiclib")
 
-class FakeLog:
-    def __init__(self):
-        self.debugs = []
+from fixgw.sim import generator  # noqa: E402
 
-    def debug(self, message):
-        self.debugs.append(message)
-
-
-class FakeParent:
-    def __init__(self):
-        self.log = FakeLog()
-        self.values = {}
-        self.writes = []
-
-    def db_write(self, key, value):
-        self.values[key] = value
-        self.writes.append((key, value))
-
-    def db_read(self, key):
-        return (self.values[key], False, False, False, False, False)
+PROFILE = demo.Plugin._profile_path(demo.DEFAULT_PROFILE)
+# the flown profile and the db fixture are in conftest.py
 
 
-def test_main_thread_initializes_points_and_runs_script_paths(monkeypatch):
-    parent = FakeParent()
-    thread = demo.MainThread(parent)
-    assert parent.values["IAS"] == 113.0
-    assert parent.values["LAT"] == 40.000200
-
-    sleeps = 0
-
-    def stop_after_script_progress(_seconds):
-        nonlocal sleeps
-        sleeps += 1
-        if sleeps >= 25:
-            thread.getout = True
-
-    monkeypatch.setattr(demo.time, "sleep", stop_after_script_progress)
-
-    thread.run()
-
-    assert thread.running is False
-    assert ("MAVMSG", "NO DATA") in parent.writes
-    assert any(
-        key == "ROLL" and isinstance(value, (int, float)) and value > 0
-        for key, value in parent.writes
-    )
-    assert any(key == "LAT" and value != 40.000200 for key, value in parent.writes)
+def as_plugin(name, key, value):
+    """Write ``key`` from inside a plugin module, so the registry names it."""
+    exec("database.write(key, value)",
+         {"__name__": "fixgw.plugins." + name, "database": database, "key": key, "value": value})
 
 
-def test_main_thread_wraps_single_entry_script_and_stop(monkeypatch):
-    parent = FakeParent()
-    thread = demo.MainThread(parent)
-    thread.script = [{"MAVMSG": "NO DATA"}]
+class FastClock:
+    """live.stream's clock and sleep: a sleep advances the clock at once.
+    ``on_sleep(n)`` runs at the n-th sleep."""
 
-    def stop_after_sleep(_seconds):
-        thread.getout = True
+    def __init__(self, on_sleep=None):
+        self.t = 0.0
+        self.n = 0
+        self.on_sleep = on_sleep
 
-    monkeypatch.setattr(demo.time, "sleep", stop_after_sleep)
-    thread.run()
-    thread.stop()
+    def clock(self):
+        return self.t
 
-    assert ("MAVMSG", "NO DATA") in parent.writes
-    assert thread.running is False
-    assert thread.getout is True
+    def sleep(self, s):
+        self.t += s
+        self.n += 1
+        if self.on_sleep is not None:
+            self.on_sleep(self.n)
 
 
-def test_plugin_lifecycle_status_and_failure(monkeypatch):
-    class DummyThread:
-        def __init__(self, _parent):
-            self.started = False
-            self.stopped = False
-            self.alive = False
+def make(config=None, fast=None):
+    cfg = {"watch_s": 0, "restart_s": 0}
+    cfg.update(config or {})
+    p = demo.Plugin("demo", cfg, {})
+    fast = fast or FastClock()
+    p.thread.clock, p.thread.sleep = fast.clock, fast.sleep
+    return p
 
-        def start(self):
-            self.started = True
 
-        def stop(self):
-            self.stopped = True
+def loops(p, n):
+    """Stop the demo once it has cleared the plan ``n`` times."""
+    clear = p.thread._clear_plan
+    count = []
 
-        def is_alive(self):
-            return self.alive
+    def counted():
+        clear()
+        count.append(1)
+        if len(count) >= n:
+            p.thread.halt.set()
 
-        def join(self, timeout):
-            self.joined = timeout
+    p.thread._clear_plan = counted
+    return count
 
-    monkeypatch.setattr(demo, "MainThread", DummyThread)
-    plugin = demo.Plugin("demo", {}, {})
 
-    plugin.run()
-    plugin.stop()
+def demo_keys():
+    return {k for k, ws in database.writers().items() if "demo" in ws}
 
-    assert plugin.thread.started is True
-    assert plugin.thread.stopped is True
-    assert plugin.get_status() == demo.OrderedDict()
 
-    failing = demo.Plugin("demo", {}, {})
-    failing.thread.alive = True
-    with pytest.raises(plugin_base.PluginFail):
-        failing.stop()
+# ---------------------------------------------------------------------------
+# What it writes
+# ---------------------------------------------------------------------------
+
+def test_source_keys_are_the_generators_sensor_set():
+    assert demo.SOURCE_KEYS == generator.SENSOR_KEYS
+
+
+def _editor_keys():
+    """The route and command keys doc/flightplan_keys.md gives to the editor,
+    as regexes.  `FPL1..100 LAT` / `LON` is two keys on one slot prefix."""
+    pats = []
+    with open("doc/flightplan_keys.md") as f:
+        lines = f.read().splitlines()
+    writer_col = None
+    for line in lines:
+        if not line.startswith("|"):
+            writer_col = None
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if "Writer" in cells:
+            writer_col = cells.index("Writer")
+            continue
+        if writer_col is None or set(cells[0]) <= set("-"):
+            continue
+        if not cells[writer_col].startswith("editor"):
+            continue
+        names = re.findall(r"`([^`]+)`", cells[0])
+        prefix = ""
+        for name in names:
+            m = re.match(r"(FPLS?)1\.\.100 (\w+)$", name)
+            if m:
+                prefix = m.group(1)
+                pats.append(prefix + r"\d+" + m.group(2))
+            elif prefix:
+                pats.append(prefix + r"\d+" + name)
+            else:
+                pats.append(re.escape(name))
+    return [re.compile(p + "$") for p in pats]
+
+
+def _compute_outputs():
+    import yaml
+
+    with open("src/fixgw/config/connections/compute.yaml") as f:
+        functions = yaml.safe_load(f)["compute"]["functions"]
+    return {f["output"] for f in functions if "output" in f}
+
+
+def test_demo_writes_only_source_keys_and_the_editors_route_keys(db, monkeypatch):
+    annunciated = []
+    real = database.db_item.annunciate.fset
+
+    def watch(self, x):
+        annunciated.append(self.key)
+        real(self, x)
+
+    monkeypatch.setattr(database.db_item, "annunciate", database.db_item.annunciate.setter(watch))
+    p = make({"pages": [{"at": 0, "page": "PFD"}]})
+    loops(p, 2)
+    p.run()
+    p.thread.join(60)
+    assert not p.thread.is_alive()
+    assert p.thread.refused is None, p.status
+
+    written = demo_keys()
+    editor = _editor_keys()
+    route = {k for k in written if any(rx.match(k) for rx in editor)}
+    tfc = {k for k in written if k.startswith("TFC")}
+    # every key it writes is a sensor's, the engine's (DEMO3), its own two
+    # (DEMO4), the editor's, or the traffic block (DEMO7) through the stratux
+    # decoder
+    assert written - route - tfc == set(demo.SOURCE_KEYS + demo.DEMO_KEYS) | set(demo.ENGINE_KEYS), \
+        sorted(written - route - tfc)
+    assert {"TFC1TGT", "TFCCOUNT"} <= tfc
+    assert all(database.get_raw_item(k).writers == ["demo"] for k in tfc)
+    assert {"FPLSEQ", "FPLCMD", "FPLCOUNT", "FPLSEGCNT", "FPL1ID", "FPLS1KIND"} <= route
+    # never a reference key, a compute output, or an annunciate flag
+    assert not {k for k in written if k.startswith("REF")}
+    outputs = _compute_outputs()
+    assert {"COURSE", "CDI", "GSI"} <= outputs
+    assert written & outputs == set()
+    assert annunciated == []
+    # the engine's outputs are not the editor's: the contract check above has teeth
+    assert not any(rx.match(k) for rx in editor for k in ("FPLCRS", "FPLXTK", "FPLCDI", "WPNAME", "FPLCMDACK"))
+
+
+def test_the_route_is_committed_again_each_loop(db):
+    seqs = []
+    database.callback_add("t", "FPLSEQ", lambda k, v, u: seqs.append((v[0], database.read("FPLCOUNT")[0])), None)
+    p = make()
+    loops(p, 2)
+    p.run()
+    p.thread.join(60)
+    # commit, clear, commit, clear: each one past the last, the clears empty
+    assert [s for s, _ in seqs] == [1, 2, 3, 4]
+    assert [c > 0 for _, c in seqs] == [True, False, True, False]
+    assert p.status["Loops"] == 1
+
+
+def test_the_restart_holds_position_bad_and_the_next_loop_clears_it(db):
+    p = make({"restart_s": 0})
+    seen = []
+
+    def after_clear():
+        demo.MainThread._clear_plan(p.thread)
+        seen.append(database.read("LAT")[3])
+        if len(seen) == 2:
+            p.thread.halt.set()
+
+    p.thread._clear_plan = after_clear
+    bad_mid_loop = []
+    database.callback_add("t", "LAT", lambda k, v, u: bad_mid_loop.append(v[3]), None)
+    p.run()
+    p.thread.join(60)
+    assert seen == [True, True]
+    # the second loop's first position write cleared it
+    first_of_loop2 = bad_mid_loop.index(True) + 1
+    assert bad_mid_loop[first_of_loop2] is False
+
+
+def test_renumber_follows_the_gateways_seq_and_acks():
+    rows = [(0.0, {"FPLSEQ": 1, "LAT": 1.0}), (0.2, {"FPLCMD": "1 ACT 3"}), (9.0, {"FPLCMD": "2 RESUME"})]
+    out = demo.renumber(rows, 17, 40)
+    assert out == [(0.0, {"FPLSEQ": 17, "LAT": 1.0}), (0.2, {"FPLCMD": "41 ACT 3"}),
+                   (9.0, {"FPLCMD": "42 RESUME"})]
+    assert rows[0][1]["FPLSEQ"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Refusing company
+# ---------------------------------------------------------------------------
+
+def test_refuses_at_start_when_another_plugin_writes_a_source_key(db):
+    as_plugin("stratux", "ROLL", 3.0)
+    p = make()
+    with pytest.raises(plugin_base.PluginFail, match="ROLL"):
+        p.start()
+    assert p.status["State"] == "refused"
+    assert "stratux" in p.status["Reason"]
+    assert demo_keys() == set()
+
+
+def test_refuses_after_watching_when_a_source_starts_writing(db, flown, monkeypatch):
+    # xplane comes up after demo's start check and writes during the watch
+    def gen(*a, **k):
+        as_plugin("xplane", "PITCH", 2.0)
+        return flown
+
+    monkeypatch.setattr(generator, "generate", gen)
+    p = make()
+    p.start()
+    p.thread.join(10)
+    assert p.status["State"] == "refused"
+    assert "PITCH (xplane)" in p.status["Reason"]
+    assert demo_keys() == set()
+
+
+def test_refuses_when_something_unattributed_moves_lat_long(db, flown, monkeypatch):
+    # a netfix client is attributed to netfix; a write from outside any
+    # plugin is not, and the live check is what sees it
+    def gen(*a, **k):
+        # from its own thread: on the demo's stack the write would be demo's
+        t = threading.Thread(target=database.write, args=("LAT", 34.9))
+        t.start()
+        t.join()
+        return flown
+
+    monkeypatch.setattr(generator, "generate", gen)
+    p = make()
+    p.start()
+    p.thread.join(10)
+    assert p.status["State"] == "refused"
+    assert "moving LAT" in p.status["Reason"]
+    assert demo_keys() == set()
+
+
+def test_stops_on_a_second_writer_while_running(db):
+    fast = FastClock(on_sleep=lambda n: as_plugin("gpsd", "LONG", -120.0) if n == 50 else None)
+    p = make(fast=fast)
+    p.start()
+    p.thread.join(30)
+    assert not p.thread.is_alive()
+    assert p.status["State"] == "stopped"
+    assert "LONG (gpsd)" in p.status["Reason"]
+    assert not p.is_running()
+    # it stopped at once: the row after the intruding write was not written
+    assert fast.n == 50
+
+
+def test_a_route_key_written_by_the_engine_does_not_stop_it(db):
+    # flightplan republishes the route on restore: a shared contract
+    fast = FastClock(on_sleep=lambda n: as_plugin("flightplan", "FPLNAME", "X") if n == 50 else None)
+    p = make(fast=fast)
+    loops(p, 1)
+    p.start()
+    p.thread.join(60)
+    assert p.thread.refused is None
+    assert p.status["State"] == "restarting"
+
+
+def test_refuses_a_speed_other_than_1(db):
+    p = make({"speed": 4})
+    with pytest.raises(plugin_base.PluginFail, match="real time"):
+        p.start()
+
+
+def test_refuses_without_the_sim_tier(db, monkeypatch):
+    monkeypatch.setitem(sys.modules, "fixgw.sim.generator", None)
+    p = make()
+    with pytest.raises(plugin_base.PluginFail, match=r"fixgw\[sim\]"):
+        p.start()
+
+
+def test_stop_ends_the_thread(db):
+    fast = FastClock()
+    p = make(fast=fast)
+    fast.on_sleep = lambda n: p.thread.halt.set() if n == 10 else None
+    p.start()
+    p.thread.join(10)
+    p.shutdown()
+    assert not p.thread.is_alive()
+    assert p.thread.refused is None
+
+
+# ---------------------------------------------------------------------------
+# Traffic (DEMO7) in the rewritten loop
+# ---------------------------------------------------------------------------
+
+def test_traffic_orbits_the_hold_fix_at_hold_altitude(db):
+    p = make()
+    loops(p, 2)
+    p.run()
+    p.thread.join(60)
+    assert p.thread.traffic.center == demo.hold_center(demo.route_rows(generator.generate(PROFILE),
+                                                                       set(database.listkeys()))[0])
+    lat, lon, alt = p.thread.traffic.center
+    assert (round(lat, 3), round(lon, 3), alt) == (35.073, -120.663, 4000.0)   # WINCH, +4000
+    assert database.read("TFCCOUNT")[0] == 3
+
+
+def test_refuses_beside_stratux_writing_traffic(db):
+    as_plugin("stratux", "TFC1TGT", 5)
+    p = make()
+    with pytest.raises(plugin_base.PluginFail, match="TFC1TGT"):
+        p.start()
+
+
+def test_with_traffic_off_the_tfc_block_is_not_its_own(db):
+    as_plugin("stratux", "TFC1TGT", 5)
+    p = make({"traffic": False})
+    loops(p, 1)
+    p.start()
+    p.thread.join(60)
+    assert p.thread.refused is None
+    assert p.thread.traffic is None
+    assert not {k for k in demo_keys() if k.startswith("TFC")}
+
+
+def test_without_a_tfc_block_it_says_so_once_and_flies_without_traffic(db, monkeypatch, caplog):
+    real = database.listkeys
+    monkeypatch.setattr(database, "listkeys", lambda: [k for k in real() if not k.startswith("TFC")])
+    p = make()
+    loops(p, 1)
+    p.start()
+    p.thread.join(60)
+    assert p.thread.refused is None
+    assert p.thread.traffic is None
+    errors = [r.message for r in caplog.records if r.levelname == "ERROR"]
+    assert len(errors) == 1 and "TFC block" in errors[0]
+
+
+# ---------------------------------------------------------------------------
+# Its own keys (DEMO4): the DEMO marking and the kiosk page
+# ---------------------------------------------------------------------------
+
+def test_demolive_is_true_while_it_flies_and_false_when_it_stops(db):
+    seen = []
+    database.callback_add("t", "DEMOLIVE", lambda k, v, u: seen.append(v[0]), None)
+    fast = FastClock()
+    p = make(fast=fast)
+    fast.on_sleep = lambda n: p.thread.halt.set() if n == 100 else None
+    p.start()
+    p.thread.join(30)
+    assert not p.thread.is_alive()
+    assert database.read("DEMOLIVE")[0] is False
+    assert seen[0] is True and seen[-1] is False
+    assert database.get_raw_item("DEMOLIVE").writers == ["demo"]
+
+
+def _live_stamps(p):
+    """The clock at each DEMOLIVE write the thread makes."""
+    stamps = []
+    item = database.get_raw_item("DEMOLIVE")
+    real = item.set
+
+    def stamped(value, **kw):
+        stamps.append((p.thread.clock(), value))
+        real(value, **kw)
+
+    item.set = stamped
+    return stamps
+
+
+def test_demolive_is_refreshed_about_once_a_second_inside_its_tol(db):
+    fast = FastClock()
+    p = make(fast=fast)
+    stamps = _live_stamps(p)
+    fast.on_sleep = lambda n: p.thread.halt.set() if n == 300 else None
+    p.start()
+    p.thread.join(30)
+    trues = [t for t, v in stamps if v]
+    gaps = [b - a for a, b in zip(trues, trues[1:])]
+    assert len(trues) > 20
+    assert database.get_raw_item("DEMOLIVE").tol == 2000
+    assert all(1.0 <= g < 1.5 for g in gaps), gaps
+
+
+def test_demolive_stays_live_through_the_restart_hold(db):
+    p = make({"restart_s": 10})
+    stamps = _live_stamps(p)
+    holds = []
+    real_hold = p.thread._hold
+
+    def hold(s):
+        holds.append(p.thread.clock())
+        r = real_hold(s)
+        p.thread.halt.set()
+        return r
+
+    p.thread._hold = hold
+    p.start()
+    p.thread.join(60)
+    in_hold = [t for t, v in stamps if v and t >= holds[0]]
+    assert in_hold[-1] - holds[0] >= 9.0
+    assert all(b - a < 1.5 for a, b in zip(in_hold, in_hold[1:]))
+
+
+def test_it_writes_the_scheduled_page_at_its_route_time_each_loop(db):
+    pages = []
+    fast = FastClock()
+    p = make({"pages": [{"at": 120, "page": "FPL"}, {"at": 0, "page": "PFD"},
+                        {"at": 400, "page": "MAP/Layers"}]}, fast=fast)
+    starts = []
+    clear = p.thread._clear_plan
+
+    def cleared():
+        clear()
+        starts.append(fast.t)
+        if len(starts) == 2:
+            p.thread.halt.set()
+
+    p.thread._clear_plan = cleared
+    database.callback_add("t", "DEMOPAGE", lambda k, v, u: pages.append((fast.t, v[0])), None)
+    p.start()
+    p.thread.join(60)
+    assert p.thread.refused is None, p.status
+    assert [pg for _, pg in pages] == ["PFD", "FPL", "MAP/Layers"] * 2
+    t1 = [t for t, _ in pages[:3]]
+    assert t1[0] < 1.0 and 120 <= t1[1] < 121 and 400 <= t1[2] < 401
+    assert database.get_raw_item("DEMOPAGE").writers == ["demo"]
+
+
+def test_without_pages_it_never_writes_demopage(db):
+    p = make()
+    loops(p, 1)
+    p.start()
+    p.thread.join(60)
+    assert "DEMOPAGE" not in demo_keys()
+    assert "DEMOLIVE" in demo_keys()
+
+
+def test_page_rows_lands_each_entry_on_the_first_row_at_or_after_it():
+    rows = [(0.0, {"A": 1}), (0.2, {"A": 2}), (0.4, {"A": 3})]
+    out = demo.page_rows(rows, [(0.0, "PFD"), (0.3, "FPL"), (9.0, "EMS")])
+    # 0.3 lands on the 0.4 row, and 9.0 (past the end) on the same last
+    # row: the later entry wins
+    assert out == [(0.0, {"A": 1, "DEMOPAGE": "PFD"}), (0.2, {"A": 2}),
+                   (0.4, {"A": 3, "DEMOPAGE": "EMS"})]
+    assert "DEMOPAGE" not in rows[0][1]
+
+
+@pytest.mark.parametrize("bad", [
+    [{"at": 0}],
+    [{"at": 0, "page": ""}],
+    [{"at": -1, "page": "PFD"}],
+    [{"at": 0, "page": "PFD", "tab": "x"}],
+    ["PFD"],
+])
+def test_refuses_a_malformed_pages_entry(db, bad):
+    p = make({"pages": bad})
+    with pytest.raises(plugin_base.PluginFail, match="pages"):
+        p.start()
+    assert demo_keys() == set()
+
+
+def test_refuses_without_its_keys_so_it_never_runs_unmarked(db, monkeypatch):
+    real = database.listkeys
+    monkeypatch.setattr(database, "listkeys", lambda: [k for k in real() if k != "DEMOLIVE"])
+    p = make()
+    with pytest.raises(plugin_base.PluginFail, match="DEMOLIVE"):
+        p.start()
+    assert p.status["State"] == "refused"
+    assert demo_keys() == set()
+
+
+def test_a_second_writer_on_demolive_stops_it(db):
+    fast = FastClock(on_sleep=lambda n: as_plugin("netfix", "DEMOLIVE", True) if n == 50 else None)
+    p = make(fast=fast)
+    p.start()
+    p.thread.join(30)
+    assert p.status["State"] == "stopped"
+    assert "DEMOLIVE (netfix)" in p.status["Reason"]
+    assert database.read("DEMOLIVE")[0] is False

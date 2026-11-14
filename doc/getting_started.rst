@@ -23,10 +23,10 @@ Then run one of the two helper scripts.
 
 ::
 
-    ./fixgw.py
-    ./fixgwc.py
+    ./fixGw.py
+    ./fixGwClient.py
 
-These will run the client and the server respectively.
+These will run the server and the client respectively.
 
 The configuration files are in the ``fixgw/config`` directory.
 
@@ -132,10 +132,10 @@ a specific connection plugin.  Here is a short snippet of the connections list..
   connections:
     # Network FIX Protocol Interface
     netfix:
-      load: yes
+      load: NETFIX
       module: fixgw.plugins.netfix
       type: server
-      host: 0.0.0.0
+      host: 127.0.0.1
       port: 3490
       buffer_size: 1024
       timeout: 1.0
@@ -194,6 +194,12 @@ load an alternate configuration file and turn debugging on...
 
 FGW will load the ``test.yaml`` file instead of the ``default.yaml``
 configuration file that ships with the program.
+
+On startup FGW copies new and updated configuration files from the package
+into ``~/makerplane/fixgw/config``. Files you have edited are not replaced; the
+new version is written beside them with a ``.dist`` extension. This update
+also runs when ``--config-file`` names a file inside
+``~/makerplane/fixgw/config``. A ``--config-file`` anywhere else is not updated.
 
 Running the client
 -------------------

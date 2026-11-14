@@ -1,0 +1,49 @@
+name: Bug report
+description: Something on the display or in the software is wrong.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected to see instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: safety
+    attributes:
+      label: Could this show wrong data as valid, or hide a failure?
+      description: >-
+        Answer for the worst case you can imagine in flight, not just what you
+        saw. "Wrong data as valid" means a value that looks normal but is wrong:
+        no red X, no flag, no amber. "Hide a failure" means something stopped
+        working and the display did not say so. If the display went blank or
+        flagged the failure, that is a loss, not misleading data.
+      options:
+        - "Yes: it could show wrong data as valid, or hide a failure"
+        - "No, but a display or function was lost, and the loss was visible"
+        - "No: neither"
+        - "Not sure"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: Steps, the screen you were on, and the data source (X-Plane, Stratux, CAN bus, replay).
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Branch and commit, or release tag.
+    validations:
+      required: false
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs, screenshots, config
+      description: Anything that helps. Drag images in here.
+    validations:
+      required: false

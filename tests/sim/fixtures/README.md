@@ -1,0 +1,223 @@
+# Recorded flights
+
+## `fp8_xplane_2026-10-29.csv.gz`
+
+FP8 session 2 (AER-809, billmallard/pyEfis#190): X-Plane 12 on the pilotless
+sim bench, session `cbbeafe57646`, 2026-10-29 05:32Z, profile
+`fp8-ksmx-rnav30-missed` (`src/fixgw/sim/profiles/`), aircraft SR22, outcome
+`complete`. The KSMX RNAV (GPS) RWY 30 from 2 nm before PAMJI, the missed
+approach, +1 / -1 nm offsets on HANNU-WINCH, five minutes in the WINCH hold.
+X-Plane flew its own nav data (cycle 2406) and live weather (wind under 5 kt).
+That was X-Plane's default data provider; sessions from 2026-10-31 use another
+(XPB-021 in `src/fixgw/sim/XPLANE_BEHAVIORS.md`), so name the provider and cycle
+for every recording added here.
+
+Columns, 5 Hz, X-Plane's own state (the bench's `truth.jsonl`):
+`t` (s), `lat`, `lon`, `alt_ft`, `gs_kt`, `trk` (true), and X-Plane's GPS
+navigator: `xp_wpt` (active waypoint), `xp_crs` (deg mag), `xp_hdef_dot`
+(2.5 dots = full scale), `xp_fromto` (1 TO, 2 FROM).
+
+Regenerate (sim bench contract: `makerplane/processes/sim_bench.md`):
+
+```sh
+curl -s -H "Authorization: Bearer $XPBENCH_TOKEN" \
+  http://10.110.10.167:8770/sessions/cbbeafe57646/truth > truth.jsonl
+python3 - <<'PY'
+import csv, gzip, json
+T = [json.loads(l) for l in open("truth.jsonl")]
+with gzip.open("fp8_xplane_2026-10-29.csv.gz", "wt", newline="") as f:
+    w = csv.writer(f)
+    w.writerow(["t", "lat", "lon", "alt_ft", "gs_kt", "trk", "xp_wpt", "xp_crs", "xp_hdef_dot", "xp_fromto"])
+    for r in T:
+        w.writerow(["%.2f" % r["t"], "%.7f" % r["lat"], "%.7f" % r["lon"], "%.1f" % r["alt_ft"],
+                    "%.1f" % r["gs_kt"], "%.2f" % r["trk"], r["gps_id"], "%.3f" % r["gps_crs_mag"],
+                    "%.4f" % r["gps_hdef_dot"], r["gps_fromto"]])
+PY
+```
+
+Replayed by `tests/sim/test_fp8_xplane_replay.py` through `tests/sim/xplane_replay.py`,
+and by the simulated-flight gate (the "Simulated flights" CI job) through
+`fp8_xplane_2026-10-29.yaml`. That file names the trace and the profile and
+carries the X-Plane tier's checks: `FPLCRS` against `EXTCRS` and `FPLCDI`
+against `EXTCDI`, from the FP8 brief's acceptance, with each comparison skip
+and its reason in the file.
+
+## `fp8_bench_bus_2026-10-29.csv.gz`
+
+The recorder output for the same flight: the Beelink gateway's bus at 1 Hz,
+logged by `fp8_logger2.py` (AER-809 bench scratch) during session 2. The live
+engine (fix-gateway 2666bc4) is in `FPL*`/`WP*`, and X-Plane's navigator as the
+bench's `xplane` plugin wrote it is in `EXTCRS`/`EXTCDI`. `t` is the Beelink's
+epoch. Trace time is `t - 1793251953.66` (`BUS_EPOCH` in `xplane_replay.py`),
+found by position (0.0015 nm median, 0.006 nm worst). The rows are trimmed to
+the trace's span, 1229 rows, with the columns as logged. `EXTTF` is 0
+throughout: the bench did not map it until fix-gateway#41, after this flight.
+
+`tests/sim/test_fp8_bench_bus.py` uses it to show that the trace's navigator
+columns are the bus keys. On the aligned rows the bus `EXTCRS` matches
+`gps_crs_mag` to 0.0006 deg, and `EXTCDI` matches 0.4 x `gps_hdef_dot` to
+0.005. `test_fp8_xplane_replay.py` reads the live engine's sequence points
+from it.
+
+Regenerate (the raw log stays on the Beelink):
+
+```sh
+scp pyefis@10.110.10.241:bench-scratch/aer809/fp8_s2.csv .
+python3 - <<'PY'
+import csv, gzip, io
+OFF = 1793251953.66
+rows = list(csv.reader(open("fp8_s2.csv")))
+keep = [r for r in rows[1:] if 55.69 + OFF <= float(r[0]) <= 1283.79 + OFF]
+s = io.StringIO()
+w = csv.writer(s, lineterminator="\n")
+w.writerow(rows[0])
+w.writerows(keep)
+with gzip.GzipFile("fp8_bench_bus_2026-10-29.csv.gz", "wb", mtime=0) as g:
+    g.write(s.getvalue().encode())
+PY
+```
+
+## `sim2b_v27_xplane_2026-11-01.csv.gz`
+
+The first recorded flight on an airway: V27 from 3 nm before HENER through
+VTU and EXERT to DOYLE, slice 2 of the RS3 golden route KSBA GVO V27 AVOLS
+KSMX (SIM2b, AER-4464, billmallard/pyEfis#324). Pilotless sim bench session
+`9b6d523db79a`, 2026-11-01 10:32Z, X-Plane 12, SR22, 7,000 ft, outcome
+`complete`. X-Plane flew its own nav data: the session reports cycle 2611,
+which from 2026-10-31 is XPNavData in `Custom Data` (XPB-021); the route
+block is from the FAA CIFP 2611 pack. The profile was submitted inline, before fix-gateway's loader read en-route
+items; since SIM3b (AER-5173) it is committed as
+`src/fixgw/sim/profiles/sim2b-v27-s2-hener-doyle.yaml`, with the synthetic
+tier's `cifp.file`, `environment` and `checks` added, and the gate flies it
+there too. The X-Plane tier was sent:
+
+```yaml
+name: sim2b-v27-s2-hener-doyle
+departure: KSBA
+destination: KSMX
+cifp: {cycle: "2611"}
+aircraft: {tas_kt: 110}
+start: {fix: HENER, before_nm: 3.0, alt_ft: 7000, heading: on_course}
+route:
+  - waypoint: GVO
+  - airway: {id: V27, exit: AVOLS}
+end: {after_fix: DOYLE, max_s: 2100}
+```
+
+Same columns as the FP8 trace. Regenerated the same way, from session
+`9b6d523db79a`, then trimmed at `t < 1442.8`: the row after it is X-Plane
+switching to PAROL 0.2 nm before DOYLE (XPB-001) as the session ends, which
+the engine, on the same position, has not yet done.
+
+## `turn2b_v27_gvo_xplane_2026-11-01.csv.gz`
+
+V27 slice 1, KSBA GVO GOLET KWANG DEANO HENER VTU: pilotless sim bench
+session `d419efeeea66`, 2026-11-01 07:44Z, X-Plane 12, night 2 of SIM2b
+(AER-4464). The live engine sequenced every fix that night, before TURN2.
+GVO turns 153.8 deg. X-Plane's GPS anticipated it, so the aircraft began
+turning 1.22 nm before GVO and came no nearer than 0.741 nm. It never got
+abeam GVO, which is why the engine, which flies brief 3.3.1 row 3 as a
+fly-over since TURN2, stayed on GVO for good until TURN2b (AER-5172,
+AER-5324). The trace starts 2.9 nm before GVO and ends at VTU, at
+t = 1621 s.
+
+Columns: `t lat lon alt_ft gs_kt trk xp_wpt xp_crs`, as in the FP8 trace,
+less X-Plane's deviation and TO/FROM. This copy carries only what the
+AER-5172 replay took from the session (`~/bench-scratch/aer5172/s1.json` on
+the Beelink), so no CDI comparison can be made
+on it. It is flown with `v27_route_block.json`, ACT 2, MAGVAR -11.67, the
+value the AER-5172 replay wrote. `tests/sim/test_turn2b_reversal_replay.py`
+checks that the engine sequences every fix X-Plane did, in order and
+within 10 s, and GVO past the closest approach. On the engine before
+TURN2b it fails: no sequence at all after ACT.
+
+## `v27_route_block.json`
+
+The route block the bench loaded for that flight: KSBA, V27 GVO..AVOLS as
+one airway segment (slots 2-12), KSMX, written by pyEfis's own
+`FixBridge.publish` (pyEfis dev `79b9e5c`, the bench's AIRAC 2611
+procedures pack) into a dict instead of the bus, with MAGVAR -11.45. A
+recording names it with `route_block:` and the activated slot with `act:`;
+`xplane_replay.fly_route` flies it with no pilot commands. The route block
+is what the bench was really loaded with, so the replay keeps it rather
+than rebuilding it from the profile the recording also names.
+`tests/sim/test_enroute.py` checks the two agree on every field a `TF` leg
+is flown from; the one difference is that pyEfis types the VORs VTU and SXC
+inside V27 as fixes. Regenerate on the Beelink with the AER-4464 bench follower's
+`publish_golden` against a recording client (agent scratch
+`scratch/sim2b/v27_follow.py`; the commands are on AER-4464).
+
+`sim2b_v27_xplane_2026-11-01.yaml` carries the X-Plane tier's checks,
+`FPLCRS`/`EXTCRS` within 2 deg and `FPLCDI`/`EXTCDI` within 0.1 of the same
+sign, plus the sequence HENER VTU EXERT DOYLE. Measured since TURN1
+(AER-4759): course within 0.12 deg on 5,758 rows and CDI within 0.001 on
+5,733, outside 6 s of each sequence and of the engine's turn start, and
+for the CDI outside the second half of the turn's arc (XPB-023). Moving VTU 1.8 nm in
+the route block fails both pair checks; renaming EXERT fails the sequence.
+
+## `qa1_kssf_r28_xplane_2026-11-01.csv.gz`, `qa1_kded_r30_xplane_2026-11-01.csv.gz`
+
+QA1's two X-Plane sessions (AER-4219, recordings added on AER-4299): X-Plane
+12 on the pilotless sim bench, aircraft SR22, both outcome `complete`, wind
+under 4 kt, on XPNavData cycle 2611 (XPB-021):
+
+- `acdbb0757fca`, 2026-11-01 05:15Z, profile `qa1-missed-coded-turn-kssf-r28`:
+  KSSF RNAV (GPS) 28 via XTEND from 2 nm before GEARE, the missed approach
+  with its coded right turn direct GANLE, two minutes in the GANLE hold.
+- `ea108163a87d`, 2026-11-01 04:00Z, profile `qa1-hold-teardrop-left-kded-r30`:
+  KDED RNAV (GPS) 30 via OAKIE from 2 nm before CUGAK, the missed approach to
+  the left-hand BARBS hold, ten minutes in it.
+
+The profiles, their synthetic-tier checks and QA's verdicts on these
+sessions (F3, the entry) are QA's. Only the recorded session outputs are
+kept here; nothing comes from X-Plane's `Custom Data`.
+
+Same columns as the FP8 trace, regenerated the same way from each session's
+`/truth` (no trimming), except that the file is written with
+`gzip.GzipFile(..., "wb", mtime=0)` so that it is byte-for-byte reproducible.
+
+Neither session logged a bus, so there is no recorder output beside them,
+and the bench's FIX MAGVAR (X-Plane's own variation) was never recorded.
+Each `.yaml` carries it as `magvar:`, recovered from X-Plane's navigator: the
+median of X-Plane's course minus the engine's true course on the legs before
+the missed approach. On FP8, where the bus was logged, that method recovers
+the bus MAGVAR within 0.05 deg on every leg; `test_qa1_xplane_replay.py`
+asserts both. It is not the profile's `magvar_deg`, the CIFP's published
+variation: at KDED that is 5.0 and X-Plane's is 7.09, which puts every
+course 2.1 deg off. Each `.yaml` also names the pilot commands (`pilot:`, the
+profile's own RESUME 5 s after the MAP), which `xplane_replay.fly` replays.
+
+Measured with the checks in each `.yaml` since TURN1 (AER-4759, fly-by
+turns on a 15 deg bank): KSSF course within 0.09 deg on 1,644 rows and CDI
+within 0.075 on 1,588; KDED course within 0.13 deg on 5,021 rows and CDI
+within 0.099 on 4,988 (at standard rate, AER-4715: CDI within 0.059 on
+1,628 and 0.093 on 5,023; before AER-4715, 0.034 on 1,614 and 0.011 on
+5,017, with the turn skipped). The skips are listed with
+their reasons in each file. Four are new since FP8. In a fly-by turn X-Plane
+turns its course before the engine: 0.4 s at GEARE, 2.3 s at HENER, 4.0 s
+at XEHMO since TURN1 (4.6-5.1 s at standard rate; XPB-001), so rows within
+6 s of the engine's turn start (`FPLALERT` dropping) are not compared. In the turn the engine's cross-track is from
+the turn's arc, to the arc's end (AER-4715), and the CDI is compared
+there. X-Plane's own deviation follows an arc too until the bisector, and
+the next leg's straight line after it (XPB-023), so through the second half
+of the turn the two differ by up to the arc's offset from that line. They
+measure different paths there, so from the bisector to the arc's end
+(`eng_arc_after_bisector`) the CDI is not compared (XPB-023). X-Plane's
+wider arc before the bisector is the 0.075 at GEARE and 0.099 at XEHMO. The
+course agrees within 0.09 deg in the turn. Both now change the TO fix at the bisector, in
+the same row at GEARE, XEHMO and HENER (AER-4675; before it the engine
+changed it 13-15 s earlier), so `skip_when_differ` only skips rows at
+straight-through fixes, where X-Plane changes it 0.2 nm early. And at KSSF
+the driver went Direct-To GANLE past the
+CA leg, so the missed approach is not compared. A 2.5 deg course error on
+one leg, a 0.15 CDI offset on one leg, or a skipped fix fails the gate on
+either recording.
+
+Every course and CDI check on an X-Plane recording carries a floor,
+`min_compared_share`, a little below the share of rows it compares today
+(KSSF 32%, KDED 60%, FP8 66%, SIM2b 92%). The `FPLALERT` window is opened by
+the engine's own output, so an engine that toggles it constantly excuses
+most of the flight: with that fault the KSSF and KDED checks compared 4% and
+8% of their rows and still passed, caught only by the sensitivity tests
+(QA, AER-4688). With the floor they fail on the share
+(`test_an_engine_toggling_fplalert_fails_the_fixture_checks`, AER-4693).

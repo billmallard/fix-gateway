@@ -17,24 +17,6 @@ items:
   initial: "Example value"
 
 
-# --- Open GCU contract keys (pyEfis docs/gcu_design.md) ---------------------
-# Selected altitude (altitude bug). Written by the gcu mapper on user action.
-- key: ALTSEL
-  description: "Selected Altitude"
-  type: int
-  min: -1000
-  max: 60000
-  units: ft
-  initial: 3000
-
-# GCU edit focus: which set-point the control-head knobs currently drive.
-# Written ONLY by the gcu mapper; displays subscribe to annunciate focus.
-# Values: NONE, BARO, HDG, CRS, ALT (extensible).
-- key: GCUSEL
-  description: "GCU Edit Focus"
-  type: str
-  initial: "NONE"
-
 # --- Moving-map control-binding keys ----------------------------------------
 # Hand-defined UI/setting keys so a button or knob can drive the moving map's
 # range/orientation/terrain at runtime (makerplane-data docs/control_bindings.md,
@@ -65,4 +47,13 @@ items:
   description: "Moving map terrain layer on/off"
   type: bool
   initial: true
+  tol: 0
+
+- key: MAPNDMODE
+  description: "Moving map ND mode (0=off, 1=expanded, 2=ctr)"
+  type: int
+  min: 0
+  max: 3                 # three modes (pyEfis map nd.ND_MODES)
+  units: index
+  initial: 0
   tol: 0

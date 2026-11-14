@@ -79,36 +79,101 @@ class AnnunciateItem(object):
         )
         if self.cond_bypass == "None":
             self.cond_bypass = None
-        if self.cond_bypass is not None:
-            tokens = self.cond_bypass.split()
-            if len(tokens) != 3:
-                # self.plugin.log.error("Wrong number of tokens given for conditional bypass: {}".format(self.key))
-                raise ValueError(
-                    "Wrong number of tokens given for conditional bypass: {}".format(
-                        self.key
-                    )
-                )
-            self.cond_item = plugin.db_get_item(tokens[0])
-            if self.cond_item is None:
-                raise ValueError(
-                    "Unknown Key {} for conditional bypass: {}".format(
-                        tokens[0], self.key
-                    )
-                )
-            try:
-                self.cond_oper = self.operators[tokens[1]]
-            except KeyError:
-                raise ValueError(
-                    "Unknown operator {} for conditional bypass: {}".format(
-                        tokens[1], self.key
-                    )
-                )
-            self.cond_value = self.cond_item.dtype(tokens[2])
-        self.start_bypass_latch = self.start_bypass is not None
+        # cond_bypass is one condition or a list of them.  The alarm is
+        # bypassed only while every condition holds, so a list lets one
+        # failed sensor fail to bypass rather than silence the alarm
+        # (AER-4370).
+        if self.cond_bypass is None:
+            conditions = []
+        elif isinstance(self.cond_bypass, str):
+            conditions = [self.cond_bypass]
+        else:
+            conditions = list(self.cond_bypass)
+        self.conditions = [self._parse_condition(c) for c in conditions]
+        # YAML gives start_bypass: no as False, which must not arm the latch
+        self.start_bypass_latch = bool(self.start_bypass)
         self.low_latch = False
         self.high_latch = False
 
         plugin.db_callback_add(self.key, self.evaluate)
+
+    def _parse_condition(self, cond):
+        tokens = cond.split()
+        if len(tokens) != 3:
+            raise ValueError(
+                "Wrong number of tokens given for conditional bypass: {}".format(
+                    self.key
+                )
+            )
+        item = self.plugin.db_get_item(tokens[0])
+        if item is None:
+            raise ValueError(
+                "Unknown Key {} for conditional bypass: {}".format(tokens[0], self.key)
+            )
+        try:
+            oper = self.operators[tokens[1]]
+        except KeyError:
+            raise ValueError(
+                "Unknown operator {} for conditional bypass: {}".format(
+                    tokens[1], self.key
+                )
+            )
+        return (item, oper, self._parse_operand(tokens[2], item))
+
+    def _parse_operand(self, token, item):
+        """The right side of a condition: a literal, or a FIX value read at
+        each evaluation (``IAS < IAS.Vgnd``), so the setting lives in the
+        database where the configurator writes it (AER-4619).
+        """
+        name, _, aux = token.partition(".")
+        if not name[:1].isalpha():
+            return item.dtype(token)
+        try:
+            ref = self.plugin.db_get_item(name)
+        except KeyError:
+            ref = None
+        if ref is None:
+            if aux:
+                raise ValueError(
+                    "Unknown Key {} for conditional bypass: {}".format(name, self.key)
+                )
+            return item.dtype(token)  # a word literal, e.g. True
+        if aux and aux not in ref.aux:
+            raise ValueError(
+                "Unknown aux {} for conditional bypass: {}".format(token, self.key)
+            )
+        if aux and ref.get_aux_value(aux) is None:
+            self.plugin.log.warning(
+                "{} is not set: {} will not be bypassed".format(token, self.key)
+            )
+        return (ref, aux)
+
+    def _operand_value(self, operand):
+        """The operand's value, or None when it cannot be trusted: an unset
+        aux, or a key that is old, bad or failed."""
+        if not isinstance(operand, tuple):
+            return operand
+        ref, aux = operand
+        if aux:
+            return ref.get_aux_value(aux)
+        v, _annunc, old, bad, fail, _secfail = ref.value
+        return None if old or bad or fail else v
+
+    def bypassed(self):
+        """True only when every bypass condition holds on trusted inputs.
+
+        An input that is old, bad or failed never satisfies a condition, and
+        neither does a threshold that is unset or untrusted, so a lost
+        sensor or a missing setting leaves the alarm armed.
+        """
+        if not self.conditions:
+            return False
+        for item, oper, operand in self.conditions:
+            v, _annunc, old, bad, fail, _secfail = item.value
+            value = self._operand_value(operand)
+            if old or bad or fail or value is None or not oper(v, value):
+                return False
+        return True
 
     def evaluate(self, k, x, udata):
         # The start bypass clears once the value is greater than the low
@@ -124,10 +189,7 @@ class AnnunciateItem(object):
                 self.start_bypass_latch = False
         else:
             self.start_bypass_latch = False
-        if self.cond_bypass is not None:
-            b = self.cond_oper(self.cond_item.value[0], self.cond_value)
-        else:
-            b = False
+        b = self.bypassed()
         # We are bypassed
         if b or self.start_bypass_latch:
             self.item.annunciate = False
@@ -153,6 +215,9 @@ class AnnunciateItem(object):
             else:
                 self.item.annunciate = False
 
+    def callbacks(self):
+        return [self.key]
+
     def __str__(self):
         s = []
         s.append(self.key)
@@ -166,6 +231,89 @@ class AnnunciateItem(object):
         return "\n".join(s)
 
 
+class DeviationItem(object):
+    """Annunciate a target key when a measured key strays from it.
+
+    Sets the annunciate flag on `key` (the target, e.g. ALTSEL) while
+    |deviation_from - key| exceeds `threshold`, holding it until the
+    deviation falls to `threshold - deadband`. pyEfis EFIS-ALTSEL-005/-009/
+    -010: ALT against ALTSEL, computed here so every client sees it.
+
+    With `arm_on_capture`, the alert only arms once the measured value has
+    come within `threshold` of the target, and a new target disarms it: no
+    alert on the climb to a newly selected altitude, only on leaving it
+    (Bill, AER-4328, 2026-10-31).
+
+    The `defaults` block does not apply: its aux points and percentage
+    deadband describe a value against its own limits, not a deviation.
+    """
+
+    def __init__(self, plugin, itemdef):
+        self.plugin = plugin
+        self.key = itemdef["key"]
+        self.ref_key = itemdef["deviation_from"]
+        self.item = plugin.db_get_item(self.key)
+        if self.item is None:
+            raise ValueError("Key {} not found".format(self.key))
+        try:
+            self.ref_item = plugin.db_get_item(self.ref_key)
+        except KeyError:
+            self.ref_item = None
+        if self.ref_item is None:
+            raise ValueError(
+                "Unknown Key {} for deviation: {}".format(self.ref_key, self.key)
+            )
+        if "threshold" not in itemdef:
+            raise ValueError("No threshold given for deviation: {}".format(self.key))
+        self.threshold = float(itemdef["threshold"])
+        self.deadband = float(itemdef.get("deadband", 0))
+        if self.threshold <= 0 or not 0 <= self.deadband < self.threshold:
+            raise ValueError(
+                "Deviation {} needs threshold > 0 and 0 <= deadband < threshold".format(
+                    self.key
+                )
+            )
+        self.arm_on_capture = bool(itemdef.get("arm_on_capture", False))
+        self.armed = not self.arm_on_capture
+        self.last_target = None
+        self.latch = False
+        plugin.db_callback_add(self.key, self.evaluate)
+        plugin.db_callback_add(self.ref_key, self.evaluate)
+
+    def evaluate(self, k, x, udata):
+        target = self.plugin.db_read(self.key)
+        ref = self.plugin.db_read(self.ref_key)
+        # A deviation from an invalid value means nothing: clear rather than
+        # alert on it. The invalid value carries its own flag to the display.
+        if self.arm_on_capture and target[0] != self.last_target:
+            self.armed = False                     # a new target: not yet captured
+            self.latch = False
+        self.last_target = target[0]
+        if any(v[2] or v[3] or v[4] for v in (target, ref)):
+            self.latch = False
+        else:
+            dev = abs(ref[0] - target[0])
+            if dev <= self.threshold:
+                self.armed = True
+            self.latch = self.armed and (
+                dev > self.threshold
+                or (self.latch and dev > self.threshold - self.deadband)
+            )
+        self.item.annunciate = self.latch
+
+    def callbacks(self):
+        return [self.key, self.ref_key]
+
+    def __str__(self):
+        s = []
+        s.append(self.key)
+        s.append("  Deviation From: {}".format(self.ref_key))
+        s.append("  Threshold: {}".format(self.threshold))
+        s.append("  Deadband: {}".format(self.deadband))
+        s.append("  Arm On Capture: {}".format("Yes" if self.arm_on_capture else "No"))
+        return "\n".join(s)
+
+
 class Plugin(plugin.PluginBase):
     def __init__(self, name, config, config_meta):
         super(Plugin, self).__init__(name, config, config_meta)
@@ -175,12 +323,16 @@ class Plugin(plugin.PluginBase):
         # This directory of functions are functions that aggregate a list
         # of inputs and produce a single output.
         for item in self.config["items"]:
-            i = AnnunciateItem(self, self.config["defaults"], item)
+            if "deviation_from" in item:
+                i = DeviationItem(self, item)
+            else:
+                i = AnnunciateItem(self, self.config["defaults"], item)
             self.items.append(i)
 
     def stop(self):
         for item in self.items:
-            self.db_callback_del(item.key, item.evaluate)
+            for key in item.callbacks():
+                self.db_callback_del(key, item.evaluate)
 
     def get_status(self):
         """The get_status method should return a dict or OrderedDict that

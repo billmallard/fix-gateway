@@ -23,6 +23,8 @@ try:
 except ImportError:
     _PYNMEA2_AVAILABLE = False
 
+from fixgw.nmea_fix import apb_guidance, gps_fix_type, rmb_cross_track_nm, rmc_magvar_east
+
 from ..base import AdapterHealth, NormalizedNavMessage, ParserAdapter, Position
 
 
@@ -32,12 +34,14 @@ class GarminNmeaAdapter(ParserAdapter):
     def __init__(self) -> None:
         self._parse_errors = 0
         self._last_sentence_type: str | None = None
+        self._gsa_mode: str | None = None
+        self._magvar_east: float | None = None
 
     def name(self) -> str:
         return "garmin_nmea"
 
     def supported_protocols(self) -> List[str]:
-        return ["NMEA 0183: $GPRMC, $GPGGA, $GPRMB, $GPAPB"]
+        return ["NMEA 0183: $GPRMC, $GPGGA, $GPGSA, $GPRMB, $GPAPB"]
 
     def parse_line(self, raw: bytes) -> List[NormalizedNavMessage]:
         if not _PYNMEA2_AVAILABLE:
@@ -55,6 +59,7 @@ class GarminNmeaAdapter(ParserAdapter):
         handler = {
             "RMC": self._parse_rmc,
             "GGA": self._parse_gga,
+            "GSA": self._parse_gsa,
             "RMB": self._parse_rmb,
             "APB": self._parse_apb,
         }.get(stype)
@@ -78,6 +83,8 @@ class GarminNmeaAdapter(ParserAdapter):
     def reset(self, reason: str = "") -> None:
         self._parse_errors = 0
         self._last_sentence_type = None
+        self._gsa_mode = None
+        self._magvar_east = None
 
     # ------------------------------------------------------------------
     # Sentence parsers — each returns a NormalizedNavMessage or None
@@ -86,6 +93,10 @@ class GarminNmeaAdapter(ParserAdapter):
     def _parse_rmc(self, msg) -> NormalizedNavMessage | None:
         if msg.status != "A":
             return None
+        # Held for APB, which may give the desired track as a true bearing.
+        magvar = rmc_magvar_east(msg)
+        if magvar is not None:
+            self._magvar_east = magvar
         out = NormalizedNavMessage()
         out.position = Position(lat_deg=msg.latitude, lon_deg=msg.longitude)
         if msg.spd_over_grnd is not None:
@@ -94,9 +105,16 @@ class GarminNmeaAdapter(ParserAdapter):
             out.ground_track_deg_true = float(msg.true_course)
         return out
 
+    def _parse_gsa(self, msg) -> NormalizedNavMessage | None:
+        # Held for the next GGA, which carries gps_fix_type once per epoch.
+        self._gsa_mode = msg.mode_fix_type
+        return None
+
     def _parse_gga(self, msg) -> NormalizedNavMessage | None:
+        # A GSA counts only for the GGA that follows it (see garmin_gnx375).
+        gsa_mode, self._gsa_mode = self._gsa_mode, None
         qual = int(msg.gps_qual) if msg.gps_qual is not None else 0
-        out = NormalizedNavMessage(gps_fix_type=qual)
+        out = NormalizedNavMessage(gps_fix_type=gps_fix_type(msg.gps_qual, msg.num_sats, gsa_mode))
         if qual == 0:
             return out
         out.position = Position(lat_deg=msg.latitude, lon_deg=msg.longitude)
@@ -105,15 +123,11 @@ class GarminNmeaAdapter(ParserAdapter):
         return out
 
     def _parse_rmb(self, msg) -> NormalizedNavMessage | None:
-        if msg.status != "A":
+        xtrack = rmb_cross_track_nm(msg)
+        if xtrack is None:
             return None
-        if msg.cross_track_err is None or msg.dir_steer not in ("L", "R"):
-            return None
-        xte_mag = float(msg.cross_track_err)
-        xtrack = xte_mag if msg.dir_steer == "L" else -xte_mag
         return NormalizedNavMessage(cross_track_error_nm_signed=xtrack)
 
     def _parse_apb(self, msg) -> NormalizedNavMessage | None:
-        if msg.bearing_present_dest is None:
-            return None
-        return NormalizedNavMessage(bearing_to_wp_deg=float(msg.bearing_present_dest))
+        dtk, to_from = apb_guidance(msg, self._magvar_east)
+        return NormalizedNavMessage(desired_track_deg_mag=dtk, to_from=to_from)
