@@ -78,7 +78,7 @@ Input/output plugins currently available:
 | `data_playback` | Replay recorded flight data |
 | `quorum` | Multi-source data arbitration / voting |
 | `annunciate` | Generate warning/caution/advisory annunciations from parameter limits |
-| `demo` | Simulated flight data for display testing |
+| `demo` | A simulated flight, looped, for display testing (needs the `sim` extra) |
 
 ## Installation
 
@@ -88,6 +88,13 @@ cd fixgw
 make venv
 source venv/bin/activate
 make init
+```
+
+The `demo` plugin, on in the shipped config, flies a simulated flight and
+needs the synthetic flight tier, which is an optional extra. Without it the
+demo logs that it is not starting and the rest of the gateway runs as normal:
+```bash
+pip install -e .[sim]
 ```
 
 Run the server:

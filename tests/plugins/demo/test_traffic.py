@@ -6,11 +6,8 @@ a bug the two shared would still fail here.  The rest runs on the real
 database loaded from src/fixgw/config/database.yaml, traffic block included.
 """
 
-import time
-
 import pytest
 
-import fixgw.plugins.demo as demo
 from fixgw import geo
 from fixgw.plugins.demo import traffic
 from fixgw.plugins.stratux import gdl90
@@ -238,48 +235,5 @@ def test_waits_for_a_good_ownship_position(database, scene, clock):
 
 
 # --- in the demo loop ---------------------------------------------------------
-
-
-def test_demo_plugin_puts_traffic_on_the_bus(database):
-    p = demo.Plugin("demo", {"traffic": True}, {})
-    p.run()
-    try:
-        deadline = time.time() + 5
-        want = {ident(t) for t in traffic.TARGETS}
-        while set(occupied(database)) != want:
-            assert time.time() < deadline, "demo traffic never reached the TFC block"
-            time.sleep(0.05)
-        # Around the keyframe demo's own ownship position.
-        n = occupied(database)[ident(traffic.TARGETS[0])]
-        lat = database.read("TFC{}LAT".format(n))[0]
-        lon = database.read("TFC{}LON".format(n))[0]
-        assert geo.distance_nm(40.0002, -82.8550, lat, lon) == pytest.approx(3.0, abs=0.01)
-    finally:
-        p.stop()
-
-
-def test_demo_plugin_traffic_false_writes_no_traffic(database):
-    p = demo.Plugin("demo", {"traffic": False}, {})
-    assert p.thread.traffic is None
-    p.run()
-    try:
-        time.sleep(1.5)
-        assert occupied(database) == {}
-    finally:
-        p.stop()
-
-
-def test_demo_plugin_without_a_tfc_block_says_so_once(database, monkeypatch):
-    real = database.get_raw_item
-
-    def no_tfc(key):
-        if key.startswith("TFC"):
-            raise KeyError(key)
-        return real(key)
-
-    monkeypatch.setattr(demo.plugin.PluginBase, "db_get_item", lambda self, k: no_tfc(k))
-    p = demo.Plugin("demo", {}, {})
-    log = Log()
-    p.thread.log = log
-    assert p.thread._traffic() is None
-    assert len(log.errors) == 1 and "TFC block" in log.errors[0]
+# The rewritten demo (DEMO2) flies traffic in its loop; those tests are in
+# test_demo.py (the hold centre, traffic off, no TFC block, the TFC refusal).

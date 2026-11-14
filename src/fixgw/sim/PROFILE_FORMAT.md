@@ -492,6 +492,36 @@ SIGUSR1 grab, so its SVS panel is always blank. The Pi 5 has
 no screenshot of any kind (eglfs); drive it the same way with `--host`,
 and its proof is the readback log and someone looking at the glass.
 
+## In the gateway: the demo source (DEMO2)
+
+The `demo` plugin (`fixgw/plugins/demo`, on in the shipped config) is live
+mode run inside the gateway instead of over netfix, so the writer registry
+(AER-4476) names every write `demo`. It flies `profile` (default
+`fp8-ksmx-rnav30-missed.yaml`) at x1 and starts over at the end. The steps
+are the ones above, with these differences:
+
+- It writes the generator's sensor keys and the route block and `FPLCMD`,
+  never `REF*`: the reference navigator is the CI check, not part of the
+  demo. A key the database lacks is named once and skipped.
+- Before writing anything it refuses when another plugin has written one of
+  the sensor keys, and when `LAT`/`LONG` move during `watch_s` (3 s). The
+  second check is the one that sees a writer outside any plugin.
+- While it flies, another plugin writing a sensor key stops it for good
+  (plugin status `stopped`, a critical log line). The route keys are not
+  watched: the engine republishes them on restore, and an editor may commit
+  a route.
+- At the end of the route it clears the plan (an empty route, committed),
+  flags `LAT`/`LONG` bad, waits `restart_s` (5 s), and commits the route
+  again under the next `FPLSEQ`, with commands numbered after the last ack.
+- It runs at x1 only, and refuses a `speed` other than 1.
+- With `traffic` on (the default), three ADS-B targets orbit the route's
+  hold fix at its altitude, through the stratux plugin's GDL90 decoder
+  (DEMO7). The TFC block is then watched like the sensor keys.
+
+Its plugin status reports `State` (`watching`, `flying`, `restarting`,
+`refused`, `stopped`), the profile, the route's length in seconds and the
+loops completed.
+
 ## What changed from the plan's sketch (`briefs/sim_bench_plan.md` section 3)
 
 - `cifp_cycle` became `cifp: {cycle, file}`: the cycle is checked against
