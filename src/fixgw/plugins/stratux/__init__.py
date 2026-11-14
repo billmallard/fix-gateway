@@ -3,8 +3,10 @@ import threading
 import time
 from collections import OrderedDict
 import fixgw.plugin as plugin
-from fixgw.plugins.stratux import gdl90
+from fixgw.plugins.stratux import fisb, gdl90
 from fixgw.plugins.stratux.traffic import TrafficWriter, resolve_ownship_address
+from fixgw.plugins.stratux import weather
+from fixgw.plugins.stratux.weather import WeatherStore
 import socket
 import struct
 import math
@@ -15,6 +17,9 @@ RECV_TIMEOUT = 0.25
 
 # How often the count of datagrams dropped by the source filter is logged.
 DROP_REPORT_S = 60.0
+
+# How often aged-out FIS-B products are purged and the counts refreshed.
+FISB_TICK_S = 1.0
 
 
 def parse_source(value, log):
@@ -82,6 +87,15 @@ class MainThread(threading.Thread):
                     ownship_address=address,
                 )
 
+        # FIS-B text weather from the 0x07 Uplink message, held in a store
+        # rather than FIX keys (AER-5651).  The receive time is this host's
+        # UTC clock: the message carries none.
+        self.weather = None
+        self.wall_clock = time.time
+        self.fisb_tick_at = 0.0
+        if config.get("fisb", False):
+            self.weather = WeatherStore(self.log)
+
     def run(self):
 
         while not self.getout:
@@ -97,6 +111,7 @@ class MainThread(threading.Thread):
                 self.dispatch(msg)
             if self.traffic is not None:
                 self.traffic.tick()
+            self.fisb_tick()
 
         self.s.close()
         self.running = False
@@ -113,6 +128,24 @@ class MainThread(threading.Thread):
                 % (adr[0], self.source or "invalid")
             )
         return False
+
+    def fisb_tick(self):
+        if self.weather is None:
+            return
+        tick = time.monotonic()
+        if tick < self.fisb_tick_at:
+            return
+        self.fisb_tick_at = tick + FISB_TICK_S
+        now = self.wall_clock()
+        self.weather.purge(now)
+        kinds = self.weather.kind_counts()
+        states = [s for _p, s in self.weather.products(now)]
+        self.parent.status["FIS-B uplinks"] = self.weather.counts["uplinks"]
+        self.parent.status["FIS-B products"] = sum(kinds.values())
+        self.parent.status["FIS-B current"] = states.count(weather.CURRENT)
+        self.parent.status["FIS-B by kind"] = ", ".join(
+            "%s %d" % kv for kv in sorted(kinds.items())
+        )
 
     def report_drops(self):
         now = time.monotonic()
@@ -161,6 +194,10 @@ class MainThread(threading.Thread):
             # GS goes stale instead of reading 4095 kt
             if gnd_speed != 0xFFF:
                 self.parent.db_write("GS", gnd_speed)
+        elif msg[0] == fisb.UPLINK and self.weather is not None:
+            uplink = fisb.parse_uplink_message(msg)
+            if uplink is not None:
+                self.weather.ingest(uplink, self.wall_clock())
 
         if self.traffic is not None:
             self.traffic.handle(msg)
