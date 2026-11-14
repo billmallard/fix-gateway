@@ -14,7 +14,7 @@
 
 items:
 - key: DEMOLIVE
-  description: Demo source live (true while the demo plugin runs; the DEMO marking)
+  description: Demo source live, true while the demo plugin runs (the DEMO marking)
   type: bool
   initial: false
   tol: 2000
