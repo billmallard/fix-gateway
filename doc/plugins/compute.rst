@@ -19,6 +19,9 @@ Configuration
 
 The plugin is configured with a list of ``functions``.  Each function names a
 ``function`` type, its ``inputs`` (a list of FIX keys), and its ``output`` key.
+An input named with a database variable expands as the database's keys do:
+with ``t: 3`` in ``database/variables.yaml``, ``FUELQt`` is ``FUELQ1``,
+``FUELQ2`` and ``FUELQ3``.
 
 ::
 
@@ -53,7 +56,10 @@ Function catalog
     Arithmetic mean of all ``inputs`` written to ``output``.
 
 ``sum``
-    Sum of all ``inputs``.
+    Sum of the ``inputs`` that have been written.  An input no source has
+    written yet is left out, so the sum publishes from the first one; once
+    written, an input's ``old`` / ``bad`` / ``fail`` flags carry to the
+    output.  The shipped ``FUELQT`` is ``sum`` over ``FUELQt``.
 
 ``max``
     Largest of the ``inputs`` (e.g. hottest CHT).

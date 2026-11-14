@@ -4,6 +4,11 @@
 ASCII protocol over TCP, served by the `netfix` plugin on port **3490** by
 default. pyEfis, moving maps, control heads, and the debug client all speak it.
 
+The shipped config binds **`127.0.0.1`**, so only clients on the same host can
+connect. NetFIX has no authentication, and a sentence with its flags omitted
+is written as valid. A client on another host needs `host:` set to the one
+interface that faces it; see [`doc/plugins/netfix.rst`](https://github.com/billmallard/fix-gateway/blob/dev/doc/plugins/netfix.rst), "Network exposure".
+
 Full spec: [`doc/appendix/netfixascii.rst`](https://github.com/billmallard/fix-gateway/blob/dev/doc/appendix/netfixascii.rst).
 
 Two kinds of line cross the socket: **data sentences** (a value + its flags) and
@@ -20,7 +25,8 @@ ID;value;aobfs
 ```
 - `ID` — the database key (e.g. `IAS`), same names as the [[The FIX Database]].
 - `value` — a **float** (has a decimal point), **int** (no point), **bool**
-  (`T`/`F`), or **string** (begins with `&`; may not contain `;`).
+  (`True`/`False`), or **string** (sent as is, with no prefix; may not contain
+  `;`).
 - `aobfs` — five quality flags, each `1`/`0`: **a**nnunciate, **o**ld, **b**ad,
   **f**ailed, **s**econdary-fail.
 
@@ -36,7 +42,13 @@ data is stale sets `bad` instead:
 ```
 ID;value;abfs
 ```
-Omitted flags are assumed `0`.
+Omitted flags are assumed `0`: `IAS;122.4` writes 122.4 with every flag clear,
+and `IAS;122.4;1` sets annunciate and clears the rest. A line with only a key,
+or with more than three fields, is ignored.
+
+On a write, a **bool** is true for `true`, `yes` or `1` in any case, or any
+nonzero integer, and false for anything else, so `T` writes false. A **string**
+is stored exactly as sent: a leading `&` becomes part of the value.
 
 ## Commands
 

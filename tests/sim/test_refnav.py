@@ -338,3 +338,81 @@ def test_hold_racetrack_guidance_is_centred_on_every_element():
         assert xtk == pytest.approx(0.0, abs=2e-3)
         assert abs(refnav.wrap180(g_dtk - dtk)) < 1.5
     assert h.circuits == 1
+
+
+# -- a DF's coded turn (AER-4541) ---------------------------------------------
+
+def _coded_df_legs(turn):
+    # A runway A, a CA on 090 true to 1,000 ft, then a DF to X, 130 deg to
+    # the left of the climb-out 5 nm away: right is a 230 deg turn.
+    a = (34.8, -120.4)
+    p = refnav.direct(*a, 90.0, 2.0)
+    x = refnav.direct(*p, 90.0 - 130.0, 5.0)
+    return [refnav.RefLeg("TF", "A", *a), refnav.RefLeg("CA", course_true=90.0, alt_ft=1000.0),
+            refnav.RefLeg("DF", "X", *x, turn=turn)], p
+
+
+def test_the_reference_reads_a_df_turn_direction_from_the_cifp():
+    cifp = Cifp(CIFP.parent / "FAACIFP18-2611-KSSF-R28")
+    lg = refnav.legs_from_cifp(cifp, "KSSF", "R28", "XTEND", -3.0)
+    df = next(x for x in lg if x.pt == "DF")
+    assert (df.ident, df.turn) == ("GANLE", "R")
+
+
+@pytest.mark.parametrize("turn", ["R", "L"])
+def test_a_coded_df_turns_the_coded_way_on_a_rate_one_circle_then_flies_the_tangent_to_the_fix(turn):
+    lg, p = _coded_df_legs(turn)
+    nav = refnav.ReferenceNavigator(lg, MV, (34.0, -120.0), 1, 110.0)
+    o = nav.update(0.0, *p, 1000.0, 110.0, 90.0)       # the CA ends here, on 090
+    assert (o.pt, o.wpt, o.turn_hint, o.phase) == ("DF", "X", turn, "DF TURN")
+    assert o.dtk_true == pytest.approx(90.0, abs=0.01) and o.xtk_nm == pytest.approx(0.0, abs=1e-6)
+    # Around the circle: centre R to the turn side of P, rate one at 110 kt.
+    r = refnav.turn_radius_nm(110.0)
+    side = 90.0 + (90.0 if turn == "R" else -90.0)
+    c = refnav.direct(*p, side, r)
+    start_az = refnav.inverse(*c, *p)[1]
+    sign = 1.0 if turn == "R" else -1.0
+    seen = []
+    for k, swept in enumerate(range(10, 400, 10)):
+        q = refnav.direct(*c, start_az + sign * swept, r)
+        o = nav.update(1.0 + k, *q, 1000.0, 110.0, 0.0)
+        if o.phase != "DF TURN":
+            break
+        assert o.xtk_nm == pytest.approx(0.0, abs=1e-6)
+        assert refnav.wrap180(o.dtk_true - 90.0 - sign * swept) == pytest.approx(0.0, abs=0.05)
+        seen.append(swept)
+    # Out of the turn: the line from where the circle's tangent points at X.
+    t = nav._line
+    assert refnav.inverse(t.lat, t.lon, *c)[0] == pytest.approx(r, abs=1e-6)
+    tangent_az = refnav.inverse(*c, t.lat, t.lon)[2] + sign * 90.0
+    assert refnav.wrap180(t.azimuth - tangent_az) == pytest.approx(0.0, abs=0.05)
+    assert refnav.inverse(t.lat, t.lon, lg[2].lat, lg[2].lon)[1] == pytest.approx(t.azimuth, abs=1e-9)
+    assert o.turn_hint == ""
+    # The turn swept to that line's course the coded way: right the long
+    # way round (over 180 deg), left the short way.
+    total = (t.azimuth - 90.0) % 360.0 if turn == "R" else (90.0 - t.azimuth) % 360.0
+    assert (total > 180.0) == (turn == "R")
+    assert total - 10.0 <= seen[-1] <= total
+
+
+def test_a_df_with_no_turn_coded_is_the_line_from_where_it_began():
+    lg, p = _coded_df_legs("")
+    nav = refnav.ReferenceNavigator(lg, MV, (34.0, -120.0), 1, 110.0)
+    o = nav.update(0.0, *p, 1000.0, 110.0, 90.0)
+    assert (o.wpt, o.turn_hint) == ("X", "")
+    assert o.dtk_true == pytest.approx(refnav.inverse(*p, lg[2].lat, lg[2].lon)[1], abs=0.01)
+
+
+def test_no_fly_by_turn_is_anticipated_into_a_coded_df():
+    # B to a coded DF: the DF's turn starts abeam B, so B has no lead.
+    b = (34.8, -120.4)
+    a = refnav.direct(*b, 180.0, 10.0)
+    c = refnav.direct(*b, 90.0, 10.0)
+    lg = [refnav.RefLeg("IF", "A", *a), refnav.RefLeg("TF", "B", *b), refnav.RefLeg("DF", "C", *c, turn="L")]
+    nav = refnav.ReferenceNavigator(lg, MV, b, 1, 110.0)
+    lat, lon, azi = _on_leg(lg, 1, 0.5)
+    o = nav.update(0.0, lat, lon, 3000.0, 110.0, azi)
+    assert o.wpt == "B" and o.dtk_true == pytest.approx(0.0, abs=0.1) and nav._arc is None
+    lat, lon, azi = _on_leg(lg, 1, -0.01)
+    o = nav.update(1.0, lat, lon, 3000.0, 110.0, azi)
+    assert (o.wpt, o.turn_hint, o.phase) == ("C", "L", "DF TURN")

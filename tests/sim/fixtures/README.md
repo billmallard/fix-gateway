@@ -85,8 +85,11 @@ KSMX (SIM2b, AER-4464, billmallard/pyEfis#324). Pilotless sim bench session
 `9b6d523db79a`, 2026-11-01 10:32Z, X-Plane 12, SR22, 7,000 ft, outcome
 `complete`. X-Plane flew its own nav data: the session reports cycle 2611,
 which from 2026-10-31 is XPNavData in `Custom Data` (XPB-021); the route
-block is from the FAA CIFP 2611 pack. The profile was submitted inline (an en-route profile is X-Plane
-tier only until fix-gateway's loader reads en-route items, SIM3b):
+block is from the FAA CIFP 2611 pack. The profile was submitted inline, before fix-gateway's loader read en-route
+items; since SIM3b (AER-5173) it is committed as
+`src/fixgw/sim/profiles/sim2b-v27-s2-hener-doyle.yaml`, with the synthetic
+tier's `cifp.file`, `environment` and `checks` added, and the gate flies it
+there too. The X-Plane tier was sent:
 
 ```yaml
 name: sim2b-v27-s2-hener-doyle
@@ -106,15 +109,41 @@ Same columns as the FP8 trace. Regenerated the same way, from session
 switching to PAROL 0.2 nm before DOYLE (XPB-001) as the session ends, which
 the engine, on the same position, has not yet done.
 
+## `turn2b_v27_gvo_xplane_2026-11-01.csv.gz`
+
+V27 slice 1, KSBA GVO GOLET KWANG DEANO HENER VTU: pilotless sim bench
+session `d419efeeea66`, 2026-11-01 07:44Z, X-Plane 12, night 2 of SIM2b
+(AER-4464). The live engine sequenced every fix that night, before TURN2.
+GVO turns 153.8 deg. X-Plane's GPS anticipated it, so the aircraft began
+turning 1.22 nm before GVO and came no nearer than 0.741 nm. It never got
+abeam GVO, which is why the engine, which flies brief 3.3.1 row 3 as a
+fly-over since TURN2, stayed on GVO for good until TURN2b (AER-5172,
+AER-5324). The trace starts 2.9 nm before GVO and ends at VTU, at
+t = 1621 s.
+
+Columns: `t lat lon alt_ft gs_kt trk xp_wpt xp_crs`, as in the FP8 trace,
+less X-Plane's deviation and TO/FROM. This copy carries only what the
+AER-5172 replay took from the session (`~/bench-scratch/aer5172/s1.json` on
+the Beelink), so no CDI comparison can be made
+on it. It is flown with `v27_route_block.json`, ACT 2, MAGVAR -11.67, the
+value the AER-5172 replay wrote. `tests/sim/test_turn2b_reversal_replay.py`
+checks that the engine sequences every fix X-Plane did, in order and
+within 10 s, and GVO past the closest approach. On the engine before
+TURN2b it fails: no sequence at all after ACT.
+
 ## `v27_route_block.json`
 
 The route block the bench loaded for that flight: KSBA, V27 GVO..AVOLS as
 one airway segment (slots 2-12), KSMX, written by pyEfis's own
 `FixBridge.publish` (pyEfis dev `79b9e5c`, the bench's AIRAC 2611
 procedures pack) into a dict instead of the bus, with MAGVAR -11.45. A
-recording names it with `route_block:` and the activated slot with `act:`
-instead of a `profile:`; `xplane_replay.fly_route` flies it with no pilot
-commands. Regenerate on the Beelink with the AER-4464 bench follower's
+recording names it with `route_block:` and the activated slot with `act:`;
+`xplane_replay.fly_route` flies it with no pilot commands. The route block
+is what the bench was really loaded with, so the replay keeps it rather
+than rebuilding it from the profile the recording also names.
+`tests/sim/test_enroute.py` checks the two agree on every field a `TF` leg
+is flown from; the one difference is that pyEfis types the VORs VTU and SXC
+inside V27 as fixes. Regenerate on the Beelink with the AER-4464 bench follower's
 `publish_golden` against a recording client (agent scratch
 `scratch/sim2b/v27_follow.py`; the commands are on AER-4464).
 

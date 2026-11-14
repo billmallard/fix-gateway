@@ -55,11 +55,14 @@ items:
   initial: False
   tol: 300
 
+# Writer: the pilot, through pyEfis's squelch bar (an encoder edit). No
+# radio plugin ships, so nothing streams it. tol 0 (CERT2a, AER-5270): it is
+# written on change, so a tol would grey the bar after every edit.
 - key: COMSQUELCHd
   description: RX Squelch
   type: float
   initial: 0.0
-  tol: 300
+  tol: 0
   min: 0
   max: 10
 

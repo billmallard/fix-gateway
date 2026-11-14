@@ -102,6 +102,20 @@ def parse_ownship_address(value, log):
     return address
 
 
+# Where the ownship address comes from (AER-5468, BACKLOG P3f): the stratux
+# connection's own ownship_address when it is set, else the top-level
+# ownship_address preference, which pyefis-data config-pull writes into
+# preferences.yaml.custom from the configurator's aircraft profile.  A
+# malformed connection value is refused, not passed over for the preference.
+# Returns the address (or None) and where it came from, for the log.
+def resolve_ownship_address(config, preferences, log):
+    value, source = config.get("ownship_address"), "connection"
+    if value is None or value == "":
+        value, source = (preferences or {}).get("ownship_address"), "preferences"
+    address = parse_ownship_address(value, log)
+    return address, source if address is not None else None
+
+
 class Slot(object):
     def __init__(self, n):
         self.n = n

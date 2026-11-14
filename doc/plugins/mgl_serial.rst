@@ -13,6 +13,6 @@ engine_no: specify for which engine the readings are
 FUELQT ownership
 =========================
 A channel reported as fuel level is written to FUELQT. The shipped
-``compute.yaml`` also writes FUELQT, by summing FUELQ1-FUELQ3. FIX keys have
-one writer each, so when a fuel-level channel is wired, delete the compute
-function whose output is FUELQT.
+``compute.yaml`` also writes FUELQT, by summing FUELQ1..FUELQ<t>, one per
+tank. FIX keys have one writer each, so when a fuel-level channel is wired,
+delete the compute function whose output is FUELQT.

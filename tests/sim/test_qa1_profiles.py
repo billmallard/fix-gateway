@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from fixgw import geo
 from fixgw.sim import checks, generator
 from fixgw.sim.cifp import Cifp
 from fixgw.sim.profile import ProfileError, load_profile
@@ -109,17 +110,46 @@ def test_the_hold_entry_is_the_aim_entry_for_the_arrival(flown, path):
 
 # -- the missed approach's coded turn ------------------------------------------
 
-def test_kssf_codes_a_right_turn_the_long_way_round(flown):
-    # The scenario's premise, from the CIFP: the DF to GANLE is coded R while
-    # GANLE lies to the left of the climb-out. And tier SYN's blind spot,
-    # stated as a test: the generator turns the short way (left), so nothing
-    # in this tier exercises the coded direction.
-    prof, run, _ = flown(PROFILES / "qa1-missed-coded-turn-kssf-r28.yaml")
-    df = next(r for r in Cifp(prof.cifp_file).approach_legs("KSSF", "R28") if r.path_term == "DF")
-    assert (df.fix, df.turn) == ("GANLE", "R")
-    k = next(i for i, (_, r) in enumerate(run.rows) if r["REFWPT"] == "GANLE")
-    rolls = [r["ROLL"] for _, r in run.rows[k + 5:k + 40]]
-    assert max(rolls) < -10.0
+def _sweep(courses):
+    """The signed course change along a run of courses, right positive."""
+    return sum(checks._wrap180(b - a) for a, b in zip(courses, courses[1:]))
+
+
+def test_kssf_flies_the_coded_right_turn_the_long_way_round(flown):
+    # The scenario's premise, from the CIFP: the CA climbs out on 279.6 M to
+    # 1,100 ft and the DF to GANLE after it is coded R, while GANLE lies more
+    # than 90 deg to the left of the climb-out where the CA ends -- the short
+    # way is left and the procedure says right.
+    prof, run, rows = flown(PROFILES / "qa1-missed-coded-turn-kssf-r28.yaml")
+    cifp = Cifp(prof.cifp_file)
+    legs = cifp.approach_legs("KSSF", "R28")
+    n = next(i for i, r in enumerate(legs) if r.path_term == "DF")
+    ca, df = legs[n - 1], legs[n]
+    assert (ca.path_term, df.fix, df.turn) == ("CA", "GANLE", "R")
+    ganle = cifp.fix("GANLE", airport="KSSF", section=df.fix_section)
+    ca_true = (ca.course_mag - prof.magvar_deg) % 360.0
+    k = next(i for i, (_, r) in enumerate(run.rows) if r["REFPT"] == "DF")
+    _, r0 = run.rows[k]
+    assert abs(r0["ALT"] - int(ca.alt1)) < 50.0
+    off = checks._wrap180(geo.bearing_deg(r0["LAT"], r0["LONG"], ganle.lat, ganle.lon) - ca_true)
+    assert -150.0 < off < -90.0
+
+    # The turn, from where the DF begins to the first row tracking direct
+    # GANLE within 5 deg, judged against the CIFP and not either navigator:
+    # the aircraft goes round to the right the long way (360 + off, about
+    # 236 deg) and never banks left; the box's course pointer goes round the
+    # same way rather than swinging left to the direct course; and the box's
+    # FPLTURN names the CIFP's coded direction through the turn, never L.
+    end = next(i for i in range(k, len(run.rows))
+               if abs(checks._wrap180(run.rows[i][1]["TRACK"] - geo.bearing_deg(
+                   run.rows[i][1]["LAT"], run.rows[i][1]["LONG"], ganle.lat, ganle.lon))) < 5.0)
+    turn = [r for _, r in run.rows[k:end + 1]]
+    box = [r for _, r in rows[k:end + 1]]
+    assert _sweep([r["TRACK"] for r in turn]) == pytest.approx(360.0 + off, abs=10.0)
+    assert min(r["ROLL"] for r in turn) > -2.0
+    assert _sweep([r["FPLCRS"] for r in box]) == pytest.approx(360.0 + off, abs=10.0)
+    assert all(r["FPLTURN"] == df.turn for r in box[:-5])
+    assert not any(r["FPLTURN"] == "L" for _, r in rows[k:])
 
 
 # -- gps_loss_s: what the generator publishes ----------------------------------

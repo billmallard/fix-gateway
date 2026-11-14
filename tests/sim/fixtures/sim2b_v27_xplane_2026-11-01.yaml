@@ -3,11 +3,13 @@
 # RS3 golden route KSBA GVO V27 AVOLS KSMX (SIM2b, AER-4464). See README.md
 # beside this file.
 #
-# An en-route flight has no profile fix-gateway's loader can read yet (SIM3b),
-# so the recording carries the route block itself: v27_route_block.json, as
-# pyEfis's FixBridge.publish wrote it on the bench, and the slot the bench
-# activated (6, the leg into HENER). magvar is the bench bus's FIX MAGVAR,
-# median over the flight.
+# The recording carries the route block the bench was loaded with:
+# v27_route_block.json, as pyEfis's FixBridge.publish wrote it, and the slot
+# the bench activated (6, the leg into HENER). magvar is the bench bus's FIX
+# MAGVAR, median over the flight. `profile` names the profile the session
+# flew (submitted inline then; committed since SIM3b, AER-5173), which the
+# synthetic tier flies too. The route block, not the profile, is what this
+# replay loads; tests/sim/test_enroute.py checks the two agree.
 #
 # Checks: the FP8 brief's acceptance, as in fp8_xplane_2026-10-29.yaml: DTK
 # within 2 deg, CDI within 0.1 of full scale and of the same sign, compared
@@ -35,6 +37,7 @@
 # 0.001 of EXTCDI, on 5,733 rows (TURN1, AER-4759; 0.005 on 5,770 at
 # standard rate, AER-4715).
 name: sim2b-v27-xplane-2026-11-01
+profile: sim2b-v27-s2-hener-doyle
 route_block: v27_route_block.json
 act: 6
 magvar: -11.449

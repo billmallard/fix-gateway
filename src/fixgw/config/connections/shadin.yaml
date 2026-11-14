@@ -3,7 +3,7 @@ shadin:
   module: fixgw.plugins.shadin
   # One writer per key: this plugin writes FUELQT (total fuel remaining) from
   # the fuel computer. compute.yaml also writes FUELQT, by summing
-  # FUELQ1-FUELQ3. When a Shadin is fitted, it owns FUELQT: delete the
+  # FUELQ1..FUELQ<t>. When a Shadin is fitted, it owns FUELQT: delete the
   # compute.yaml function whose output is FUELQT, or the two writers fight
   # over the value and its old flag.
   port: /dev/ttyACM0

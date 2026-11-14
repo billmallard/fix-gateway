@@ -51,5 +51,6 @@ Where:
 FUELQT ownership
 ----------------
 This plugin writes FUELQT (fuel remaining). The shipped ``compute.yaml`` also
-writes FUELQT, by summing FUELQ1-FUELQ3. FIX keys have one writer each, so
-when a Shadin is fitted, delete the compute function whose output is FUELQT.
+writes FUELQT, by summing FUELQ1..FUELQ<t>, one per tank. FIX keys have one
+writer each, so when a Shadin is fitted, delete the compute function whose
+output is FUELQT.

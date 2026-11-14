@@ -33,8 +33,11 @@ the FIX-Gateway :doc:`database` as a common place to configure this information.
 
 The ``xxxx.x`` represents the value. The value can be a float, int,
 bool or string (The string cannot contain a ;).  Floats will contain the decimal
-point, integers will not. Booleans will be 'T' or 'F' and strings will begin
-with an '&'.  the 'aobfs' represent the quality flags.  They will be either 1 or
+point, integers will not.  Booleans are sent as ``True`` or ``False``.  When a
+client writes a boolean, ``true``, ``yes`` or ``1`` (in any case) or any nonzero
+integer is true and anything else is false, so ``T`` writes false.  Strings are
+sent as they are, with no prefix; a leading ``&`` that a client sends is stored
+as part of the string.  The 'aobfs' represent the quality flags.  They will be either 1 or
 0. a=annunciate, o=Old, b=bad, f=failed, s=secondary fail.  The old flag is set
 if the data has not been written within the configured time to live for that
 point.  The bad is set if there is reason to doubt the data but it hasn't
@@ -53,7 +56,9 @@ The sentence from the client to the server is similar...
 The difference is that the old flag is removed.  If the client
 determines that the data is old it should simply set the bad flag.
 The secondary failed flag is optional.  If flags are not sent they are
-assumed to be false '0';
+assumed to be false '0', so ``ID;xxxx.x`` and ``ID;xxxx.x;1`` are both
+valid: the value is written and every flag that was not sent is cleared.
+A sentence with only an ID, or with more than three fields, is ignored.
 
 Command Sentence Description
 ----------------------------

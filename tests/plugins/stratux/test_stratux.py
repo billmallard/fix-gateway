@@ -331,6 +331,8 @@ class FakeSocket:
 
     def recvfrom(self, _size):
         packet = self.packets.pop(0)
+        if isinstance(packet, tuple):
+            return packet
         return packet, ("127.0.0.1", 12345)
 
 
@@ -387,6 +389,115 @@ def test_run_decodes_ahrs_ownship_and_skips_invalid_frames(monkeypatch):
     assert _db("IAS") == 0
     assert thread.traffic is None
     assert fake_socket.closed is True
+
+
+STRATUX_ADDR = ("192.168.10.1", 4000)
+INTRUDER_ADDR = ("192.168.10.23", 4000)
+
+
+def _run_packets(monkeypatch, config, packets):
+    """Run the real receive loop over packets, then stop."""
+    database.init(io.StringIO(DB_CONFIG))
+    fake_socket = FakeSocket(packets)
+    parent = MagicMock()
+    parent.log = MagicMock()
+    parent.config = dict(config, traffic=False)
+    parent.status = {}
+    parent.db_write = lambda key, value: database.write(key, value)
+    monkeypatch.setattr(stratux.socket, "socket", lambda *_args: fake_socket)
+    thread = MainThread(parent)
+    original_recvfrom = fake_socket.recvfrom
+
+    def stop_after_last_packet(size):
+        result = original_recvfrom(size)
+        if not fake_socket.packets:
+            thread.getout = True
+        return result
+
+    fake_socket.recvfrom = stop_after_last_packet
+    thread.run()
+    return thread, parent
+
+
+def test_source_drops_attitude_from_another_sender(monkeypatch):
+    # A second GDL90 sender on the receiver's Wi-Fi must not move the
+    # attitude display once source names the receiver (AER-5467).
+    thread, parent = _run_packets(
+        monkeypatch,
+        {"source": "192.168.10.1"},
+        [
+            (_build_ahrs(roll_10=50, pitch_10=20), STRATUX_ADDR),
+            (_build_ahrs(roll_10=-600, pitch_10=-300), INTRUDER_ADDR),
+            (_build_ahrs(roll_10=-600, pitch_10=-300), INTRUDER_ADDR),
+        ],
+    )
+
+    assert _db("ROLL") == 5.0
+    assert _db("PITCH") == 2.0
+    assert thread.dropped == 2
+    assert parent.status["Dropped datagrams"] == 2
+    warnings = [c.args[0] for c in parent.log.warning.call_args_list]
+    assert warnings == ["dropping GDL90 from 192.168.10.23: source is 192.168.10.1"]
+
+
+def test_source_accepts_the_named_sender(monkeypatch):
+    thread, _parent = _run_packets(
+        monkeypatch,
+        {"source": "192.168.10.1"},
+        [(_build_ahrs(roll_10=-300), STRATUX_ADDR)],
+    )
+
+    assert _db("ROLL") == -30.0
+    assert thread.dropped == 0
+
+
+def test_no_source_accepts_any_sender(monkeypatch):
+    # The key is optional: an existing stratux.yaml behaves as before.
+    thread, _parent = _run_packets(
+        monkeypatch, {}, [(_build_ahrs(roll_10=-300), INTRUDER_ADDR)]
+    )
+
+    assert _db("ROLL") == -30.0
+    assert thread.source is None
+
+
+@pytest.mark.parametrize("value", ["stratux.local", "192.168.10", "fe80::1", 5])
+def test_invalid_source_drops_everything(monkeypatch, value):
+    # A typo must not turn the filter off.
+    thread, parent = _run_packets(
+        monkeypatch,
+        {"source": value},
+        [(_build_ahrs(roll_10=-300), STRATUX_ADDR)],
+    )
+
+    assert _db("ROLL") == 0.0
+    assert thread.dropped == 1
+    parent.log.error.assert_called_once()
+
+
+def test_drop_count_is_logged_periodically(monkeypatch):
+    clock = [1000.0]
+    monkeypatch.setattr(stratux.time, "monotonic", lambda: clock[0])
+    thread, parent = _run_packets(
+        monkeypatch,
+        {"source": "192.168.10.1"},
+        [(_build_ahrs(), INTRUDER_ADDR)] * 3,
+    )
+    parent.log.warning.reset_mock()
+
+    thread.report_drops()
+    parent.log.warning.assert_not_called()
+
+    clock[0] += stratux.DROP_REPORT_S
+    thread.report_drops()
+    parent.log.warning.assert_called_once_with(
+        "dropped 3 GDL90 datagrams not from 192.168.10.1 (3 in the last 60 s)"
+    )
+
+    # Nothing new: no repeat line.
+    clock[0] += stratux.DROP_REPORT_S
+    thread.report_drops()
+    parent.log.warning.assert_called_once()
 
 
 def test_plugin_lifecycle_status_and_failure(monkeypatch):

@@ -27,6 +27,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# MAVMSG is written only when the autopilot reports, so it has no tol: the
+# text can sit unchanged for as long as the mode does.  Its freshness is the
+# fixed-wing HEARTBEAT, sent at 1 Hz, so after this many seconds without one
+# the link is taken as lost and MAVMSG is marked old (AER-5320).
+LINK_TIMEOUT = 3.0
+
 
 class Mav:
     def __init__(
@@ -81,6 +87,10 @@ class Mav:
         self._trimsSavedYaw = 0
 
         self._waypoint = str  # The current known waypoint
+        # No heartbeat seen yet, so there is no link to time out.  A MAVMSG
+        # left old by an earlier connection stays old until one arrives.
+        self._link_ok = False
+        self._last_heartbeat = time.monotonic()
         self.setStat("ERROR", "No Communication")
 
         if not stat(port):
@@ -159,7 +169,16 @@ class Mav:
     def wait_heartbeat(self):
         self.conn.wait_heartbeat()
 
+    def checkLink(self):
+        if (
+            self._link_ok
+            and time.monotonic() - self._last_heartbeat > LINK_TIMEOUT
+        ):
+            self._link_ok = False
+            self.parent.db_get_item("MAVMSG").old = True
+
     def process(self):
+        self.checkLink()
         # Process recenived messages
         msg = self.conn.recv_match(timeout=0.1, blocking=True)
         if not msg:
@@ -293,6 +312,8 @@ class Mav:
             # Heartbeat type 27 = ADSB Not sure what to do with this yet so not implemented
             # heartbeat type 1 = fixed wing
             if msg.type == 1:
+                self._link_ok = True
+                self._last_heartbeat = time.monotonic()
                 # custom_mode has current flight mode
                 # 0 = manual, 8 = autotune, 10 = auto, 7 = cruise https://ardupilot.org/plane/docs/parameters.html#fltmod
 
@@ -425,12 +446,20 @@ class Mav:
 
     def sendMode(self, mode, msg):
         self.parent.db_write("MAVMODE", mode)
-        self.parent.db_write("MAVMSG", msg)
+        self.writeMsg(msg)
 
     def setStat(self, stat, msg=None):
         self.parent.db_write("MAVSTATE", stat)
         self._apstat = stat
         if msg:
+            self.writeMsg(msg)
+
+    def writeMsg(self, msg):
+        if self._link_ok:
+            # Text and cleared old flag in one update, so the display never
+            # shows the new mode greyed or the old one as current.
+            self.parent.db_get_item("MAVMSG").set(msg, old=False)
+        else:
             self.parent.db_write("MAVMSG", msg)
 
     def sendTrims(self):

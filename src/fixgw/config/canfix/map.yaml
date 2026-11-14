@@ -69,8 +69,18 @@ inputs:
   - { canid: 0x503, index: 1, fixid: "EGT22", priority: 0 }
   - { canid: 0x503, index: 2, fixid: "EGT23", priority: 0 }
   - { canid: 0x503, index: 3, fixid: "EGT24", priority: 0 }
+  # Fuel Quantity (550-553). Tank n is id 550 + (n-1) mod 4, index
+  # floor((n-1)/4) (canfix-spec #7), so tanks 1-4 are index 0 and tanks
+  # 5-8 are index 1 on the same four ids. FUELQ4 exists only when the
+  # database has t: 4 or more; ignore_fixid_missing skips the row otherwise.
   - { canid: 0x226, index: 0, fixid: "FUELQ1", priority: 0 }
   - { canid: 0x227, index: 0, fixid: "FUELQ2", priority: 0 }
+  - { canid: 0x228, index: 0, fixid: "FUELQ3", priority: 0 }
+  - { canid: 0x229, index: 0, fixid: "FUELQ4", priority: 0 }
+  # Tank 5 rides tank 1's id at index 1. Set t: 5 in database/variables.yaml
+  # and uncomment. Two nodes may not send one id, so tanks 1 and 5 must come
+  # from the same fuel node.
+  # - { canid: 0x226, index: 1, fixid: "FUELQ5", priority: 0 }
   - { canid: 0x21A, index: 0, fixid: "FUELF1", priority: 0 }
   - { canid: 0x21B, index: 0, fixid: "FUELF2", priority: 0 }
   - { canid: 0x21C, index: 0, fixid: "FUELP1", priority: 0 }

@@ -8,8 +8,11 @@ exercised through real FIX keys and callbacks, exactly as the gateway does
 it -- no mocking of fixgw.database itself.
 """
 
+import itertools
 import json
+import threading
 import time
+import types
 
 import pytest
 
@@ -509,6 +512,64 @@ def test_persistence_flush_writes_atomically_on_change(database, tmp_path):
     saved = json.loads(state_file.read_text())
     assert saved["act_leg"] == 2
     assert saved["seq"] == 1
+
+
+def test_persist_from_two_threads_is_serialized(database, tmp_path, monkeypatch):
+    # fix-gateway#169: the 1 Hz loop and a LAT/LONG or FPLCMD callback both
+    # persist, through one .tmp path. Unserialized, the second os.replace()
+    # finds the tmp already moved: "could not write ...: [Errno 2]" (seen 6
+    # times in 7 h in the DEMO2 soak), or an older snapshot lands last.
+    pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
+    pl.thread._restore()  # no state file: nothing to restore, persistence opens
+
+    # A snapshot that changes on every read, as a flying engine's does.
+    counter = itertools.count()
+    monkeypatch.setattr(pl.thread.engine, "to_persisted_dict", lambda: {"n": next(counter)})
+    errors = []
+    monkeypatch.setattr(pl.thread.log, "error", errors.append)
+
+    # The first writer holds inside json.dump until a second one joins it (or
+    # 0.5 s passes), so an unserialized write always overlaps once.
+    real_dump = json.dump
+    count_lock = threading.Lock()
+    joined = threading.Event()
+    calls = [0]
+    inside = [0]
+    most_inside = [0]
+
+    def dump(obj, f):
+        with count_lock:
+            calls[0] += 1
+            first = calls[0] == 1
+            inside[0] += 1
+            most_inside[0] = max(most_inside[0], inside[0])
+            if inside[0] > 1:
+                joined.set()
+        if first:
+            joined.wait(0.5)
+        real_dump(obj, f)
+        f.flush()
+        with count_lock:
+            inside[0] -= 1
+
+    monkeypatch.setattr(flightplan, "json", types.SimpleNamespace(dump=dump, load=json.load))
+
+    def persist_loop():
+        for _ in range(20):
+            pl.thread._maybe_persist()
+
+    threads = [threading.Thread(target=persist_loop) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10.0)
+    assert not any(t.is_alive() for t in threads)
+
+    assert most_inside[0] == 1
+    assert errors == []
+    state_file = tmp_path / "flightplan_state.json"
+    assert json.loads(state_file.read_text()) == pl.thread._last_persisted
+    assert not (tmp_path / "flightplan_state.json.tmp").exists()
 
 
 def test_lifecycle_start_stop_real_thread(database, tmp_path):

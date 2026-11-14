@@ -5,14 +5,18 @@
 # and the procedure says right. QA-authored: the scenario, checks,
 # tolerances and expected values are QA's.
 #
-# What tier SYN can and cannot judge here. The checks compare the box's
-# course, cross-track, distance and TO fix with the reference through the
-# turn and the hold, as on every profile. They cannot judge the turn
-# direction: the reference does not read a DF's turn direction, the
-# generator turns the short way, and no FPL output key carries a turn
-# direction for a DF, so a box (or a reference) that turns left here passes.
-# Tier SIM, where X-Plane's FMS flies the coded right turn, is the check on
-# that. Format: ../PROFILE_FORMAT.md
+# What tier SYN judges here. The checks compare the box's course,
+# cross-track, distance and TO fix with the reference through the turn and
+# the hold, as on every profile. Since AER-4541 the reference flies a DF's
+# coded turn direction and the generator turns that way, so a box that
+# turns the short way (left) fails the course check as the DF begins. The
+# reference is the fixing author's code, so the direction is also judged
+# against the CIFP alone, outside both navigators, in
+# tests/sim/test_qa1_profiles.py: the flown track and the box's FPLCRS go
+# round to the right the long way, and the box's FPLTURN reads R through
+# the turn. Tier SIM, X-Plane's FMS, is the check from outside both; in
+# its 2026-11-01 KSSF recording X-Plane went Direct-To GANLE, so X-Plane
+# has not yet flown the CA-to-DF turn. Format: ../PROFILE_FORMAT.md
 name: qa1-missed-coded-turn-kssf-r28
 description: >
   KSSF RNAV 28 via XTEND from 2 nm before GEARE, missed approach with the

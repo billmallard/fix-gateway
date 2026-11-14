@@ -10,18 +10,14 @@ Plugin reference:
 
 ## Turning it on
 
-The plugin ships a connection file but no include name or flag, so it does not
-load until you add both. In `preferences.yaml.custom`:
+The plugin ships off. In `preferences.yaml.custom`:
 
 ```yaml
-includes:
-  NAVIGATOR_CONFIG: connections/navigator_adapter.yaml
 enabled:
   NAVIGATOR: true
 ```
 
-and add `- NAVIGATOR_CONFIG` to `connections: include:` in `default.yaml`. See
-[[Configuration]].
+See [[Configuration]].
 
 ## Settings
 

@@ -21,6 +21,9 @@ entries:
 # Open GCU contract keys (ALTSEL, GCUSEL). Before custom.yaml so a user
 # definition there still wins.
 - include: database/gcu.yaml
+# Autopilot and flight director contract keys (AFC1). Before custom.yaml for
+# the same reason.
+- include: database/autopilot.yaml
 #################################################
 # If you want to modify or add new items place do so in the file
 # database/custom.yaml

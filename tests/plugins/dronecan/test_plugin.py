@@ -451,7 +451,8 @@ def test_shipped_configs_load(database):
     # The shipped mapfile must validate against the shipped database with
     # only the magnetometer live (the other examples stay commented out:
     # possible second writer, or not bench-checked), and the connection
-    # yaml must ship with load: no.
+    # yaml must load on the DRONECAN flag (#131), which ships false in
+    # preferences.yaml (pinned in tests/test_shipped_wiring.py).
     m = dc_mapping.Mapping("src/fixgw/config/dronecan/map.yaml")
     assert list(m.inputs) == ["uavcan.equipment.ahrs.MagneticFieldStrength2"]
     fields = m.inputs["uavcan.equipment.ahrs.MagneticFieldStrength2"]["entries"][0][
@@ -460,7 +461,7 @@ def test_shipped_configs_load(database):
     assert [f["fixid"] for f in fields] == ["MAGX", "MAGY", "MAGZ"]
     with open("src/fixgw/config/connections/dronecan.yaml") as f:
         conn = cfg.from_yaml(f.read())
-    assert conn["dronecan"]["load"] is False
+    assert conn["dronecan"]["load"] == "DRONECAN"
     assert conn["dronecan"]["node_id"] is None
     assert conn["dronecan"]["allocator"] is False
 

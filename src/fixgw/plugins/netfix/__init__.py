@@ -240,43 +240,43 @@ class Connection(object):
         else:  # If no '@' then it must be a value update
             try:
                 x = d.strip().split(";")
-                if len(x) != 3:
+                if len(x) not in (2, 3):
                     self.log.debug(
                         "Bad Frame {0} from {1}".format(d.strip(), self.addr[0])
                     )
-                if x[2] != "0000" or x[2] != "000":
-                    item = self.parent.db_get_item(x[0])
-                    a = x[2][0]
-                    b = x[2][1]
-                    f = x[2][2]
-                    if len(x[2]) == 4:
-                        s = x[2][3]
-                    else:
-                        s = "0"
-                    if a and a == "1":
-                        # self.output_inhibit = True
-                        item.annunciate = True
-                    elif a and a == "0":
-                        # self.output_inhibit = True
-                        item.annunciate = False
-                    if b and b == "1":
-                        # self.output_inhibit = True
-                        item.bad = True
-                    elif b and b == "0":
-                        # self.output_inhibit = True
-                        item.bad = False
-                    if f and f == "1":
-                        # self.output_inhibit = True
-                        item.fail = True
-                    elif f and f == "0":
-                        # self.output_inhibit = True
-                        item.fail = False
-                    if s and s == "1":
-                        # self.output_inhibit = True
-                        item.secfail = True
-                    elif s and s == "0":
-                        # self.output_inhibit = True
-                        item.secfail = False
+                    return
+                # Omitted flags are assumed 0, as the spec says: `IAS;122.4`
+                # writes with every flag clear (fix-gateway #128).
+                flags = (x[2] if len(x) > 2 else "").ljust(4, "0")
+                item = self.parent.db_get_item(x[0])
+                a = flags[0]
+                b = flags[1]
+                f = flags[2]
+                s = flags[3]
+                if a and a == "1":
+                    # self.output_inhibit = True
+                    item.annunciate = True
+                elif a and a == "0":
+                    # self.output_inhibit = True
+                    item.annunciate = False
+                if b and b == "1":
+                    # self.output_inhibit = True
+                    item.bad = True
+                elif b and b == "0":
+                    # self.output_inhibit = True
+                    item.bad = False
+                if f and f == "1":
+                    # self.output_inhibit = True
+                    item.fail = True
+                elif f and f == "0":
+                    # self.output_inhibit = True
+                    item.fail = False
+                if s and s == "1":
+                    # self.output_inhibit = True
+                    item.secfail = True
+                elif s and s == "0":
+                    # self.output_inhibit = True
+                    item.secfail = False
                 # Track inputs so we do not send back to same client
                 client_block[self.addr[0]].add(x[0])
                 self._write_inhibited(x[0], x[1])

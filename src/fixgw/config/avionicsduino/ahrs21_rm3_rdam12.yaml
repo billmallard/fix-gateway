@@ -1,0 +1,155 @@
+# AvionicsDuino -> FIX mapping, one firmware version set:
+#   AHRS V2.1, remote module V3, RDAM V1.2.
+# AvionicsDuino's CAN ids are version-locked (AHRS v2+ works only with
+# remote module v2+ and EFIS v3+), so a different version set gets its own
+# mapfile; do not edit this one to match newer firmware.
+#
+# Layouts were read from the senders' source (MIT licence) and decoded
+# independently in fixgw/plugins/avionicsduino/protocol.py:
+#
+#   bfrmd/EFIS-AHRS-AvionicsDuino @ d1b45a021c61cf9d32c5815b20ce06efef7145e5
+#     AHRS_AvionicsDuino_V2.1.ino                  d1b45a021c61cf9d32c5815b20ce06efef7145e5
+#   bfrmd/EFIS-Remote-Module-AvionicsDuino @ e85253412c5d8e6b1b154283d20beb643d540411
+#     EFIS_Remote_Module_AvionicsDuino_V3.ino      c821760c70c4ac6eccde06ea24e021154eaffb61
+#   bfrmd/ESP32-EFIS-EMS-Avionicsduino @ 998878bb747bfb3ff92d4c5ac620860a2162cc7c
+#     Data Acquisition Module V 1.2/
+#       AvionicsDuino_ESP32_EFIS_EMS_RDAM_V1_2.ino 998878bb747bfb3ff92d4c5ac620860a2162cc7c
+#       RDAMcanBus.cpp                             0d78b9c1d108eb2a179455e4107c1c37eda21485
+#       RDAMglobals.h                              0d78b9c1d108eb2a179455e4107c1c37eda21485
+#       RDAMsensors.cpp                            0d78b9c1d108eb2a179455e4107c1c37eda21485
+#       RDAMespnow.cpp                             0d78b9c1d108eb2a179455e4107c1c37eda21485
+#   (Each file's SHA is the last commit that touched it, read 2026-11-10.)
+#
+# Not validated on a live bus: there is no candump recording from a real
+# installation yet.  The decode is unit-tested against byte vectors built
+# from the layouts above.
+#
+# Rows left commented out have no existing FIX key, or units the source
+# does not state, or another writer that owns the key.  Uncomment one only
+# when that reason no longer holds.
+#
+# Entry schema:
+#   - canid: <id>             an id with a layout in protocol.py
+#     field: <name>           a field of that layout
+#     fixid: <FIX key>        never BARO (refused at load)
+#     scale: 1.0              optional, applied first
+#     offset: 0.0             optional
+#     converter: none         optional, applied last: rad2deg, mps2_to_g,
+#                             kmh2kt, ut2gauss, mps2fpm, wrap360
+#     smooth: false           optional; low-pass by smoothing_tau when the
+#                             connection config sets one
+#     requires: <option>      optional; the row is inert unless that
+#                             connection option is on (rdam_altitude,
+#                             rdam_vertical_speed)
+ignore_fixid_missing: false
+
+inputs:
+  # --- AHRS V2.1 ----------------------------------------------------------
+  # ID 20, 20 Hz: roll is sent in RADIANS and pitch in DEGREES.
+  - { canid: 20, field: roll_rad, fixid: ROLL, converter: rad2deg }
+  - { canid: 20, field: pitch_deg, fixid: PITCH }
+
+  # ID 22, 20 Hz, m/s^2, unfiltered.  accY is body y, right positive, the
+  # accelerometer's specific force: ALAT's sense (a positive ALAT moves
+  # pyEfis's ball left).  accZ is body z, down positive, so it reads about
+  # -9.8 in level flight; ANORM is load factor, +1 g level (compute's AOA
+  # treats it as lift), hence scale -1.
+  - { canid: 22, field: acc_y, fixid: ALAT, converter: mps2_to_g }
+  - { canid: 22, field: acc_z, fixid: ANORM, scale: -1.0, converter: mps2_to_g }
+
+  # ID 24, 10 Hz: EKF ground track, -180..+180 deg (true).
+  - { canid: 24, field: track_deg, fixid: TRACK, converter: wrap360 }
+  # ID 24 vz: no FIX key for GNSS vertical speed, and VS is the baro
+  # vertical speed.  The AHRS header says vz is positive up, but the code
+  # sends the EKF's down velocity unchanged; their EFIS shows it as is.
+  # The sign needs a recording before anyone maps it.
+  # - { canid: 24, field: vz_mps, fixid: <none>, converter: mps2fpm }
+
+  # ID 30, 10 Hz: ground speed in km/h.
+  - { canid: 30, field: gs_kmh, fixid: GS, converter: kmh2kt }
+  # ID 30 GNSS altitude AMSL (ft): no GNSS-altitude key.  ALT is the
+  # indicated (baro) altitude and GPS_ELLIPSOID_ALT is height above the
+  # ellipsoid, a different datum.  (mavlink writes TALT from GNSS MSL,
+  # but TALT feeds compute's DALT, so that is a separate decision.)
+  # - { canid: 30, field: alt_msl_ft, fixid: <none> }
+
+  # ID 34, 5 Hz: UTC time and satellites in view.  No date keys.
+  - { canid: 34, field: hour, fixid: TIMEZH }
+  - { canid: 34, field: minute, fixid: TIMEZM }
+  - { canid: 34, field: second, fixid: TIMEZS }
+  - { canid: 34, field: sats, fixid: GPS_SATS_VISIBLE }
+
+  # IDs 36 / 37, 5 Hz: doubles, degrees.
+  - { canid: 36, field: lat_deg, fixid: LAT }
+  - { canid: 37, field: lon_deg, fixid: LONG }
+
+  # ID 38 (UTC nanoseconds, time accuracy) and ID 10 (frame counter) have
+  # no keys.  The plugin reads ID 10 itself for its "AHRS Counter Gaps"
+  # status.
+
+  # --- Remote module V3 (wingtip) ---------------------------------------
+  # ID 28, 10 Hz: magnetic heading 0..360, tilt-compensated with the
+  # AHRS's roll and pitch, IIR-filtered (coefficient 0.005 at 150 Hz).
+  - { canid: 28, field: heading_deg, fixid: HEAD, converter: wrap360 }
+
+  # ID 42, 5 Hz: OAT in degC (SHT30, IIR-filtered).
+  - { canid: 42, field: oat_c, fixid: OAT }
+
+  # IDs 43 / 45, 5 Hz: raw LIS3MDL axes in uT, sensor frame, BEFORE the
+  # module's own calibration.  uT to gauss is /100.
+  - { canid: 43, field: magx_ut, fixid: MAGX, converter: ut2gauss }
+  - { canid: 43, field: magy_ut, fixid: MAGY, converter: ut2gauss }
+  - { canid: 45, field: magz_ut, fixid: MAGZ, converter: ut2gauss }
+
+  # ID 44 relative humidity (%): no FIX key.
+  # - { canid: 44, field: rh_pct, fixid: <none> }
+
+  # --- RDAM V1.2 --------------------------------------------------------
+  # ID 46, 5 Hz.  The altitude is computed at the QNH the RDAM last got
+  # from ITS OWN display over ESP-NOW; with pyEfis as the display nothing
+  # sends one, and the RDAM starts from 0, not 29.92.  Off unless the
+  # connection sets rdam_altitude: true.  The vertical speed is a
+  # difference of pressure altitude, so it does not depend on QNH; it is
+  # still off unless rdam_vertical_speed: true.
+  - { canid: 46, field: qnh_alt_ft, fixid: ALT, requires: rdam_altitude }
+  - { canid: 46, field: baro_vs_fpm, fixid: VS, requires: rdam_vertical_speed }
+  # ID 46 QNH: NEVER BARO (refused at load).  BARO is the pilot's setting.
+  # ID 46 density altitude: compute's altd block owns DALT.
+  # - { canid: 46, field: density_alt_ft, fixid: DALT }
+
+  # ID 48, 5 Hz: unfiltered IAS and TAS in whole km/h.  smooth: true lets
+  # the connection's smoothing_tau take out the 1 km/h steps (off by
+  # default).
+  - { canid: 48, field: ias_kmh, fixid: IAS, converter: kmh2kt, smooth: true }
+  - { canid: 48, field: tas_kmh, fixid: TAS, converter: kmh2kt, smooth: true }
+  # ID 48 wind: computed from the RDAM's own TAS, magnetic heading plus the
+  # declination its display sends, and GNSS track; with no RDAM display the
+  # declination is 0.  WINDDIR is "magnetic, from".  Needs a recording.
+  # - { canid: 48, field: wind_kmh, fixid: WINDSPD, converter: kmh2kt }
+  # - { canid: 48, field: wind_dir_deg, fixid: WINDDIR }
+
+  # ID 60, 5 Hz: bus current in A (0-20 A input stage).
+  - { canid: 60, field: bus_current_a, fixid: CURRNT }
+  # ID 60 battery current (A, signed): no key.
+
+  # IDs 50-58: units not stated in the source.  What the source suggests,
+  # for whoever confirms them:
+  #   50 manifold pressure: sensor span 50.9005 (25 psi in inHg) and a
+  #      29.92 start value point to inHg.
+  #   52 CHT2/CHT3, 54 oil temperature: Rotax resistive-sensor curve,
+  #      probably degC.  54 oil pressure: their debug print divides by 1000,
+  #      probably mbar.  56 EGT3/EGT4: 0-1000 linear, probably degC.
+  #   58 AFR: 10-20 linear, AFR (no FIX key).
+  # - { canid: 50, field: map, fixid: MAP1 }
+  # - { canid: 52, field: cht2, fixid: CHT12 }
+  # - { canid: 52, field: cht3, fixid: CHT13 }
+  # - { canid: 54, field: oil_temp, fixid: OILT1 }
+  # - { canid: 54, field: oil_press, fixid: OILP1, scale: 0.0145037738 }
+  # - { canid: 56, field: egt3, fixid: EGT13 }
+  # - { canid: 56, field: egt4, fixid: EGT14 }
+
+  # --- EMS node (source not read) ---------------------------------------
+  # IDs 26, 32, 33 are decoded as the RDAM receives them, but the sender's
+  # code and units are unread, so nothing maps.
+  # - { canid: 26, field: rpm, fixid: TACH1 }
+  # - { canid: 26, field: vbat, fixid: VOLT }

@@ -1,0 +1,8 @@
+render demo_traffic_t0.png at 14:09:04Z: ownship 40.00020 -82.85500, PALT 1154.165301436783, 3 targets, source failed False
+  DEMO1  ident 01DE0001  40.03562 -82.80898  alt 2150.0  vs 0.0  trk 135.0  rel 995.834698563217  stale False
+  DEMO2  ident 01DE0002  40.01124 -82.74724  alt 1050.0  vs -448.0  trk 352.96875  rel -104.16530143678301  stale False
+  DEMO3  ident 01DE0003  39.98601 -83.00604  alt 3650.0  vs 0.0  trk 352.96875  rel 2495.834698563217  stale False
+render demo_traffic_t20.png at 14:09:24Z: ownship 40.00136 -82.87515, PALT 879.1653014367831, 3 targets, source failed False
+  DEMO1  ident 01DE0001  40.02860 -82.80134  alt 2150.0  vs 0.0  trk 144.84375  rel 1270.834698563217  stale False
+  DEMO2  ident 01DE0002  40.02375 -82.75070  alt 850.0  vs -704.0  trk 343.125  rel -29.165301436783125  stale False
+  DEMO3  ident 01DE0003  39.99693 -83.00712  alt 3650.0  vs 0.0  trk 358.59375  rel 2770.834698563217  stale False

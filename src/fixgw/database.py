@@ -111,6 +111,7 @@ class db_item(object):
         self.aux = {}
         self.callbacks = []
         self.writers = []  # plugins that have written this key, in order
+        self.written = False  # a value or quality-flag write has happened
         self.lock = threading.Lock()
 
     # initialize the auxiliary data dictionary.  aux should be a comma delimited
@@ -123,8 +124,10 @@ class db_item(object):
     # it is not the first.  Caller holds the lock.  Value and quality-flag
     # writes count; aux and annunciate do not -- aux is configuration any
     # client may set, and the annunciate plugin flags keys it does not own by
-    # design.
+    # design.  Any such write also marks the item written; its expiry does
+    # not, so a key no source ever writes stays unwritten (AER-5391).
     def _note_writer(self):
+        self.written = True
         w = _writer()
         if w is None or w in self.writers:
             return
@@ -447,6 +450,7 @@ def add_item(entry):
     else:
         newitem.value = entry.get("initial", None)
     newitem.init_aux(entry.get("aux", []))
+    newitem.written = False  # the initial value is not a write
     __database[entry["key"]] = newitem
     return newitem
 

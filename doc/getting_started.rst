@@ -132,10 +132,10 @@ a specific connection plugin.  Here is a short snippet of the connections list..
   connections:
     # Network FIX Protocol Interface
     netfix:
-      load: yes
+      load: NETFIX
       module: fixgw.plugins.netfix
       type: server
-      host: 0.0.0.0
+      host: 127.0.0.1
       port: 3490
       buffer_size: 1024
       timeout: 1.0

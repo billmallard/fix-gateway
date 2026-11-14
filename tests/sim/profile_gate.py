@@ -130,7 +130,7 @@ def fly_recording(path, trace=None):
     path = Path(path)
     rec = yaml.safe_load(path.read_text())
     rows = trace if trace is not None else xplane_replay.load_trace(path.parent / rec["trace"])
-    if "route_block" in rec:   # en-route: the editor's route block, not a profile (SIM2b)
+    if "route_block" in rec:   # the route block the bench was loaded with (SIM2b), over a profile
         block = json.loads((path.parent / rec["route_block"]).read_text())
         samples, _ = xplane_replay.fly_route(rows, block, rec["act"], rec["magvar"])
     else:

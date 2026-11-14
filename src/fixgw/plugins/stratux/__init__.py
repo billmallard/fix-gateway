@@ -1,8 +1,10 @@
+import ipaddress
 import threading
+import time
 from collections import OrderedDict
 import fixgw.plugin as plugin
 from fixgw.plugins.stratux import gdl90
-from fixgw.plugins.stratux.traffic import TrafficWriter, parse_ownship_address
+from fixgw.plugins.stratux.traffic import TrafficWriter, resolve_ownship_address
 import socket
 import struct
 import math
@@ -10,6 +12,27 @@ import math
 # The receive timeout paces the traffic writer's once-a-second tick when no
 # datagrams arrive (eviction and liveness must not wait for input).
 RECV_TIMEOUT = 0.25
+
+# How often the count of datagrams dropped by the source filter is logged.
+DROP_REPORT_S = 60.0
+
+
+def parse_source(value, log):
+    """The sender address the plugin accepts, or None to accept any.
+
+    A value that is set but is not an IPv4 address (the socket is IPv4) must
+    not open the filter: it returns a filter that matches no sender, so
+    attitude goes stale and the error is in the log.
+    """
+    if value is None or str(value).strip() == "":
+        return None
+    try:
+        return str(ipaddress.IPv4Address(str(value).strip()))
+    except ValueError:
+        log.error(
+            "source: %r is not an IPv4 address; dropping every datagram" % (value,)
+        )
+        return ""
 
 
 class MainThread(threading.Thread):
@@ -25,6 +48,14 @@ class MainThread(threading.Thread):
         self.s.bind((config.get("host", ""), int(config.get("port", 4000))))
         self.s.settimeout(RECV_TIMEOUT)
 
+        # AHRS over Wi-Fi is a network input to the attitude display: with
+        # source set, only that sender is decoded.
+        self.source = parse_source(config.get("source"), self.log)
+        self.dropped = 0
+        self.dropped_reported = 0
+        self.drop_senders = set()
+        self.drop_report_at = time.monotonic() + DROP_REPORT_S
+
         self.traffic = None
         if config.get("traffic", True):
             try:
@@ -35,13 +66,20 @@ class MainThread(threading.Thread):
                     "(database/traffic.yaml); not writing traffic"
                 )
             else:
+                address, source = resolve_ownship_address(
+                    config, plugin.preferences, self.log
+                )
+                if address is None:
+                    self.log.info("traffic: ownship_address unset")
+                else:
+                    self.log.info(
+                        "traffic: ownship_address {:06X} ({})".format(address, source)
+                    )
                 self.traffic = TrafficWriter(
                     parent.db_get_item,
                     self.log,
                     evict_s=config.get("evict_s", 10),
-                    ownship_address=parse_ownship_address(
-                        config.get("ownship_address"), self.log
-                    ),
+                    ownship_address=address,
                 )
 
     def run(self):
@@ -51,6 +89,10 @@ class MainThread(threading.Thread):
                 datagram, adr = self.s.recvfrom(8192)
             except socket.timeout:
                 datagram = b""
+            else:
+                if not self.accept(adr):
+                    datagram = b""
+            self.report_drops()
             for msg in gdl90.decode_datagram(datagram):
                 self.dispatch(msg)
             if self.traffic is not None:
@@ -58,6 +100,36 @@ class MainThread(threading.Thread):
 
         self.s.close()
         self.running = False
+
+    def accept(self, adr):
+        if self.source is None or adr[0] == self.source:
+            return True
+        self.dropped += 1
+        self.parent.status["Dropped datagrams"] = self.dropped
+        if adr[0] not in self.drop_senders and len(self.drop_senders) < 16:
+            self.drop_senders.add(adr[0])
+            self.log.warning(
+                "dropping GDL90 from %s: source is %s"
+                % (adr[0], self.source or "invalid")
+            )
+        return False
+
+    def report_drops(self):
+        now = time.monotonic()
+        if now < self.drop_report_at:
+            return
+        self.drop_report_at = now + DROP_REPORT_S
+        if self.dropped != self.dropped_reported:
+            self.log.warning(
+                "dropped %d GDL90 datagrams not from %s (%d in the last %.0f s)"
+                % (
+                    self.dropped,
+                    self.source or "a valid source",
+                    self.dropped - self.dropped_reported,
+                    DROP_REPORT_S,
+                )
+            )
+            self.dropped_reported = self.dropped
 
     def dispatch(self, msg):
         if len(msg) < 1:
@@ -100,8 +172,8 @@ class MainThread(threading.Thread):
 class Plugin(plugin.PluginBase):
     def __init__(self, name, config, config_meta):
         super(Plugin, self).__init__(name, config, config_meta)
-        self.thread = MainThread(self)
         self.status = OrderedDict()
+        self.thread = MainThread(self)
 
     def run(self):
 

@@ -19,8 +19,8 @@ add a data source without changing anything downstream.
 
 Plugins on in the shipped config: `netfix`, `compute`, `annunciate`, `system`,
 `demo`, `flightplan` and `state_persist`. Turn others on with their `enabled:`
-flag (**[[Configuration]]**). Plugins marked *not wired* ship a connection file
-but no `preferences.yaml` entry; add the include name and flag yourself.
+flag (**[[Configuration]]**). The one plugin marked *not wired* ships no
+connection file; write one and wire it in as **[[Configuration]]** describes.
 
 ## Sources — bring data in
 
@@ -29,24 +29,25 @@ but no `preferences.yaml` entry; add the include name and flag yourself.
 |---|---|
 | `xplane` | X-Plane 11/12 over UDP — air data, attitude, position, nav radios and the X-Plane GPS; writes the HSI source back. See **[[X-Plane]]** |
 | `fgfs` | FlightGear generic protocol — the same keys as `xplane` |
-| `demo` | canned values and a scripted attitude/altitude/heading sequence — drives a display with no hardware |
+| `demo` | a simulated flight, looped: the synthetic tier flies the KSMX RNAV 30 approach, missed and hold, and the real flight-plan engine guides it. Needs `pip install 'fixgw[sim]'`, and refuses to run beside another source of its keys |
 | `data_playback` | replays `data_recorder` files (`--playback-start-time`, or `data_playback.yaml`) |
 
 ### GPS, navigators & ADS-B
 | Plugin | Brings in |
 |---|---|
 | `gpsd` | position, track, ground speed, GPS altitude, fix type and accuracy from a `gpsd` daemon |
-| `stratux` | GDL90 from a Stratux: ADS-B traffic (`TFC*`), AHRS and ground speed; no position |
-| `navigator_adapter` | an external navigator's RS-232 NMEA: position and `EXT*` guidance — *not wired*, see **[[Navigator Adapter]]** |
-| `garmin_gnx375` | Garmin GNX 375 NMEA: position and `EXT*` guidance (GPS and nav only) — *not wired* |
+| `stratux` | GDL90 from a Stratux: ADS-B traffic (`TFC*`), AHRS and ground speed; no position. AHRS over Wi-Fi drives the attitude display: set `source:` to the receiver's address |
+| `navigator_adapter` | an external navigator's RS-232 NMEA: position and `EXT*` guidance, see **[[Navigator Adapter]]** |
+| `garmin_gnx375` | Garmin GNX 375 NMEA: position and `EXT*` guidance (GPS and nav only) |
 | `ifly` | next waypoint (`WPNAME`, `WPLAT`, `WPLON`) from the iFly EFB over UDP; experimental |
 
 ### Buses & autopilots
 | Plugin | Brings in |
 |---|---|
 | `canfix` | the **CAN-FIX** bus — bidirectional. See **[[CAN-FIX]]** |
-| `canaerospace` | CANaerospace engine data (Rotax 912iS / 915iS ECU), listen-only — *not wired*, see **[[CANaerospace Input]]** |
-| `dronecan` | DroneCAN v0 sensors; listen-only unless given a node id — *not wired* |
+| `canaerospace` | CANaerospace engine data (Rotax 912iS / 915iS ECU), listen-only, see **[[CANaerospace Input]]** |
+| `dronecan` | DroneCAN v0 sensors; listen-only unless given a node id |
+| `avionicsduino` | an AvionicsDuino CAN bus (AHRS, wingtip magnetometer, RDAM air data), listen-only, on its own adapter |
 | `mavlink` | an ArduPilot / Pixhawk link, mainly as a GPS, AHRS and air-data source; can send mode commands |
 | `megasquirt` | MegaSquirt ECU over CAN: `TACH1`, `FUELF1`, `H2OT1`, `MAP1`, `THR1` |
 | `mgl` | MGL RDAC over CAN |
@@ -58,7 +59,7 @@ but no `preferences.yaml` entry; add the include name and flag yourself.
 | `mgl_serial` | MGL Avionics serial |
 | `grand_rapids_eis` | Grand Rapids Technologies EIS |
 | `shadin` | Shadin fuel protocol: `FUELF1`, `FUELF2`, `FUELQT` |
-| `onspeed` | OnSpeed Gen2 AOA: `AOA` and `AOA.Warn` — *not wired* |
+| `onspeed` | OnSpeed Gen2 AOA: `AOA` and `AOA.Warn` |
 
 ### Raspberry Pi & panel hardware
 | Plugin | Brings in |
@@ -77,7 +78,7 @@ but no `preferences.yaml` entry; add the include name and flag yourself.
 ## Consumers — send data out
 | Plugin | Sends to |
 |---|---|
-| `netfix` | **the network** — pyEfis, moving maps, control heads, debug clients, over the [[NetFIX Protocol]] (TCP :3490). The main way anything off-box reads the database |
+| `netfix` | **the network** — pyEfis, moving maps, control heads, debug clients, over the [[NetFIX Protocol]] (TCP :3490). Loopback only by default; a client on another host needs `host:` set (see the plugin doc) |
 | `canfix` | out to CAN-FIX bus nodes (same plugin, both directions) |
 | `data_recorder` | every key (or those matching `key_prefixes`) to hourly JSON files |
 | `db_persister` | keys matching a regex to an HDF5 file — *not wired* |

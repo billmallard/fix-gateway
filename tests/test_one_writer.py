@@ -54,7 +54,9 @@ def test_shipped_config_has_one_writer_per_key(name, tmp_path):
     # Run from a copy: plugins write state files beside their config.
     config = tmp_path / "config"
     shutil.copytree("src/fixgw/config", config)
-    writers, log = run_gateway(str(config / name), 5)
+    # Demo generates its route (seconds on a slow box) and watches LAT/LONG
+    # for 3 s before its first write (DEMO2), so give it time to fly.
+    writers, log = run_gateway(str(config / name), 25)
     # The check only proves something if it saw writes: the default config's
     # demo, compute and flightplan plugins must all have been attributed.
     seen = {w for ws in writers.values() for w in ws}

@@ -25,7 +25,7 @@ Plugin reference:
 
 | Option | Default | Meaning |
 |---|---|---|
-| `state_file` | `flightplan_state.json` in the config directory | where the active plan is saved; `{CONFIG}` is not expanded here, so give an absolute path if you set it |
+| `state_file` | `flightplan_state.json` in the config directory | where the active plan is saved; `{CONFIG}` expands to the config directory |
 | `restore_delay` | `2.0` s | delay before the saved plan is restored at start |
 | `rate_hz` | `5` | cap on position-driven guidance updates; `0` or less means no cap |
 | `turn_bank_deg` | `15.0` | bank angle that sizes fly-by turns |
@@ -73,6 +73,7 @@ active leg.
 | Path terminators | How they are flown |
 |---|---|
 | `IF`, `TF`, `DF` | great circle from the previous point |
+| `DF` with `TURN` `L`/`R` | a standard-rate turn that way from where the leg begins, then the great circle to the fix; `FPLTURN` shows the direction during the turn |
 | `CF` | the published `CRS` into the fix |
 | `RF`, `AF` | constant-radius arc about `CTRLAT`/`CTRLON`, radius `DST`, direction `TURN` (`R` is clockwise) |
 | `CA` | the published course until `altitude_key` reaches the constraint |
@@ -184,6 +185,7 @@ plugin does not write it.
 | `WPDIS`, `WPETE` | distance (nm) and time (s) to the TO waypoint; `WPETE` is bad below 30 kt |
 | `FPLREMDIS`, `FPLREMETE`, `FPLSEGREM` | distance and time to the end of the plan, distance to the end of the segment |
 | `FPLALERT` | waypoint alert |
+| `FPLTURN` | `L`/`R` while flying the coded turn that opens a `DF` |
 | `FPLMSG`, `FPLCMDACK`, `FPLLDSEQ` | messages, command acknowledgement, loaded route number |
 
 ## Internal plan or external navigator
@@ -198,9 +200,12 @@ the X-Plane GPS on the bench). The shipped `compute` config selects:
 | `GPSCDI` | `FPLCDI` | `EXTCDI` |
 | `GPSTF` | `FPLTF` | `EXTTF` |
 | `XTRACK` | `FPLXTK` | `EXTXTK` |
+| `GPSGSI` | 0 (no glidepath) | `EXTGSI` |
+| `GPSGSV` | 0 (no glidepath) | `EXTGSV` (`EXTGSF` inverted) |
 
-`NAVSRC` = 2 then routes the GPS keys into `COURSE`, `CDI` and `TOFROM`, which
-the HSI reads. `GPSBRG`, the GPS bearing pointer, always points at the internal
+`NAVSRC` = 2 then routes the GPS keys into `COURSE`, `CDI`, `TOFROM`, `GSI`
+and `GSV`, which the HSI reads. The internal plan has no vertical guidance, so
+with `GPSSRC` = 0 the HSI shows no glidepath. `GPSBRG`, the GPS bearing pointer, always points at the internal
 plan's `WPLAT`/`WPLON`. `state_persist` saves `GPSSRC` across restarts.
 
 ## Persistence

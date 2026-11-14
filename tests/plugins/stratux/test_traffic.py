@@ -17,6 +17,7 @@ import time
 
 import pytest
 
+import fixgw.plugin
 import fixgw.plugins.netfix
 import fixgw.plugins.stratux as stratux
 from fixgw import cfg, geo
@@ -25,6 +26,7 @@ from fixgw.plugins.stratux.traffic import (
     FIELDS,
     TrafficWriter,
     parse_ownship_address,
+    resolve_ownship_address,
 )
 
 # G§2.2.4: a valid Heartbeat, FCS 0x8BB3.
@@ -140,9 +142,9 @@ class Gateway:
                 self.plugin.db_get_item,
                 t.log,
                 evict_s=config.get("evict_s", 10),
-                ownship_address=parse_ownship_address(
-                    config.get("ownship_address"), t.log
-                ),
+                ownship_address=resolve_ownship_address(
+                    config, fixgw.plugin.preferences, t.log
+                )[0],
                 clock=clock,
             )
         self.writer = t.traffic
@@ -633,6 +635,67 @@ def test_ownship_address_must_be_a_hex_string(make_gw, caplog):
         assert parse_ownship_address("1000000", log) is None
         assert parse_ownship_address("N825V", log) is None
     assert len([r for r in caplog.records if r.levelname == "ERROR"]) == 3
+
+
+
+# AER-5468 (P3f): the connection's ownship_address wins when set; otherwise
+# the top-level preference that config-pull writes to preferences.yaml.custom.
+def test_ownship_address_connection_wins():
+    log = __import__("logging").getLogger("t")
+    prefs = {"ownship_address": "AB4549"}
+    assert resolve_ownship_address(
+        {"ownship_address": "A1B2C3"}, prefs, log) == (A, "connection")
+
+
+def test_ownship_address_blank_connection_takes_the_preference():
+    log = __import__("logging").getLogger("t")
+    prefs = {"ownship_address": "AB4549"}
+    assert resolve_ownship_address(
+        {"ownship_address": ""}, prefs, log) == (0xAB4549, "preferences")
+    assert resolve_ownship_address({}, prefs, log) == (0xAB4549, "preferences")
+
+
+def test_ownship_address_both_blank_is_none():
+    log = __import__("logging").getLogger("t")
+    assert resolve_ownship_address(
+        {"ownship_address": ""}, {"ownship_address": ""}, log) == (None, None)
+    assert resolve_ownship_address({}, {}, log) == (None, None)
+    assert resolve_ownship_address({}, None, log) == (None, None)
+
+
+def test_ownship_address_malformed_is_refused(caplog):
+    log = __import__("logging").getLogger("t")
+    with caplog.at_level("ERROR"):
+        assert resolve_ownship_address(
+            {}, {"ownship_address": "N825V"}, log) == (None, None)
+        assert resolve_ownship_address(
+            {}, {"ownship_address": 123456}, log) == (None, None)
+        # A malformed connection value does not fall back to the preference.
+        assert resolve_ownship_address(
+            {"ownship_address": "N825V"}, {"ownship_address": "AB4549"},
+            log) == (None, None)
+    assert len([r for r in caplog.records if r.levelname == "ERROR"]) == 3
+
+
+@pytest.mark.parametrize("config,prefs,line", [
+    ({"ownship_address": "0xa1b2c3"}, {"ownship_address": "AB4549"},
+     "traffic: ownship_address A1B2C3 (connection)"),
+    ({"ownship_address": ""}, {"ownship_address": "AB4549"},
+     "traffic: ownship_address AB4549 (preferences)"),
+    ({"ownship_address": ""}, {}, "traffic: ownship_address unset"),
+])
+def test_ownship_address_logged_at_start(database, monkeypatch, caplog,
+                                         config, prefs, line):
+    # The real plugin construction, no fake clock: the bench DoD reads this.
+    monkeypatch.setattr(fixgw.plugin, "preferences", prefs)
+    with caplog.at_level("INFO"):
+        gw = Gateway(database, **config)
+    try:
+        assert line in [r.getMessage() for r in caplog.records]
+        expected = None if line.endswith("unset") else int(line.split()[2], 16)
+        assert gw.writer.ownship_config == expected
+    finally:
+        gw.stop()
 
 
 # --- T7 Identity collision ---------------------------------------------------------
