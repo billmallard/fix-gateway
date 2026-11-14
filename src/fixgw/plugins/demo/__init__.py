@@ -7,9 +7,12 @@
 The demo is a data source like the X-Plane plugin or a real AHRS. It runs the
 ``fixgw.sim`` generator (the SYN2 live mode, without netfix) and writes only
 what a sensor or a pilot would: the generator's position, attitude and air
-data (:data:`SOURCE_KEYS`), and the route and its commands through the FPL
-contract (slots, segments, ``FPLSEQ`` last, then ``FPLCMD``). The real
-flight-plan engine and compute do everything else. It never writes a compute
+data (:data:`SOURCE_KEYS`), the engine's sensors (:data:`ENGINE_KEYS`, DEMO3,
+:mod:`fixgw.plugins.demo.engine`), and the route and its commands through the
+FPL contract (slots, segments, ``FPLSEQ`` last, then ``FPLCMD``). The real
+flight-plan engine, compute and annunciate do everything else: the scripted
+hot cylinder is a CHT value, and its alarm is annunciate's, from the
+configured limits. It never writes a compute
 or engine output, an annunciate flag, or the generator's ``REF*`` reference
 keys: the reference navigator is a CI tool and not part of the demo.
 
@@ -19,7 +22,7 @@ One writer per key, both ways round:
   AER-4476 writer registry), or when ``LAT``/``LONG`` move while it watches
   without writing them (the SYN2 live check, which also sees a netfix
   client);
-- running, a second writer on a source key stops it. The route keys are a
+- running, a second writer on a source or engine key stops it. The route keys are a
   shared contract by design (the engine republishes them on restore, a
   pilot's editor commits them), so they are not watched.
 
@@ -42,7 +45,8 @@ from collections import OrderedDict
 
 import fixgw.database as database
 import fixgw.plugin as plugin
-from fixgw.plugins.demo import traffic
+from fixgw.plugins.demo import engine, traffic
+from fixgw.plugins.demo.engine import ENGINE_KEYS
 
 # The generator's sensor set (fixgw.sim.generator.SENSOR_KEYS), kept here so
 # the registry check runs before the sim package is imported; a test holds
@@ -141,6 +145,7 @@ class MainThread(threading.Thread):
         self.sleep = time.sleep
         self.traffic = None
         self.center = None
+        self.engine_last = {}
 
     def stop(self):
         self.halt.set()
@@ -149,6 +154,8 @@ class MainThread(threading.Thread):
     # restart hold clears the bad flag the hold put on LAT/LONG; a route or
     # command key is a plain write, as an editor makes it.
     def _write(self, key, value):
+        if key in ENGINE_KEYS:
+            self.engine_last[key] = value
         if key in SOURCE_KEYS:
             database.get_raw_item(key).set(value, bad=False)
         else:
@@ -193,7 +200,8 @@ class MainThread(threading.Thread):
         t0 = time.monotonic()
         profile = self.parent.profile_path
         run = generate(profile, frequency_ms=int(self.config.get("frequency_ms", 200)))
-        rows, absent = route_rows(run, set(database.listkeys()))
+        with_engine, eng = engine.add_engine(run.rows, self._event_limits())
+        rows, absent = route_rows(_Run(with_engine), set(database.listkeys()))
         if absent:
             self.log.warning("demo: the database has no {}: not written".format(" ".join(absent)))
         left = watch_s - (time.monotonic() - t0)
@@ -212,6 +220,7 @@ class MainThread(threading.Thread):
         restart_s = float(self.config.get("restart_s", 5.0))
         self.status["Profile"] = run.profile.name
         self.status["Route s"] = round(rows[-1][0], 1)
+        self.status["CHT event"] = ", ".join("{} {:.0f} s".format(w, t) for t, w in eng.marks) or "none"
         loops = 0
         while not self.halt.is_set():
             fplseq = int(float(self._read("FPLSEQ"))) + 1
@@ -234,12 +243,32 @@ class MainThread(threading.Thread):
             if self._hold(restart_s):
                 return
 
-    # The restart hold; the traffic keeps flying through it.  True if halted.
+    def _event_limits(self):
+        """The hot cylinder's configured (highWarn, highAlarm), read now, or
+        None, said once, and no event."""
+        key = "CHT1{}".format(engine.HOT_CYLINDER)
+        try:
+            item = database.get_raw_item(key)
+            limits = engine.event_limits(item.get_aux_value("highWarn"), item.get_aux_value("highAlarm"))
+        except KeyError:
+            limits = None
+        if limits is None:
+            self.log.warning("demo: {} has no highWarn below a highAlarm: no CHT event".format(key))
+        return limits
+
+    # The restart hold; the traffic keeps flying through it, and the engine's
+    # last reading is repeated each second so the gauges do not go old.
+    # True if halted.
     def _hold(self, seconds):
         end = self.clock() + seconds
+        next_engine = self.clock()
         while self.clock() < end:
             if self.traffic is not None:
                 self.traffic.step()
+            if self.clock() >= next_engine:
+                for key, value in self.engine_last.items():
+                    self._write(key, value)
+                next_engine += 1.0
             if self.halt.wait(0):
                 return True
             self.sleep(min(0.2, max(0.0, end - self.clock())))
@@ -287,7 +316,8 @@ class Plugin(plugin.PluginBase):
             import fixgw.sim.generator  # noqa: F401  (needs geographiclib)
         except ImportError as e:
             self._fail("the synthetic flight tier is not installed ({}): pip install 'fixgw[sim]'".format(e))
-        self.keys = SOURCE_KEYS + self._traffic_keys()
+        have = set(database.listkeys())
+        self.keys = SOURCE_KEYS + tuple(k for k in ENGINE_KEYS if k in have) + self._traffic_keys()
         found = other_writers(self.keys)
         if found:
             self._fail("another source writes {}".format(_describe(found)))
