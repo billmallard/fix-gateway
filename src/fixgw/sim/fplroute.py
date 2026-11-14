@@ -8,9 +8,12 @@ segment table, ``FPLCOUNT``/``FPLSEGCNT``/``FPLNAME``/``FPLAPRTYPE``/
 (``doc/flightplan_keys.md``). It stands in for the pilot loading the
 procedure on the display; nothing here reads or imports the engine.
 
-Assembling a coded procedure into slots is not specified anywhere yet
-(PA7/PA9 own it in pyEfis). The choices made here, so a reviewer can see
-them:
+Assembling a coded procedure into slots is pyEfis's job (PA7/PA9,
+``pyefis/flightplan/proc_load.py``); this encoder has to make the same
+choices, and pyEfis's ``tests/flightplan/test_fplroute_conformance.py``
+checks that it does, profile by profile, against a fixture regenerated
+from this file (``tests/flightplan/fplroute_fixture.py``). Change one here
+and regenerate that fixture. The choices, so a reviewer can see them:
 
 - the transition's last fix and the final's ``IF`` (the same fix, coded
   twice) are one slot;
@@ -18,6 +21,9 @@ them:
   its coded course from the previous fix, ``ca_point_nm`` along (the
   engine flies a ``CA`` along its course through that point, so any point
   on the course line gives the same leg);
+- ``FPLfALT`` and ``FPLfSPD`` as pyEfis's ``proc_load`` writes them: the
+  altitude description mapped by :func:`_alt_field`, the record's speed
+  limit in knots (0 when none);
 - ``FPLfFLAGS``: fly-over from the description code's second character,
   IAF/FAF/MAP from its fourth, MAHP on the slots at the missed approach's
   hold fix, and ``0x20`` (from a coded procedure) on every slot;
@@ -60,16 +66,27 @@ SEGKIND_MISSED = 5
 
 
 def _alt_field(desc, alt1, alt2):
-    if not alt1:
-        return ""
-    a1 = str(int(alt1))
-    if desc == "+":
-        return "+" + a1
-    if desc == "-":
-        return "-" + a1
-    if desc == "B" and alt2:
-        return f"B{int(alt2)},{a1}"
-    return "@" + a1
+    """The packed ``FPLfALT`` for an ARINC 424 altitude description (col 83)
+    and its two altitudes, mapped as pyEfis's ``proc_load._alt_text`` maps
+    them (PA7): the step-down and glide-slope codes keep the constraint on
+    the fix, so ``V`` (a step-down fix) is ``+``, at or above. A code not
+    listed is refused rather than guessed."""
+    a1 = str(int(alt1)) if alt1 else ""
+    a2 = str(int(alt2)) if alt2 else ""
+    if desc in ("+", "H", "J", "V"):
+        return "+" + a1 if a1 else ""
+    if desc in ("-", "Y"):
+        return "-" + a1 if a1 else ""
+    if desc in ("", "@", "G", "I", "X"):
+        return "@" + a1 if a1 else ""
+    if desc == "B":
+        if not (a1 and a2):
+            return ""
+        lo, hi = sorted((int(a1), int(a2)))
+        return f"B{lo},{hi}"
+    if desc == "C":
+        return "+" + a2 if a2 else ""
+    raise ValueError(f"altitude description {desc!r}: not encoded")
 
 
 def procedure_slots(cifp, airport, approach, transition, magvar_deg, ca_point_nm=2.0):
@@ -94,7 +111,7 @@ def procedure_slots(cifp, airport, approach, transition, magvar_deg, ca_point_nm
                 in_missed = True
             slot = {"ID": r.fix, "LAT": 0.0, "LON": 0.0, "TYPE": 4, "PT": r.path_term,
                     "CRS": 0.0, "DST": 0.0, "ALT": _alt_field(r.alt_desc, r.alt1, r.alt2),
-                    "SPD": 0, "SGI": 0, "FLAGS": FLAG_FROM_PROCEDURE,
+                    "SPD": int(r.speed or 0), "SGI": 0, "FLAGS": FLAG_FROM_PROCEDURE,
                     "CTRLAT": 0.0, "CTRLON": 0.0, "TURN": r.turn}
             if r.fix:
                 f = cifp.fix(r.fix, airport=airport if r.fix_section[0] == "P" else None,
