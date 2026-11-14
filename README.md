@@ -90,6 +90,13 @@ source venv/bin/activate
 make init
 ```
 
+The `demo` plugin, on in the shipped config, flies a simulated flight and
+needs the synthetic flight tier, which is an optional extra. Without it the
+demo logs that it is not starting and the rest of the gateway runs as normal:
+```bash
+pip install -e .[sim]
+```
+
 Run the server:
 ```bash
 ./fixGw.py
