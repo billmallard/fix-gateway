@@ -73,6 +73,7 @@ active leg.
 | Path terminators | How they are flown |
 |---|---|
 | `IF`, `TF`, `DF` | great circle from the previous point |
+| `DF` with `TURN` `L`/`R` | a standard-rate turn that way from where the leg begins, then the great circle to the fix; `FPLTURN` shows the direction during the turn |
 | `CF` | the published `CRS` into the fix |
 | `RF`, `AF` | constant-radius arc about `CTRLAT`/`CTRLON`, radius `DST`, direction `TURN` (`R` is clockwise) |
 | `CA` | the published course until `altitude_key` reaches the constraint |
@@ -184,6 +185,7 @@ plugin does not write it.
 | `WPDIS`, `WPETE` | distance (nm) and time (s) to the TO waypoint; `WPETE` is bad below 30 kt |
 | `FPLREMDIS`, `FPLREMETE`, `FPLSEGREM` | distance and time to the end of the plan, distance to the end of the segment |
 | `FPLALERT` | waypoint alert |
+| `FPLTURN` | `L`/`R` while flying the coded turn that opens a `DF` |
 | `FPLMSG`, `FPLCMDACK`, `FPLLDSEQ` | messages, command acknowledgement, loaded route number |
 
 ## Internal plan or external navigator

@@ -24,7 +24,9 @@ its own; their checks and
 tolerances are QA's and are not edited to fit a result.
 `sim2b-v27-s2-hener-doyle.yaml` is the first en-route profile (SIM3b,
 AER-5173): V27 from HENER to DOYLE, the slice X-Plane flew as SIM2b's
-session `9b6d523db79a`.
+session `9b6d523db79a`. `demo9-ksmx-rw30-climb-out-gvo.yaml` is the first
+to open with a departure (DEMO9, AER-5463): a climb-out from KSMX RW30, then
+direct GVO and V27.
 
 ## The rule for the reference
 
@@ -107,6 +109,8 @@ full `FAACIFP18` can be passed instead with `--cifp`.
 
 Airport idents, both optional with a procedure. `departure`, when named, is
 the route's first slot (and the reference's second terminal radius, below).
+A route that opens with a `climb_out` must name its `departure`: the
+runway is looked up at that airport.
 A route with no procedure must name its `destination`, which is then its
 last slot. With a procedure, a `destination` must be the procedure's
 airport.
@@ -119,10 +123,19 @@ an en-route fix as well as a procedure's. The box is loaded with the route and t
 activates that leg (`FPLCMD ACT <slot>`). `heading` only accepts
 `on_course` so far.
 
+`start: {runway: RW30, alt_ft: 311}` instead starts over that runway's
+threshold, on the runway's heading, at `alt_ft`, with the climb-out's `CA`
+the active leg. It goes with a `climb_out` from the same runway, and takes
+no `before_nm`. `alt_ft` must be at or above the threshold elevation (the
+runway record's) and below the climb-out altitude. Profiles start airborne,
+so this is the airplane just off the ground: there is no takeoff roll. The
+leg after the climb-out is flown direct from wherever the climb ends, so a
+`start.fix` there is refused; start on the runway.
+
 ### `route`
 
-The items the box is loaded with, in order: any number of en-route items,
-then at most one `procedure`, last. They are the route-segment kinds of
+The items the box is loaded with, in order: at most one `climb_out`, first,
+then any number of en-route items, then at most one `procedure`, last. They are the route-segment kinds of
 RS1 (`doc/flightplan_keys.md`, the route segment table) and the shape the
 X-Plane tier reads (xplane-bench `fca936a`):
 
@@ -137,6 +150,7 @@ end: {after_fix: DOYLE, max_s: 2100}
 
 | Item | RS1 | Slots |
 |---|---|---|
+| `climb_out: {runway, alt_ft}` | a kind 2 (departure) row, `ID` the runway | two: the runway threshold, then a `CA` with no ident on the runway's magnetic bearing, `ALT` `+<alt_ft>` |
 | `waypoint: FIX` | a kind 0 (waypoint) row | one, `FIX`: an en-route waypoint, a VHF navaid or an airport, by name |
 | `airway: {id, exit}` | a kind 1 (airway) row, `ID` the airway | its entry fix, every fix the airway passes through, and `exit`. The entry is the `waypoint` before it, which becomes the airway's first slot rather than a row of its own: RS1 puts the entry fix in the airway's segment |
 | `procedure: {...}` | kind 4 (approach) and 5 (missed) rows | as below |
@@ -148,6 +162,26 @@ reversed when flown against that order; each fix is then the record it names
 course or flags (an airway's minimum altitudes are not encoded yet, and the
 airplane holds its start altitude), so the reference flies them as straight
 legs between the expanded fixes, fly-by at each, as on a procedure.
+
+A `climb_out` is a runway-heading departure: a `CA` (course to an
+altitude) on the runway's magnetic bearing from the CIFP runway record (cols
+28-31), run from the threshold, that ends when the aircraft reaches
+`alt_ft`. It is not a published departure procedure, so its slots do not
+carry the coded-procedure flag `0x20`, and its course comes from the runway
+record, not from a SID's leg. The aircraft climbs at `aircraft.climb_fpm`
+on it. A climb-out ends on altitude wherever the aircraft is, so the
+item after it must be a `waypoint`, and it is flown and sent to the box as
+a `DF` from that point, not as a `TF`. ARINC 424 does not let a `CA` be
+followed by a `TF`. The engine flies a `TF` after a `CA` from the same
+point, so the gate cannot tell the two codings apart; the `DF` is there
+because it is the legal one. A SID by name is not supported: KSMX's
+(BUELT4) follows its `CA` with a `VI`, which the reference does not fly.
+
+**Tier SYN only, so far.** The X-Plane tier's driver refuses a
+`climb_out` (xplane-bench `873733c`, `driver/xpbench/profile.py`: "is not
+a waypoint, airway or procedure"), and it reads `start.fix` only. A profile
+that uses either is flown by the synthetic tier and the gate, and cannot be
+sent to X-Plane until the driver reads them.
 
 Refused, rather than flown a guessed way: an airway with no waypoint before
 it, an airway straight after another (the junction fix would belong to both
@@ -499,6 +533,11 @@ loops completed.
 - (SIM3b) `route` takes en-route items before the procedure, and
   `departure`, `destination` and `end.after_fix` are new: the names
   xplane-bench gave them first, unchanged.
+- (DEMO9) `route` can open with a `climb_out`, and `start` can name a
+  `runway` instead of a `fix`, so a route can begin with a departure. On a
+  `CA` outside the missed approach the aircraft now climbs to the leg's
+  altitude. Before, it climbed only in the missed approach, so a `CA`
+  anywhere else would never have ended.
 - `missed: true` moved into the procedure, and the pilot's RESUME timing
   into `pilot.missed_after_map_s`. A profile still says "go missed", not how
   either tier does it.

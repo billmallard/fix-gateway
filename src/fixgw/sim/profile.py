@@ -21,11 +21,12 @@ _TOP = {"name", "description", "cifp", "aircraft", "environment", "start", "rout
         "departure", "destination", "pilot", "events", "end", "checks"}
 _AIRCRAFT = {"tas_kt", "climb_fpm", "descent_fpm", "bank_max_deg", "turn_rate_deg_s"}
 _ENV = {"magvar_deg", "wind"}
-_START = {"fix", "before_nm", "alt_ft", "heading"}
+_START = {"fix", "runway", "before_nm", "alt_ft", "heading"}
 _PROC = {"airport", "approach", "transition", "missed"}
 _PILOT = {"missed_after_map_s"}
 _END = {"after_event", "after_fix", "max_s"}
-_ITEMS = ("waypoint", "airway", "procedure")
+_ITEMS = ("climb_out", "waypoint", "airway", "procedure")
+_CLIMB_OUT = {"runway", "alt_ft"}
 _CHECK_KINDS = {"key_pair", "sequence", "flagged"}
 _CHECK_KEYS = {"key_pair", "sequence", "flagged", "keys", "tol", "tol_deg", "tol_rel", "same_sign",
                "except_s_around_sequence", "skip_when", "after_s", "note", "unless_flagged",
@@ -61,6 +62,7 @@ class Profile:
     enroute: list = field(default_factory=list)   # [{"kind": "waypoint", "fix"} | {"kind": "airway", "id", "exit"}]
     departure: str = None
     destination: str = None       # the procedure's airport, or the route's destination
+    climb_out: dict = None        # {"runway": "RW30", "alt_ft": 3000.0}, the route's first item
 
 
 def _only(d, allowed, where):
@@ -101,21 +103,37 @@ def load_profile(path, cifp_override=None):
 
     start = raw["start"]
     _only(start, _START, "start")
-    if "fix" not in start or "alt_ft" not in start:
-        raise ProfileError("start: fix and alt_ft are required")
+    if ("fix" in start) == ("runway" in start) or "alt_ft" not in start:
+        raise ProfileError("start: alt_ft and exactly one of fix / runway are required")
+    if "runway" in start and "before_nm" in start:
+        raise ProfileError("start: before_nm goes with fix; a runway start is over the threshold")
     if start.get("heading", "on_course") != "on_course":
         raise ProfileError("start.heading: only on_course is supported")
 
     route = raw["route"]
     if not isinstance(route, list) or not route:
         raise ProfileError("route: a list of waypoint / airway items, then at most one procedure")
-    enroute, proc = [], None
+    enroute, proc, climb = [], None, None
     for n, item in enumerate(route):
         where = f"route[{n}]"
         if not isinstance(item, dict) or len(item.keys() & set(_ITEMS)) != 1:
             raise ProfileError(f"{where}: exactly one of {' / '.join(_ITEMS)}")
         _only(item, set(_ITEMS), where)
-        if "procedure" in item:
+        if "climb_out" in item:
+            if n != 0:
+                raise ProfileError(f"{where}: climb_out opens the route; it must be the first item")
+            climb = item["climb_out"]
+            _only(climb, _CLIMB_OUT, f"{where}.climb_out")
+            if not isinstance(climb.get("runway"), str) or not isinstance(climb.get("alt_ft"), (int, float)) \
+                    or isinstance(climb.get("alt_ft"), bool):
+                raise ProfileError(f"{where}.climb_out: {{runway: RW30, alt_ft: 3000}}")
+            # ARINC 424 lets a CA be followed by a DF but not a TF: the leg
+            # after it starts wherever the climb ended, not at a fix
+            if len(route) < 2 or "waypoint" not in route[1]:
+                raise ProfileError(f"{where}.climb_out: put a waypoint after it (flown direct from "
+                                   "where the climb ends)")
+            climb = {"runway": climb["runway"], "alt_ft": float(climb["alt_ft"])}
+        elif "procedure" in item:
             if n != len(route) - 1:
                 raise ProfileError(f"{where}: the procedure must be the last route item")
             proc = item["procedure"]
@@ -146,6 +164,10 @@ def load_profile(path, cifp_override=None):
     for k in ("departure", "destination"):
         if raw.get(k) is not None and not isinstance(raw[k], str):
             raise ProfileError(f"{k}: an airport ident")
+    if climb is not None and not raw.get("departure"):
+        raise ProfileError("departure: required with climb_out (the airport its runway is at)")
+    if "runway" in start and (climb is None or start["runway"] != climb["runway"]):
+        raise ProfileError(f"start.runway: {start['runway']} is not the runway of a climb_out opening the route")
 
     pilot = raw.get("pilot", {}) or {}
     _only(pilot, _PILOT, "pilot")
@@ -215,5 +237,5 @@ def load_profile(path, cifp_override=None):
         magvar_deg=float(env["magvar_deg"]), wind_from_deg=float(wind.get("from_deg", 0.0)),
         wind_kt=float(wind.get("kt", 0.0)), start=start, procedure=proc, pilot=pilot,
         events=events, end=end, checks=checks, enroute=enroute, departure=raw.get("departure"),
-        destination=proc["airport"] if proc else destination,
+        destination=proc["airport"] if proc else destination, climb_out=climb,
     )

@@ -20,7 +20,16 @@ Behaviour, as a navigator built to TSO-C129/C146 and DO-229 would show it:
 - Straight legs (``IF``/``TF``/``DF``/``CA``) are geodesics. ``TF`` runs
   from the previous fix, ``DF`` from the position where the leg became
   active, ``CA`` along its coded course from the end of the previous leg
-  and ends when the altitude is reached.
+  (the runway threshold, when a climb-out opens the route) and ends when
+  the altitude is reached.
+- A ``DF`` with a coded turn direction (``L``/``R``) starts with a turn that
+  way, from where the leg became active, on the track the aircraft arrived
+  on, until the aircraft can fly straight to the fix (AER-4541). FAA Order
+  8260.58D appendix C checks a DF against this path: a turn of a set radius
+  from the turn point, then direct to the fix, with the fix outside the
+  turn. The radius is a hold's (rate one, or 25 degrees of bank if wider),
+  from the groundspeed. No fly-by turn is anticipated into such a DF: the
+  fix before it sequences abeam, and the DF's own turn starts there.
 - A fly-by fix is two events (DO-236 section 3.2.5.4.1; the Garmin
   guides). At the start of the turn (turn anticipation ``R * tan(delta/2)``,
   ``R`` the radius of a nominal 15 degree bank, the Garmin guides' figure:
@@ -32,6 +41,10 @@ Behaviour, as a navigator built to TSO-C129/C146 and DO-229 would show it:
   (TURN2, AER-4760): Doc 9613 and AC 90-105A define fly-by transitions
   only up to 120 degrees, and no Garmin guide says where a larger one
   starts or sequences. Bill chose the fly-over on the AER-4760 card.
+  Such a turn also sequences once an aircraft that turned back short of
+  the fix, and never got abeam it, has passed its closest approach to it
+  (TURN2b, AER-5324, Bill's card 2026-11-12). In straight flight that
+  point is abeam, so it changes nothing else.
   A turn within 0.5 degrees of 120 is refused (:class:`ReferenceError_`):
   the engine's sphere and this module's WGS-84 can read it on opposite
   sides of the limit (QA, AER-4785).
@@ -79,6 +92,12 @@ MAX_FLYBY_TURN_DEG = 120.0
 # worst at the equator, inbound 045). Inside this band either answer is
 # honest, so the reference refuses to judge rather than pick a side.
 FLYBY_LIMIT_BAND_DEG = 0.5
+# TURN2b (AER-5324): such a turn also sequences where an aircraft that
+# turned back short of the fix has passed its closest approach to it,
+# within the lead a fly-by turn would have taken (capped at 5 nm, as the
+# engine caps it), once the distance has opened by this much.
+REVERSAL_PASSED_NM = 0.05
+REVERSAL_LEAD_CAP_NM = 5.0
 
 
 class ReferenceError_(Exception):
@@ -172,7 +191,7 @@ class RefLeg:
     first_missed: bool = False
     course_true: float = None     # CA, HM inbound
     alt_ft: float = None          # CA termination
-    turn: str = ""                # HM
+    turn: str = ""                # HM; DF when coded (AER-4541)
     leg_nm: float = None          # HM straight-leg length (distance-coded)
     leg_min: float = None         # HM straight-leg time (time-coded, "T010")
 
@@ -215,18 +234,39 @@ def legs_from_cifp(cifp, airport, approach, transition, magvar_deg):
             else:
                 leg.leg_nm = int(r.dist_or_time) / 10.0
             leg.turn = r.turn
+        if r.path_term == "DF" and r.turn in ("L", "R"):
+            leg.turn = r.turn
         legs.append(leg)
     return legs
 
 
+def climb_out_legs(cifp, profile):
+    """The ``climb_out`` item as reference legs: the runway threshold, then
+    a ``CA`` on the runway's magnetic bearing from it, ending at the item's
+    altitude. ``[]`` when the route has none."""
+    climb = profile.climb_out
+    if climb is None:
+        return []
+    rwy, bearing_mag, _ = cifp.runway(profile.departure, climb["runway"])
+    return [RefLeg(pt="TF", ident=rwy.ident, lat=rwy.lat, lon=rwy.lon),
+            RefLeg(pt="CA", course_true=wrap360(bearing_mag - profile.magvar_deg), alt_ft=climb["alt_ft"])]
+
+
 def legs_from_route(cifp, profile):
     """A profile's whole route as reference legs: the departure airport,
-    every en-route fix (an airway expanded to the fixes it passes through,
-    each one a ``TF`` from the fix before it), then the procedure as
-    :func:`legs_from_cifp` reads it, or the destination airport."""
-    fixes = [cifp.fix(profile.departure, section="PA")] if profile.departure else []
-    fixes += [f for f, _ in cifp.expand_route(profile.enroute)]
-    legs = [RefLeg(pt="TF", ident=f.ident, lat=f.lat, lon=f.lon) for f in fixes]
+    the climb-out (:func:`climb_out_legs`), every en-route fix (an airway
+    expanded to the fixes it passes through, each one a ``TF`` from the fix
+    before it, except the first after a climb-out: a ``DF``, from where the
+    climb ended), then the procedure as :func:`legs_from_cifp` reads it, or
+    the destination airport."""
+    legs = []
+    if profile.departure:
+        d = cifp.fix(profile.departure, section="PA")
+        legs.append(RefLeg(pt="TF", ident=d.ident, lat=d.lat, lon=d.lon))
+    legs += climb_out_legs(cifp, profile)
+    for n, (f, _) in enumerate(cifp.expand_route(profile.enroute)):
+        pt = "DF" if n == 0 and profile.climb_out else "TF"
+        legs.append(RefLeg(pt=pt, ident=f.ident, lat=f.lat, lon=f.lon))
     proc = profile.procedure
     if proc is None:
         d = cifp.fix(profile.destination, section="PA")
@@ -369,6 +409,47 @@ def _right_of(p, start, d):
     return q[0] * d[1] - q[1] * d[0]
 
 
+class _DfTurn:
+    """The coded turn that opens a ``DF`` (AER-4541), in a local
+    azimuthal-equidistant plane at the turn's centre (x east, y north, nm):
+    exact for distances and azimuths from the centre, so the circle is a
+    circle. The turn is tangent to ``track_true`` at ``start`` and ends at
+    the tangent point from which the fix lies straight ahead."""
+
+    def __init__(self, leg, start, track_true, radius_nm):
+        self.leg = leg
+        self.R = radius_nm
+        self.left = leg.turn == "L"
+        self.lat, self.lon = direct(start[0], start[1], track_true + (-90.0 if self.left else 90.0), radius_nm)
+        d, to_fix, _ = inverse(self.lat, self.lon, leg.lat, leg.lon)
+        self.feasible = d > radius_nm
+        if not self.feasible:
+            return
+        theta = math.degrees(math.acos(radius_nm / d))
+        start_az = inverse(self.lat, self.lon, start[0], start[1])[1]
+        self.exit_az = wrap360(to_fix + theta if self.left else to_fix - theta)
+        self.sweep = self._gone(start_az, self.exit_az)
+        self.start_az = start_az
+        self.exit = direct(self.lat, self.lon, self.exit_az, radius_nm)
+        self.done = False
+
+    def _gone(self, from_az, to_az):
+        return (from_az - to_az) % 360.0 if self.left else (to_az - from_az) % 360.0
+
+    def guidance(self, lat, lon):
+        """(dtk_true, xtk_nm), or None once the aircraft is past the
+        turn's end (more than the whole turn swept, short of a margin of
+        10 degrees behind its start)."""
+        r, az, _ = inverse(self.lat, self.lon, lat, lon)
+        gone = self._gone(self.start_az, az)
+        if self.sweep <= gone < 360.0 - 10.0 or self.done:
+            self.done = True
+            return None
+        tangent = wrap360(az - 90.0) if self.left else wrap360(az + 90.0)
+        xtk = (r - self.R) if self.left else (self.R - r)
+        return tangent, xtk
+
+
 class ReferenceNavigator:
     """Flies ``legs`` from the leg into ``legs[active]``.
 
@@ -400,6 +481,8 @@ class ReferenceNavigator:
         self._line = None
         self._turn = None             # (bisector, inbound line) between turn start and the bisector
         self._arc = None              # the fly-by turn's arc, turn start to its end (_TurnArc)
+        self._closest = None          # closest approach to a row-3 fix on this leg, nm (TURN2b)
+        self._df_turn = None          # a DF's coded turn while it is flown (_DfTurn, AER-4541)
         self._start_leg(position)
         self._faf = next((k for k, lg in enumerate(legs) if lg.faf), None)
         self._map = next((k for k, lg in enumerate(legs) if lg.map), None)
@@ -426,13 +509,24 @@ class ReferenceNavigator:
             return GeoLine(prev.lat, prev.lon, leg.course_true)
         return None
 
-    def _start_leg(self, position, arrival_track=None):
+    def _coded_df(self, k):
+        """True if leg k is a DF with a coded turn direction."""
+        return 0 <= k < len(self.legs) and self.legs[k].pt == "DF" and self.legs[k].turn in ("L", "R")
+
+    def _start_leg(self, position, arrival_track=None, gs_kt=None):
         leg = self.legs[self.i]
         self._hold = None
         self._turn = None
         self._arc = None
+        self._closest = None
+        self._df_turn = None
         if leg.pt in ("TF", "IF", "DF", "CA"):
             self._line = self._line_for(self.i, position)
+            if self._coded_df(self.i) and position is not None and arrival_track is not None:
+                radius = turn_radius_nm(gs_kt if gs_kt else self.tas, self.rate, self.bank)
+                turn = _DfTurn(leg, position, arrival_track, radius)
+                if turn.feasible:
+                    self._df_turn = turn
         elif leg.pt == "HM":
             self._line = None
             radius = turn_radius_nm(self.tas, self.rate, self.bank)
@@ -452,10 +546,10 @@ class ReferenceNavigator:
             return nxt.course_true
         return None
 
-    def _sequence(self, t, position, arrival_track):
+    def _sequence(self, t, position, arrival_track, gs_kt=None):
         frm = self.legs[self.i].ident
         self.i += 1
-        self._start_leg(position, arrival_track)
+        self._start_leg(position, arrival_track, gs_kt)
         self.sequences.append(Sequence(t, frm, self.legs[self.i].ident, self.i))
 
     def _start_turn(self, lat, lon, inbound_azi_at_fix, next_course, lead):
@@ -476,13 +570,15 @@ class ReferenceNavigator:
         self._turn = None
         self.sequences.append(Sequence(t, frm, self.legs[self.i].ident, self.i))
 
-    def go_missed(self, t, position):
-        """The pilot initiates the missed approach (RESUME at the MAP)."""
+    def go_missed(self, t, position, track_true=None, gs_kt=None):
+        """The pilot initiates the missed approach (RESUME at the MAP). A
+        missed approach that opens with a coded DF turns from ``position``
+        on ``track_true``."""
         if not self.map_suspended:
             raise ReferenceError_("go_missed before the MAP")
         self.map_suspended = False
         self.missed = True
-        self._sequence(t, position, None)
+        self._sequence(t, position, track_true, gs_kt)
 
     # -- scaling -------------------------------------------------------------
     def _scale(self, lat, lon):
@@ -508,7 +604,15 @@ class ReferenceNavigator:
                 break
         leg = self.legs[self.i]
         hint = ""
-        if self._hold is not None:
+        df = self._df_turn.guidance(lat, lon) if self._df_turn is not None else None
+        if self._df_turn is not None and df is None:
+            self._line = GeoLine.between(self._df_turn.exit[0], self._df_turn.exit[1], leg.lat, leg.lon)
+            self._df_turn = None
+        if df is not None:
+            dtk_true, xtk = df
+            hint = leg.turn
+            phase = "DF TURN"
+        elif self._hold is not None:
             dtk_true, xtk, hint = self._hold.guidance(lat, lon, self.tas / 60.0)
             phase = "HOLD " + self._hold.phase
         else:
@@ -537,11 +641,16 @@ class ReferenceNavigator:
         leg = self.legs[self.i]
         if self._hold is not None or self.map_suspended:
             return False
+        if self._df_turn is not None and self._df_turn.guidance(lat, lon) is not None:
+            return False
+        if self._df_turn is not None:
+            self._line = GeoLine.between(self._df_turn.exit[0], self._df_turn.exit[1], leg.lat, leg.lon)
+            self._df_turn = None
         if self._turn is not None:
             return self._turn_done(t, lat, lon)
         if leg.pt == "CA":
             if alt_ft is not None and alt_ft >= leg.alt_ft:
-                self._sequence(t, (lat, lon), track_true)
+                self._sequence(t, (lat, lon), track_true, gs_kt)
                 return True
             return False
         s, _, azi = self._line.project(lat, lon)
@@ -553,8 +662,10 @@ class ReferenceNavigator:
         nxt_course = self._next_course_true(self.i)
         if self.i + 1 >= len(self.legs):
             return False
-        flyby = not leg.flyover and nxt_course is not None
+        # Into a coded DF the turn is the DF's own, from abeam the fix.
+        flyby = not leg.flyover and nxt_course is not None and not self._coded_df(self.i + 1)
         lead = 0.0
+        reversal_lead = None
         if flyby:
             turn = abs(wrap180(nxt_course - self._turn_inbound_azi()))
             if abs(turn - MAX_FLYBY_TURN_DEG) <= FLYBY_LIMIT_BAND_DEG:
@@ -566,13 +677,25 @@ class ReferenceNavigator:
             # limit there is no lead: abeam, as at a fly-over fix.
             if turn <= MAX_FLYBY_TURN_DEG:
                 lead = flyby_turn_radius_nm(gs_kt, self.flyby_bank) * math.tan(math.radians(turn / 2.0))
+            elif self.legs[self.i + 1].pt in ("TF", "DF") and not self._coded_df(self.i + 1):
+                reversal_lead = min(REVERSAL_LEAD_CAP_NM, flyby_turn_radius_nm(gs_kt, self.flyby_bank)
+                                    * math.tan(math.radians(turn / 2.0)))
         if 0.0 < remaining <= lead:
             self._start_turn(lat, lon, self._turn_inbound_azi(), nxt_course, lead)
             return self._turn_done(t, lat, lon)
-        if remaining <= 0.0:
-            self._sequence(t, (lat, lon), track_true)
+        if remaining <= 0.0 or self._turned_back_short(lat, lon, leg, reversal_lead):
+            self._sequence(t, (lat, lon), track_true, gs_kt)
             return True
         return False
+
+    def _turned_back_short(self, lat, lon, leg, reversal_lead):
+        """TURN2b: past the closest approach to a row-3 fix, within the
+        lead a fly-by turn would have taken. None for any other fix."""
+        if reversal_lead is None:
+            return False
+        dist = inverse(lat, lon, leg.lat, leg.lon)[0]
+        self._closest = dist if self._closest is None else min(self._closest, dist)
+        return self._closest <= reversal_lead and dist >= self._closest + REVERSAL_PASSED_NM
 
     def _turn_inbound_azi(self):
         """Azimuth of the current leg's geodesic where it reaches its fix."""

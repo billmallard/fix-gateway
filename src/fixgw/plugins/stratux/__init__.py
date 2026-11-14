@@ -4,7 +4,7 @@ import time
 from collections import OrderedDict
 import fixgw.plugin as plugin
 from fixgw.plugins.stratux import gdl90
-from fixgw.plugins.stratux.traffic import TrafficWriter, parse_ownship_address
+from fixgw.plugins.stratux.traffic import TrafficWriter, resolve_ownship_address
 import socket
 import struct
 import math
@@ -66,13 +66,20 @@ class MainThread(threading.Thread):
                     "(database/traffic.yaml); not writing traffic"
                 )
             else:
+                address, source = resolve_ownship_address(
+                    config, plugin.preferences, self.log
+                )
+                if address is None:
+                    self.log.info("traffic: ownship_address unset")
+                else:
+                    self.log.info(
+                        "traffic: ownship_address {:06X} ({})".format(address, source)
+                    )
                 self.traffic = TrafficWriter(
                     parent.db_get_item,
                     self.log,
                     evict_s=config.get("evict_s", 10),
-                    ownship_address=parse_ownship_address(
-                        config.get("ownship_address"), self.log
-                    ),
+                    ownship_address=address,
                 )
 
     def run(self):
