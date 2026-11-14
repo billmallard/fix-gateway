@@ -1,6 +1,8 @@
 # The demo source (DEMO2): flies a synthetic-tier profile into this gateway,
-# looped, in real time. It writes what a GPS, an AHRS and an air-data box
-# would, and loads the route through the flight-plan contract as a pilot's
+# looped, in real time. It writes what a GPS, an AHRS, an air-data box and
+# an engine monitor would (DEMO3: power by flight phase, and one cylinder
+# that runs hot in the climb, flagged by annunciate from the configured
+# limits), and loads the route through the flight-plan contract as a pilot's
 # editor does; the flight-plan engine and compute do the rest. It needs the
 # sim extra (pip install 'fixgw[sim]') and refuses to start without it.
 #

@@ -519,10 +519,25 @@ are the ones above, with these differences:
 - With `traffic` on (the default), three ADS-B targets orbit the route's
   hold fix at its altitude, through the stratux plugin's GDL90 decoder
   (DEMO7). The TFC block is then watched like the sensor keys.
+- It runs an engine (DEMO3, `fixgw/plugins/demo/engine.py`) and writes its
+  sensors once a second: `TACH1`, `MAP1`, `FUELF1`, `FUELP1`, `OILP1`,
+  `OILT1`, `CHT11`-`14`, `EGT11`-`14`, `VOLT`, `CURRNT`, `FUELQ1`, `FUELQ2`
+  and `OAT`. Power follows the phase the rows show: a hold on an `HM` leg,
+  climb above +300 fpm (its first 60 s at takeoff or go-around power),
+  descent below -300 fpm, cruise otherwise. The tanks start each loop at
+  18 gal and burn by `FUELF1`. The engine keys are watched like the sensor
+  keys, and the restart repeats their last reading so the gauges stay fresh.
+- In the first climb cylinder 3 runs hot: its CHT heads for 10 deg C past
+  the `CHT13.highAlarm` the database holds, crosses `highWarn` and then
+  `highAlarm`, and after 20 s past the alarm the pilot enriches (fuel flow
+  up, EGTs down) and it falls back under `highWarn`. The demo writes only
+  the CHT. The gauge colours and the flag come from the configured limits
+  and the shipped `annunciate` plugin, as in flight. With no `highWarn`
+  below a `highAlarm` there is no event, said once in the log.
 
 Its plugin status reports `State` (`watching`, `flying`, `restarting`,
-`refused`, `stopped`), the profile, the route's length in seconds and the
-loops completed.
+`refused`, `stopped`), the profile, the route's length in seconds, the
+loops completed, and when the CHT event ran.
 
 ## What changed from the plan's sketch (`briefs/sim_bench_plan.md` section 3)
 
