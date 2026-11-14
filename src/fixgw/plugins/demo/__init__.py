@@ -7,9 +7,12 @@
 The demo is a data source like the X-Plane plugin or a real AHRS. It runs the
 ``fixgw.sim`` generator (the SYN2 live mode, without netfix) and writes only
 what a sensor or a pilot would: the generator's position, attitude and air
-data (:data:`SOURCE_KEYS`), and the route and its commands through the FPL
-contract (slots, segments, ``FPLSEQ`` last, then ``FPLCMD``). The real
-flight-plan engine and compute do everything else. It never writes a compute
+data (:data:`SOURCE_KEYS`), the engine's sensors (:data:`ENGINE_KEYS`, DEMO3,
+:mod:`fixgw.plugins.demo.engine`), and the route and its commands through the
+FPL contract (slots, segments, ``FPLSEQ`` last, then ``FPLCMD``). The real
+flight-plan engine, compute and annunciate do everything else: the scripted
+hot cylinder is a CHT value, and its alarm is annunciate's, from the
+configured limits. It never writes a compute
 or engine output, an annunciate flag, or the generator's ``REF*`` reference
 keys: the reference navigator is a CI tool and not part of the demo.
 
@@ -19,7 +22,7 @@ One writer per key, both ways round:
   AER-4476 writer registry), or when ``LAT``/``LONG`` move while it watches
   without writing them (the SYN2 live check, which also sees a netfix
   client);
-- running, a second writer on a source key stops it. The route keys are a
+- running, a second writer on a source or engine key stops it. The route keys are a
   shared contract by design (the engine republishes them on restore, a
   pilot's editor commits them), so they are not watched.
 
@@ -27,6 +30,13 @@ With ``traffic`` on (the default), a few ADS-B targets orbit the route's
 hold through the stratux plugin's own GDL90 decoder (DEMO7,
 :mod:`fixgw.plugins.demo.traffic`). The TFC block is then the demo's as
 well: watched at start and while running like the sensor keys.
+
+It also writes its own two keys (DEMO4, ``database/demo.yaml``):
+``DEMOLIVE``, true about once a second while it runs and false when it stops,
+which drives the DEMO marking on the glass; and ``DEMOPAGE``, the page the
+``pages`` schedule names at that point in the route, which a pyEfis kiosk
+follows. It refuses to start on a database without them, so the demo cannot
+run without its marking.
 
 At the end of the route it clears the plan, holds the position bad for
 ``restart_s`` (nav flags, SVS unavailable: honest), commits the route again
@@ -42,7 +52,8 @@ from collections import OrderedDict
 
 import fixgw.database as database
 import fixgw.plugin as plugin
-from fixgw.plugins.demo import traffic
+from fixgw.plugins.demo import engine, traffic
+from fixgw.plugins.demo.engine import ENGINE_KEYS
 
 # The generator's sensor set (fixgw.sim.generator.SENSOR_KEYS), kept here so
 # the registry check runs before the sim package is imported; a test holds
@@ -52,6 +63,10 @@ SOURCE_KEYS = ("MAGVAR", "GPS_FIX_TYPE", "GPS_ACCURACY_HORIZ", "ALT", "GS", "TAS
 POSITION_KEYS = ("LAT", "LONG")
 REF_PREFIX = "REF"
 TRAFFIC_PREFIX = "TFC"
+LIVE_KEY = "DEMOLIVE"
+PAGE_KEY = "DEMOPAGE"
+DEMO_KEYS = (LIVE_KEY, PAGE_KEY)
+LIVE_EVERY_S = 1.0
 WRITER = "demo"
 DEFAULT_PROFILE = "fp8-ksmx-rnav30-missed.yaml"
 
@@ -110,6 +125,35 @@ def route_rows(run, have):
     return rows, sorted(absent)
 
 
+def parse_pages(pages):
+    """The ``pages`` config as a sorted [(route_s, page)] list. Each entry is
+    ``{at: <seconds into the route>, page: <SCREEN or SCREEN/TAB>}``. Raises
+    ValueError on anything else, so a typo refuses at start, not mid-show."""
+    out = []
+    for entry in pages or ():
+        if not isinstance(entry, dict) or set(entry) != {"at", "page"}:
+            raise ValueError("pages: each entry is {{at: <s>, page: <name>}}, not {!r}".format(entry))
+        at, page = float(entry["at"]), entry["page"]
+        if at < 0 or not isinstance(page, str) or not page.strip():
+            raise ValueError("pages: bad entry {!r}".format(entry))
+        out.append((at, page.strip()))
+    return sorted(out, key=lambda e: e[0])
+
+
+def page_rows(rows, pages):
+    """``rows`` with ``DEMOPAGE`` written on the first row at or after each
+    scheduled time (an entry past the route's end lands on its last row)."""
+    if not pages or not rows:
+        return rows
+    out = [(t, dict(row)) for t, row in rows]
+    i = 0
+    for at, page in pages:
+        while i < len(out) - 1 and out[i][0] < at:
+            i += 1
+        out[i][1][PAGE_KEY] = page
+    return out
+
+
 def hold_center(rows):
     """(lat, lon, alt_ft) of the route's hold fix, from the route block in
     ``rows``: the slot coded ``HM``, at its altitude constraint. None when the
@@ -141,6 +185,8 @@ class MainThread(threading.Thread):
         self.sleep = time.sleep
         self.traffic = None
         self.center = None
+        self.live_at = None
+        self.engine_last = {}
 
     def stop(self):
         self.halt.set()
@@ -149,7 +195,9 @@ class MainThread(threading.Thread):
     # restart hold clears the bad flag the hold put on LAT/LONG; a route or
     # command key is a plain write, as an editor makes it.
     def _write(self, key, value):
-        if key in SOURCE_KEYS:
+        if key in ENGINE_KEYS:
+            self.engine_last[key] = value
+        if key in SOURCE_KEYS or key == PAGE_KEY:
             database.get_raw_item(key).set(value, bad=False)
         else:
             database.write(key, value)
@@ -157,9 +205,18 @@ class MainThread(threading.Thread):
     def _read(self, key):
         return database.read(key)[0]
 
+    # DEMOLIVE: true about once a second while running, so it goes old (tol
+    # 2 s) soon after the demo dies without the chance to clear it.
+    def _live(self):
+        now = self.clock()
+        if self.live_at is None or now - self.live_at >= LIVE_EVERY_S:
+            database.get_raw_item(LIVE_KEY).set(True, bad=False)
+            self.live_at = now
+
     # Once per row, from live.stream: the traffic emitter's step (it sends on
     # its own 1 s deadline), then the second-writer check.
     def _second_writer(self):
+        self._live()
         if self.traffic is not None:
             self.traffic.step()
         found = other_writers(self.parent.keys)
@@ -181,6 +238,8 @@ class MainThread(threading.Thread):
         except Exception as e:
             self._refuse("{}: {}".format(type(e).__name__, e))
         finally:
+            if self.live_at is not None:
+                database.get_raw_item(LIVE_KEY).set(False, bad=False)
             self.running = False
 
     def _run(self):
@@ -193,7 +252,9 @@ class MainThread(threading.Thread):
         t0 = time.monotonic()
         profile = self.parent.profile_path
         run = generate(profile, frequency_ms=int(self.config.get("frequency_ms", 200)))
-        rows, absent = route_rows(run, set(database.listkeys()))
+        with_engine, eng = engine.add_engine(run.rows, self._event_limits())
+        rows, absent = route_rows(_Run(with_engine), set(database.listkeys()))
+        rows = page_rows(rows, self.parent.pages)
         if absent:
             self.log.warning("demo: the database has no {}: not written".format(" ".join(absent)))
         left = watch_s - (time.monotonic() - t0)
@@ -212,6 +273,7 @@ class MainThread(threading.Thread):
         restart_s = float(self.config.get("restart_s", 5.0))
         self.status["Profile"] = run.profile.name
         self.status["Route s"] = round(rows[-1][0], 1)
+        self.status["CHT event"] = ", ".join("{} {:.0f} s".format(w, t) for t, w in eng.marks) or "none"
         loops = 0
         while not self.halt.is_set():
             fplseq = int(float(self._read("FPLSEQ"))) + 1
@@ -234,12 +296,33 @@ class MainThread(threading.Thread):
             if self._hold(restart_s):
                 return
 
-    # The restart hold; the traffic keeps flying through it.  True if halted.
+    def _event_limits(self):
+        """The hot cylinder's configured (highWarn, highAlarm), read now, or
+        None, said once, and no event."""
+        key = "CHT1{}".format(engine.HOT_CYLINDER)
+        try:
+            item = database.get_raw_item(key)
+            limits = engine.event_limits(item.get_aux_value("highWarn"), item.get_aux_value("highAlarm"))
+        except KeyError:
+            limits = None
+        if limits is None:
+            self.log.warning("demo: {} has no highWarn below a highAlarm: no CHT event".format(key))
+        return limits
+
+    # The restart hold; the traffic keeps flying through it, and the engine's
+    # last reading is repeated each second so the gauges do not go old.
+    # True if halted.
     def _hold(self, seconds):
         end = self.clock() + seconds
+        next_engine = self.clock()
         while self.clock() < end:
+            self._live()
             if self.traffic is not None:
                 self.traffic.step()
+            if self.clock() >= next_engine:
+                for key, value in self.engine_last.items():
+                    self._write(key, value)
+                next_engine += 1.0
             if self.halt.wait(0):
                 return True
             self.sleep(min(0.2, max(0.0, end - self.clock())))
@@ -267,7 +350,8 @@ class Plugin(plugin.PluginBase):
     def __init__(self, name, config, config_meta):
         super(Plugin, self).__init__(name, config, config_meta)
         self.status = OrderedDict()
-        self.keys = SOURCE_KEYS
+        self.keys = SOURCE_KEYS + DEMO_KEYS
+        self.pages = []
         self.traffic_on = False
         self.profile_path = self._profile_path(config.get("profile", DEFAULT_PROFILE))
         self.thread = MainThread(self)
@@ -287,7 +371,17 @@ class Plugin(plugin.PluginBase):
             import fixgw.sim.generator  # noqa: F401  (needs geographiclib)
         except ImportError as e:
             self._fail("the synthetic flight tier is not installed ({}): pip install 'fixgw[sim]'".format(e))
-        self.keys = SOURCE_KEYS + self._traffic_keys()
+        missing = [k for k in DEMO_KEYS if k not in database.listkeys()]
+        if missing:
+            self._fail("the database has no {} (database/demo.yaml): the demo does not run "
+                       "without its DEMO marking".format(" ".join(missing)))
+        try:
+            self.pages = parse_pages(self.config.get("pages"))
+        except ValueError as e:
+            self._fail(str(e))
+        have = set(database.listkeys())
+        self.keys = (SOURCE_KEYS + DEMO_KEYS + tuple(k for k in ENGINE_KEYS if k in have)
+                     + self._traffic_keys())
         found = other_writers(self.keys)
         if found:
             self._fail("another source writes {}".format(_describe(found)))
