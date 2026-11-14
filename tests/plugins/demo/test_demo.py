@@ -144,7 +144,7 @@ def test_demo_writes_only_source_keys_and_the_editors_route_keys(db, monkeypatch
         real(self, x)
 
     monkeypatch.setattr(database.db_item, "annunciate", database.db_item.annunciate.setter(watch))
-    p = make()
+    p = make({"pages": [{"at": 0, "page": "PFD"}]})
     loops(p, 2)
     p.run()
     p.thread.join(60)
@@ -155,9 +155,9 @@ def test_demo_writes_only_source_keys_and_the_editors_route_keys(db, monkeypatch
     editor = _editor_keys()
     route = {k for k in written if any(rx.match(k) for rx in editor)}
     tfc = {k for k in written if k.startswith("TFC")}
-    # every key it writes is a sensor's, the editor's, or the traffic block
-    # (DEMO7) through the stratux decoder
-    assert written - route - tfc == set(demo.SOURCE_KEYS), sorted(written - route - tfc)
+    # every key it writes is a sensor's, its own two (DEMO4), the editor's,
+    # or the traffic block (DEMO7) through the stratux decoder
+    assert written - route - tfc == set(demo.SOURCE_KEYS + demo.DEMO_KEYS), sorted(written - route - tfc)
     assert {"TFC1TGT", "TFCCOUNT"} <= tfc
     assert all(database.get_raw_item(k).writers == ["demo"] for k in tfc)
     assert {"FPLSEQ", "FPLCMD", "FPLCOUNT", "FPLSEGCNT", "FPL1ID", "FPLS1KIND"} <= route
@@ -354,3 +354,147 @@ def test_without_a_tfc_block_it_says_so_once_and_flies_without_traffic(db, monke
     assert p.thread.traffic is None
     errors = [r.message for r in caplog.records if r.levelname == "ERROR"]
     assert len(errors) == 1 and "TFC block" in errors[0]
+
+
+# ---------------------------------------------------------------------------
+# Its own keys (DEMO4): the DEMO marking and the kiosk page
+# ---------------------------------------------------------------------------
+
+def test_demolive_is_true_while_it_flies_and_false_when_it_stops(db):
+    seen = []
+    database.callback_add("t", "DEMOLIVE", lambda k, v, u: seen.append(v[0]), None)
+    fast = FastClock()
+    p = make(fast=fast)
+    fast.on_sleep = lambda n: p.thread.halt.set() if n == 100 else None
+    p.start()
+    p.thread.join(30)
+    assert not p.thread.is_alive()
+    assert database.read("DEMOLIVE")[0] is False
+    assert seen[0] is True and seen[-1] is False
+    assert database.get_raw_item("DEMOLIVE").writers == ["demo"]
+
+
+def _live_stamps(p):
+    """The clock at each DEMOLIVE write the thread makes."""
+    stamps = []
+    item = database.get_raw_item("DEMOLIVE")
+    real = item.set
+
+    def stamped(value, **kw):
+        stamps.append((p.thread.clock(), value))
+        real(value, **kw)
+
+    item.set = stamped
+    return stamps
+
+
+def test_demolive_is_refreshed_about_once_a_second_inside_its_tol(db):
+    fast = FastClock()
+    p = make(fast=fast)
+    stamps = _live_stamps(p)
+    fast.on_sleep = lambda n: p.thread.halt.set() if n == 300 else None
+    p.start()
+    p.thread.join(30)
+    trues = [t for t, v in stamps if v]
+    gaps = [b - a for a, b in zip(trues, trues[1:])]
+    assert len(trues) > 20
+    assert database.get_raw_item("DEMOLIVE").tol == 2000
+    assert all(1.0 <= g < 1.5 for g in gaps), gaps
+
+
+def test_demolive_stays_live_through_the_restart_hold(db):
+    p = make({"restart_s": 10})
+    stamps = _live_stamps(p)
+    holds = []
+    real_hold = p.thread._hold
+
+    def hold(s):
+        holds.append(p.thread.clock())
+        r = real_hold(s)
+        p.thread.halt.set()
+        return r
+
+    p.thread._hold = hold
+    p.start()
+    p.thread.join(60)
+    in_hold = [t for t, v in stamps if v and t >= holds[0]]
+    assert in_hold[-1] - holds[0] >= 9.0
+    assert all(b - a < 1.5 for a, b in zip(in_hold, in_hold[1:]))
+
+
+def test_it_writes_the_scheduled_page_at_its_route_time_each_loop(db):
+    pages = []
+    fast = FastClock()
+    p = make({"pages": [{"at": 120, "page": "FPL"}, {"at": 0, "page": "PFD"},
+                        {"at": 400, "page": "MAP/Layers"}]}, fast=fast)
+    starts = []
+    clear = p.thread._clear_plan
+
+    def cleared():
+        clear()
+        starts.append(fast.t)
+        if len(starts) == 2:
+            p.thread.halt.set()
+
+    p.thread._clear_plan = cleared
+    database.callback_add("t", "DEMOPAGE", lambda k, v, u: pages.append((fast.t, v[0])), None)
+    p.start()
+    p.thread.join(60)
+    assert p.thread.refused is None, p.status
+    assert [pg for _, pg in pages] == ["PFD", "FPL", "MAP/Layers"] * 2
+    t1 = [t for t, _ in pages[:3]]
+    assert t1[0] < 1.0 and 120 <= t1[1] < 121 and 400 <= t1[2] < 401
+    assert database.get_raw_item("DEMOPAGE").writers == ["demo"]
+
+
+def test_without_pages_it_never_writes_demopage(db):
+    p = make()
+    loops(p, 1)
+    p.start()
+    p.thread.join(60)
+    assert "DEMOPAGE" not in demo_keys()
+    assert "DEMOLIVE" in demo_keys()
+
+
+def test_page_rows_lands_each_entry_on_the_first_row_at_or_after_it():
+    rows = [(0.0, {"A": 1}), (0.2, {"A": 2}), (0.4, {"A": 3})]
+    out = demo.page_rows(rows, [(0.0, "PFD"), (0.3, "FPL"), (9.0, "EMS")])
+    # 0.3 lands on the 0.4 row, and 9.0 (past the end) on the same last
+    # row: the later entry wins
+    assert out == [(0.0, {"A": 1, "DEMOPAGE": "PFD"}), (0.2, {"A": 2}),
+                   (0.4, {"A": 3, "DEMOPAGE": "EMS"})]
+    assert "DEMOPAGE" not in rows[0][1]
+
+
+@pytest.mark.parametrize("bad", [
+    [{"at": 0}],
+    [{"at": 0, "page": ""}],
+    [{"at": -1, "page": "PFD"}],
+    [{"at": 0, "page": "PFD", "tab": "x"}],
+    ["PFD"],
+])
+def test_refuses_a_malformed_pages_entry(db, bad):
+    p = make({"pages": bad})
+    with pytest.raises(plugin_base.PluginFail, match="pages"):
+        p.start()
+    assert demo_keys() == set()
+
+
+def test_refuses_without_its_keys_so_it_never_runs_unmarked(db, monkeypatch):
+    real = database.listkeys
+    monkeypatch.setattr(database, "listkeys", lambda: [k for k in real() if k != "DEMOLIVE"])
+    p = make()
+    with pytest.raises(plugin_base.PluginFail, match="DEMOLIVE"):
+        p.start()
+    assert p.status["State"] == "refused"
+    assert demo_keys() == set()
+
+
+def test_a_second_writer_on_demolive_stops_it(db):
+    fast = FastClock(on_sleep=lambda n: as_plugin("netfix", "DEMOLIVE", True) if n == 50 else None)
+    p = make(fast=fast)
+    p.start()
+    p.thread.join(30)
+    assert p.status["State"] == "stopped"
+    assert "DEMOLIVE (netfix)" in p.status["Reason"]
+    assert database.read("DEMOLIVE")[0] is False
