@@ -1,0 +1,148 @@
+# Avoid editing this file
+# Future updates may include changes to this file but once you edit
+# this file it will no longer be auto-updated and you will not
+# benefit from the improvements without manual intervention
+
+# The GDL90 receiver's own ownship data (GDL1, AER-5650): the Ownship Report
+# (0x0A) and the Ownship Geometric Altitude message (0x0B), decoded by the
+# stratux plugin, its only writer.  Field references are to the GDL 90 Data
+# Interface Specification 560-1058-00 Rev A (G§); doc/plugins/stratux.md has
+# the full table and what a Stratux really sends in each field.
+#
+# Source-prefixed, never the canonical LAT/LONG/TRACK/ALT (Bill's ruling,
+# packet AER-5615): position is source-selected, so a second GPS source never
+# fights this one for a key.
+#
+# A field the receiver marks unavailable is written with bad set: 0 for a
+# measurement, and the key's max for an uncertainty (STXRC, STXEPU, STXVFOM).
+# Both messages come once a second, so tol is 2000 as for LAT/LONG: one missed
+# report plus jitter.  A receiver with no fix stops sending them and every key
+# goes old.
+
+items:
+- key: STXLAT
+  description: "GDL90 ownship latitude (0x0A)"
+  type: float
+  min: -90.0
+  max: 90.0
+  units: deg
+  initial: 0.0
+  tol: 2000
+
+- key: STXLONG
+  description: "GDL90 ownship longitude (0x0A)"
+  type: float
+  min: -180.0
+  max: 180.0
+  units: deg
+  initial: 0.0
+  tol: 2000
+
+# G§3.5.1.4 calls it pressure altitude (29.92 inHg).  A Stratux with no
+# pressure sensor sends GPS MSL altitude in this field instead.
+- key: STXPALT
+  description: "GDL90 ownship altitude field, pressure altitude per the ICD (0x0A)"
+  type: float
+  min: -1000.0
+  max: 101350.0
+  units: ft
+  initial: 0.0
+  tol: 2000
+
+- key: STXGS
+  description: "GDL90 ownship ground speed (0x0A)"
+  type: float
+  min: 0.0
+  max: 4094.0
+  units: knots
+  initial: 0.0
+  tol: 2000
+
+# bad unless the report marks tt as a true track: a heading is not a track.
+- key: STXTRACK
+  description: "GDL90 ownship true track (0x0A)"
+  type: float
+  min: 0.0
+  max: 360.0
+  units: deg
+  initial: 0.0
+  tol: 2000
+
+- key: STXVS
+  description: "GDL90 ownship vertical velocity (0x0A)"
+  type: int
+  min: -32640
+  max: 32640
+  units: ft/min
+  initial: 0
+  tol: 2000
+
+- key: STXAIR
+  description: "GDL90 ownship air/ground state, true = airborne (0x0A)"
+  type: bool
+  initial: false
+  tol: 2000
+
+# The raw codes.  bad on 12-15, which the ICD leaves unused.
+- key: STXNIC
+  description: "GDL90 ownship Navigation Integrity Category code (0x0A)"
+  type: int
+  min: 0
+  max: 15
+  initial: 0
+  tol: 2000
+
+- key: STXNACP
+  description: "GDL90 ownship Navigation Accuracy Category for Position code (0x0A)"
+  type: int
+  min: 0
+  max: 15
+  initial: 0
+  tol: 2000
+
+# G§3.5.1.6 Table 10 in metres, each the code's upper bound.  bad (and max)
+# for code 0 ("unknown"), 12-15, and STXRC when the position is invalid.
+- key: STXRC
+  description: "GDL90 ownship containment radius bound from NIC (0x0A)"
+  type: float
+  min: 0.0
+  max: 37040.0
+  units: m
+  initial: 37040.0
+  tol: 2000
+
+- key: STXEPU
+  description: "GDL90 ownship estimated position uncertainty bound from NACp (0x0A)"
+  type: float
+  min: 0.0
+  max: 18520.0
+  units: m
+  initial: 18520.0
+  tol: 2000
+
+# Height above the WGS-84 ellipsoid (G§3.8).  A Stratux sends MSL instead when
+# its "GDL90 MSL altitude" setting is on.  Never ALT: baro and GPS altitude are
+# different quantities.
+- key: STXGALT
+  description: "GDL90 ownship geometric altitude (0x0B)"
+  type: float
+  min: -163840.0
+  max: 163835.0
+  units: ft
+  initial: 0.0
+  tol: 2000
+
+- key: STXVFOM
+  description: "GDL90 ownship vertical figure of merit (0x0B)"
+  type: float
+  min: 0.0
+  max: 32766.0
+  units: m
+  initial: 32766.0
+  tol: 2000
+
+- key: STXVWARN
+  description: "GDL90 ownship vertical warning: position alarm or no fault detection (0x0B)"
+  type: bool
+  initial: false
+  tol: 2000
