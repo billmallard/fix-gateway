@@ -20,3 +20,10 @@ demo:
   # A few ADS-B targets around the hold, decoded by the stratux plugin's
   # GDL90 path into the TFC block (DEMO7).
   traffic: true
+  # The page a pyEfis kiosk shows (DEMO4): DEMOPAGE is written with each
+  # entry's page at that many seconds into the route, every loop. A page is a
+  # pyEfis screen name, or SCREEN/TAB to bring a tab forward too. pyEfis
+  # honours it only with `kiosk: {enabled: true}` in its own config.
+  # pages:
+  #   - {at: 0, page: PFD}
+  #   - {at: 600, page: FPL}
