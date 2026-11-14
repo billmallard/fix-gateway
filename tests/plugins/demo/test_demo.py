@@ -155,9 +155,9 @@ def test_demo_writes_only_source_keys_and_the_editors_route_keys(db, monkeypatch
     editor = _editor_keys()
     route = {k for k in written if any(rx.match(k) for rx in editor)}
     tfc = {k for k in written if k.startswith("TFC")}
-    # every key it writes is a sensor's, the editor's, or the traffic block
-    # (DEMO7) through the stratux decoder
-    assert written - route - tfc == set(demo.SOURCE_KEYS), sorted(written - route - tfc)
+    # every key it writes is a sensor's, the engine's (DEMO3), the editor's,
+    # or the traffic block (DEMO7) through the stratux decoder
+    assert written - route - tfc == set(demo.SOURCE_KEYS) | set(demo.ENGINE_KEYS), sorted(written - route - tfc)
     assert {"TFC1TGT", "TFCCOUNT"} <= tfc
     assert all(database.get_raw_item(k).writers == ["demo"] for k in tfc)
     assert {"FPLSEQ", "FPLCMD", "FPLCOUNT", "FPLSEGCNT", "FPL1ID", "FPLS1KIND"} <= route
