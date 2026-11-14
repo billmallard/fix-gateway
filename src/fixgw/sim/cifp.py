@@ -83,6 +83,7 @@ class ApproachLeg:
     alt_desc: str
     alt1: str
     alt2: str
+    speed: str = ""        # speed limit, knots (cols 100-102), "" when none
 
     @property
     def flyover(self):
@@ -280,6 +281,7 @@ class Cifp:
                 alt_desc=_col(line, 83, 83).strip(),
                 alt1=_col(line, 85, 89).strip(),
                 alt2=_col(line, 90, 94).strip(),
+                speed=_col(line, 100, 102).strip(),
             ))
         if not legs:
             raise CifpError(f"{airport} {approach}: no approach records in {self.path}")
