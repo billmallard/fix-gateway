@@ -333,9 +333,7 @@ def test_capture_is_what_the_fixture_says():
 def test_captured_ownship_exact_decode(gw):
     # The first recorded 0x0A, every field, pinned.
     c = CAPTURED_0A[0]
-    assert c["datagram"] == (
-        "7e0a01f000001766ecbadc6203898a001800c1015374726174757800009be27e"
-    ) or captured_msg(c)[0] == gdl90.OWNSHIP
+    assert captured_msg(c)[0] == gdl90.OWNSHIP
     gw.send_raw(bytes.fromhex(c["datagram"]))
     gw.settle()
     r = gdl90.parse_report(captured_msg(c))
