@@ -153,7 +153,8 @@ def parse_report(msg: bytes):
     vvv = ((b[15] & 0x0F) << 8) | b[16]
     tt = b[17]
     cat = b[18]
-    callsign = b[19:27].decode("latin-1").rstrip(" ")
+    # Space is the ICD's pad (G§3.5.1.11); Stratux pads with NUL instead.
+    callsign = b[19:27].decode("latin-1").rstrip(" \x00")
     emergency = b[27] >> 4
 
     # G§3.5.1.8: 0x800 is "no data"; 0x1FF-0x7FF and 0x801-0xE01 are unused
