@@ -97,6 +97,23 @@ def test_booting_receiver(database):
     assert _bad(database, "STXCPUT") is True
 
 
+def test_recorded_flightbox_3d_fix(database):
+    # Recorded from the bench FlightBox (v1.6r1-eu023, u-blox 7) on
+    # 2026-11-15: a 3D fix without SBAS.
+    p = _poller(database, lambda url, timeout: _load("getstatus_flightbox_3d.json"))
+    p.poll_once()
+
+    assert _good(database, "STXALIVE") is True
+    assert _good(database, "STXGPS") is True
+    assert _good(database, "STXAHRS") is True
+    assert _good(database, "STXBARO") is True
+    assert _good(database, "STXGPSFIX") == 3
+    assert _good(database, "STXSATS") == 7
+    assert _good(database, "STXSATSV") == 9
+    assert _good(database, "STXGPSACC") == pytest.approx(5.85 / 0.3048)
+    assert _good(database, "STXCPUT") == pytest.approx(51.382)
+
+
 def test_published_v1_4_response(database):
     # The example in Stratux's own notes/app-vendor-integration.md, with
     # the older SBAS string.
