@@ -89,6 +89,11 @@ fields:
 
 These colours are placeholders for the spike, not a reviewed design.
 
+The shipped page with sample values, as the panel firmware's own renderer
+draws it (`images/tessera/README.md` has the commands):
+
+![The spike page on the panel](images/tessera/spike_page.png)
+
 ## The link
 
 | Step | What the plugin does |
