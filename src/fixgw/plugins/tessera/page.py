@@ -41,15 +41,21 @@ class Key:
     def __init__(self, entry):
         unknown = set(entry) - _KEY_FIELDS
         if unknown:
-            raise PageError("key {}: unknown field(s) {}".format(entry.get("id"), sorted(unknown)))
+            raise PageError(
+                "key {}: unknown field(s) {}".format(entry.get("id"), sorted(unknown))
+            )
         self.id = entry.get("id")
         if type(self.id) is not int or not 1 <= self.id <= protocol.MAX_KEYS:
-            raise PageError("key id {!r}: must be 1 to {}".format(self.id, protocol.MAX_KEYS))
+            raise PageError(
+                "key id {!r}: must be 1 to {}".format(self.id, protocol.MAX_KEYS)
+            )
         self.label = entry.get("label")
         if not isinstance(self.label, str) or not self.label:
             raise PageError("key {}: needs a label".format(self.id))
         if len(self.label) > protocol.LABEL_MAX:
-            raise PageError("key {}: label over {} characters".format(self.id, protocol.LABEL_MAX))
+            raise PageError(
+                "key {}: label over {} characters".format(self.id, protocol.LABEL_MAX)
+            )
         self.show = entry.get("show")
         self.format = entry.get("format", "{}")
         self.text = str(entry.get("text", ""))
@@ -113,7 +119,9 @@ def _press(key_id, press):
         return ("pulse", press["pulse"], None)
     if set(press) == {"set", "value"} and isinstance(press["set"], str):
         return ("set", press["set"], press["value"])
-    raise PageError("key {}: press is {{pulse: KEY}} or {{set: KEY, value: V}}".format(key_id))
+    raise PageError(
+        "key {}: press is {{pulse: KEY}} or {{set: KEY, value: V}}".format(key_id)
+    )
 
 
 class Page:
@@ -121,7 +129,9 @@ class Page:
         if not isinstance(data, dict) or not isinstance(data.get("keys"), list):
             raise PageError("a page is a mapping with a 'keys' list")
         self.name = str(data.get("name", "TESSERA"))
-        self.keys = [Key(entry if isinstance(entry, dict) else {}) for entry in data["keys"]]
+        self.keys = [
+            Key(entry if isinstance(entry, dict) else {}) for entry in data["keys"]
+        ]
         if len(self.keys) > protocol.MAX_KEYS:
             raise PageError("more than {} keys".format(protocol.MAX_KEYS))
         ids = [k.id for k in self.keys]
@@ -145,7 +155,9 @@ class Page:
         return sorted({k.press[1] for k in self.keys if k.press})
 
     def pulsed_keys(self):
-        return sorted({k.press[1] for k in self.keys if k.press and k.press[0] == "pulse"})
+        return sorted(
+            {k.press[1] for k in self.keys if k.press and k.press[0] == "pulse"}
+        )
 
     def buttons(self, read):
         return [k.tile(read) for k in self.keys]

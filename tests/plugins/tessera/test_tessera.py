@@ -58,7 +58,12 @@ def rig(database, tmp_path, fast):
             path = tmp_path / "page.yaml"
             path.write_text(yaml.safe_dump(page))
             page = str(path)
-        cfg = {"port": link, "page": os.path.abspath(page), "reconnect_interval": 0.1, "identify_interval": 60}
+        cfg = {
+            "port": link,
+            "page": os.path.abspath(page),
+            "reconnect_interval": 0.1,
+            "identify_interval": 60,
+        }
         cfg.update(config or {})
         p = tessera.Plugin("tessera", cfg, {})
         p.run()
@@ -72,7 +77,9 @@ def rig(database, tmp_path, fast):
 
 
 def accepted(p, panel, n=1):
-    return wait_for(lambda: panel.layouts_accepted >= n and p.thread.counters["acks"] >= n)
+    return wait_for(
+        lambda: panel.layouts_accepted >= n and p.thread.counters["acks"] >= n
+    )
 
 
 # -- handshake ---------------------------------------------------------------
@@ -111,16 +118,22 @@ def test_silent_device_is_not_a_panel(rig):
     assert not p.thread.connected
 
 
-def test_early_press_from_an_earlier_session_is_dropped(rig):
+def test_early_press_from_an_earlier_session_is_dropped(rig, database):
+    rec = Recorder()
+    database.callback_add("test", "TSBTN12", rec, None)
     p, panel = rig()
     assert accepted(p, panel)
     panel.unplug()
     panel.plug()
-    # A press queued before the handshake answer: the plugin discards input
-    # when it opens the port, and the press is never answered.
-    panel.press(3)
+    # A press sent before the handshake answer belongs to the old session:
+    # it is never answered and writes nothing.
+    panel.press_before_info = 3
     assert wait_for(lambda: p.thread.counters["connects"] == 2)
     assert accepted(p, panel, 2)
+    time.sleep(0.2)
+    assert panel.press_before_info is None  # it was sent
+    assert panel.feedback == [] and rec.calls == []
+    assert p.thread.counters["presses"] == 0
 
 
 # -- ping ----------------------------------------------------------------------
@@ -140,7 +153,9 @@ def test_pings_continue_while_a_push_waits_for_its_answer(rig, monkeypatch):
     monkeypatch.setattr(tessera.MainThread, "ack_seconds", 3.0)
     p, panel = rig()
     panel.ignore_cfg_end = 1
-    assert wait_for(lambda: p.thread.counters["acks"] == 1, 5)  # answered after the resend at 3 s
+    assert wait_for(
+        lambda: p.thread.counters["acks"] == 1, 5
+    )  # answered after the resend at 3 s
     pings = [t for t, _ in panel.lines("AD_PING")]
     first_end = panel.lines("AD_CFG_END")[0][0]
     assert sum(1 for t in pings if first_end < t < first_end + 3.0) >= 2
@@ -150,7 +165,12 @@ def test_pings_continue_while_a_push_waits_for_its_answer(rig, monkeypatch):
 
 
 def long_page(n=18):
-    return {"keys": [{"id": i, "label": "KEY %02d LONG LABEL TEXT" % i, "show": "BARO"} for i in range(1, n + 1)]}
+    return {
+        "keys": [
+            {"id": i, "label": "KEY %02d LONG LABEL TEXT" % i, "show": "BARO"}
+            for i in range(1, n + 1)
+        ]
+    }
 
 
 def test_page_goes_in_380_character_chunks(rig):
@@ -163,7 +183,10 @@ def test_page_goes_in_380_character_chunks(rig):
     assert begin[0][0] <= data[0][0] and data[-1][0] <= end[0][0]
     chunks = [line[len("AD_CFG_DATA ") :] for _, line in data]
     assert len(chunks) > 1
-    assert all(len(c) == protocol.CFG_CHUNK for c in chunks[:-1]) and 0 < len(chunks[-1]) <= protocol.CFG_CHUNK
+    assert (
+        all(len(c) == protocol.CFG_CHUNK for c in chunks[:-1])
+        and 0 < len(chunks[-1]) <= protocol.CFG_CHUNK
+    )
     payload = "".join(chunks)
     assert json.loads(payload)["buttons"][17]["label"] == "KEY 18 LONG LABEL TEXT"
     assert all(len(line.encode()) <= protocol.LINE_MAX for _, line in panel.lines())
@@ -183,14 +206,20 @@ def test_unanswered_page_is_sent_once_more_after_the_wait(rig):
 def test_page_unanswered_twice_resets_the_link(rig):
     p, panel = rig()
     panel.ignore_cfg_end = 2
-    assert wait_for(lambda: p.thread.counters["connects"] >= 2 and p.thread.counters["acks"] >= 1, 5)
+    assert wait_for(
+        lambda: p.thread.counters["connects"] >= 2 and p.thread.counters["acks"] >= 1, 5
+    )
     assert "did not answer the page twice" in p.thread.last_error
     assert p.thread.counters["resends"] == 1
 
 
 def test_invalid_answer_stops_pushes_and_presses(rig, database):
-    page = {"keys": [{"id": 1, "label": "BARO", "show": "BARO", "color": "amber"},
-                     {"id": 2, "label": "UP", "text": "+", "press": {"pulse": "TSBTN12"}}]}
+    page = {
+        "keys": [
+            {"id": 1, "label": "BARO", "show": "BARO", "color": "amber"},
+            {"id": 2, "label": "UP", "text": "+", "press": {"pulse": "TSBTN12"}},
+        ]
+    }
     p, panel = rig(page=page)
     assert wait_for(lambda: p.thread.counters["invalid"] == 1)
     assert panel.answers[-1] == "AD_CFG_END INVALID"
@@ -307,12 +336,27 @@ def test_a_press_writes_no_key_the_page_file_does_not_name(rig, database):
         if not panel.press(key_id):
             # Not on the page: the firmware would send nothing, so inject the
             # event a confused panel might send anyway.
-            panel.send(json.dumps({"type": "deck_event", "id": 900 + key_id, "button": key_id, "label": "X"}))
+            panel.send(
+                json.dumps(
+                    {
+                        "type": "deck_event",
+                        "id": 900 + key_id,
+                        "button": key_id,
+                        "label": "X",
+                    }
+                )
+            )
     assert wait_for(lambda: len(panel.feedback) == protocol.MAX_KEYS)
-    written = {k for k, v in database.writers().items() if "tessera" in v and "tessera" not in before.get(k, [])}
+    written = {
+        k
+        for k, v in database.writers().items()
+        if "tessera" in v and "tessera" not in before.get(k, [])
+    }
     assert written == set(page.written_keys())
     assert written <= set(page.named_keys())
-    assert sorted(i for kind, i in panel.feedback if kind == "ok") == [k.id for k in page.keys if k.press]
+    assert sorted(i for kind, i in panel.feedback if kind == "ok") == [
+        k.id for k in page.keys if k.press
+    ]
 
 
 # -- reconnect -----------------------------------------------------------------
@@ -359,7 +403,9 @@ def test_a_panel_that_stops_answering_is_reconnected(rig):
     panel.silent = True
     assert wait_for(lambda: "stopped answering" in p.thread.last_error, 4)
     panel.silent = False
-    assert wait_for(lambda: p.thread.counters["connects"] >= 2 and p.thread.connected, 4)
+    assert wait_for(
+        lambda: p.thread.counters["connects"] >= 2 and p.thread.connected, 4
+    )
 
 
 # -- the page file -------------------------------------------------------------
@@ -376,20 +422,30 @@ def test_shipped_page_names_only_keys_in_the_database(database):
 
 def test_plugin_refuses_a_page_naming_a_missing_key(database, tmp_path):
     path = tmp_path / "page.yaml"
-    path.write_text(yaml.safe_dump({"keys": [{"id": 1, "label": "X", "show": "NOSUCHKEY"}]}))
+    path.write_text(
+        yaml.safe_dump({"keys": [{"id": 1, "label": "X", "show": "NOSUCHKEY"}]})
+    )
     with pytest.raises(plugin_base.PluginFail):
         tessera.Plugin("tessera", {"port": "/dev/null", "page": str(path)}, {})
 
 
 def test_plugin_refuses_a_pulse_on_a_non_bool_key(database, tmp_path):
     path = tmp_path / "page.yaml"
-    path.write_text(yaml.safe_dump({"keys": [{"id": 1, "label": "X", "press": {"pulse": "HEADBUG"}}]}))
+    path.write_text(
+        yaml.safe_dump(
+            {"keys": [{"id": 1, "label": "X", "press": {"pulse": "HEADBUG"}}]}
+        )
+    )
     with pytest.raises(plugin_base.PluginFail):
         tessera.Plugin("tessera", {"port": "/dev/null", "page": str(path)}, {})
 
 
 def test_page_path_is_relative_to_the_config_directory(database):
-    p = tessera.Plugin("tessera", {"port": "/dev/null", "CONFIGPATH": os.path.abspath("src/fixgw/config")}, {})
+    p = tessera.Plugin(
+        "tessera",
+        {"port": "/dev/null", "CONFIGPATH": os.path.abspath("src/fixgw/config")},
+        {},
+    )
     assert p.page.named_keys() == Page.load(SHIPPED_PAGE).named_keys()
 
 
@@ -405,7 +461,16 @@ def test_page_path_is_relative_to_the_config_directory(database):
         [{"id": 1, "label": "X", "press": {"pulse": "A", "set": "B"}}],
         [{"id": 1, "label": "X", "icon": "ok"}],
     ],
-    ids=["id-0", "id-19", "empty-label", "long-label", "duplicate", "show-and-text", "two-actions", "icon"],
+    ids=[
+        "id-0",
+        "id-19",
+        "empty-label",
+        "long-label",
+        "duplicate",
+        "show-and-text",
+        "two-actions",
+        "icon",
+    ],
 )
 def test_page_file_errors(keys):
     with pytest.raises(PageError):
@@ -417,7 +482,14 @@ def test_page_file_errors(keys):
 
 def full_page():
     """18 keys at the firmware's limits: 24-character labels, 7-character values."""
-    return Page({"keys": [{"id": i, "label": "L" * protocol.LABEL_MAX, "show": "BARO"} for i in range(1, 19)]})
+    return Page(
+        {
+            "keys": [
+                {"id": i, "label": "L" * protocol.LABEL_MAX, "show": "BARO"}
+                for i in range(1, 19)
+            ]
+        }
+    )
 
 
 def test_full_page_size_and_wire_time():

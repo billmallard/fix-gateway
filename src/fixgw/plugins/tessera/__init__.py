@@ -180,7 +180,9 @@ class MainThread(threading.Thread):
                 if message and message.get("type") == "info":
                     protocol.check_info(message)
                     return message
-        raise LinkError("{} did not identify itself as a Tessera panel".format(self.port_path))
+        raise LinkError(
+            "{} did not identify itself as a Tessera panel".format(self.port_path)
+        )
 
     def session(self, link):
         info = self.handshake(link)
@@ -207,7 +209,11 @@ class MainThread(threading.Thread):
             if self.ack_due is not None and now >= self.ack_due:
                 if self.attempts >= 2:
                     raise LinkError("the panel did not answer the page twice")
-                self.log.warning("Tessera: no answer to the page in {} s; sending it once more".format(self.ack_seconds))
+                self.log.warning(
+                    "Tessera: no answer to the page in {} s; sending it once more".format(
+                        self.ack_seconds
+                    )
+                )
                 self.counters["resends"] += 1
                 self.send_page(link, self.sent)
             self.identify(link, now)
@@ -218,11 +224,17 @@ class MainThread(threading.Thread):
                 and now - self.last_push >= self.min_refresh
             ):
                 self.dirty.clear()
-                payload = protocol.layout_payload(self.page.buttons(self.parent.db_read))
+                payload = protocol.layout_payload(
+                    self.page.buttons(self.parent.db_read)
+                )
                 if payload != self.acked:
                     if len(payload) > protocol.LAYOUT_MAX:
                         self.rejected = True
-                        self.log.error("Tessera: the page is {} bytes; the panel takes {}".format(len(payload), protocol.LAYOUT_MAX))
+                        self.log.error(
+                            "Tessera: the page is {} bytes; the panel takes {}".format(
+                                len(payload), protocol.LAYOUT_MAX
+                            )
+                        )
                     else:
                         self.attempts = 0
                         self.send_page(link, payload)
@@ -306,9 +318,19 @@ class MainThread(threading.Thread):
         ok = False
         if self.acked is None:
             # The panel is showing a layout we did not give it this session.
-            self._once("unacked", "Tessera: press on key {} before the panel accepted the page; ignored".format(button))
+            self._once(
+                "unacked",
+                "Tessera: press on key {} before the panel accepted the page; ignored".format(
+                    button
+                ),
+            )
         elif hold:
-            self._once("hold", "Tessera: long press on key {}; the page has no long-press actions".format(button))
+            self._once(
+                "hold",
+                "Tessera: long press on key {}; the page has no long-press actions".format(
+                    button
+                ),
+            )
         else:
             writes = self.page.writes(button)
             try:
@@ -316,7 +338,9 @@ class MainThread(threading.Thread):
                     self.parent.db_write(key, value)
                 ok = bool(writes)
             except Exception as exc:
-                self.log.error("Tessera: press on key {} failed: {!r}".format(button, exc))
+                self.log.error(
+                    "Tessera: press on key {} failed: {!r}".format(button, exc)
+                )
         if not ok:
             self.counters["alerts"] += 1
         link.send(protocol.feedback(button, ok))
@@ -357,7 +381,9 @@ class Plugin(plugin.PluginBase):
         try:
             self.page = Page.load(path)
             for key in self.page.named_keys():
-                self.db_get_item(key)  # KeyError: the page names a key the database lacks
+                self.db_get_item(
+                    key
+                )  # KeyError: the page names a key the database lacks
             for key in self.page.pulsed_keys():
                 if self.db_get_item(key).typestring != "bool":
                     raise PageError("pulse key {} is not a bool".format(key))

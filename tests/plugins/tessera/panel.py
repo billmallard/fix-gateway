@@ -63,7 +63,9 @@ def parse_layout(text):
             return None
         gauge = item.get("gauge")
         if isinstance(gauge, dict):
-            if not isinstance(gauge.get("p"), (int, float)) or not isinstance(gauge.get("t"), str):
+            if not isinstance(gauge.get("p"), (int, float)) or not isinstance(
+                gauge.get("t"), str
+            ):
                 return None
         for style in ("bg", "text_color", "border"):
             if style in item and not _valid_color(item[style]):
@@ -83,13 +85,23 @@ def structure(keys):
     for key in keys:
         shape = {k: v for k, v in key.items() if k not in LIVE_FIELDS}
         if "gauge" in shape:
-            shape["gauge"] = {k: v for k, v in shape["gauge"].items() if k not in ("p", "t")}
+            shape["gauge"] = {
+                k: v for k, v in shape["gauge"].items() if k not in ("p", "t")
+            }
         shaped.append(shape)
     return shaped
 
 
 class ScriptedPanel:
-    def __init__(self, link_path, boot_id=1234, board=BOARD_ID, protocol=4, reset="poweron", layout_max=LAYOUT_MAX):
+    def __init__(
+        self,
+        link_path,
+        boot_id=1234,
+        board=BOARD_ID,
+        protocol=4,
+        reset="poweron",
+        layout_max=LAYOUT_MAX,
+    ):
         self.link_path = link_path
         self.boot_id = boot_id
         self.board = board
@@ -99,6 +111,9 @@ class ScriptedPanel:
         # Script knobs
         self.silent = False  # answer nothing at all (a hung panel, or another device)
         self.ignore_cfg_end = 0  # swallow this many AD_CFG_END lines unanswered
+        self.press_before_info = (
+            None  # a key id pressed just before the next info answer
+        )
         # Records
         self.received = []  # (monotonic time, line)
         self.layout = None  # the keys the panel shows
@@ -168,7 +183,12 @@ class ScriptedPanel:
             if key is None:
                 return False
             self._event_id += 1
-            event = {"type": "deck_event", "id": self._event_id, "button": button, "label": key["label"]}
+            event = {
+                "type": "deck_event",
+                "id": self._event_id,
+                "button": button,
+                "label": key["label"],
+            }
             if hold:
                 event["hold"] = True
             self.send(json.dumps(event, separators=(",", ":")))
@@ -202,6 +222,20 @@ class ScriptedPanel:
 
     def _line(self, line):
         if line == '{"cmd":"get_info"}':
+            if self.press_before_info is not None:
+                # A press left over from before this get_info, sent ahead of the answer.
+                self._event_id += 1
+                self.send(
+                    json.dumps(
+                        {
+                            "type": "deck_event",
+                            "id": self._event_id,
+                            "button": self.press_before_info,
+                            "label": "OLD",
+                        }
+                    )
+                )
+                self.press_before_info = None
             self.send(
                 json.dumps(
                     {
