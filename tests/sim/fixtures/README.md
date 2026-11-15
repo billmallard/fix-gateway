@@ -221,3 +221,40 @@ most of the flight: with that fault the KSSF and KDED checks compared 4% and
 8% of their rows and still passed, caught only by the sensitivity tests
 (QA, AER-4688). With the floor they fail on the share
 (`test_an_engine_toggling_fplalert_fails_the_fixture_checks`, AER-4693).
+
+## `pa14_{a,b,c}_xplane_2026-11-15.csv.gz`, `pa14_route_block.json`, `FAACIFP18-2611-V485`
+
+PA14, the procedures-and-airways join (AER-1613, billmallard/pyEfis#242),
+in FP8's shape. The route was built on the Beelink's Flight Plan tab with
+the PROC page and the airway picker (pyEfis `c445c00`, the bench's AIRAC
+2611 procedures pack) and read back off the bus as `pa14_route_block.json`:
+KSBA, FLOUT5 via RW15B and the VTU transition (slots 2-4), V485 VTU-OHIGH
+(5-7), FERN7 via OHIGH (8-9), KSMO RNAV (GPS) RWY 21 with vectors to final
+(10-13), its missed approach to the SADDE hold (14-17), KSMO (18).
+`FPLDBCYC 2611`. The block is as the editor published it, including two
+defects PA14 found and filed rather than fixed: VTU is in slots 4 and 5
+(billmallard/pyEfis#474), and FERN7 is missing its common route FIM-VNY-DARTS
+(AER-5611), so slot 9 FIM goes straight to slot 10 DARTS.
+
+X-Plane 12, SR22, its own nav data (XPNavData 2611, XPB-021), live weather
+(wind under 5 kt), three pilotless sim bench sessions on 2026-11-15, all
+`complete`. Profiles: billmallard/pyEfis `docs/images/pa14_bench/data/`.
+
+| Trace | Session | Start | Flown | Replayed with |
+|---|---|---|---|---|
+| `a` | `1242bb63442d` 05:00Z | 3 nm before FLOUT, 6,000 ft | FLOUT VTU V485 HENER | `ACT 2` (the `VA`), `RESUME` 8 s later |
+| `b` | `11d33a5b4857` 05:32Z | 4 nm before HENER, 9,000 ft | V485 OHIGH, then FERN7's fixes CANYN FIM VNY as waypoints | `ACT 6` |
+| `c` | `2c89084d9ebf` 06:00Z | 4 nm before VNY, 4,500 ft | VNY, RNAV 21 from DARTS, missed approach, SADDE hold | `ACT 10`, `RESUME` 8 s after the MAP suspend |
+
+X-Plane cannot load a SID or a STAR by name, so it flew FERN7's fixes as
+published (through VNY) while the box flew what it loaded (FIM direct
+DARTS). FIX MAGVAR during each session is the bench bus's median:
+-11.56, -11.51 and -11.34. Same columns as the FP8 trace, regenerated the
+same way from each session's `truth` (all rows kept). `FAACIFP18-2611-V485`
+is the 2611 header and V485's four `ER` records, so the airway check reads
+the published order through the reference's own decoder.
+
+Replayed by `tests/sim/test_pa14_xplane_replay.py`. Session `c`'s bench bus
+log is not used: two other agents' followers restarted fixgw on the bench
+six times during it (AER-1613 thread, 2026-11-15 10:35Z). The truth trace
+comes from the driver and is unaffected.
