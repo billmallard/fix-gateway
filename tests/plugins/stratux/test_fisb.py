@@ -175,7 +175,7 @@ def _run(monkeypatch, packets, config=None, rx=RX):
     sock = FakeSocket(packets)
     parent = MagicMock()
     parent.log = MagicMock()
-    parent.config = dict({"traffic": False, "fisb": True}, **(config or {}))
+    parent.config = dict({"traffic": False, "status": False, "fisb": True}, **(config or {}))
     parent.status = {}
     monkeypatch.setattr(stratux.socket, "socket", lambda *_args: sock)
     thread = MainThread(parent)

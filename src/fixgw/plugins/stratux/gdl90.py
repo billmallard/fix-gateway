@@ -17,6 +17,7 @@ ESC = 0x7D
 
 HEARTBEAT = 0x00
 OWNSHIP = 0x0A
+GEO_ALTITUDE = 0x0B
 TRAFFIC = 0x14
 
 
@@ -152,7 +153,8 @@ def parse_report(msg: bytes):
     vvv = ((b[15] & 0x0F) << 8) | b[16]
     tt = b[17]
     cat = b[18]
-    callsign = b[19:27].decode("latin-1").rstrip(" ")
+    # Space is the ICD's pad (G§3.5.1.11); Stratux pads with NUL instead.
+    callsign = b[19:27].decode("latin-1").rstrip(" \x00")
     emergency = b[27] >> 4
 
     # G§3.5.1.8: 0x800 is "no data"; 0x1FF-0x7FF and 0x801-0xE01 are unused
@@ -183,6 +185,62 @@ def parse_report(msg: bytes):
         cat=cat,
         callsign=_netfix_safe(callsign),
         emergency=emergency,
+    )
+
+
+# G§3.5.1.6 Table 10, in metres (1 NM = 1852 m).  Each code is an upper
+# bound: NIC is the containment radius (typically HPL) and NACp the estimated
+# position uncertainty (typically HFOM).  Code 0 is "unknown" and 12-15 are
+# unused, so neither has an entry.
+NIC_RC_M = {
+    1: 37040.0,  # < 20 NM
+    2: 14816.0,  # < 8 NM
+    3: 7408.0,  # < 4 NM
+    4: 3704.0,  # < 2 NM
+    5: 1852.0,  # < 1 NM
+    6: 1111.2,  # < 0.6 NM
+    7: 370.4,  # < 0.2 NM
+    8: 185.2,  # < 0.1 NM
+    9: 75.0,  # HPL < 75 m
+    10: 25.0,  # HPL < 25 m
+    11: 7.5,  # HPL < 7.5 m
+}
+NACP_EPU_M = {
+    1: 18520.0,  # < 10 NM
+    2: 7408.0,  # < 4 NM
+    3: 3704.0,  # < 2 NM
+    4: 1852.0,  # < 1 NM
+    5: 926.0,  # < 0.5 NM
+    6: 555.6,  # < 0.3 NM
+    7: 185.2,  # < 0.1 NM
+    8: 92.6,  # < 0.05 NM
+    9: 30.0,  # HFOM < 30 m
+    10: 10.0,  # HFOM < 10 m
+    11: 3.0,  # HFOM < 3 m
+}
+
+
+# An Ownship Geometric Altitude message (0x0B, G§3.8).  alt is height above
+# the WGS-84 ellipsoid in feet; vwarn is set on a position alarm or when fault
+# detection is unavailable; vfom is the Vertical Figure of Merit in metres,
+# with 0x7FFF "not available" (vfom_bad) and 0x7FFE ">= 32766 m".
+GeoAltitude = namedtuple("GeoAltitude", ["alt", "vwarn", "vfom", "vfom_bad"])
+
+GEO_ALTITUDE_LEN = 5
+VFOM_NA = 0x7FFF
+
+
+# Decode a 5-byte 0x0B message (ID included).  None if it is short.
+def parse_geo_altitude(msg: bytes):
+    if len(msg) < GEO_ALTITUDE_LEN:
+        return None
+    metrics = (msg[3] << 8) | msg[4]
+    vfom = metrics & 0x7FFF
+    return GeoAltitude(
+        alt=_signed((msg[1] << 8) | msg[2], 16) * 5,
+        vwarn=bool(metrics & 0x8000),
+        vfom=0 if vfom == VFOM_NA else vfom,
+        vfom_bad=vfom == VFOM_NA,
     )
 
 

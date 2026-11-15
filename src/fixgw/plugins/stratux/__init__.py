@@ -4,6 +4,8 @@ import time
 from collections import OrderedDict
 import fixgw.plugin as plugin
 from fixgw.plugins.stratux import fisb, gdl90
+from fixgw.plugins.stratux.ownship import OwnshipWriter
+from fixgw.plugins.stratux.status import StatusPoller
 from fixgw.plugins.stratux.traffic import TrafficWriter, resolve_ownship_address
 from fixgw.plugins.stratux import weather
 from fixgw.plugins.stratux.weather import WeatherStore
@@ -41,6 +43,8 @@ def parse_source(value, log):
 
 
 class MainThread(threading.Thread):
+    poller = None
+
     def __init__(self, parent):
         super(MainThread, self).__init__()
         print("running stratux plugin")
@@ -60,6 +64,19 @@ class MainThread(threading.Thread):
         self.dropped_reported = 0
         self.drop_senders = set()
         self.drop_report_at = time.monotonic() + DROP_REPORT_S
+
+        # The receiver's own position, integrity and geometric altitude, in
+        # the STX block (database/stratux.yaml).  An older edited database
+        # has no STX block: say so once and write none of it.
+        self.ownship = None
+        if config.get("ownship", True):
+            try:
+                self.ownship = OwnshipWriter(parent.db_get_item)
+            except KeyError as e:
+                self.log.error(
+                    "ownship: true but the database has no %s "
+                    "(database/stratux.yaml); not writing ownship keys" % e
+                )
 
         self.traffic = None
         if config.get("traffic", True):
@@ -87,6 +104,21 @@ class MainThread(threading.Thread):
                     ownship_address=address,
                 )
 
+        # Receiver health from its JSON status feed, polled only from the
+        # source address (GDL4).
+        if config.get("status", True) and self.source:
+            try:
+                self.poller = StatusPoller(
+                    parent.db_get_item, self.log, self.source, parent.status
+                )
+            except KeyError:
+                self.log.error(
+                    "status: true but the database has no STX block "
+                    "(database/stratux.yaml); not polling receiver status"
+                )
+        elif config.get("status", True):
+            self.log.info("status: no source address, receiver status not polled")
+
         # FIS-B text weather from the 0x07 Uplink message, held in a store
         # rather than FIX keys (AER-5651).  The receive time is this host's
         # UTC clock: the message carries none.
@@ -97,6 +129,8 @@ class MainThread(threading.Thread):
             self.weather = WeatherStore(self.log)
 
     def run(self):
+        if self.poller is not None:
+            self.poller.start()
 
         while not self.getout:
             try:
@@ -113,6 +147,8 @@ class MainThread(threading.Thread):
                 self.traffic.tick()
             self.fisb_tick()
 
+        if self.poller is not None:
+            self.poller.stop()
         self.s.close()
         self.running = False
 
@@ -199,11 +235,15 @@ class MainThread(threading.Thread):
             if uplink is not None:
                 self.weather.ingest(uplink, self.wall_clock())
 
+        if self.ownship is not None:
+            self.ownship.handle(msg)
         if self.traffic is not None:
             self.traffic.handle(msg)
 
     def stop(self):
         self.getout = True
+        if self.poller is not None:
+            self.poller.stop()
 
 
 class Plugin(plugin.PluginBase):

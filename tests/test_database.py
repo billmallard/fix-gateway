@@ -1680,3 +1680,21 @@ def test_compute_writing_from_inside_another_plugins_callback_is_compute(databas
     assert out.value[0] == 3.0
     assert inp.writers == ["canfix"]
     assert out.writers == ["compute"]
+
+
+def test_no_shipped_key_text_breaks_the_netfix_report():
+    # netfix's report (@q) sends a key's description, type, units and aux
+    # names joined by ";", and clients split on it. A ";" inside the text
+    # shifts every later field: pyEfis read DEMOLIVE's type as the tail of its
+    # description and stalled at connect (AER-5626, on the Beelink bench).
+    database.init("src/fixgw/config/database.yaml")
+    try:
+        bad = []
+        for key in database.listkeys():
+            item = database.get_raw_item(key)
+            texts = [item.description, item.units] + list(item.aux or {})
+            if any(";" in str(t) or "\n" in str(t) for t in texts):
+                bad.append(key)
+        assert bad == []
+    finally:
+        database._stop_update_thread()

@@ -10,6 +10,14 @@ stratux:
   # and HEAD: anything on the Wi-Fi that sends to this port reaches the
   # attitude display unless this is set.  Empty accepts every sender.
   source: ""
+  # The receiver's ownship position, integrity (NIC/NACp) and GPS altitude
+  # into the STX key block (database/stratux.yaml).  Never LAT/LONG/ALT.
+  ownship: true
+  # Receiver health and GPS quality (the STX keys, database/stratux.yaml)
+  # from the receiver's /getStatus JSON, polled about once a second from
+  # the source address above.  Needs source set; nothing is polled without
+  # it.  Set false to stop the poll.
+  status: true
   # ADS-B traffic into the TFC key block (database/traffic.yaml; contract:
   # pyEfis docs/fix_dynamic_list_spec.md section 4).  Exactly one traffic
   # writer per installation: set false if another source writes TFC.

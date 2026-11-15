@@ -128,6 +128,30 @@ def test_include_empty_file():
     assert meta == {'line': {'line': 1, 'column': 1, 'file': 'tests/config/cfg/test_include_empty_file.yaml', 'value_meta': {'line': 1, 'column': 7, 'file': 'tests/config/cfg/test_include_empty_file.yaml'}}, '.__test__.': {'line': 2, 'column': 1, 'file': 'tests/config/cfg/test_include_empty_file.yaml', 'value_meta': {'line': 3, 'column': 3, 'file': 'tests/config/cfg/test_include_empty_file.yaml'}}, 'test': {}}
 
 
+def test_empty_mapping_is_kept(tmp_path):
+    # fix-gateway #185: an empty mapping is falsy, and it used to take the
+    # "no config passed" branch, re-read the whole file and recurse until
+    # the include loop guard raised.
+    main_file = tmp_path / "main.yaml"
+    main_file.write_text(
+        "top: {}\n"
+        "outer:\n"
+        "  inner: {}\n"
+        "  value: 1\n"
+    )
+
+    data, meta = cfg.from_yaml(str(main_file), metadata=True)
+
+    assert data == {"top": {}, "outer": {"inner": {}, "value": 1}}
+    assert meta["top"] == {}
+    assert meta["outer"]["inner"] == {}
+
+
+def test_empty_mapping_is_kept_from_string(tmp_path):
+    data = cfg.from_yaml("top: {}\nouter:\n  inner: {}\n", bpath=str(tmp_path))
+    assert data == {"top": {}, "outer": {"inner": {}}}
+
+
 def test_comment_only_string():
     data=cfg.from_yaml('# No yaml here!\n')
     assert data == {}

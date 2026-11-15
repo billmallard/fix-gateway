@@ -1,0 +1,29 @@
+# Bench log, 2026-11-15, Pi 5 against the bench FlightBox (Stratux v1.6r1-eu023).
+# FIX = the STX keys from the stratux plugin on the real database at fix-gateway ff02539,
+# with their flags (O old, B bad, F fail, - none). WEB = the FlightBox's /getSituation
+# (what its web UI shows), polled at the same moment. Produced by bench_log_ownship.py, run
+# from a clone of the branch on the Pi with the stratux plugin off:
+#   ~/fix-gateway/.venv/bin/python ../bench_log_ownship.py
+# The first sample predates the first Ownship Report, so every key is old at its initial value.
+# ALT's writer is the 0x4C AHRS path, as before this change; 0x0B never writes it.
+t= 3s FIX  LAT=0.0[O]  LONG=0.0[O]  PALT=0.0[O]  GS=0.0[O]  TRACK=0.0[O]  VS=0[O]  AIR=False[O]  NIC=0[O]  NACP=0[O]  RC=37040.0[O]  EPU=18520.0[O]  GALT=0.0[O]  VFOM=32766.0[O]  VWARN=False[O]
+      WEB  lat=32.90910 lon=-97.22678 baroPA=417 gs=0.6 trk=233.2 NACp=10 hacc=6.0m MSL=726 HAE=644 vacc=9.2m sats=7
+t= 6s FIX  LAT=32.9091[-]  LONG=-97.22677[-]  PALT=400.0[-]  GS=1.0[-]  TRACK=233.4375[-]  VS=0[B]  AIR=True[-]  NIC=8[-]  NACP=10[-]  RC=185.2[-]  EPU=10.0[-]  GALT=730.0[-]  VFOM=10.0[-]  VWARN=False[-]
+      WEB  lat=32.90911 lon=-97.22677 baroPA=416 gs=0.9 trk=233.2 NACp=10 hacc=6.0m MSL=735 HAE=653 vacc=9.2m sats=7
+t= 9s FIX  LAT=32.9091[-]  LONG=-97.22675[-]  PALT=400.0[-]  GS=1.0[-]  TRACK=233.4375[-]  VS=0[B]  AIR=True[-]  NIC=8[-]  NACP=10[-]  RC=185.2[-]  EPU=10.0[-]  GALT=735.0[-]  VFOM=10.0[-]  VWARN=False[-]
+      WEB  lat=32.90911 lon=-97.22676 baroPA=416 gs=0.6 trk=233.2 NACp=10 hacc=9.8m MSL=740 HAE=657 vacc=12.0m sats=7
+t=12s FIX  LAT=32.9091[-]  LONG=-97.22677[-]  PALT=400.0[-]  GS=0.0[-]  TRACK=233.4375[-]  VS=0[B]  AIR=True[-]  NIC=8[-]  NACP=10[-]  RC=185.2[-]  EPU=10.0[-]  GALT=735.0[-]  VFOM=10.0[-]  VWARN=False[-]
+      WEB  lat=32.90911 lon=-97.22678 baroPA=416 gs=1.6 trk=329.2 NACp=10 hacc=9.8m MSL=733 HAE=651 vacc=12.0m sats=7
+t=15s FIX  LAT=32.9091[-]  LONG=-97.22677[-]  PALT=400.0[-]  GS=1.0[-]  TRACK=329.0625[-]  VS=0[B]  AIR=True[-]  NIC=8[-]  NACP=10[-]  RC=185.2[-]  EPU=10.0[-]  GALT=730.0[-]  VFOM=10.0[-]  VWARN=False[-]
+      WEB  lat=32.90911 lon=-97.22678 baroPA=416 gs=0.8 trk=329.2 NACp=10 hacc=9.8m MSL=731 HAE=649 vacc=12.0m sats=6
+t=18s FIX  LAT=32.9091[-]  LONG=-97.22677[-]  PALT=400.0[-]  GS=0.0[-]  TRACK=329.0625[-]  VS=0[B]  AIR=True[-]  NIC=8[-]  NACP=10[-]  RC=185.2[-]  EPU=10.0[-]  GALT=725.0[-]  VFOM=10.0[-]  VWARN=False[-]
+      WEB  lat=32.90911 lon=-97.22678 baroPA=416 gs=0.6 trk=329.2 NACp=10 hacc=6.0m MSL=732 HAE=650 vacc=9.2m sats=7
+t=21s FIX  LAT=32.9091[-]  LONG=-97.22677[-]  PALT=400.0[-]  GS=1.0[-]  TRACK=329.0625[-]  VS=0[B]  AIR=True[-]  NIC=8[-]  NACP=10[-]  RC=185.2[-]  EPU=10.0[-]  GALT=735.0[-]  VFOM=10.0[-]  VWARN=False[-]
+      WEB  lat=32.90912 lon=-97.22677 baroPA=416 gs=1.2 trk=329.2 NACp=10 hacc=6.0m MSL=737 HAE=655 vacc=9.2m sats=7
+t=24s FIX  LAT=32.90912[-]  LONG=-97.22677[-]  PALT=400.0[-]  GS=0.0[-]  TRACK=329.0625[-]  VS=0[B]  AIR=True[-]  NIC=8[-]  NACP=10[-]  RC=185.2[-]  EPU=10.0[-]  GALT=735.0[-]  VFOM=10.0[-]  VWARN=False[-]
+      WEB  lat=32.90912 lon=-97.22677 baroPA=416 gs=0.7 trk=329.2 NACp=10 hacc=6.0m MSL=740 HAE=658 vacc=9.2m sats=7
+t=27s FIX  LAT=32.90912[-]  LONG=-97.22677[-]  PALT=400.0[-]  GS=0.0[-]  TRACK=329.0625[-]  VS=0[B]  AIR=True[-]  NIC=8[-]  NACP=10[-]  RC=185.2[-]  EPU=10.0[-]  GALT=735.0[-]  VFOM=10.0[-]  VWARN=False[-]
+      WEB  lat=32.90912 lon=-97.22678 baroPA=416 gs=0.6 trk=329.2 NACp=10 hacc=9.8m MSL=740 HAE=657 vacc=12.1m sats=6
+t=30s FIX  LAT=32.9091[-]  LONG=-97.22677[-]  PALT=400.0[-]  GS=0.0[-]  TRACK=329.0625[-]  VS=0[B]  AIR=True[-]  NIC=8[-]  NACP=10[-]  RC=185.2[-]  EPU=10.0[-]  GALT=735.0[-]  VFOM=10.0[-]  VWARN=False[-]
+      WEB  lat=32.90911 lon=-97.22678 baroPA=416 gs=0.2 trk=329.2 NACp=10 hacc=9.8m MSL=736 HAE=654 vacc=12.1m sats=6
+writers: {'ALT': ['stratux'], 'STXLAT': ['stratux'], 'STXLONG': ['stratux'], 'STXPALT': ['stratux'], 'STXGS': ['stratux'], 'STXTRACK': ['stratux'], 'STXVS': ['stratux'], 'STXAIR': ['stratux'], 'STXNIC': ['stratux'], 'STXNACP': ['stratux'], 'STXRC': ['stratux'], 'STXEPU': ['stratux'], 'STXGALT': ['stratux'], 'STXVFOM': ['stratux'], 'STXVWARN': ['stratux']}
