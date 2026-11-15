@@ -847,3 +847,18 @@ def test_block_has_spec_shape(database):
     assert database.read("TFC32TGT")[0] == -1
     for f in FIELDS + ("TGT",):
         assert database.get_raw_item("TFC1" + f).tol == 3000
+
+
+# A Traffic Report recorded from the bench FlightBox (Stratux v1.6r1-eu023,
+# 2026-11-15): Stratux pads a short call sign with NUL, not the ICD's space,
+# and the pad used to reach the display as "ENY3839?" (AER-5650).
+
+def test_stratux_nul_padded_callsign():
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).parent / "data" / "gdl90_eu023_bench_traffic.jsonl"
+    (line,) = path.read_text().splitlines()
+    (msg,) = gdl90.decode_datagram(bytes.fromhex(json.loads(line)["datagram"]))
+    assert msg[0] == gdl90.TRAFFIC and msg[19:27] == b"ENY3839\x00"
+    assert gdl90.parse_report(msg).callsign == "ENY3839"

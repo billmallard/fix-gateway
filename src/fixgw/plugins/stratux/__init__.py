@@ -4,6 +4,7 @@ import time
 from collections import OrderedDict
 import fixgw.plugin as plugin
 from fixgw.plugins.stratux import gdl90
+from fixgw.plugins.stratux.ownship import OwnshipWriter
 from fixgw.plugins.stratux.status import StatusPoller
 from fixgw.plugins.stratux.traffic import TrafficWriter, resolve_ownship_address
 import socket
@@ -58,6 +59,19 @@ class MainThread(threading.Thread):
         self.dropped_reported = 0
         self.drop_senders = set()
         self.drop_report_at = time.monotonic() + DROP_REPORT_S
+
+        # The receiver's own position, integrity and geometric altitude, in
+        # the STX block (database/stratux.yaml).  An older edited database
+        # has no STX block: say so once and write none of it.
+        self.ownship = None
+        if config.get("ownship", True):
+            try:
+                self.ownship = OwnshipWriter(parent.db_get_item)
+            except KeyError as e:
+                self.log.error(
+                    "ownship: true but the database has no %s "
+                    "(database/stratux.yaml); not writing ownship keys" % e
+                )
 
         self.traffic = None
         if config.get("traffic", True):
@@ -184,6 +198,8 @@ class MainThread(threading.Thread):
             if gnd_speed != 0xFFF:
                 self.parent.db_write("GS", gnd_speed)
 
+        if self.ownship is not None:
+            self.ownship.handle(msg)
         if self.traffic is not None:
             self.traffic.handle(msg)
 

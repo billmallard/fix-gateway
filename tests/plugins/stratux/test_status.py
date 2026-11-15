@@ -370,7 +370,7 @@ def _ahrs(roll_10):
 def _thread(database, monkeypatch, config, packets=()):
     parent = MagicMock()
     parent.log = MagicMock()
-    parent.config = dict(config, traffic=False)
+    parent.config = dict(config, traffic=False, ownship=False)
     parent.status = {}
     parent.db_write = database.write
     parent.db_get_item = database.get_raw_item
