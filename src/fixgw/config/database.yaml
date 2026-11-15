@@ -36,6 +36,7 @@ entries:
 
 - include: database/flightplan.yaml
 - include: database/traffic.yaml
+- include: database/stratux.yaml
 - include: database/sim.yaml
 - include: database/demo.yaml
 

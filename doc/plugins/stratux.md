@@ -10,6 +10,9 @@ a Stratux sends it). It decodes:
 | Heartbeat | `0x00` | traffic source liveness |
 | Traffic Report | `0x14` | the `TFC` traffic block |
 
+It also polls the receiver's `/getStatus` JSON for receiver health and GPS
+quality, which GDL90 does not carry (see *Receiver health*).
+
 A datagram may carry several messages back to back. Byte stuffing follows
 GDL90 section 2.2.1 (only `0x7D` escapes; a bare `0x7E` is a frame boundary),
 and a frame whose FCS does not match is discarded.
@@ -21,6 +24,7 @@ and a frame whose FCS does not match is discarded.
 | `host` | `""` | address to bind |
 | `port` | `4000` | UDP port |
 | `source` | `""` | the receiver's IPv4 address, e.g. `"192.168.10.1"`. When set, a datagram from any other sender is dropped and counted in the log. Empty accepts every sender. See *AHRS is a network input* |
+| `status` | `true` | poll the receiver's `/getStatus` from the `source` address about once a second and write the `STX` keys. Needs `source` |
 | `traffic` | `true` | write ADS-B traffic into the `TFC` block. Exactly one traffic writer per installation |
 | `evict_s` | `10` | seconds without a report before a target's slot is emptied |
 | `ownship_address` | `""` | our 24-bit ICAO address as a **quoted** hex string, e.g. `"A1B2C3"`. Set by the configurator from the aircraft registration |
@@ -45,6 +49,43 @@ The filter is an address check, not authentication. A host on the same
 network can forge the receiver's source address. It stops the ordinary case,
 a second device sending GDL90 to the port, and it makes a foreign sender
 visible in the log. It does not make Wi-Fi AHRS a trusted attitude source.
+
+## Receiver health
+
+The keys are in `config/database/stratux.yaml`. The plugin polls
+`http://<source>/getStatus` on its own thread, at most once a second, with a
+0.8 s timeout. The poll never holds up the UDP decode. It goes only to the
+`source` address, so with `source` empty or invalid nothing is polled.
+
+| Key | From `/getStatus` | Meaning |
+|---|---|---|
+| `STXALIVE` | the reply itself | the status feed is answering |
+| `STXGPS` | `GPS_connected` | GPS receiver connected |
+| `STXAHRS` | `IMUConnected` | AHRS sensor connected |
+| `STXBARO` | `BMPConnected` | pressure sensor connected |
+| `STXGPSFIX` | `GPS_solution` | `GPS_FIX_TYPE` scale: 0 no GPS, 1 no fix (including dead reckoning), 3 3D, 4 3D with SBAS |
+| `STXSATS` | `GPS_satellites_locked` | satellites used in the solution |
+| `STXSATSV` | `GPS_satellites_seen` | satellites with a signal |
+| `STXGPSACC` | `GPS_position_accuracy` | horizontal accuracy in feet, converted from metres |
+| `STXCPUT` | `CPUTemp` | receiver CPU temperature, deg C |
+
+For a consumer:
+
+- A failed poll (refused, timed out, not a status object) takes every key
+  `old` at once, and `STXALIVE` goes false. After a failure the next poll
+  waits 5 s, so a struggling Pi 2 web server is not hit every second. A poll
+  that hangs writes nothing, and the 3 s `tol` takes the keys `old`.
+- A value the receiver uses for "no data" is `bad`: the 999999 m accuracy it
+  reports without a fix, the -99 C temperature before the first reading, and
+  any other value outside the key's range. `STXGPSACC` is also `bad` without
+  a 3D fix. An unrecognised `GPS_solution` string makes `STXGPSFIX` `bad`.
+- `STXGPSACC` is Stratux's own estimate: HDOP times a receiver-specific factor,
+  labelled 95 %. It is not a protection level (HPL) or an HFOM, and these
+  keys do not feed `GPS_ACCURACY_HORIZ` or the navigator's integrity gate.
+  Feeding them is a source select.
+- The `GPS_solution` strings differ by Stratux line. Upstream cyoung/stratux up
+  to v1.6r1 says `GPS + SBAS (WAAS)`; the eu builds and current
+  stratux/stratux say `3D GPS + SBAS`. Both are mapped.
 
 ## Traffic
 

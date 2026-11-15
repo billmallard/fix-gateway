@@ -4,6 +4,7 @@ import time
 from collections import OrderedDict
 import fixgw.plugin as plugin
 from fixgw.plugins.stratux import gdl90
+from fixgw.plugins.stratux.status import StatusPoller
 from fixgw.plugins.stratux.traffic import TrafficWriter, resolve_ownship_address
 import socket
 import struct
@@ -36,6 +37,8 @@ def parse_source(value, log):
 
 
 class MainThread(threading.Thread):
+    poller = None
+
     def __init__(self, parent):
         super(MainThread, self).__init__()
         print("running stratux plugin")
@@ -82,7 +85,24 @@ class MainThread(threading.Thread):
                     ownship_address=address,
                 )
 
+        # Receiver health from its JSON status feed, polled only from the
+        # source address (GDL4).
+        if config.get("status", True) and self.source:
+            try:
+                self.poller = StatusPoller(
+                    parent.db_get_item, self.log, self.source, parent.status
+                )
+            except KeyError:
+                self.log.error(
+                    "status: true but the database has no STX block "
+                    "(database/stratux.yaml); not polling receiver status"
+                )
+        elif config.get("status", True):
+            self.log.info("status: no source address, receiver status not polled")
+
     def run(self):
+        if self.poller is not None:
+            self.poller.start()
 
         while not self.getout:
             try:
@@ -98,6 +118,8 @@ class MainThread(threading.Thread):
             if self.traffic is not None:
                 self.traffic.tick()
 
+        if self.poller is not None:
+            self.poller.stop()
         self.s.close()
         self.running = False
 
@@ -167,6 +189,8 @@ class MainThread(threading.Thread):
 
     def stop(self):
         self.getout = True
+        if self.poller is not None:
+            self.poller.stop()
 
 
 class Plugin(plugin.PluginBase):

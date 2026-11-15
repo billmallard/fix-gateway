@@ -401,7 +401,7 @@ def _run_packets(monkeypatch, config, packets):
     fake_socket = FakeSocket(packets)
     parent = MagicMock()
     parent.log = MagicMock()
-    parent.config = dict(config, traffic=False)
+    parent.config = dict(config, traffic=False, status=False)
     parent.status = {}
     parent.db_write = lambda key, value: database.write(key, value)
     monkeypatch.setattr(stratux.socket, "socket", lambda *_args: fake_socket)
