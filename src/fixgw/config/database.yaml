@@ -24,8 +24,6 @@ entries:
 # Autopilot and flight director contract keys (AFC1). Before custom.yaml for
 # the same reason.
 - include: database/autopilot.yaml
-# GDL90 receiver ownship keys (GDL1). Before custom.yaml for the same reason.
-- include: database/stratux.yaml
 #################################################
 # If you want to modify or add new items place do so in the file
 # database/custom.yaml
@@ -38,6 +36,7 @@ entries:
 
 - include: database/flightplan.yaml
 - include: database/traffic.yaml
+- include: database/stratux.yaml
 - include: database/sim.yaml
 
 # The last.yaml must always be the last one.

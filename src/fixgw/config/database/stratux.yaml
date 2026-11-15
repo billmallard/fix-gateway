@@ -1,9 +1,89 @@
-# Avoid editing this file
-# Future updates may include changes to this file but once you edit
-# this file it will no longer be auto-updated and you will not
-# benefit from the improvements without manual intervention
+# Stratux receiver health and GPS quality (GDL4, AER-5652, CAP-212).
+#
+# One writer: the stratux plugin's status poller (plugins/stratux/status.py),
+# which reads the receiver's `/getStatus` JSON at about 1 Hz from the address
+# in `source:` (connections/stratux.yaml).  GDL90 carries none of this.
+#
+# These keys are the Stratux's own view, prefixed STX so a second GPS never
+# fights it (the GDL1 ruling, AER-5615).  They do not feed the generic GPS_*
+# keys or the navigator's integrity gate: that is a source select, not this
+# block.
+#
+# A failed poll takes every key old at once, and STXALIVE goes false.  A poll
+# that hangs writes nothing, and tol takes the keys old after three missed
+# polls.  A field the receiver reports as "no data" is bad: dash it.
 
-# The GDL90 receiver's own ownship data (GDL1, AER-5650): the Ownship Report
+items:
+- key: STXALIVE
+  description: Stratux status feed answering (false and old when the poll fails)
+  type: bool
+  initial: false
+  tol: 3000
+
+- key: STXGPS
+  description: Stratux GPS receiver connected
+  type: bool
+  initial: false
+  tol: 3000
+
+- key: STXAHRS
+  description: Stratux AHRS (IMU) sensor connected
+  type: bool
+  initial: false
+  tol: 3000
+
+- key: STXBARO
+  description: Stratux pressure sensor connected
+  type: bool
+  initial: false
+  tol: 3000
+
+- key: STXGPSFIX
+  description: "Stratux GPS solution, GPS_FIX_TYPE scale: 0 no GPS, 1 no fix, 3 3D, 4 3D with SBAS"
+  type: int
+  min: 0
+  max: 5
+  initial: 0
+  tol: 3000
+
+- key: STXSATS
+  description: Stratux GPS satellites used in the solution
+  type: int
+  min: 0
+  max: 200
+  initial: 0
+  tol: 3000
+
+- key: STXSATSV
+  description: Stratux GPS satellites seen (signal received)
+  type: int
+  min: 0
+  max: 200
+  initial: 0
+  tol: 3000
+
+# Stratux's own figure: HDOP times a receiver-specific factor, called 95 %
+# horizontal, not a protection level (HPL) or an HFOM.  Same units and range
+# as GPS_ACCURACY_HORIZ.
+- key: STXGPSACC
+  description: Stratux GPS horizontal accuracy estimate (from HDOP), bad without a 3D fix
+  type: float
+  units: ft
+  min: 0
+  max: 100000
+  initial: 0
+  tol: 3000
+
+- key: STXCPUT
+  description: Stratux CPU temperature
+  type: float
+  units: degC
+  min: -50
+  max: 150
+  initial: 0
+  tol: 3000
+
+# --- The GDL90 receiver's own ownship data (GDL1, AER-5650): the Ownship Report
 # (0x0A) and the Ownship Geometric Altitude message (0x0B), decoded by the
 # stratux plugin, its only writer.  Field references are to the GDL 90 Data
 # Interface Specification 560-1058-00 Rev A (G§); doc/plugins/stratux.md has
@@ -19,7 +99,6 @@
 # report plus jitter.  A receiver with no fix stops sending them and every key
 # goes old.
 
-items:
 - key: STXLAT
   description: "GDL90 ownship latitude (0x0A)"
   type: float
@@ -77,6 +156,8 @@ items:
   initial: 0
   tol: 2000
 
+# A Stratux sets this whenever its GPS track is valid, so from a Stratux it
+# means "track valid", not airborne.
 - key: STXAIR
   description: "GDL90 ownship air/ground state, true = airborne (0x0A)"
   type: bool
