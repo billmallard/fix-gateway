@@ -30,3 +30,4 @@ ICAO address set) and its pressure sensor enabled. Recorded with
 The fixture lines were then picked from `cap.gdl90.jsonl` and
 `cap.situation.jsonl`; no datagram was edited.
 | `gdl90_eu023_bench_traffic.jsonl` | **Recorded** in the same capture: the first datagram holding one Traffic Report (a real target, call sign `ENY3839`), unedited. It pins Stratux's NUL padding of a short call sign. |
+| `bench_log_ownship_2026-11-15.txt` | The live bench log for GDL1: the branch's plugin and database on the Pi 5 against the FlightBox for 30 s, every STX key beside the FlightBox's own `/getSituation`. Produced by `bench_log_ownship.py` (this directory); the header gives the command. |
