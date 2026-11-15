@@ -8,6 +8,9 @@ makeOwnshipGeometricAltitudeReport().  Every frame goes through the real
 plugin on a UDP socket into the real database.
 """
 
+import json
+from pathlib import Path
+
 import pytest
 
 import fixgw.plugins.stratux as stratux
@@ -22,6 +25,44 @@ from tests.plugins.stratux.test_traffic import (
 )
 
 UNCERTAINTY = {"STXRC": 37040.0, "STXEPU": 18520.0, "STXVFOM": 32766.0}
+
+# Recorded from the bench FlightBox, with its own /getSituation beside each
+# datagram (data/README.md).
+CAPTURE = [
+    json.loads(line)
+    for line in (Path(__file__).parent / "data" / "gdl90_eu023_bench_ownship.jsonl")
+    .read_text()
+    .splitlines()
+]
+CAPTURED_0A = [c for c in CAPTURE if c["ids"] == ["0xa"]]
+CAPTURED_0B = [c for c in CAPTURE if c["ids"] == ["0xb"]]
+
+
+def captured_msg(c):
+    (msg,) = gdl90.decode_datagram(bytes.fromhex(c["datagram"]))
+    return msg
+
+
+def raw_fields(msg):
+    """The G§3.5.1 raw field values of a 0x0A, as ownship() takes them."""
+    b = msg
+    return dict(
+        s=b[1] >> 4,
+        t=b[1] & 0xF,
+        addr=int.from_bytes(b[2:5], "big"),
+        lat_raw=int.from_bytes(b[5:8], "big"),
+        lon_raw=int.from_bytes(b[8:11], "big"),
+        ddd=(b[11] << 4) | (b[12] >> 4),
+        misc=b[12] & 0xF,
+        nic=b[13] >> 4,
+        nacp=b[13] & 0xF,
+        hhh=(b[14] << 4) | (b[15] >> 4),
+        vvv=((b[15] & 0xF) << 8) | b[16],
+        tt=b[17],
+        ee=b[18],
+        cs=b[19:27].decode("ascii").rstrip("\x00 "),
+        p=b[27] >> 4,
+    )
 
 
 @pytest.fixture
@@ -173,21 +214,35 @@ INVALID = [
 ]
 
 
+@pytest.fixture
+def captured_base():
+    """The first captured 0x0A as raw fields, with vertical velocity set to
+    64 fpm: Stratux never fills it, and the base must be valid everywhere."""
+    msg = captured_msg(CAPTURED_0A[0])
+    fields = raw_fields(msg)
+    rebuilt = ownship(**fields)
+    # The field split is exact, but for the call sign's NUL padding, which
+    # ownship() pads with spaces instead.
+    assert rebuilt[:19] == msg[:19] and rebuilt[27:] == msg[27:]
+    return dict(fields, vvv=0x001)
+
+
 @pytest.mark.parametrize(
     "fields,bad", [c[1:] for c in INVALID], ids=[c[0] for c in INVALID]
 )
-def test_invalid_encoding_is_bad(gw, fields, bad):
-    gw.send(ownship(t=1))
+def test_invalid_encoding_is_bad(gw, captured_base, fields, bad):
+    # Each invalid encoding patched into a frame the FlightBox sent.
+    gw.send(ownship(**captured_base))
     for key in KEYS[:11]:
         assert not gw.flags(key)["bad"], key
-    gw.send(ownship(t=1, **fields))
+    gw.send(ownship(**dict(captured_base, **fields)))
     for key in KEYS[:11]:
         if key in bad:
             assert_bad(gw, key)
         else:
             assert not gw.flags(key)["bad"], key
     # The next valid report clears it.
-    gw.send(ownship(t=1))
+    gw.send(ownship(**captured_base))
     for key in bad:
         assert not gw.flags(key)["bad"], key
 
@@ -253,11 +308,82 @@ def test_geometric_altitude_never_writes_alt(database):
             plugin.thread.dispatch(msg)
         assert database.read("STXGALT")[0] == 1000
         assert database.read("STXPALT")[0] == 2175
+        # And every frame recorded from the bench FlightBox.
+        for c in CAPTURE:
+            plugin.thread.dispatch(captured_msg(c))
+        assert database.read("STXGALT")[0] != 1000
         for key in ("ALT", "PALT", "TALT"):
             assert not database.get_raw_item(key).written, key
             assert key not in database.writers(), key
     finally:
         plugin.thread.s.close()
+
+
+# --- Frames recorded from the bench FlightBox --------------------------------
+
+
+def test_capture_is_what_the_fixture_says():
+    assert len(CAPTURED_0A) == 6 and len(CAPTURED_0B) == 6
+    for c in CAPTURE:
+        assert c["from"] == "10.110.10.169"
+        assert abs(c["situation_dt"]) < 1.0
+        assert c["situation"]["GPSFixQuality"] >= 1
+
+
+def test_captured_ownship_exact_decode(gw):
+    # The first recorded 0x0A, every field, pinned.
+    c = CAPTURED_0A[0]
+    assert c["datagram"] == (
+        "7e0a01f000001766ecbadc6203898a001800c1015374726174757800009be27e"
+    ) or captured_msg(c)[0] == gdl90.OWNSHIP
+    gw.send_raw(bytes.fromhex(c["datagram"]))
+    gw.settle()
+    r = gdl90.parse_report(captured_msg(c))
+    assert (r.atype, r.address, r.callsign) == (1, 0xF00000, "Stratux")
+    assert gw.val("STXLAT") == pytest.approx(r.lat) and not gw.flags("STXLAT")["bad"]
+    assert gw.val("STXLONG") == pytest.approx(r.lon) and not gw.flags("STXLONG")["bad"]
+    assert gw.val("STXPALT") == r.alt
+    assert gw.val("STXGS") == r.gs
+    assert gw.val("STXTRACK") == pytest.approx(r.trk)
+    assert (gw.val("STXNIC"), gw.val("STXRC")) == (8, 185.2)
+    assert (gw.val("STXNACP"), gw.val("STXEPU")) == (10, 10.0)
+    assert gw.val("STXAIR") is True  # on a shelf: "track valid", not airborne
+    # The one invalid encoding a Stratux sends in every report: 0x800.
+    assert_bad(gw, "STXVS")
+
+
+@pytest.mark.parametrize("c", CAPTURED_0A, ids=lambda c: "t=%.0fs" % c["t"])
+def test_captured_ownship_against_flightbox_json(gw, c):
+    # Every 0x0A field against the FlightBox's own web-UI data at the same
+    # moment.  Tolerances are the wire's resolution plus a stationary fix
+    # wandering in the time between the datagram and the JSON poll.
+    sit = c["situation"]
+    gw.send_raw(bytes.fromhex(c["datagram"]))
+    gw.settle()
+    assert gw.val("STXLAT") == pytest.approx(sit["GPSLatitude"], abs=1e-4)
+    assert gw.val("STXLONG") == pytest.approx(sit["GPSLongitude"], abs=1e-4)
+    # Pressure altitude, truncated to 25 ft by Stratux, so 0-25 ft low.
+    assert -5 <= sit["BaroPressureAltitude"] - gw.val("STXPALT") < 30
+    assert gw.val("STXGS") == pytest.approx(sit["GPSGroundSpeed"], abs=1.5)
+    assert gw.val("STXTRACK") == pytest.approx(sit["GPSTrueCourse"], abs=360 / 256 + 1)
+    assert gw.val("STXNACP") == sit["GPSNACp"]
+    assert sit["GPSHorizontalAccuracy"] < gw.val("STXEPU")
+    assert gw.val("STXNIC") == 8
+    for key in KEYS[:11]:
+        assert gw.flags(key)["bad"] is (key == "STXVS"), key
+
+
+@pytest.mark.parametrize("c", CAPTURED_0B, ids=lambda c: "t=%.0fs" % c["t"])
+def test_captured_geo_altitude_against_flightbox_json(gw, c):
+    # GDL90MSLAlt_Enabled is on at the bench box, so 0x0B carries MSL, at 5 ft
+    # resolution, and not the ellipsoid height (82 ft lower here).
+    sit = c["situation"]
+    gw.send_raw(bytes.fromhex(c["datagram"]))
+    gw.settle()
+    assert gw.val("STXGALT") == pytest.approx(sit["GPSAltitudeMSL"], abs=10)
+    assert abs(gw.val("STXGALT") - sit["GPSHeightAboveEllipsoid"]) > 50
+    assert (gw.val("STXVFOM"), gw.val("STXVWARN")) == (10.0, False)
+    assert not gw.flags("STXVFOM")["bad"]
 
 
 # --- One writer, and an older database ---------------------------------------
