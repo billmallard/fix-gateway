@@ -117,7 +117,8 @@ def parse_yaml_with_metadata(yaml_string, filename=None):
 def from_yaml(
     fs, bpath=None, fname=None, cfg=None, cfg_meta=None, bc=None, bcsource=None, preferences=None, metadata=None
 ):
-    if not cfg:
+    # An empty mapping (key: {}) is a config that was passed, not a missing one
+    if cfg is None:
         if isinstance(fs, str):
             # Must be a string of yaml or a filename
             if os.path.isfile(fs):

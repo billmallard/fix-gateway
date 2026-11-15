@@ -1,0 +1,25 @@
+# Demo source keys (DEMO4, AER-5626; makerplane/briefs/demo_mode_redesign.md
+# sections 4 and 7). One writer: the demo plugin (plugins/demo). Nothing else
+# writes them, and the demo refuses to start without them.
+#
+# DEMOLIVE is the glass's DEMO marking. The demo writes it true about once a
+# second while it runs and false when it stops, and it goes old 2 s after the
+# last write, so the marking cannot be on without the demo, and the demo
+# cannot be on without the marking's key.
+#
+# DEMOPAGE is the demo script's page: a pyEfis screen name, or SCREEN/TAB to
+# also bring forward the tab with that label. It is presentation, not
+# aircraft state. pyEfis honours it only in its kiosk mode (`kiosk:` in the
+# pyEfis config), and holds off for its idle time after any touch.
+
+items:
+- key: DEMOLIVE
+  description: Demo source live, true while the demo plugin runs (the DEMO marking)
+  type: bool
+  initial: false
+  tol: 2000
+
+- key: DEMOPAGE
+  description: Demo script page for a pyEfis kiosk, SCREEN or SCREEN/TAB ("" = none)
+  type: str
+  initial: ""

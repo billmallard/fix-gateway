@@ -534,6 +534,13 @@ are the ones above, with these differences:
   the CHT. The gauge colours and the flag come from the configured limits
   and the shipped `annunciate` plugin, as in flight. With no `highWarn`
   below a `highAlarm` there is no event, said once in the log.
+- (DEMO4) It writes its own two keys, `database/demo.yaml`. `DEMOLIVE` is
+  true about once a second while it runs, false when it stops, and old 2 s
+  after the last write: pyEfis draws its DEMO marking from it. `DEMOPAGE` is
+  the page the `pages` schedule names at that point in the route, `SCREEN`
+  or `SCREEN/TAB`, written on the route's own clock each loop; a pyEfis in
+  kiosk mode shows it. Both are watched like the sensor keys, and the demo
+  refuses to start on a database without them, so it never runs unmarked.
 
 Its plugin status reports `State` (`watching`, `flying`, `restarting`,
 `refused`, `stopped`), the profile, the route's length in seconds, the
