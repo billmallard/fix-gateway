@@ -1,0 +1,17 @@
+# Tessera touch panel (GUITION JC1060P470C, firmware 0.9.0, protocol 4) as a
+# control head: a page of keys showing FIX values, presses written back as
+# FIX keys.  A spike (TESS1): off by default.  doc/plugins/tessera.md
+tessera:
+  load: TESSERA
+  module: fixgw.plugins.tessera
+  # The panel's USB serial port.  A udev symlink is steadier than ttyACM0.
+  port: /dev/ttyACM0
+  # The page file, relative to the config directory.
+  page: tessera/page.yaml
+  # Seconds between page pushes at most.  A push goes out only when a shown
+  # value changed, and never before the panel answered the previous one.
+  min_refresh: 0.1
+  # Seconds between get_info asks that catch a panel restart or hang.
+  identify_interval: 10.0
+  # Seconds between attempts to open the port after an unplug or a refusal.
+  reconnect_interval: 2.0
