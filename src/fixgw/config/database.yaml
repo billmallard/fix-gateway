@@ -38,6 +38,7 @@ entries:
 - include: database/traffic.yaml
 - include: database/stratux.yaml
 - include: database/sim.yaml
+- include: database/demo.yaml
 
 # The last.yaml must always be the last one.
 # It contains a key used to detect if all
