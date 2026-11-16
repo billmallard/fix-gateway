@@ -1,0 +1,7 @@
+arduplane
+plane.parm
+firmware-version.txt
+git-version.txt
+deps/
+out/
+probe/
