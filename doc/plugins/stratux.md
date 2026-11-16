@@ -10,6 +10,7 @@ a Stratux sends it). It decodes:
 | Ownship Geometric Altitude | `0x0B` | `STXGALT`, `STXVFOM`, `STXVWARN` |
 | Heartbeat | `0x00` | traffic source liveness |
 | Traffic Report | `0x14` | the `TFC` traffic block |
+| Uplink (FIS-B) | `0x07` | no keys: text weather into the plugin's store, with `fisb: true` |
 
 It also polls the receiver's `/getStatus` JSON for receiver health and GPS
 quality, which GDL90 does not carry (see *Receiver health*).
@@ -30,6 +31,7 @@ and a frame whose FCS does not match is discarded.
 | `traffic` | `true` | write ADS-B traffic into the `TFC` block. Exactly one traffic writer per installation |
 | `evict_s` | `10` | seconds without a report before a target's slot is emptied |
 | `ownship_address` | `""` | our 24-bit ICAO address as a **quoted** hex string, e.g. `"A1B2C3"`. Set by the configurator from the aircraft registration |
+| `fisb` | `false` | decode FIS-B text weather from `0x07` Uplink messages. The receiver must have UAT (978 MHz) enabled. See *FIS-B text weather* |
 
 ## AHRS is a network input to the attitude display
 
@@ -198,3 +200,36 @@ keys are in `config/database/traffic.yaml` (32 slots, `TFC1..32`, index letter
 
 The gateway applies no threat logic: `TFCkALRT` is the receiver's own alert
 bit.
+
+## FIS-B text weather
+
+With `fisb: true` the plugin decodes the `0x07` Uplink message: the 432-byte
+UAT ground uplink, its information frames, and the FIS-B APDUs in them
+(`plugins/stratux/fisb.py`). It keeps the text products in a store
+(`plugins/stratux/weather.py`):
+
+| Product | APDU | Kept per | Dated by | Old at | Dropped at |
+|---|---|---|---|---|---|
+| METAR, SPECI | 413 | station (newest observation wins) | observation time | +75 min | +120 min |
+| TAF, TAF.AMD, TAF COR | 413 | station (newest issue wins) | issue time | end of valid period | +60 min after it |
+| PIREP | 413 | report | report time | +90 min | +120 min |
+| Winds and temperatures aloft | 413 | station and valid time | availability time | end of for-use period (DO-358B table A-9) | +60 min after it |
+| NOTAM-D, -FDC, -TFR, -TRA, -TMOA | 8, 16, 17 | report | effective period in the text | end of the period | +60 min after it, or 60 min after last received |
+| AIRMET, SIGMET, CWA | 11, 12, 15 | report | issue time | `VALID UNTIL` | +60 min, or 60 min after last received |
+
+A product's state, `current`, `future` (a forecast or NOTAM not yet in
+effect) or `old`, is computed when it is read, from the host's UTC clock.
+Nothing is ever marked current at receipt and left that way. A product that
+cannot be dated from its own text is not stored, and a product dated more
+than 10 minutes after the clock is `old`: the clock is wrong (a host without
+a time source), so its age is unknown. A TWGO cancellation removes the
+report. Segmented TWGO products are joined; a file not complete within 10
+minutes of its first segment is dropped. The age limits were ruled on
+2026-11-16 (AER-5651).
+
+The plugin status shows `FIS-B uplinks`, `FIS-B products`, `FIS-B current`
+(how many are current now) and the count of each kind. Nothing reads the store
+yet. The ruled delivery path (AER-5651) is a netfix request that returns one
+station's products, each with the state the gateway works out at that moment;
+pyEfis never works out an age itself. Graphical products (NEXRAD, AIRMET/SIGMET and TFR geometry) are not
+decoded.
