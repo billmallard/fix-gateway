@@ -68,7 +68,7 @@ PAGE_KEY = "DEMOPAGE"
 DEMO_KEYS = (LIVE_KEY, PAGE_KEY)
 LIVE_EVERY_S = 1.0
 WRITER = "demo"
-DEFAULT_PROFILE = "fp8-ksmx-rnav30-missed.yaml"
+DEFAULT_PROFILE = "demo5-ksba-v27-ksmx-rnav30-missed.yaml"
 
 
 def other_writers(keys=SOURCE_KEYS):
