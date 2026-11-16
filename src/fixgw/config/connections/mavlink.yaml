@@ -12,4 +12,8 @@ mavlink:
     accel: true
     pressure: true
     pascal_offset: 2800
+    # Write the autopilot state keys (APENG, APLAT, ...) and answer APCMD
+    # requests (doc/autopilot_keys.md). Turn it off if another autopilot
+    # source writes them.
+    autopilot: true
 
