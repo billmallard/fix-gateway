@@ -1563,6 +1563,50 @@ def test_resume_from_vectors_sequences_onto_next_leg_direct_from_aircraft_positi
     assert e.to_point.id == "ENRTRY"
 
 
+@pytest.mark.parametrize("pt,turn", [("TF", ""), ("DF", ""), ("DF", "R")])
+def test_resume_from_vectors_flies_a_tf_or_df_next_leg_direct_from_the_aircraft(pt, turn):
+    # fix-gateway #174: the line from where the aircraft is, so the needle
+    # reads centred at the RESUME. A DF's coded turn is not flown: the
+    # engine knows no track to turn from (_df_turn_start).
+    e = engine.Engine()
+    route = vector_route()
+    route[2] = engine.Waypoint("ENRTRY", 0.0, nm_to_deg_lon(25.0), type=engine.TYPE_FIX, pt=pt, turn=turn)
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+    e.update(0.0, nm_to_deg_lon(1.0), 120.0, 0.0, True, None, None, 1000.0)
+
+    ac = (3.0 / 60.0, nm_to_deg_lon(6.0))  # 3 nm north of the next leg's line
+    e.handle_command("2 RESUME", (ac[0], ac[1], True))
+    out = e.update(ac[0], ac[1], 120.0, 0.0, True, None, None, 1001.0)
+    assert out["state"] == engine.STATE_LEG and out["wp_name"] == "ENRTRY"
+    assert out["xtk"] == pytest.approx(0.0, abs=1e-3)
+    assert out["crs"] == pytest.approx(geo.bearing_deg(ac[0], ac[1], 0.0, nm_to_deg_lon(25.0)), abs=0.1)
+    assert out["turn"] == ""
+    assert out["wp_from"] == ""  # present position, as after a DTO: no fix to name
+
+
+def test_resume_from_vectors_intercepts_a_cf_next_legs_coded_course():
+    # fix-gateway #174, KSBA FLOUT5: VA then CF FLOUT 197. A CF's path is
+    # its coded course into the fix, so RESUME is an intercept of that
+    # course, not a line from the aircraft: the needle shows the 3 nm the
+    # aircraft is off it, and the course pointer the coded course.
+    e = engine.Engine()
+    route = vector_route()
+    route[2] = engine.Waypoint("ENRTRY", 0.0, nm_to_deg_lon(25.0), type=engine.TYPE_FIX, pt="CF", crs=90.0)
+    load(e, route, "T", 1)
+    e.handle_command("1 ACT 2", (0.0, 0.0, True))
+    e.update(0.0, nm_to_deg_lon(1.0), 120.0, 0.0, True, None, None, 1000.0)
+
+    ac = (3.0 / 60.0, nm_to_deg_lon(6.0))
+    ack, msg = e.handle_command("2 RESUME", (ac[0], ac[1], True))
+    assert msg == "RESUME NAV -> ENRTRY"
+    out = e.update(ac[0], ac[1], 120.0, 0.0, True, None, None, 1001.0)
+    assert out["state"] == engine.STATE_LEG and out["wp_name"] == "ENRTRY"
+    assert out["crs"] == pytest.approx(90.0, abs=0.1)
+    assert abs(out["xtk"]) == pytest.approx(3.0, abs=0.02)
+    assert out["wp_from"] == ""  # the VA ended at an altitude: no fix to name
+
+
 def test_resume_from_vectors_with_no_next_leg_stays_suspended():
     e = engine.Engine()
     route = vector_route()[:2]  # nothing after the vector leg
