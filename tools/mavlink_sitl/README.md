@@ -14,7 +14,9 @@ No X-Plane and no hardware are involved.
 | `session.py` | The session: start SITL, the bridge and a private fixgw (`fixgw.server:main`, MAVLINK on, netfix on a free port), then run the sequence below and log every key with its old flag. |
 | `cut_fixture.py` | Cuts the recorded `fc.tlog` to the autopilot's own fixed-wing heartbeats, keeping each record's exact wire bytes. |
 | `disarm_probe.py` | A separate SITL instance with no plugin: does a disarmed ArduPlane still drive its control surfaces? |
+| `reengage.py` | The same session cut short to show a pre-existing hazard: after the transmitter takes ArduPlane out of GUIDED, the next waypoint change puts it back in GUIDED. |
 | `session_4.7.2.log` | The session that made the fixture. |
+| `reengage_4.7.2.log` | `reengage.py`'s run. The autopilot's own heartbeats read MANUAL until 0.39 s after the waypoint write, then GUIDED. |
 | `disarm_probe_4.7.2.txt` | The probe's output. |
 
 ## Regenerate
@@ -28,6 +30,7 @@ python3 -m pip install --target deps pymavlink==2.4.42 pyserial==3.5
 PYTHONPATH=deps python3 session.py ../.. out
 PYTHONPATH=deps python3 cut_fixture.py out/fc.tlog ../../tests/plugins/mavlink/data/arduplane_4.7.2_modes.tlog
 PYTHONPATH=deps python3 disarm_probe.py probe
+PYTHONPATH=deps python3 reengage.py ../.. re
 ```
 
 The recording used `firmware-version.txt` `4.7.2-FIRMWARE_VERSION_TYPE_OFFICIAL`
