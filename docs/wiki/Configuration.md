@@ -20,8 +20,8 @@ keys exist** (and their aircraft-specific values). Getting-started walkthrough:
 
 `{CONFIG}` in a path setting expands to the config directory, so paths stay
 portable. The server expands it in `database file` and `initialization files`;
-some plugins expand it in their own path settings (`canfix`, `canaerospace` and
-`dronecan` in `mapfile`, `data_recorder` in `filepath`, `state_persist` and
+some plugins expand it in their own path settings (`canfix`, `canaerospace`,
+`dronecan` and `avionicsduino` in `mapfile`, `data_recorder` in `filepath`, `state_persist` and
 `flightplan` in `state_file`).
 
 ## Turning a plugin on or off

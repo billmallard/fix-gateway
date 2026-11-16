@@ -1,0 +1,167 @@
+#  Copyright (c) 2026 MakerPlane
+#
+#  This program is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation; either version 2 of the License, or
+#  (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+
+"""One Tessera page from a YAML file: what each key shows, what a press writes.
+
+Every key is drawn as a gauge tile with an empty ring: its centre text is the
+FIX value (or fixed text) and its label sits underneath.  The firmware updates
+a tile's label, colour and gauge text in place, but rebuilds the whole grid
+when anything else changes, which drops a press that is waiting for feedback
+(deck_model.c same_structure, ui.cpp build_keys).  So a refresh only ever
+changes those fields: a bad value changes the text and colour, never the
+tile's shape.
+"""
+
+import yaml
+
+from . import protocol
+
+_KEY_FIELDS = {"id", "label", "show", "format", "text", "press", "color", "confirm"}
+
+VALUE_COLOR = "#FFFFFF"
+OLD_COLOR = "#FFB000"  # a stale value: still shown, in amber
+BAD_COLOR = "#FF3030"  # bad or failed: dashes, in red
+BAD_TEXT = "----"
+
+
+class PageError(ValueError):
+    """The page file is not a page this plugin can show."""
+
+
+class Key:
+    def __init__(self, entry):
+        unknown = set(entry) - _KEY_FIELDS
+        if unknown:
+            raise PageError(
+                "key {}: unknown field(s) {}".format(entry.get("id"), sorted(unknown))
+            )
+        self.id = entry.get("id")
+        if type(self.id) is not int or not 1 <= self.id <= protocol.MAX_KEYS:
+            raise PageError(
+                "key id {!r}: must be 1 to {}".format(self.id, protocol.MAX_KEYS)
+            )
+        self.label = entry.get("label")
+        if not isinstance(self.label, str) or not self.label:
+            raise PageError("key {}: needs a label".format(self.id))
+        if len(self.label) > protocol.LABEL_MAX:
+            raise PageError(
+                "key {}: label over {} characters".format(self.id, protocol.LABEL_MAX)
+            )
+        self.show = entry.get("show")
+        self.format = entry.get("format", "{}")
+        self.text = str(entry.get("text", ""))
+        if self.show is not None and "text" in entry:
+            raise PageError("key {}: show and text are exclusive".format(self.id))
+        self.color = entry.get("color", VALUE_COLOR)
+        # Passed to the panel as given: the panel, not this plugin, is the
+        # judge of a colour (an INVALID answer is handled like any other).
+        self.confirm = bool(entry.get("confirm", False))
+        self.press = _press(self.id, entry.get("press"))
+
+    def keys(self):
+        """Every FIX key this page key names."""
+        named = [self.show] if self.show else []
+        if self.press:
+            named.append(self.press[1])
+        return named
+
+    def tile(self, read):
+        """The key's layout entry, the shown value read through `read`."""
+        text, color = self.text, self.color
+        if self.show:
+            value, _annunciate, old, bad, fail = read(self.show)[:5]
+            if bad or fail:
+                text, color = BAD_TEXT, BAD_COLOR
+            else:
+                try:
+                    text = self.format.format(value)
+                except (ValueError, TypeError):
+                    text = str(value)
+                if old:
+                    color = OLD_COLOR
+        tile = {
+            "id": self.id,
+            "label": self.label,
+            "color": color,
+            "gauge": {"p": 0, "t": text[: protocol.GAUGE_TEXT_MAX]},
+        }
+        if self.confirm:
+            tile["cf"] = 1
+        return tile
+
+    def writes(self):
+        """The (key, value) writes one press makes, in order."""
+        if not self.press:
+            return []
+        kind, key, value = self.press
+        if kind == "pulse":
+            # A button press as pyEfis and the Knobster write it: True then
+            # False, so a pyEfis button bound to the key acts once.
+            return [(key, True), (key, False)]
+        return [(key, value)]
+
+
+def _press(key_id, press):
+    if press is None:
+        return None
+    if not isinstance(press, dict):
+        raise PageError("key {}: press must be a mapping".format(key_id))
+    if set(press) == {"pulse"} and isinstance(press["pulse"], str):
+        return ("pulse", press["pulse"], None)
+    if set(press) == {"set", "value"} and isinstance(press["set"], str):
+        return ("set", press["set"], press["value"])
+    raise PageError(
+        "key {}: press is {{pulse: KEY}} or {{set: KEY, value: V}}".format(key_id)
+    )
+
+
+class Page:
+    def __init__(self, data):
+        if not isinstance(data, dict) or not isinstance(data.get("keys"), list):
+            raise PageError("a page is a mapping with a 'keys' list")
+        self.name = str(data.get("name", "TESSERA"))
+        self.keys = [
+            Key(entry if isinstance(entry, dict) else {}) for entry in data["keys"]
+        ]
+        if len(self.keys) > protocol.MAX_KEYS:
+            raise PageError("more than {} keys".format(protocol.MAX_KEYS))
+        ids = [k.id for k in self.keys]
+        if len(set(ids)) != len(ids):
+            raise PageError("duplicate key ids")
+        self.by_id = {k.id: k for k in self.keys}
+
+    @classmethod
+    def load(cls, path):
+        with open(path) as f:
+            return cls(yaml.safe_load(f))
+
+    def named_keys(self):
+        """Every FIX key the page file names, shown or written."""
+        return sorted({key for k in self.keys for key in k.keys()})
+
+    def shown_keys(self):
+        return sorted({k.show for k in self.keys if k.show})
+
+    def written_keys(self):
+        return sorted({k.press[1] for k in self.keys if k.press})
+
+    def pulsed_keys(self):
+        return sorted(
+            {k.press[1] for k in self.keys if k.press and k.press[0] == "pulse"}
+        )
+
+    def buttons(self, read):
+        return [k.tile(read) for k in self.keys]
+
+    def writes(self, key_id):
+        key = self.by_id.get(key_id)
+        return key.writes() if key else []
