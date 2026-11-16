@@ -1372,8 +1372,16 @@ class Engine:
     def _resume_from_vectors(self, position):
         """RESUME off a vector leg (PA4, guardrail 4): the box never
         invented a heading while suspended, so there is no track to
-        rejoin -- sequence onto the next leg direct from wherever the
-        aircraft actually is now, exactly like a DTO. With no next leg to
+        rejoin -- sequence onto the next leg, FROM the aircraft's present
+        position. What that means depends on the next leg (fix-gateway
+        #174): a TF or DF is the line from where the aircraft is now, like
+        a DTO, and a DF's coded turn is not flown (no arrival track,
+        _df_turn_start). A CF ignores the FROM point and is flown on its
+        coded course (_leg_from_anchor), so RESUME is an intercept of that
+        course -- what a pilot cleared to "intercept the course to FLOUT"
+        flies. WPFROM reads empty either way: a vector leg ends at an
+        altitude, an intercept or a manual termination, not at a fix to
+        name. With no next leg to
         join, stay suspended (there is nothing safe to fly toward) and
         just post the reason -- unlike the MAP case, there is no extended
         final-approach course to keep flying here."""
