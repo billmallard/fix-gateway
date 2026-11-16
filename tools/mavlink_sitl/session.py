@@ -1,0 +1,318 @@
+"""AFC7 end to end: ArduPlane SITL, the real mavlink plugin in the real fixgw
+server, a netfix client as the control head, a second MAVLink link as the
+pilot's RC transmitter.
+
+usage: session.py <fix-gateway tree> <out dir>
+Run with pymavlink on PYTHONPATH. Every key read is logged with its flags.
+"""
+import json
+import os
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import time
+
+from pymavlink import mavutil
+
+TREE = os.path.abspath(sys.argv[1])
+OUT = os.path.abspath(sys.argv[2])
+HERE = os.path.abspath(os.path.dirname(__file__))
+INSTANCE = 7
+SERIAL0, SERIAL1 = 5760 + 10 * INSTANCE, 5762 + 10 * INSTANCE
+HOME = "34.4258,-119.8403,3,250"     # KSBA, runway 25 heading
+WP = (34.4400, -119.9200, "WPT1")    # about 8 km west-northwest
+
+os.makedirs(OUT, exist_ok=True)
+for f in os.listdir(OUT):
+    p = os.path.join(OUT, f)
+    shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
+log = open(os.path.join(OUT, "session.log"), "w")
+
+
+def say(*a):
+    line = "%.3f %s" % (time.time(), " ".join(str(x) for x in a))
+    print(line, flush=True)
+    log.write(line + "\n")
+    log.flush()
+
+
+def free_tcp():
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    p = s.getsockname()[1]
+    s.close()
+    return p
+
+
+procs = []
+
+
+def cleanup():
+    for p in procs:
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except Exception:
+            pass
+
+
+import atexit  # noqa: E402
+
+atexit.register(cleanup)
+
+# --- SITL -----------------------------------------------------------------
+run = os.path.join(OUT, "sitl")
+os.makedirs(run)
+sitl = subprocess.Popen(
+    [os.path.join(HERE, "arduplane"), "-w", "-M", "plane", "-O", HOME,
+     "--defaults", os.path.join(HERE, "plane.parm"), "-I", str(INSTANCE)],
+    cwd=run, stdout=open(run + "/sitl.log", "w"), stderr=subprocess.STDOUT,
+    start_new_session=True)
+procs.append(sitl)
+time.sleep(2)
+
+# --- bridge (plugin side is SERIAL0, so SITL starts once it connects) -------
+link = os.path.join(OUT, "ttyFC")
+ctl = os.path.join(OUT, "ctl")
+os.makedirs(ctl)
+bridge = subprocess.Popen(
+    [sys.executable, os.path.join(HERE, "bridge.py"), str(SERIAL0), link,
+     os.path.join(OUT, "fc.tlog"), ctl],
+    stdout=open(OUT + "/bridge.log", "w"), stderr=subprocess.STDOUT,
+    start_new_session=True)
+procs.append(bridge)
+for _ in range(50):
+    if os.path.lexists(link):
+        break
+    time.sleep(0.1)
+
+# --- the transmitter link --------------------------------------------------
+time.sleep(1)
+rc = mavutil.mavlink_connection("tcp:127.0.0.1:%d" % SERIAL1, source_system=250)
+rc.wait_heartbeat(timeout=60)
+say("rc link up, target", rc.target_system, rc.target_component)
+
+
+def set_param(name, value):
+    rc.mav.param_set_send(rc.target_system, rc.target_component,
+                          name.encode(), float(value),
+                          mavutil.mavlink.MAV_PARAM_TYPE_REAL32)
+    m = rc.recv_match(type="PARAM_VALUE", blocking=True, timeout=5)
+    say("param", name, value, "->", m and (m.param_id, m.param_value))
+
+
+def rc_mode(mode):
+    """What a mode switch on the transmitter does: a mode change the
+    head did not ask for."""
+    num = {v: k for k, v in mavutil.mode_mapping_apm.items()}[mode]
+    rc.mav.command_long_send(rc.target_system, rc.target_component,
+                             mavutil.mavlink.MAV_CMD_DO_SET_MODE, 0,
+                             mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+                             num, 0, 0, 0, 0, 0)
+    say("RC: mode", mode)
+
+
+def rc_hb():
+    m = rc.recv_match(type="HEARTBEAT", blocking=True, timeout=3)
+    while m is not None and m.get_srcSystem() != rc.target_system:
+        m = rc.recv_match(type="HEARTBEAT", blocking=True, timeout=3)
+    return m
+
+
+set_param("TKOFF_ALT", 300)
+set_param("TKOFF_THR_MAX", 100)
+
+# --- fixgw ---------------------------------------------------------------
+nf = free_tcp()
+cfg = os.path.join(OUT, "config")
+shutil.copytree(os.path.join(TREE, "src/fixgw/config"), cfg)
+open(cfg + "/preferences.yaml.custom", "w").write(
+    "enabled:\n  MAVLINK: true\n  DEMO: false\n  STATE_PERSIST: false\n"
+    "  FLIGHTPLAN: false\n  COMPUTE: false\n  XPLANE: false\n")
+
+
+def edit(f, a, b):
+    p = cfg + "/connections/" + f
+    x = open(p).read()
+    assert x.count(a) == 1, (f, a)
+    open(p, "w").write(x.replace(a, b))
+
+
+edit("netfix.yaml", "port: 3490", "port: %d" % nf)
+edit("mavlink.yaml", "port: /dev/ttyACM0", "port: %s" % link)
+env = dict(os.environ, PYTHONPATH=os.path.join(TREE, "src") + ":" + os.environ.get("PYTHONPATH", ""))
+srv = subprocess.Popen(
+    [sys.executable, "-c", "import sys; from fixgw.server import main; sys.exit(main())",
+     "--config-file", cfg + "/default.yaml", "--debug"],
+    env=env, cwd=OUT, stdout=open(OUT + "/server.log", "w"),
+    stderr=subprocess.STDOUT, start_new_session=True)
+procs.append(srv)
+time.sleep(4)
+c = socket.create_connection(("127.0.0.1", nf))
+c.settimeout(3)
+buf = [b""]
+
+
+def q(line):
+    c.sendall((line + "\n").encode())
+    while b"\n" not in buf[0]:
+        buf[0] += c.recv(4096)
+    out, _, buf[0] = buf[0].partition(b"\n")
+    return out.decode()
+
+
+def r(k):
+    """(value, old) of a key."""
+    parts = q("@r" + k).split(";")
+    return parts[1], parts[2][1] == "1"
+
+
+KEYS = ("APENG", "APLAT", "APVERT", "APMSG", "APDISC", "APCAPS", "FDENG",
+        "MAVMODE", "MAVSTATE", "MAVMSG")
+records = []
+
+
+def state(label):
+    s = {k: r(k) for k in KEYS}
+    records.append({"t": time.time(), "label": label, "keys": s})
+    say("%-14s" % label, " | ".join(
+        "%s=%s%s" % (k, v[0], "(old)" if v[1] else "") for k, v in s.items()))
+    return s
+
+
+def wait_for(label, pred, timeout=20):
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        s = {k: r(k) for k in KEYS}
+        if pred(s):
+            return state(label)
+        time.sleep(0.2)
+    state(label + " TIMEOUT")
+    return None
+
+
+seq = [None]
+
+
+def press(v):
+    if seq[0] is None:
+        seq[0] = int(r("APCMDSEQ")[0])
+    q("@wAPCMD;" + v)
+    seq[0] += 1
+    q("@wAPCMDSEQ;%d" % seq[0])
+    say("HEAD: press", v)
+
+
+def mode_is(m):
+    return lambda s: s["MAVMODE"][0] == m and not s["APENG"][1]
+
+
+wait_for("link", lambda s: s["MAVMODE"][0] == "TRIM" and not s["APENG"][1], 90)
+state("start")
+import threading  # noqa: E402
+
+
+def waypoint_feed():
+    """What the flight-plan engine does: keep the active waypoint fresh
+    (WPLAT/WPLON have a 50 s tol). Its own connection, so its replies never
+    interleave with the head's."""
+    w = socket.create_connection(("127.0.0.1", nf))
+    while True:
+        for line in ("@wWPLAT;%f" % WP[0], "@wWPLON;%f" % WP[1],
+                     "@wWPNAME;%s" % WP[2]):
+            w.sendall((line + "\n").encode())
+        w.recv(4096)
+        time.sleep(5)
+
+
+threading.Thread(target=waypoint_feed, daemon=True).start()
+
+# The plugin arms by itself once the pre-arm checks pass.
+wait_for("armed", lambda s: s["MAVSTATE"][0] == "ARMED", 120)
+press("HDG")
+wait_for("HDG refused", lambda s: 'HDG is not available' in s["APMSG"][0], 5)
+press("NAV")
+wait_for("NAV refused", lambda s: 'engage AP first' in s["APMSG"][0], 5)
+
+rc_mode("TAKEOFF")
+wait_for("TAKEOFF", lambda s: s["APENG"][0] == "True" and "TAKEOFF" in s["APMSG"][0])
+press("AP")
+wait_for("AP in TAKEOFF", lambda s: 'AP refused' in s["APMSG"][0], 5)
+# climb
+t0 = time.time()
+while time.time() - t0 < 120:
+    m = rc.recv_match(type="GLOBAL_POSITION_INT", blocking=True, timeout=2)
+    if m and m.relative_alt > 250000:
+        break
+say("climbed, rel alt m", m and m.relative_alt / 1000)
+
+rc_mode("CRUISE")
+wait_for("CRUISE (RC)", mode_is("CRUISE"))
+time.sleep(3)
+state("CRUISE held")
+press("NAV")
+wait_for("NAV->GUIDED", mode_is("GUIDED"))
+time.sleep(5)
+state("GUIDED held")
+press("NAV")
+wait_for("NAV again", mode_is("CRUISE"))
+press("VS")
+wait_for("VS refused", lambda s: 'VS is not available' in s["APMSG"][0], 5)
+# The existing button path: auto-pilot-*.yaml writes MAVREQ* directly.
+q("@wMAVREQAUTOTUNE;true")
+say("BUTTON: MAVREQAUTOTUNE true")
+wait_for("AUTOTUNE (btn)", mode_is("AUTOTUNE"))
+time.sleep(3)
+state("AUTOTUNE held")
+press("AP")
+wait_for("AP->MANUAL", mode_is("TRIM"))
+time.sleep(0.5)
+state("disc latched")
+press("DISC")
+wait_for("DISC ack", lambda s: s["APDISC"][0] == "False", 5)
+press("AP")
+wait_for("AP->CRUISE", mode_is("CRUISE"))
+rc_mode("FBWA")
+wait_for("FBWA (RC)", lambda s: s["MAVMODE"][0] == "UNKNOWN" and "FBWA" in s["APMSG"][0])
+press("DISC")
+wait_for("DISC in FBWA", lambda s: 'DISC refused' in s["APMSG"][0], 5)
+rc_mode("CRUISE")
+wait_for("CRUISE again", mode_is("CRUISE"))
+# The head's button path after a transmitter change: Mav thinks CRUISE is
+# current (it set it last), the autopilot reports CRUISE. Now the RC goes
+# MANUAL and the head asks for CRUISE again.
+rc_mode("MANUAL")
+wait_for("MANUAL (RC)", mode_is("TRIM"))
+state("disc latch RC")
+press("DISC")
+time.sleep(0.4)
+press("AP")
+wait_for("AP after RC", mode_is("CRUISE"))
+
+# --- link loss ------------------------------------------------------------
+time.sleep(2)
+open(os.path.join(ctl, "pause"), "w").close()
+t_pause = time.time()
+say("LINK: paused")
+olds = {}
+while time.time() - t_pause < 8:
+    for k in ("APENG", "APLAT", "APVERT", "APCAPS", "APMSG", "APDISC", "MAVMSG"):
+        if k not in olds and r(k)[1]:
+            olds[k] = round(time.time() - t_pause, 2)
+    time.sleep(0.05)
+say("old after pause (s):", json.dumps(olds))
+state("link lost")
+press("AP")
+time.sleep(0.6)
+os.remove(os.path.join(ctl, "pause"))
+say("LINK: resumed")
+wait_for("link back", lambda s: not s["APENG"][1] and not s["MAVMSG"][1], 15)
+
+json.dump(records, open(os.path.join(OUT, "states.json"), "w"), indent=1)
+srv.send_signal(signal.SIGINT)
+try:
+    srv.wait(10)
+except Exception:
+    pass
+say("done")

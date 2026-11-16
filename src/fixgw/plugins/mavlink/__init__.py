@@ -30,6 +30,7 @@ import time
 from collections import OrderedDict
 import fixgw.plugin as plugin
 from fixgw.plugins.mavlink.Mav import Mav
+from fixgw.plugins.mavlink.autopilot import Autopilot
 
 
 class MainThread(threading.Thread):
@@ -51,13 +52,22 @@ class MainThread(threading.Thread):
         self.baud = int(self.config["baud"]) if ("baud" in self.config) else 57600
         self.port = self.config["port"] if ("port" in self.config) else "/dev/ttyACM0"
         self.options = self.config["options"] if ("options" in self.config) else {}
+        # The autopilot state keys (AFC7). On unless the connection turns it
+        # off; it stays off by itself if the database has no autopilot.yaml.
+        self.autopilot = None
+        if self.options.get("autopilot", True):
+            self.autopilot = Autopilot(self.parent)
 
         while not self.getout:
             time.sleep(0.1)
             try:
                 print("Mav init")
                 self.conn = Mav(
-                    self.parent, port=self.port, baud=self.baud, options=self.options
+                    self.parent,
+                    port=self.port,
+                    baud=self.baud,
+                    options=self.options,
+                    autopilot=self.autopilot,
                 )
             except Exception as e:
                 try:
@@ -95,7 +105,11 @@ class MainThread(threading.Thread):
                     # So we only deal with the AP once every 200 cycles
                     # Close to once every 0.2 seconds, fast enough
                     # for users asking for a mode change
-                    if loopc > 40:
+                    # A head request (APCMD) is a pilot waiting on a press,
+                    # so it does not wait for the next turn.
+                    if loopc > 40 or (
+                        self.autopilot and self.autopilot.pending()
+                    ):
                         self.conn.checkMode()
                         loopc = 0
                     loopc += 1
@@ -106,6 +120,8 @@ class MainThread(threading.Thread):
                     time.sleep(1)
                     break
             self.running = False
+        if self.autopilot:
+            self.autopilot.close()
 
     def stop(self):
         self.getout = True

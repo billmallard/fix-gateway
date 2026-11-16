@@ -5,10 +5,12 @@ maos-workspace repo), with Bill's rulings D1-D7 of 2026-10-26; backlog item
 AFC1 (AER-5569). The keys are defined in `database/autopilot.yaml`, which the
 default `database.yaml` includes.
 
-This is a contract only. Nothing in fix-gateway writes these keys yet. The
-X-Plane adapter (AFC2) is the first autopilot source, the `autopilot_panel`
-instrument (AFC3) the first request writer, and the PFD annunciation and
-flight director bars (AFC4, AFC5) the first readers.
+The MAVLink plugin writes these keys for an ArduPlane flight controller
+(AFC7, "The MAVLink (ArduPlane) source" at the end of this file). The X-Plane
+adapter (AFC2) is the bench source, the `autopilot_panel` instrument (AFC3)
+the first request writer, and the PFD annunciation and flight director bars
+(AFC4, AFC5) the first readers. Turn on one autopilot source at a time: the
+state keys have one writer.
 
 ## The rule: the head asks, the autopilot decides
 
@@ -163,8 +165,8 @@ This fork leads the autopilot contract (ORG-011). Upstream
 `makerplane/FIX-Gateway` has none of these keys: no `database/autopilot.yaml`,
 no `VSSEL`/`IASSEL`, no `AP*`/`FD*`/`YDENG` keys. Its only autopilot keys are
 the MAVLink ones in `database/mavlink.yaml` (`MAVREQ*`, `MAVMODE`, `MAVSTATE`,
-`MAVMSG`), which this fork keeps unchanged. A later MAVLink adapter (AFC7)
-maps them into this contract rather than replacing them.
+`MAVMSG`), which this fork keeps unchanged. The MAVLink adapter (AFC7,
+below) maps them into this contract rather than replacing them.
 
 On the CAN-FIX side:
 
@@ -180,3 +182,61 @@ On the CAN-FIX side:
 
 Nothing here is relicensed or closed. It is public in the fork under the
 existing licence and documented in this file.
+
+## The MAVLink (ArduPlane) source (AFC7)
+
+`fixgw.plugins.mavlink.autopilot`, run by the MAVLink plugin's thread. It is
+on whenever the plugin is (the MAVLINK plugin is off by default), and
+`autopilot: false` under `options:` in `connections/mavlink.yaml` turns it
+off. If the database has no `autopilot.yaml`, it logs that once and stays off.
+
+ArduPlane's modes are drone modes, not GA modes (brief section 5.6a), so this
+source offers little, and says so: `APCAPS` is `AP,NAV,DISC`, and the head
+greys every other button.
+
+**Requests.** A request writes the existing `MAVREQ*` key, the same key the
+`buttons/auto-pilot-*.yaml` buttons write, and `Mav.checkMode` sends the mode
+change. The state keys change only when ArduPlane's heartbeat reports the new
+mode. Only the quorum leader acts on a request.
+
+| Request | `MAVREQ*` written | Refused (nothing sent, reason on `APMSG`) when |
+|---|---|---|
+| `AP` | `MAVREQCRUISE`, or `MAVREQTRIM` when engaged | the plugin's status is not `ARMED` (it arms by itself once the pre-arm checks pass) |
+| `NAV` | `MAVREQGUIDED`, or `MAVREQCRUISE` when in GUIDED | the autopilot is not engaged; there is no valid waypoint (`MAVWPVALID`) |
+| `DISC` | `MAVREQTRIM` when engaged; when `APDISC` is set, it only acknowledges | the plugin's status is not `ARMED` |
+| any other | nothing | always: "HDG is not available on this autopilot" |
+
+Every request is also refused when no fixed-wing heartbeat has arrived for
+1.5 s. `NAV` with the autopilot off is refused rather than engaging it: there
+is no flight director to arm, so NAV would couple the servos by itself.
+
+**State.** From the custom mode in each fixed-wing (`MAV_TYPE_FIXED_WING`)
+heartbeat:
+
+| ArduPlane mode | `APENG` | `APLAT` | `APVERT` | What it flies |
+|---|---|---|---|---|
+| MANUAL (`MAVMODE` `TRIM`) | false | "" | "" | the pilot's trims drive the servos |
+| CRUISE | true | `TRK` | `ALT` | holds the ground track and altitude it had when engaged; not `HEADBUG` |
+| GUIDED | true | `GPS` | `ALT` | direct to `WPLAT`/`WPLON` at the altitude it had when commanded, then circles it; not along the leg |
+| AUTOTUNE | true | `ROL` | `PIT` | holds the attitude the sticks give it, while it tunes |
+| any other (FBWA, TAKEOFF, RTL, AUTO, ...) | true | "" | "" | named on `APMSG`, for example "ArduPlane mode FBWA" |
+| INITIALISING | false | "" | "" | |
+
+- `APENG` follows the mode, not arming. A disarmed ArduPlane still drives its
+  control surfaces in every mode and holds only the throttle (measured in
+  ArduPlane 4.7.2 SITL: full right stick gave SERVO1 1900 us disarmed in
+  MANUAL, FBWA and CRUISE).
+- `FDENG`, `YDENG` and `APALTCAP` are always false and the armed lists always
+  "": ArduPlane has no flight director and no separate yaw damper switch, and
+  reports no armed modes and no capture phase. `FDPITCH` and `FDROLL` are
+  never written, so they stay old and no display draws bars.
+- `APDISC` is latched on any change from an engaged mode to MANUAL, whatever
+  caused it: the head, the transmitter's mode switch or a failsafe.
+- The mode keys `MAVMODE`, `MAVSTATE` and `MAVMSG`, and the buttons that read
+  them, are unchanged.
+
+**Staleness.** Every state key is rewritten on each heartbeat (1 Hz) and
+every 0.5 s while the last heartbeat is at most 1.5 s old, so one missed
+heartbeat does not flicker the keys. When the link stops, nothing is written,
+and the keys go old by their own 2 s tol: at most 3.5 s after the last
+heartbeat. `MAVMSG` still goes old 3 s after it (CERT2d, AER-5320).
