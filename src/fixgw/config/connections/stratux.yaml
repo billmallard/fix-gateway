@@ -31,3 +31,7 @@ stratux:
   # preferences.yaml.custom, which pyefis-data config-pull sets from the
   # configurator's aircraft registration.  A value here overrides it.
   ownship_address: ""
+  # FIS-B text weather (METAR, SPECI, TAF, PIREP, winds aloft, NOTAM and TFR
+  # text) from the 0x07 Uplink message, into a store in the plugin; nothing
+  # reads it yet (AER-5651).  The receiver must have UAT (978 MHz) enabled.
+  fisb: false

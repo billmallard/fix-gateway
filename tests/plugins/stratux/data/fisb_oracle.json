@@ -1,0 +1,3446 @@
+{
+ "uplinks": 704,
+ "text_uplinks": [
+  {
+   "line": 0,
+   "apdus": [
+    {
+     "product_id": 13,
+     "hour": 14,
+     "minute": 45,
+     "location": "",
+     "records": [
+      [
+       9294,
+       15,
+       true,
+       "SUA 241445 3556903|24878|P|R|3202 LOW|1501241445|1501250130|000|180|A|Y||3202LOW||"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 14,
+     "minute": 45,
+     "location": "",
+     "records": [
+      [
+       9293,
+       15,
+       true,
+       "SUA 241445 3556901|25063|P|R|3202 HIGH|1501241445|1501250130|180|290|A|Y||3202HIGH||"
+      ]
+     ]
+    },
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS BCE 250000Z  FT                       12000       18000   24000   30000    34000  39000\n                        3522+00 3631-13 0141-27 035046 046656 365258"
+    }
+   ]
+  },
+  {
+   "line": 1,
+   "apdus": [
+    {
+     "product_id": 13,
+     "hour": 14,
+     "minute": 45,
+     "location": "",
+     "records": [
+      [
+       9301,
+       15,
+       true,
+       "SUA 241445 3556917|31244|P|M|OWYHEE SOUTH MOA|1501241445|1501250130|100|180|A|Y||OWYHEE SOUTH MOA||"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 18,
+     "minute": 30,
+     "location": "",
+     "records": [
+      [
+       4592,
+       15,
+       true,
+       "SUA 241830 3559236|6070|W|M|TURTLE MOA|1501241830|1501242030|110|180|A|Y||TURTLE MOA|MOA US 02185|TURTLE MOA, AZ"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 3,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS RKS 250000Z  FT                9000   12000       18000   24000   30000    34000  39000\n                3233    3221-05 3349-15 3461-28 356446 018956 335960"
+    },
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS BAM 250000Z  FT                9000   12000       18000   24000   30000    34000  39000\n                3515+03 3529+00 3542-14 3433-26 364844 364853 355161"
+    },
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS PRC 250000Z  FT                9000   12000       18000   24000   30000    34000  39000\n                0415+05 0516+00 0634-13 0554-28 057146 062753 012757"
+    }
+   ]
+  },
+  {
+   "line": 4,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS IMB 250000Z  FT                9000   12000       18000   24000   30000    34000  39000\n                2922+05 3135+00 3146-15 3255-26 326344 327255 325460"
+    },
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS ZUN 250000Z  FT                9000   12000       18000   24000   30000    34000  39000\n                0107+01 3513-02 0233-15 0443-29 058846 042553 341657"
+    },
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS LND 250000Z  FT                9000   12000       18000   24000   30000    34000  39000\n                3328+01 3426-06 3246-16 3365-29 347947 860157 327158"
+    }
+   ]
+  },
+  {
+   "line": 6,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS GJT 250000Z  FT                9000   12000       18000   24000   30000    34000  39000\n                3608-01 3420-04 3534-14 3561-28 016047 026857 354659"
+    },
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS DLN 250000Z  FT                9000   12000       18000   24000   30000    34000  39000\n                3124+00 3232-05 3257-17 3253-29 337846 339256 336858"
+    },
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS FMN 250000Z  FT                9000   12000       18000   24000   30000    34000  39000\n                3316+01 3420-01 3635-15 0143-30 026546 036657 352058"
+    },
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS LKV 250000Z  FT                9000   12000       18000   24000   30000    34000  39000\n                3316+07 3327+02 3337-13 3438-26 335043 345754 323659"
+    }
+   ]
+  },
+  {
+   "line": 7,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS ABQ 250000Z  FT                9000   12000       18000   24000   30000    34000  39000\n                3219+02 3219-03 0126-16 0239-28 022945 352153 302558"
+    }
+   ]
+  },
+  {
+   "line": 9,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS ELY 250000Z  FT                9000   12000       18000   24000   30000    34000  39000\n                0117+01 3628-01 3232-12 3328-27 342745 364355 355659"
+    },
+    {
+     "product_id": 13,
+     "hour": 16,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       3333,
+       15,
+       true,
+       "SUA 241600 3558589|4440|P|M|JACKAL MOA|1501241600|1501242200|110|180|A|Y||JACKAL MOA|MOA US 01570|JACKAL MOA, AZ"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 16,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       2478,
+       15,
+       true,
+       "SUA 241600 3558590|4535|P|M|OUTLAW MOA|1501241600|1501242200|080|180|A|Y||OUTLAW MOA|MOA US 01820|OUTLAW MOA, AZ"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 16,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       3335,
+       15,
+       true,
+       "SUA 241600 3558597|4535|P|M|OUTLAW MOA|1501241600|1501242200|080|180|A|Y||OUTLAW MOA|MOA US 01820|OUTLAW MOA, AZ"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 10,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS PIH 250000Z  FT      6000      9000   12000       18000   24000   30000    34000  39000\n        2414    3118+01 3433-05 3237-14 3341-28 356246 348055 345562"
+    }
+   ]
+  },
+  {
+   "line": 12,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS BIH 250000Z  FT      6000      9000   12000       18000   24000   30000    34000  39000\n        9900    0313+06 0429+02 0319-12 0220-27 012544 025054 365256"
+    },
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS RNO 250000Z  FT      6000      9000   12000       18000   24000   30000    34000  39000\n        9900    0617+07 0329+03 0134-13 3631-26 014643 024553 354159"
+    }
+   ]
+  },
+  {
+   "line": 15,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS SLC 250000Z  FT      6000      9000   12000       18000   24000   30000    34000  39000\n        9900    3413-02 3524-05 3233-13 3140-27 344246 025757 336660"
+    },
+    {
+     "product_id": 13,
+     "hour": 16,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       3332,
+       15,
+       true,
+       "SUA 241600 3558586|4445|P|M|JACKAL LOW MOA|1501241600|1501242200|001|110|A|Y||JACKAL LOW MOA|MOA US 01571|JACKAL LOW MOA, AZ"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 16,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       3336,
+       15,
+       true,
+       "SUA 241600 3558598|4445|P|M|JACKAL LOW MOA|1501241600|1501242200|001|110|A|Y||JACKAL LOW MOA|MOA US 01571|JACKAL LOW MOA, AZ"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 18,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KCXP 240355Z AUTO 32003KT 10SM CLR 03/M10 A3051 RMK AO2="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KLPC 240355Z AUTO 00000KT 10SM CLR 09/01 A3019 RMK AO1="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 50,
+     "text": "METAR KCVH 240350Z AUTO 09003KT 10SM CLR 11/08 A3025 RMK AO1="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KBVU 240355Z AUTO 02011KT 10SM CLR 14/M12 A3028 RMK AO2="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KDVO 240355Z AUTO 18003KT 10SM CLR 09/08 A3027 RMK AO2="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KAUN 240355Z AUTO 00000KT 10SM CLR 09/07 A3028 RMK AO1="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KMER 240355Z AUTO 10005KT 1 3/4SM OVC002 08/08 A3031 RMK AO1="
+    }
+   ]
+  },
+  {
+   "line": 19,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 54,
+     "text": "METAR KMRY 240354Z 00000KT 10SM CLR 12/06 A3024 RMK AO2 SLP253\n    T01170056="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KPSP 240353Z 35005KT 10SM CLR 15/M08 A3022 RMK AO2 SLP236\n    T01501083="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KBUR 240353Z 32004KT 10SM CLR 14/M03 A3014 RMK AO2 SLP199\n    T01441028="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KHHR 240353Z AUTO 00000KT 10SM CLR 17/07 A3013 RMK AO2 SLP204\n    T01670067="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 54,
+     "text": "METAR KNFG 240354Z AUTO 00000KT 10SM CLR 09/01 A3014 RMK AO2 SLP207\nT00940006 $="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 51,
+     "text": "METAR KSMX 240351Z AUTO 35007KT 10SM CLR 13/03 A3019 RMK AO2 SLP227\n    T01330028 TSNO="
+    }
+   ]
+  },
+  {
+   "line": 20,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KMAE 240353Z AUTO 11009KT 2 1/2SM BR OVC005 08/06 A3030 RMK\n    AO2 SLPNO T00780056="
+    }
+   ]
+  },
+  {
+   "line": 21,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 54,
+     "text": "METAR KHWD 240354Z 06005KT 10SM CLR 15/06 A3026 RMK AO2 SLP255\n    T01500061="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KMFR 240353Z 06003KT 10SM CLR 07/04 A3045 RMK AO2 SLP317\n    T00720044="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KVGT 240353Z 34003KT 10SM CLR 11/M11 A3027 RMK AO2 SLP273\n    T01111111="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KSNA 240353Z 16004KT 10SM CLR 17/M02 A3013 RMK AO2 SLP204\n    T01721017 $="
+    }
+   ]
+  },
+  {
+   "line": 22,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KRAL 240353Z 02006G15KT 10SM CLR 20/M13 A3015 RMK AO2 SLP199\n    T02001133="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KLMT 240353Z 00000KT 10SM BKN110 03/M01 A3047 RMK AO2 SLP338\n    T00281006="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 50,
+     "text": "METAR KDAG 240350Z AUTO 26006KT 10SM CLR 09/M10 A3026 RMK AO2 SLP247\n T00941100="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KPMD 240353Z AUTO 11007KT 10SM CLR 05/M04 A3027 RMK AO2 SLP261\n    T00501044="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 58,
+     "text": "METAR KRIV 240358Z AUTO VRB01KT 10SM CLR 09/M05 A3016 RMK AO2 SLP216\n      T00881046="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 54,
+     "text": "METAR KAPC 240354Z AUTO 00000KT 10SM CLR 07/06 A3027 RMK AO2 SLP241\n    T00720061="
+    }
+   ]
+  },
+  {
+   "line": 23,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KSDM 240353Z AUTO 14003KT 10SM CLR 13/01 A3014 RMK AO2 SLP205\n    T01280011 $="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KELY 240353Z AUTO 34012G19KT 10SM CLR 01/M07 A3044 RMK AO2\n    SLP336 T00111067="
+    }
+   ]
+  },
+  {
+   "line": 24,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KRBG 240353Z AUTO 00000KT 10SM CLR 11/07 A3044 RMK AO2 SLP309\n    T01060072="
+    },
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS WJF 250000Z  FT      6000      9000   12000       18000   24000   30000    34000  39000\n        0538+08 0638+05 0637+02 0639-12 0653-27 065545 045453 026552"
+    },
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS SIY 250000Z  FT      6000      9000   12000       18000   24000   30000    34000  39000\n        9900+14 3213+09 3319+03 3329-13 3433-26 344043 345153 334059"
+    }
+   ]
+  },
+  {
+   "line": 27,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 58,
+     "text": "METAR KBAB 240358Z AUTO 08002KT 10SM CLR 07/07 A3027 RMK AO2 SLP329\n      T00740074 $="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 58,
+     "text": "METAR KLSV 240358Z AUTO 06008KT 10SM CLR 13/M10 A3028 RMK AO2 SLP257\n      T01291100 $="
+    },
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS GPI 250000Z  FT      6000      9000   12000       18000   24000   30000    34000  39000\n        2614+01 2834-01 2942-06 3053-18 3165-29 328546 329656 318058"
+    },
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS BOI 250000Z  FT      6000      9000   12000       18000   24000   30000    34000  39000\n        2906+03 3219+02 3330-03 3347-15 3441-26 336144 347654 325859"
+    }
+   ]
+  },
+  {
+   "line": 28,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS LAS 250000Z  FT      6000      9000   12000       18000   24000   30000    34000  39000\n        0324+08 0427+05 0524+01 0529-12 0445-27 046145 054354 015555"
+    },
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS GEG 250000Z  FT      6000      9000   12000       18000   24000   30000    34000  39000\n        2632+07 2832+01 2944-03 3152-16 3164-27 317845 319155 307859"
+    },
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS RDM 250000Z  FT      6000      9000   12000       18000   24000   30000    34000  39000\n        2616+12 2922+07 2931+01 3041-14 3153-26 325643 326154 325262"
+    }
+   ]
+  },
+  {
+   "line": 30,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 52,
+     "text": "METAR KNZY 240352Z 36004KT 10SM CLR 16/05 A3013 RMK AO2 SLP201\nT01560050 $="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KCRQ 240353Z AUTO 00000KT 10SM CLR 13/M01 A3013 RMK AO2 SLP203\n    T01331011 TSNO="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KONT 240353Z 08016G28KT 10SM CLR 21/M13 A3013 RMK AO2 PK WND\n    08028/0349 SLP199 T02111128="
+    },
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS TUS 250000Z  FT      6000      9000   12000       18000   24000   30000    34000  39000\n        1216+12 9900+06 9900-01 0512-17 0519-28 234542 244452 241558"
+    }
+   ]
+  },
+  {
+   "line": 31,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS SBA 250000Z  FT 3000 6000      9000   12000       18000   24000   30000    34000  39000\n   9900 0618+12 0731+07 0632+03 0635-12 0646-27 045644 045553 016650"
+    }
+   ]
+  },
+  {
+   "line": 33,
+   "apdus": [
+    {
+     "product_id": 8,
+     "hour": 1,
+     "minute": 25,
+     "location": "KLHM",
+     "records": [
+      [
+       12124,
+       15,
+       true,
+       "NOTAM-D KLHM.01/124 230125Z !RIU 01/124 LHM RWY 15 PAPI OUT OF SERVICE 1501230125-1501300122"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 36,
+   "apdus": [
+    {
+     "product_id": 8,
+     "hour": 16,
+     "minute": 29,
+     "location": "KCCR",
+     "records": [
+      [
+       12006,
+       15,
+       true,
+       "NOTAM-D KCCR.01/006 151629Z !CCR 01/006 CCR RWY 1L RWY END IDENTIFIER LGT OUT OF SERVICE 1501151629-1501222359EST"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 39,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS SAN 250000Z  FT 3000 6000      9000   12000       18000   24000   30000    34000  39000\n   0628 0815+12 0710+05 0718-02 0657-14 0684-27 078245 055147 036750"
+    },
+    {
+     "product_id": 13,
+     "hour": 14,
+     "minute": 45,
+     "location": "",
+     "records": [
+      [
+       9303,
+       15,
+       true,
+       "SUA 241445 3556922|31246|P|M|PARADISE SOUTH MOA|1501241445|1501250130|100|180||Y||PARADISE SOUTH MOA|MOA US 01857|PARADISE SOUTH MOA, NV"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 42,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS YKM 250000Z  FT 3000 6000      9000   12000       18000   24000   30000    34000  39000\n   2609 2725+09 2833+05 2942+00 2952-16 3157-26 307644 319055 316161"
+    },
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS OTH 250000Z  FT 3000 6000      9000   12000       18000   24000   30000    34000  39000\n   2308 2613+13 2820+08 2824+02 2932-13 3038-25 314543 314754 293760"
+    },
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS ONT 250000Z  FT 3000 6000      9000   12000       18000   24000   30000    34000  39000\n   0331 0629+12 0722+06 0728+00 0635-12 0759-27 065545 054353 036551"
+    }
+   ]
+  },
+  {
+   "line": 43,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS LWS 250000Z  FT 3000 6000      9000   12000       18000   24000   30000    34000  39000\n   2111 2722+07 2932+01 3039-03 3152-17 3159-27 327944 329355 317060"
+    },
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS FOT 250000Z  FT 3000 6000      9000   12000       18000   24000   30000    34000  39000\n   0210 3606+16 3309+10 3412+03 3417-13 3520-25 343443 344052 324158"
+    }
+   ]
+  },
+  {
+   "line": 45,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS SEA 250000Z  FT 3000 6000      9000   12000       18000   24000   30000    34000  39000\n   2325 2528+06 2737+04 2848+00 2954-15 2968-26 297743 298654 297162"
+    },
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS SAC 250000Z  FT 3000 6000      9000   12000       18000   24000   30000    34000  39000\n   0317 0519+16 0524+10 0431+03 0229-12 0127-26 024443 025153 344857"
+    },
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 6,
+     "text": "WINDS PHX 250000Z  FT 3000 6000      9000   12000       18000   24000   30000    34000  39000\n   0714 0820+10 0516+05 0410-01 0417-16 0661-28 072944 231952 361555"
+    }
+   ]
+  },
+  {
+   "line": 46,
+   "apdus": [
+    {
+     "product_id": 13,
+     "hour": 14,
+     "minute": 45,
+     "location": "",
+     "records": [
+      [
+       9302,
+       15,
+       true,
+       "SUA 241445 3556919|31245|P|M|PARADISE NORTH MOA|1501241445|1501250130|100|180|A|Y||PARADISE NORTH MOA|MOA US 01855|PARADISE NORTH MOA, OR"
+      ]
+     ]
+    },
+    {
+     "product_id": 8,
+     "hour": 16,
+     "minute": 18,
+     "location": "KSCK",
+     "records": [
+      [
+       12045,
+       15,
+       true,
+       "NOTAM-D KSCK.01/045 231618Z !SCK 01/045 SCK APRON GENERAL AVIATION APRON SOUTH OF TWY B AND TWY J INT WIP PAVEMENT WORK 1501231618-1501242359"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 49,
+   "apdus": [
+    {
+     "product_id": 8,
+     "hour": 21,
+     "minute": 27,
+     "location": "",
+     "records": [
+      [
+       6098,
+       5,
+       true,
+       ""
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 61,
+   "apdus": [
+    {
+     "product_id": 8,
+     "hour": 21,
+     "minute": 27,
+     "location": "",
+     "records": [
+      [
+       6097,
+       5,
+       true,
+       ""
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 64,
+   "apdus": [
+    {
+     "product_id": 8,
+     "hour": 10,
+     "minute": 32,
+     "location": "",
+     "records": [
+      [
+       2768,
+       3,
+       true,
+       ""
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 122,
+   "apdus": [
+    {
+     "product_id": 13,
+     "hour": 23,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       5201,
+       15,
+       true,
+       "SUA 242300 3559270|5990|W|M|ABEL SOUTH MOA|1501242300|1501250000|070|180|A|Y||ABEL SOUTH MOA|MOA US 01004|ABEL SOUTH MOA, CA"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 19,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       5132,
+       15,
+       true,
+       "SUA 241900 3559264|5985|W|M|ABEL NORTH MOA|1501241900|1501242000|070|180|A|Y||ABEL NORTH MOA|MOA US 01003|ABEL NORTH MOA, CA"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 23,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       5200,
+       15,
+       true,
+       "SUA 242300 3559263|5985|W|M|ABEL NORTH MOA|1501242300|1501250000|070|180|A|Y||ABEL NORTH MOA|MOA US 01003|ABEL NORTH MOA, CA"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 123,
+   "apdus": [
+    {
+     "product_id": 13,
+     "hour": 15,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       5133,
+       15,
+       true,
+       "SUA 241500 3559268|5990|W|M|ABEL SOUTH MOA|1501241500|1501241600|070|180|A|Y||ABEL SOUTH MOA|MOA US 01004|ABEL SOUTH MOA, CA"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 15,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       5131,
+       15,
+       true,
+       "SUA 241500 3559262|5985|W|M|ABEL NORTH MOA|1501241500|1501241600|070|180|A|Y||ABEL NORTH MOA|MOA US 01003|ABEL NORTH MOA, CA"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 125,
+   "apdus": [
+    {
+     "product_id": 8,
+     "hour": 23,
+     "minute": 53,
+     "location": "KOAK",
+     "records": [
+      [
+       12115,
+       15,
+       true,
+       "NOTAM-D KOAK.01/115 232353Z !OAK 01/115 OAK RWY 15/33 CLSD 1501232353-1501250200"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 19,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       5134,
+       15,
+       true,
+       "SUA 241900 3559269|5990|W|M|ABEL SOUTH MOA|1501241900|1501242000|070|180|A|Y||ABEL SOUTH MOA|MOA US 01004|ABEL SOUTH MOA, CA"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 128,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 47,
+     "text": "METAR KPOC 240347Z 00000KT 10SM CLR 11/M02 A3017="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KMHV 240355Z AUTO 32007KT 10SM CLR 07/M05 A3028 RMK AO1="
+    }
+   ]
+  },
+  {
+   "line": 131,
+   "apdus": [
+    {
+     "product_id": 13,
+     "hour": 16,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       2480,
+       15,
+       true,
+       "SUA 241600 3558612|4440|P|M|JACKAL MOA|1501241600|1501242200|110|180|A|Y||JACKAL MOA|MOA US 01570|JACKAL MOA, AZ"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 16,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       4267,
+       15,
+       true,
+       "SUA 241600 3558613|4535|P|M|OUTLAW MOA|1501241600|1501242200|080|180|A|Y||OUTLAW MOA|MOA US 01820|OUTLAW MOA, AZ"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 134,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KLKV 240355Z 33003KT 10SM SCT110 00/M03 A3048 RMK AO1="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KPTV 240355Z AUTO 00000KT 4SM OVC008 08/06 A3030 RMK AO1="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KVIS 240355Z AUTO 12003KT 3SM OVC008 07/04 A3032 RMK AO1="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 58,
+     "text": "METAR KSLI 240358Z 02004KT 10SM CLR 14/00 A3014 RMK AO2A SLP210 T01391000="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 51,
+     "text": "METAR KOXR 240351Z 00000KT 10SM CLR 14/03 A3016 RMK AO2 SLP214\n    T01440033="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 56,
+     "text": "METAR KHND 240356Z 17004KT 10SM CLR 07/M07 A3029 RMK AO2 SLP270\n    T00721072="
+    }
+   ]
+  },
+  {
+   "line": 135,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KSAC 240353Z AUTO 00000KT 2 1/2SM BR CLR 08/07 A3029 RMK AO2\n    SLP256 T00830067 TSNO="
+    },
+    {
+     "product_id": 13,
+     "hour": 15,
+     "minute": 50,
+     "location": "",
+     "records": [
+      [
+       4857,
+       15,
+       true,
+       "SUA 241550 3551966|23984|P|B|AR204(NE)|1501241550|1501241650|240|260|A|Y|||AR204|AR204"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 3,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       8531,
+       15,
+       true,
+       "SUA 240300 3553555|30645|W|B|AR197L(N)|1501240300|1501240515|200|220|A|N|||AR197L|AR197L"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 14,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       2468,
+       15,
+       true,
+       "SUA 241400 3539119|4220|P|R|2310A|1501241400|1501242230|000|100|O|Y||2310A|R2310A|FLORENCE, AZ"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 136,
+   "apdus": [
+    {
+     "product_id": 13,
+     "hour": 16,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       2479,
+       15,
+       true,
+       "SUA 241600 3558609|4445|P|M|JACKAL LOW MOA|1501241600|1501242200|001|110|A|Y||JACKAL LOW MOA|MOA US 01571|JACKAL LOW MOA, AZ"
+      ]
+     ]
+    },
+    {
+     "product_id": 413,
+     "hour": 23,
+     "minute": 0,
+     "text": "TAF KNID 2323/2423 11008KT 9999 SKC 520009 520903 QNH3022INS WND\n     070V140\n     BECMG 2401/2403 21006KT 520309 QNH3025INS WND VRB04KT AFT\n     2314\n     BECMG 2417/2419 08010KT 520009 520906 QNH3018INS WND\n     10014G20KT AFT 2421 T00/2414Z T20/2423Z\n     LAST NO AMDS AFT 2406 NEXT 2612="
+    }
+   ]
+  },
+  {
+   "line": 137,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KCCR 240353Z 32005KT 7SM CLR 09/07 A3028 RMK AO2 SLP239\n    T00940067="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 47,
+     "text": "METAR KCQT 240347Z AUTO 00000KT 10SM CLR 16/01 A3013 RMK AO2 SLP203\nT01560011 $="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 51,
+     "text": "METAR KSMO 240351Z AUTO 00000KT 10SM CLR 16/00 A3014 RMK AO2 SLP204\n    T01560000="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 58,
+     "text": "METAR KSUU 240358Z AUTO 00000KT 4SM BR CLR 06/06 A3027 RMK AO2 SLP258\n      T00610055 $="
+    },
+    {
+     "product_id": 8,
+     "hour": 23,
+     "minute": 52,
+     "location": "KSFO",
+     "records": [
+      [
+       12073,
+       15,
+       true,
+       "NOTAM-D KSFO.01/073 222352Z !SFO 01/073 SFO OBST TOWER LGT (ASR 1205149) 374114.00N1222605.00W (5NM NW SFO) 1567FT (306FT AGL) OUT OF SERVICE 1501222352-1502062352"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 140,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 54,
+     "text": "METAR KBFL 240354Z 00000KT 4SM BR CLR 06/04 A3029 RMK AO2 SLP257\n    T00610039="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 51,
+     "text": "METAR KSAN 240351Z 00000KT 10SM FEW180 17/M02 A3015 RMK AO2 SLP208\n    T01721022="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 51,
+     "text": "METAR KVNY 240351Z 35015G21KT 10SM CLR 19/M09 A3014 RMK AO2 SLP204\n    T01941089="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 54,
+     "text": "METAR KRBL 240354Z AUTO 34004KT 10SM CLR 15/04 A3031 RMK AO2 SLP264\n    T01500039="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 52,
+     "text": "METAR KDRA 240352Z AUTO 00000KT 10SM CLR 08/M14 A3030 RMK AO2 SLP254\nT00781139 $="
+    }
+   ]
+  },
+  {
+   "line": 143,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KRNM 240353Z 15003KT 10SM CLR 06/M07 A3015 RMK AO2 SLP208\n    T00611067 $="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 51,
+     "text": "METAR KAVX 240351Z AUTO 00000KT 10SM CLR 17/M12 A3017 RMK AO2 SLP205\n    T01721117="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KBYS 240355Z AUTO VRB03KT 10SM CLR 12/M13 A3025 RMK AO2 SLP252\n      T01231129 $="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KVBG 240355Z AUTO 12007KT 10SM CLR 10/02 A3019 RMK AO2 SLP216\nT01000022 TSNO $="
+    }
+   ]
+  },
+  {
+   "line": 146,
+   "apdus": [
+    {
+     "product_id": 13,
+     "hour": 5,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       20,
+       15,
+       true,
+       "SUA 220500 3512224|6615|H|W|72B|1411220500|1502010459|000|999|A|Y||72B||"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 5,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       19,
+       15,
+       true,
+       "SUA 220500 3512223|6610|H|W|72A|1411220500|1502010459|000|999|A|Y||72A||"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 5,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       21,
+       15,
+       true,
+       "SUA 220500 3512229|13913|H|W|122|1411220500|1502010459|000|999|A|Y||122||"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 149,
+   "apdus": [
+    {
+     "product_id": 13,
+     "hour": 0,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       30,
+       15,
+       true,
+       "SUA 010000 3539274|2570|H|R|3701A|1501010000|1512312359|000|050|A|Y||3701A||"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 152,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 23,
+     "minute": 20,
+     "text": "TAF KELY 232320Z 2400/2424 36010G20KT P6SM SKC\n     FM240200 36007KT P6SM SKC\n     FM240600 18008KT P6SM SCT250\n     FM241800 36008KT P6SM SCT200="
+    }
+   ]
+  },
+  {
+   "line": 158,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 25,
+     "text": "PIREP KFAT 240325Z FAT UA /OV KFAT/TM 0325/FL340/TP B738/TB NEG/RM AWC-WEB:ASA"
+    },
+    {
+     "product_id": 13,
+     "hour": 15,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       2,
+       15,
+       true,
+       "SUA 291500 2242161|5810|H|R|2309|1212291500|1712312359|000|150|A|Y||2309|R2309|YUMA, AZ"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 11,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       26,
+       15,
+       true,
+       "SUA 051100 3539505|3480|H|R|7103B|1501051100|1502010300|030|120|A|Y||7103B|R7103B|SALINAS"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 11,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       25,
+       15,
+       true,
+       "SUA 051100 3539504|3485|H|R|7103C|1501051100|1502010300|020|120|A|Y||7103C|R7103C|SALINAS"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 15,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       11,
+       15,
+       true,
+       "SUA 291500 2242182|5950|H|R|4809|1212291500|1712312359|000|999|A|Y||4809|R4809|TONOPAH, NV"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 159,
+   "apdus": [
+    {
+     "product_id": 13,
+     "hour": 11,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       27,
+       15,
+       true,
+       "SUA 051100 3539506|3475|H|R|7103A|1501051100|1502010300|000|120|A|Y||7103A|R7103A|SALINAS"
+      ]
+     ]
+    },
+    {
+     "product_id": 413,
+     "hour": 23,
+     "minute": 20,
+     "text": "TAF KWMC 232320Z 2400/2424 30004KT P6SM SKC\n     FM240200 14003KT P6SM SCT250\n     FM241800 04003KT P6SM SCT200="
+    },
+    {
+     "product_id": 13,
+     "hour": 15,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       9,
+       15,
+       true,
+       "SUA 291500 2242179|5935|H|R|4807B|1212291500|1712312359|000|999|A|Y||4807B|R4807B|TONOPAH, NV"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 15,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       8,
+       15,
+       true,
+       "SUA 291500 2242177|5885|H|R|2519|1212291500|1712312359|000|999|A|Y||2519|R2519|POINT MUGU, CA"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 161,
+   "apdus": [
+    {
+     "product_id": 13,
+     "hour": 15,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       14,
+       15,
+       true,
+       "SUA 291500 2486076|5930|H|R|4807A|1212291500|1712312359|000|999|A|Y||4807A|R4807A|TONOPAH, NV"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 15,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       7,
+       15,
+       true,
+       "SUA 291500 2242175|5925|H|R|4806W|1212291500|1712312359|000|999|A|Y||4806W|R4806W|LAS VEGAS, NV"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 15,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       10,
+       15,
+       true,
+       "SUA 291500 2242180|5940|H|R|4808N|1212291500|1712312359|000|999|A|Y||4808N|R4808N|LAS VEGAS, NV"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 15,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       15,
+       15,
+       true,
+       "SUA 291500 2486077|5920|H|R|4806E|1212291500|1712312359|001|999|A|Y||4806E|R4806E|LAS VEGAS, NV"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 162,
+   "apdus": [
+    {
+     "product_id": 13,
+     "hour": 15,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       1,
+       15,
+       true,
+       "SUA 291500 2230553|31100|H|R|2502A|1212291500|1712312359|000|160|A|Y||2502A|R2502A|FORT IRWIN, CA"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 0,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       13,
+       15,
+       true,
+       "SUA 290000 2407584|5880|H|R|2517|1106290000|1712312359|000|999|A|Y||2517|R2517|VANDENBERG AFB, CA"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 0,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       12,
+       15,
+       true,
+       "SUA 290000 2407583|5875|H|R|2516|1106290000|1712312359|000|999|A|Y||2516|R2516|VANDENBERG AFB, CA"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 164,
+   "apdus": [
+    {
+     "product_id": 13,
+     "hour": 15,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       6,
+       15,
+       true,
+       "SUA 291500 2242170|5815|H|R|2501E|1212291500|1712312359|000|260|A|Y||2501E|R2501E|BULLION MOUNTAINS EAST, CA"
+      ]
+     ]
+    },
+    {
+     "product_id": 413,
+     "hour": 23,
+     "minute": 20,
+     "text": "TAF KTPH 232320Z 2400/2424 33015G25KT P6SM SKC\n     FM240300 34010G20KT P6SM SKC\n     FM240600 35011KT P6SM SKC\n     FM241800 32012G22KT P6SM SKC="
+    }
+   ]
+  },
+  {
+   "line": 167,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 23,
+     "minute": 23,
+     "text": "TAF KBIH 232323Z 2400/2424 36015G25KT P6SM SKC\n     FM240900 34010G18KT P6SM SKC\n     FM241800 35010KT P6SM SKC="
+    },
+    {
+     "product_id": 13,
+     "hour": 15,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       4,
+       15,
+       true,
+       "SUA 291500 2242168|5830|H|R|2501S|1212291500|1712312359|000|260|A|Y||2501S|R2501S|BULLION MOUNTAINS SOUTH, CA"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 15,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       5,
+       15,
+       true,
+       "SUA 291500 2242169|11470|H|R|2501W|1212291500|1712312359|000|260|A|Y||2501W|R2501W|BULLION MOUNTAINS WEST, CA"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 15,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       3,
+       15,
+       true,
+       "SUA 291500 2242167|5825|H|R|2501N|1212291500|1712312359|000|260|A|Y||2501N|R2501N|BULLION MOUNTAINS NORTH, CA"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 170,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 23,
+     "minute": 20,
+     "text": "TAF KEKO 232320Z 2400/2424 22005KT P6SM SKC\n     FM240100 VRB02KT P6SM SKC\n     FM241800 22006KT P6SM SKC="
+    },
+    {
+     "product_id": 413,
+     "hour": 23,
+     "minute": 39,
+     "text": "TAF KMRY 232339Z 2400/2424 29004KT P6SM SKC\n     FM240200 11004KT P6SM FEW200\n     FM242100 30005KT P6SM SKC="
+    },
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 47,
+     "text": "TAF.AMD KLAS 240247Z 2403/2424 24007KT P6SM SKC\n     FM240800 35008KT P6SM SKC\n     FM241700 02012G18KT P6SM SKC="
+    },
+    {
+     "product_id": 8,
+     "hour": 2,
+     "minute": 13,
+     "location": "KSJC",
+     "records": [
+      [
+       12009,
+       15,
+       true,
+       "NOTAM-D KSJC.01/009 150213Z !SJC 01/009 SJC TWY W BTN TWY L AND TWY M CL MARKINGS NOT STD 1501150213-1503010800"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 171,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 23,
+     "minute": 23,
+     "text": "TAF KDAG 232323Z 2400/2424 VRB05KT P6SM SKC\n     FM240500 26008KT P6SM SKC\n     FM241500 32008KT P6SM SKC\n     FM241800 05009KT P6SM SKC="
+    },
+    {
+     "product_id": 413,
+     "hour": 23,
+     "minute": 23,
+     "text": "TAF KHND 232323Z 2400/2424 VRB05KT P6SM SKC\n     FM240300 17006KT P6SM SKC\n     FM240900 01008KT P6SM SKC\n     FM241700 04012G18KT P6SM SKC="
+    },
+    {
+     "product_id": 413,
+     "hour": 23,
+     "minute": 23,
+     "text": "TAF KVGT 232323Z 2400/2424 13005KT P6SM SKC\n     FM240400 34008KT P6SM SKC\n     FM240600 35012KT P6SM SKC\n     FM241600 35012G22KT P6SM SKC="
+    }
+   ]
+  },
+  {
+   "line": 172,
+   "apdus": [
+    {
+     "product_id": 8,
+     "hour": 18,
+     "minute": 19,
+     "location": "KHWD",
+     "records": [
+      [
+       12011,
+       14,
+       true,
+       "NOTAM-D KHWD.12/011 171819Z !HWD 12/011 HWD TWY Z BTN TWY D AND TWY F CLSD EXC ACFT LESS THAN 20000LB 1412171819-1501302300"
+      ]
+     ]
+    },
+    {
+     "product_id": 413,
+     "hour": 1,
+     "minute": 0,
+     "text": "TAF KLSV 2401/2507 05009KT 9999 SKC QNH3021INS\n     TEMPO 2402/2404 05015G25KT 510009\n     BECMG 2403/2404 03015G25KT 9999 SKC 510009 QNH3029INS\n     TEMPO 2405/2412 03025G35KT 520009\n     BECMG 2416/2417 05009KT 9999 SKC QNH3022INS\n     BECMG 2502/2503 VRB06KT 9999 SKC QNH3020INS TX17/2423Z\n     TN01/2415Z="
+    }
+   ]
+  },
+  {
+   "line": 176,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 5,
+     "text": "PIREP CNO 240205Z CNO UUA /OV CNO /TM 0205 /FL014 /TP C172 /TB MOD-SEV /RM ON DOWNWIND CNOT"
+    },
+    {
+     "product_id": 8,
+     "hour": 17,
+     "minute": 34,
+     "location": "KSUU",
+     "records": [
+      [
+       4585,
+       5,
+       true,
+       "NOTAM-FDC KSUU.5/4585 161734Z !FDC 5/4585 SUU STAR TRAVIS AFB, FAIRFIELD CA. OAKEY TWO ARRIVAL\nCLOVIS TRANSITION: ROUTE FROM CLOVIS VORTAC TO LINDEN VORTAC DME\nREQUIRED EXCEPT AIRCRAFT EQUIPPED WITH SUITABLE RNAV SYSTEMS WITH\nGPS. HYP VOR OUT OF SERVICE 1501201600-1501232359EST"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 179,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 47,
+     "text": "METAR KPAO 240347Z VRB04KT 10SM SKC 12/07 A3026="
+    }
+   ]
+  },
+  {
+   "line": 197,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 50,
+     "text": "METAR KO86 240350Z AUTO 00000KT 10SM CLR 05/04 A3043 RMK AO1="
+    }
+   ]
+  },
+  {
+   "line": 221,
+   "apdus": [
+    {
+     "product_id": 13,
+     "hour": 3,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       8718,
+       15,
+       true,
+       "SUA 250300 3559316|6140|W|R|2515|1501250300|1501251400|000|999|A|Y||2515|R2515|MUROC LAKE, CA"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 270,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 1,
+     "minute": 12,
+     "text": "PIREP SNA 240112Z SNA UA /OV SNA045007 /TM 0112 /FL027 /TP P28A /TB MOD /RM +/-200FT UP AND DOWN DRAFT"
+    },
+    {
+     "product_id": 13,
+     "hour": 16,
+     "minute": 30,
+     "location": "",
+     "records": [
+      [
+       6897,
+       15,
+       true,
+       "SUA 241630 3559306|6010|W|M|BUCKHORN MOA|1501241630|1501242100|002|180|A|Y||BUCKHORN MOA|MOA US 01152|BUCKHORN MOA, CA"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 1,
+     "minute": 50,
+     "location": "",
+     "records": [
+      [
+       6898,
+       15,
+       true,
+       "SUA 240150 3559309|6055|H|M|SHOSHONE MOA|1501240150|1501240450|002|180|A|Y||SHOSHONE MOA|MOA US 02087|SHOSHONE MOA, CA"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 273,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 47,
+     "text": "METAR KTOA 240347Z 00000KT 10SM SKC 13/M02 A3014="
+    },
+    {
+     "product_id": 13,
+     "hour": 16,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       2795,
+       15,
+       true,
+       "SUA 241600 3558628|23981|P|B|AR202(S)|1501241600|1501241715|250|280|A|N|||AR202|AR202"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 16,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       2796,
+       15,
+       true,
+       "SUA 241600 3558638|23979|P|B|AR202A(N)|1501241600|1501241715|250|280|A|N|||AR202A|AR202A"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 276,
+   "apdus": [
+    {
+     "product_id": 13,
+     "hour": 13,
+     "minute": 45,
+     "location": "",
+     "records": [
+      [
+       5657,
+       15,
+       true,
+       "SUA 231345 3557537|6015|W|M|DESERT MOA|1501231345|1501240800|001|180|A|Y||DESERT MOA|MOA US 01264|DESERT MOA, NV"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 15,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       11721,
+       15,
+       true,
+       "SUA 231500 3557540|6005|W|M|BRISTOL MOA|1501231500|1501241500|050|180|A|Y||BRISTOL MOA|MOA US 01122|BRISTOL MOA, CA"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 15,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       11720,
+       15,
+       true,
+       "SUA 231500 3557539|6065|W|M|SUNDANCE MOA|1501231500|1501241500|005|100|A|Y||SUNDANCE MOA|MOA US 02119|SUNDANCE MOA, CA"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 277,
+   "apdus": [
+    {
+     "product_id": 12,
+     "hour": 2,
+     "minute": 23,
+     "location": "",
+     "records": [
+      [
+       408,
+       15,
+       true,
+       "SIGMET KSFO 240223 SIGMET NOVEMBER 1 VALID UNTIL 240623\nCA AND CSTL WTRS\nFROM 60NNE LAX TO 20S HEC TO 70ESE MZB TO 30SE MZB TO 30ESE RZS\nTO 60NNE LAX\nOCNL SEV TURB BLW 100. DUE TO STG LOW LVL WNDS AND STG UDDFS AND\nLLWS. RPTD BY P28A AND C172. CONDS CONTG BYD 0623Z"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 279,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 21,
+     "minute": 0,
+     "text": "TAF KSLI 2321/2503 VRB06KT 9999 SKC QNH3013INS\n     BECMG 2417/2418 03012G18KT 9999 SKC QNH3014INS\n     TEMPO 2420/2424 03015G25KT 9999 SKC 520008 TX25/2422Z\n     TN06/2413Z="
+    }
+   ]
+  },
+  {
+   "line": 282,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 23,
+     "minute": 0,
+     "text": "TAF KVBG 2323/2505 29009KT 9999 SKC QNH3015INS\n     BECMG 2402/2403 11009KT 9999 SKC QNH3013INS\n     BECMG 2419/2420 30012KT 9999 SKC QNH3012INS\n     BECMG 2502/2503 10009KT 9999 SKC QNH3010INS TX24/2421Z\n     TN07/2413Z\n     LAST NO AMDS AFT 2401 NEXT 2615="
+    }
+   ]
+  },
+  {
+   "line": 291,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 50,
+     "text": "METAR KSBD 240350Z 03012KT 10SM SKC 15/-12 A3016="
+    }
+   ]
+  },
+  {
+   "line": 300,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 45,
+     "text": "METAR KMWS 240345Z 36004G08KT 07/M14 RMK SNOW DEPTH 2.00="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KO22 240355Z AUTO 00000KT 7SM CLR 05/04 A3026 RMK AO1="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KPVF 240355Z AUTO 05004KT 10SM CLR 15/M08 A3030 RMK AO1="
+    },
+    {
+     "product_id": 413,
+     "hour": 4,
+     "minute": 2,
+     "text": "SPECI KSCK 240402Z 13006KT 3SM BR OVC006 08/07 A3028 RMK AO2="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KTSP 240355Z AUTO 13006KT 10SM CLR 02/M05 A3031 RMK AO2="
+    }
+   ]
+  },
+  {
+   "line": 301,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KHAF 240355Z AUTO 34005KT 3SM BR BKN002 12/11 A3025 RMK AO2="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 52,
+     "text": "METAR KREO 240352Z AUTO 15007KT M01/M03 A3048 RMK AO1 SLP353\nT10061028="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KNKX 240355Z 36004KT 10SM CLR 11/M02 A3014 RMK AO2 SLP203\nT01111022="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 52,
+     "text": "METAR KBAN 240352Z AUTO 00000KT CLR M02/M14 A3049 RMK AO2 SLP363\nT10171139="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 56,
+     "text": "METAR KNFL 240356Z 16004KT 10SM FEW250 00/M11 A3051 RMK AO2 SLP282\nT00001111="
+    }
+   ]
+  },
+  {
+   "line": 303,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 57,
+     "text": "METAR KNSI 240357Z AUTO 30013KT 10SM CLR A3016 RMK AO2 SLPNO $="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 56,
+     "text": "METAR KNTD 240356Z 34006KT 10SM CLR 17/03 A3017 RMK AO2 SLP216\nT01670033 $="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 56,
+     "text": "METAR KSFO 240356Z 00000KT 10SM CLR 13/12 A3026 RMK AO2 SLP247\n    T01330117="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KCMA 240355Z 00000KT 10SM CLR 13/02 A3016 RMK AO2 SLP222\n    T01280017="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 56,
+     "text": "METAR KNXP 240356Z 32012KT 10SM CLR 12/M13 A3031 RMK AO2 SLP252\nT01221128 $="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 56,
+     "text": "METAR KMHS 240356Z AUTO 00000KT 9SM CLR 04/00 A3046 RMK AO2 SLP348\nT00440000="
+    }
+   ]
+  },
+  {
+   "line": 304,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 48,
+     "text": "METAR KSDB 240348Z AUTO 03009KT 10SM CLR 08/M08 A3029 RMK AO2 SLP237\nT00831078 $="
+    }
+   ]
+  },
+  {
+   "line": 306,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 56,
+     "text": "METAR KNID 240356Z 24006KT 10SM CLR 08/M04 A3027 RMK AO2 SLP262\nT00781039 $="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 56,
+     "text": "METAR KSXT 240356Z AUTO 00000KT 10SM CLR 12/M02 A3045 RMK AO2 SLP298\nT01221022="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KVCB 240353Z AUTO 00000KT 5SM BR CLR 07/05 A3030 RMK AO2\n    SLP259 T00670050="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 52,
+     "text": "METAR KBLU 240352Z AUTO 06014G29KT 10SM CLR 09/M09 A3036 RMK AO2 PK\nWND 07029/0343 SLP251 T00941094="
+    },
+    {
+     "product_id": 413,
+     "hour": 23,
+     "minute": 39,
+     "text": "TAF KSNS 232339Z 2400/2424 32007KT P6SM SKC\n     FM240700 10007KT P6SM FEW200\n     FM242200 29005KT P6SM SKC="
+    }
+   ]
+  },
+  {
+   "line": 307,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 23,
+     "minute": 23,
+     "text": "TAF KTRM 232323Z 2400/2424 VRB05KT P6SM FEW150\n     FM240800 33012G22KT P6SM SKC\n     FM241800 33008KT P6SM SKC="
+    },
+    {
+     "product_id": 413,
+     "hour": 23,
+     "minute": 23,
+     "text": "TAF KPSP 232323Z 2400/2424 VRB06KT P6SM FEW150\n     FM240800 32012G20KT P6SM SKC\n     FM241800 31008KT P6SM SKC="
+    },
+    {
+     "product_id": 8,
+     "hour": 0,
+     "minute": 37,
+     "location": "KMER",
+     "records": [
+      [
+       12007,
+       15,
+       true,
+       "NOTAM-D KMER.01/007 160037Z !MER 01/007 MER RWY 31 ALS OUT OF SERVICE 1501160037-1501312359EST"
+      ]
+     ]
+    },
+    {
+     "product_id": 413,
+     "hour": 23,
+     "minute": 23,
+     "text": "TAF KCRQ 232323Z 2400/2424 VRB05KT P6SM FEW200\n     FM241000 03008KT P6SM SKC\n     FM241400 03012G20KT P6SM SKC\n     FM242000 VRB06KT P6SM SKC="
+    }
+   ]
+  },
+  {
+   "line": 308,
+   "apdus": [
+    {
+     "product_id": 8,
+     "hour": 15,
+     "minute": 0,
+     "location": "KOAK",
+     "records": [
+      [
+       12113,
+       15,
+       true,
+       "NOTAM-D KOAK.01/113 261500Z !OAK 01/113 OAK TWY B BTN APCH END RWY 28L AND TWY B1 CLSD EXC ACFT WINGSPAN LESS THAN 118FT/TAIL HEIGHT LESS THAN 45FT BARRICADED DLY 1500-0001 1501261500-1501290001"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 309,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KMYV 240353Z AUTO 00000KT 5SM BR CLR 08/07 A3029 RMK AO2\n    SLP260 T00830067="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 56,
+     "text": "METAR KNUQ 240356Z AUTO 00000KT 10SM CLR 14/05 A3026 RMK AO2 SLP250\n    T01390050 TSNO="
+    },
+    {
+     "product_id": 8,
+     "hour": 8,
+     "minute": 0,
+     "location": "KSJC",
+     "records": [
+      [
+       12016,
+       15,
+       true,
+       "NOTAM-D KSJC.01/016 240800Z !SJC 01/016 SJC TWY H BTW RWY 12R/30L AND TWY Z CLSD 1501240800-1501241400"
+      ]
+     ]
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 5,
+     "text": "TAF.AMD KSAN 240305Z 2403/2506 VRB04KT P6SM FEW200\n     FM241400 VRB05KT P6SM SKC WS020/07020KT\n     FM242000 31010KT P6SM SKC\n     FM250200 VRB04KT P6SM SKC="
+    }
+   ]
+  },
+  {
+   "line": 312,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 6,
+     "text": "TAF.AMD KONT 240306Z 2403/2506 07015G25KT P6SM SKC\n      TEMPO 2403/2406 VRB06KT\n     FM241400 06020G30KT P6SM SKC\n      TEMPO 2417/2421 06030G45KT\n     FM242200 04012G22KT P6SM SKC="
+    }
+   ]
+  },
+  {
+   "line": 315,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 23,
+     "minute": 39,
+     "text": "TAF KSJC 232339Z 2400/2424 30009KT P6SM FEW090\n     FM240400 VRB03KT P6SM FEW110\n     FM241100 11004KT P6SM SKC\n     FM242000 32005KT P6SM SKC="
+    },
+    {
+     "product_id": 413,
+     "hour": 23,
+     "minute": 39,
+     "text": "TAF KOAK 232339Z 2400/2506 29006KT P6SM FEW200\n     FM240300 36005KT P6SM FEW200\n     FM241000 10004KT P6SM FEW200\n     FM242100 30006KT P6SM SKC\n     FM250000 02003KT P6SM SKC="
+    },
+    {
+     "product_id": 413,
+     "hour": 23,
+     "minute": 23,
+     "text": "TAF KSNA 232323Z 2400/2424 26008KT P6SM FEW080 FEW200\n     FM240300 VRB03KT P6SM SKC\n     FM240700 03008KT P6SM SKC WS018/03030KT\n     FM241200 04010G20KT P6SM SKC WS020/03035KT\n     FM241700 04015G25KT P6SM SKC="
+    }
+   ]
+  },
+  {
+   "line": 318,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 56,
+     "text": "METAR KTPH 240356Z AUTO 01017KT 10SM CLR 06/M07 A3043 RMK AO2 SLP308\n    T00611072="
+    },
+    {
+     "product_id": 8,
+     "hour": 10,
+     "minute": 30,
+     "location": "KOAK",
+     "records": [
+      [
+       12110,
+       15,
+       true,
+       "NOTAM-D KOAK.01/110 261030Z !OAK 01/110 OAK RWY 12/30 CLSD 1501261030-1501261400"
+      ]
+     ]
+    },
+    {
+     "product_id": 413,
+     "hour": 23,
+     "minute": 39,
+     "text": "TAF KSTS 232339Z 2400/2424 00000KT P6SM SKC\n     FM240700 00000KT 1/4SM FG VV002\n     FM241700 35003KT P6SM FEW002="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 9,
+     "text": "TAF.AMD KSFO 240309Z 2403/2506 VRB04KT P6SM SKC\n     FM240800 08004KT P6SM FEW200\n     FM242300 34004KT P6SM SKC\n     FM250300 VRB04KT P6SM SKC="
+    }
+   ]
+  },
+  {
+   "line": 319,
+   "apdus": [
+    {
+     "product_id": 8,
+     "hour": 17,
+     "minute": 40,
+     "location": "KO69",
+     "records": [
+      [
+       12098,
+       14,
+       true,
+       "NOTAM-D KO69.11/098 201740Z !OAK 11/098 O69 OBST TOWER LGT (ASR UNKNOWN) 3815.74N12236.77W (1000FT WNW APCH END RWY 11) UNKN (60FT AGL) OUT OF SERVICE 1411201740-1412312359EST"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 321,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KE16 240355Z AUTO 00000KT 10SM CLR 11/04 A3025 RMK AO2="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KVCV 240355Z AUTO 20004KT 10SM CLR 07/M08 A3027 RMK AO2="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 56,
+     "text": "METAR KWJF 240356Z 30005KT 10SM CLR 04/M03 A3028 RMK AO2 SLP270\n    T00391028="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 56,
+     "text": "METAR KBIH 240356Z AUTO 02010KT 10SM CLR 10/M09 A3040 RMK AO2 SLP285\n    T01001089="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 52,
+     "text": "METAR KOKB 240352Z AUTO 00000KT 10SM CLR 08/01 A3013 RMK AO2 SLP202\n    T00830006="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 56,
+     "text": "METAR KEKO 240356Z AUTO 00000KT 10SM CLR M01/M04 A3048 RMK AO2\n    SLP360 T10111044="
+    }
+   ]
+  },
+  {
+   "line": 322,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 56,
+     "text": "METAR KAJO 240356Z AUTO 04011G20KT 10SM CLR 21/M12 A3017 RMK AO2\n    T02051116 PK WND 03026/0316 SLP211 $="
+    }
+   ]
+  },
+  {
+   "line": 324,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KL35 240355Z AUTO 07006KT 10SM CLR 02/M16 A3035 RMK AO2="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KLAX 240353Z 00000KT 10SM CLR 16/08 A3013 RMK AO2 SLP203\nT01560083="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 56,
+     "text": "METAR KNLC 240356Z AUTO 11006KT CLR 06/04 A3031 RMK AO2 SLP266\nT00560039 RVRNO $="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 52,
+     "text": "METAR KTRM 240352Z AUTO 35004KT 10SM CLR 08/M07 A3018 RMK AO2 SLP218\n    T00781067 TSNO="
+    }
+   ]
+  },
+  {
+   "line": 339,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 22,
+     "minute": 57,
+     "text": "TAF KNLC 2323/2423 VRB05KT 4800 HZ SCT015 532009 532909 533802\n      QNH3023INS\n      BECMG 2403/2405 26005KT 3200 BR BKN010 532009 532909 533802\n      QNH3026INS\n     FM240600 VRB05KT 1600 BR BKN007 BKN220 500000 QNH3027INS\n      TEMPO 2409/2415 VRB04KT 0800 FG OVC004\n      BECMG 2418/2420 34005KT 4800 BR SCT007 QNH3018INS AUTOMATED\n      SENSOR METWATCH 2402 TIL 2523 T06/2413Z T15/2423Z FS30092="
+    }
+   ]
+  },
+  {
+   "line": 345,
+   "apdus": [
+    {
+     "product_id": 8,
+     "hour": 23,
+     "minute": 52,
+     "location": "",
+     "records": [
+      [
+       4341,
+       5,
+       true,
+       ""
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 348,
+   "apdus": [
+    {
+     "product_id": 8,
+     "hour": 15,
+     "minute": 0,
+     "location": "KSQL",
+     "records": [
+      [
+       12010,
+       15,
+       true,
+       "NOTAM-D KSQL.01/010 241500Z !SQL 01/010 SQL RWY 12 VASI OUT OF SERVICE 1501241500-1501250001"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 360,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 5,
+     "text": "PIREP LMT 240305Z LKV UA /OV LMT090030/TM 0305/FL350/TP B738/TA M52/WV 31443KT/TB NEG/RM AWC-WEB:ASA"
+    }
+   ]
+  },
+  {
+   "line": 416,
+   "apdus": [
+    {
+     "product_id": 13,
+     "hour": 18,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       9220,
+       15,
+       true,
+       "SUA 241800 3559139|24863|P|M|REVEILLE SOUTH MOA|1501241800|1501250000|001|180|A|Y||REVEILLE SOUTH MOA|MOA US 02009|REVEILLE SOUTH MOA, NV"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 419,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 45,
+     "text": "METAR KRHV 240345Z VRB06KT 10SM SKC 12/06 A3027="
+    }
+   ]
+  },
+  {
+   "line": 422,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 1,
+     "minute": 58,
+     "text": "PIREP KEKO 240158Z EKO UA /OV KEKO/TM 0158/FL360/TP B738/TB OCNL LGT CHOP 360/RM AWC-WEB:ASA"
+    }
+   ]
+  },
+  {
+   "line": 425,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 45,
+     "text": "METAR KMHR 240345Z 19003KT 1/4SM FG OVC002 08/08 A3029="
+    },
+    {
+     "product_id": 13,
+     "hour": 18,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       12901,
+       15,
+       true,
+       "SUA 241800 3555450|23982|W|B|AR203(NE)|1501241800|1501241900|270|290|A|Y|||AR203|AR203"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 15,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       7199,
+       15,
+       true,
+       "SUA 241500 3558082|4525|P|M|SELLS 1 MOA|1501241500|1501242300|100|180|A|Y||SELLS 1 MOA|MOA US 02060|SELLS 1 MOA, AZ"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 437,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 47,
+     "text": "METAR KSQL 240347Z 28004KT 10SM SKC 14/07 A3027="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KIZA 240355Z AUTO 06004KT 10SM CLR 10/03 A3019 RMK AO2="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KSEE 240355Z AUTO 00000KT 10SM CLR 12/M01 A3016 RMK AO2="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KL18 240355Z AUTO 00000KT 10SM CLR 14/M04 A3014 RMK AO2="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KP68 240353Z AUTO 19003KT M03/M06 A3050 RMK AO1 SLP352\nT10331061="
+    }
+   ]
+  },
+  {
+   "line": 440,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KLHM 240355Z AUTO 05003KT 7SM CLR 05/04 A3028 RMK AO1="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KO54 240355Z AUTO 00000KT 10SM CLR 05/04 A3043 RMK AO1="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 58,
+     "text": "METAR KEDW 240358Z 10002KT 40SM CLR 06/M02 A3026 RMK AO2A SLP258 T00621025="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KRDD 240353Z 29003KT 10SM CLR 17/04 A3031 RMK AO2 SLP261\n    T01720044="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 56,
+     "text": "METAR KSBP 240356Z 03008KT 10SM CLR 15/00 A3020 RMK AO2 SLP227\n    T01500000="
+    }
+   ]
+  },
+  {
+   "line": 441,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 56,
+     "text": "METAR KLAS 240356Z 24003KT 10SM CLR 12/M09 A3024 RMK AO2 SLP241\n    T01171094="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 56,
+     "text": "METAR KBOK 240356Z AUTO 00000KT 7SM CLR 11/11 A3040 RMK AO2\n    T01050105 SLP296="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 58,
+     "text": "METAR KINS 240358Z AUTO 26009KT 10SM CLR 08/M16 A3029 RMK AO2 SLP257\n      T00761162 $="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 56,
+     "text": "METAR KWMC 240356Z AUTO 16006KT 10SM CLR M04/M07 A3051 RMK AO2\n    SLP368 T10391072="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KPRB 240353Z AUTO 13007KT 7SM CLR 10/05 A3025 RMK AO2 SLP246\n    T01000050 TSNO="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 56,
+     "text": "METAR KCEC 240356Z AUTO 34009KT 4SM BR FEW009 12/11 A3040 RMK AO2\n    SLP294 T01170111="
+    }
+   ]
+  },
+  {
+   "line": 443,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KGXA 240355Z AUTO 10SM CLR 08/M10 A3027 RMK AO2 SLP280 T00751101\n      TSNO $="
+    }
+   ]
+  },
+  {
+   "line": 446,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KLVK 240353Z 00000KT 10SM CLR 12/04 A3026 RMK AO2 SLP248\n    T01220044="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KSTS 240353Z AUTO 00000KT 9SM CLR 12/10 A3025 RMK AO2 SLP237\n    T01220100="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KLOL 240353Z AUTO 00000KT 10SM CLR M02/M11 A3051 RMK AO2\n    SLP373 T10221111="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KWVI 240353Z AUTO 31003KT 10SM CLR 13/07 A3024 RMK AO2 SLP240\n    T01280067 $="
+    }
+   ]
+  },
+  {
+   "line": 449,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KFAT 240353Z 09005KT 2 1/2SM BR OVC005 07/06 A3031 RMK AO2 SFC\n    VIS 3 SLP264 T00720056="
+    }
+   ]
+  },
+  {
+   "line": 452,
+   "apdus": [
+    {
+     "product_id": 8,
+     "hour": 15,
+     "minute": 54,
+     "location": "KHAF",
+     "records": [
+      [
+       12126,
+       14,
+       true,
+       "NOTAM-D KHAF.08/126 271554Z !OAK 08/126 HAF RWY 12 PAPI OUT OF SERVICE 1408271554-1502272359EST"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 461,
+   "apdus": [
+    {
+     "product_id": 13,
+     "hour": 14,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       7168,
+       15,
+       true,
+       "SUA 231400 3557262|4565|P|M|TOMBSTONE A MOA|1501231400|1501240600|005|145|A|Y||TOMBSTONE A MOA|MOA US 02168|TOMBSTONE A MOA, AZ"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 14,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       7169,
+       15,
+       true,
+       "SUA 231400 3557264|4570|P|M|TOMBSTONE B MOA|1501231400|1501240600|005|145|A|Y||TOMBSTONE B MOA|MOA US 02170|TOMBSTONE B MOA, AZ"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 14,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       7170,
+       15,
+       true,
+       "SUA 231400 3557265|4575|P|M|TOMBSTONE C MOA|1501231400|1501240600|145|180|A|Y||TOMBSTONE C MOA|MOA US 02172|TOMBSTONE C MOA, AZ"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 462,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 23,
+     "minute": 0,
+     "text": "TAF KNFL 2323/2423 VRB06KT 9999 FEW250 542009 542909 543802\n      QNH3044INS\n     FM240600 VRB04KT 9999 SCT250 542009 542909 543802 QNH3051INS\n     FM241500 VRB06KT 9999 FEW060 FEW120 SCT220 500000 QNH3048INS\n      TM07/2414Z T13/2423Z FS30059="
+    }
+   ]
+  },
+  {
+   "line": 464,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KSJC 240353Z 30009KT 10SM CLR 13/05 A3024 RMK AO2 SLP241\n    T01280050="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KSNS 240353Z 28005KT 10SM CLR 13/06 A3023 RMK AO2 SLP246\n    T01330061="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KSMF 240353Z 19006KT 3SM BR CLR 08/07 A3028 RMK AO2 SLP253\n    T00780067="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KTVL 240353Z AUTO 01005KT 10SM CLR 06/M09 A3047 RMK AO2 SLP321\n    T00561089="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 56,
+     "text": "METAR KNXF 240356Z AUTO 09005KT 9SM CLR 13/06 A3013 RMK AO2 SLP290\nT01280056 PNO $="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KMOD 240353Z 10006KT 2 1/2SM BR OVC004 08/07 A3029 RMK AO2\n    SLP259 T00780067="
+    }
+   ]
+  },
+  {
+   "line": 465,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR K9L2 240355Z AUTO 00000KT 10SM CLR 07/M04 A3027 RMK AO2 SLP264\nT00671044 TSNO $="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KHJO 240353Z AUTO 13003KT 2 1/2SM BR BKN008 06/05 A3031 RMK\n    AO2 SLP267 T00610050="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KMCE 240353Z AUTO 09004KT 1 3/4SM BR OVC003 08/06 A3030 RMK\n    AO2 SLP261 T00780061="
+    },
+    {
+     "product_id": 8,
+     "hour": 12,
+     "minute": 52,
+     "location": "KLHM",
+     "records": [
+      [
+       12074,
+       15,
+       true,
+       "NOTAM-D KLHM.01/074 151252Z !RIU 01/074 LHM OBST TOWER LGT (ASR 1202312) 384656.10N1211811.60W (8.0NM SSE LHM) 455.7FT (294.9FT AGL) OUT OF SERVICE 1501151252-1501301252"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 467,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KF70 240355Z AUTO 00000KT 10SM CLR 10/M04 A3017 RMK AO1="
+    },
+    {
+     "product_id": 8,
+     "hour": 22,
+     "minute": 53,
+     "location": "KMHR",
+     "records": [
+      [
+       5279,
+       5,
+       true,
+       "NOTAM-FDC KMHR.5/5279 202253Z !FDC 5/5279 MHR IAP SACRAMENTO MATHER, SACRAMENTO, CA.\nRNAV (GPS) RWY 22L, AMDT 2A...\nCHANGE INOP NOTE TO READ: FOR INOPERATIVE MALSR, INCREASE LNAV CATS\nC AND D VISIBILITY TO 1 3/8 MILE.\n1501202252-1507192252EST"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 473,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 23,
+     "minute": 20,
+     "text": "TAF KRDD 232320Z 2400/2424 36007KT P6SM FEW250="
+    },
+    {
+     "product_id": 8,
+     "hour": 20,
+     "minute": 22,
+     "location": "KCCR",
+     "records": [
+      [
+       4229,
+       5,
+       true,
+       "NOTAM-FDC KCCR.5/4229 152022Z !FDC 5/4229 CCR IAP BUCHANAN FIELD, CONCORD, CA.\nLDA RWY 19R, AMDT 7D...\nCIRCLING CAT A MDA 600/HAA 574.\nDME MINIMUMS: CIRCLING CAT A MDA 600/HAA 574.\nNOTE: HELICOPTER VISIBILITY REDUCTION BELOW 3/4 SM NOT AUTHORIZED.\nTERMINAL ROUTE FROM COLLI INT TO KANAN (CC) LOM MINIMUM ALTITUDE\n5200.\nMSA FROM CCR VOR/DME: 090-180 MINIMUM ALTITUDE 5100, 180-360\nMINIMUM ALTITUDE 4100.\n1501152022-1507142022EST"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 476,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 0,
+     "minute": 26,
+     "text": "TAF KCXP 240026Z 2400/2424 07011KT P6SM SKC\n     FM240400 VRB03KT P6SM FEW200\n     FM242100 08010KT P6SM FEW200="
+    },
+    {
+     "product_id": 413,
+     "hour": 0,
+     "minute": 26,
+     "text": "TAF KTVL 240026Z 2400/2424 03007KT P6SM SKC\n     FM240100 VRB03KT P6SM FEW200\n     FM242100 03006KT P6SM FEW200="
+    }
+   ]
+  },
+  {
+   "line": 539,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 45,
+     "text": "METAR KRHV 240345Z VRB06KT 10SM SKC 12/06 A3027="
+    }
+   ]
+  },
+  {
+   "line": 542,
+   "apdus": [
+    {
+     "product_id": 13,
+     "hour": 14,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       4355,
+       15,
+       true,
+       "SUA 241400 3559224|5870|W|R|2512|1501241400|1501250700|000|180|A|Y||2512|R2512|HOLTVILLE, CA"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 0,
+     "minute": 45,
+     "location": "",
+     "records": [
+      [
+       4346,
+       15,
+       true,
+       "SUA 250045 3559195|31128|W|W|289W|1501250045|1501250500|000|150|A|Y||289W|W289W|POINT MUGU, CA"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 0,
+     "minute": 45,
+     "location": "",
+     "records": [
+      [
+       4347,
+       15,
+       true,
+       "SUA 250045 3559196|31126|W|W|289E|1501250045|1501250500|000|150|A|Y||289E|W289E|POINT MUGU, CA"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 545,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 45,
+     "text": "METAR KMHR 240345Z 19003KT 1/4SM FG OVC002 08/08 A3029="
+    },
+    {
+     "product_id": 413,
+     "hour": 1,
+     "minute": 49,
+     "text": "PIREP SNA 240149Z SNA UUA /OV SNA360005 /TM 0149 /FL022 /TP P28A /TB SEV /RM UDDS 500FT PER MINUTE"
+    },
+    {
+     "product_id": 13,
+     "hour": 2,
+     "minute": 45,
+     "location": "",
+     "records": [
+      [
+       7994,
+       15,
+       true,
+       "SUA 240245 3541945|23993|W|B|AR209(W)|1501240245|1501240500|000|210|A|Y|||AR209|AR209"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 2,
+     "minute": 45,
+     "location": "",
+     "records": [
+      [
+       7996,
+       15,
+       true,
+       "SUA 240245 3542018|23993|W|B|AR209(W)|1501240245|1501240500|000|210|A|Y|||AR209|AR209"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 2,
+     "minute": 45,
+     "location": "",
+     "records": [
+      [
+       7995,
+       15,
+       true,
+       "SUA 240245 3542014|23992|W|B|AR209(E)|1501240245|1501240500|000|210|A|Y|||AR209|AR209"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 546,
+   "apdus": [
+    {
+     "product_id": 13,
+     "hour": 2,
+     "minute": 45,
+     "location": "",
+     "records": [
+      [
+       7992,
+       15,
+       true,
+       "SUA 240245 3541939|23992|W|B|AR209(E)|1501240245|1501240500|000|210|A|Y|||AR209|AR209"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 2,
+     "minute": 45,
+     "location": "",
+     "records": [
+      [
+       7997,
+       15,
+       true,
+       "SUA 240245 3553556|24033|W|B|AR312H|1501240245|1501240600|240|260|A|Y|||AR312H|AR312H"
+      ]
+     ]
+    },
+    {
+     "product_id": 8,
+     "hour": 17,
+     "minute": 37,
+     "location": "KSMF",
+     "records": [
+      [
+       4587,
+       5,
+       true,
+       "NOTAM-FDC KSMF.5/4587 161737Z !FDC 5/4587 SMF STAR SACRAMENTO INTL, SACRAMENTO CA.\n   WRAPS FIVE ARRIVAL...\n      DME REQUIRED EXCEPT AIRCRAFT EQUIPED WITH SUITABLE RNAV\n      SYSTEMS WITH GPS. HYP VOR OUT OF SERVICE.\n1501201600-1501232359EST"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 548,
+   "apdus": [
+    {
+     "product_id": 8,
+     "hour": 21,
+     "minute": 22,
+     "location": "",
+     "records": [
+      [
+       6094,
+       5,
+       true,
+       ""
+      ]
+     ]
+    },
+    {
+     "product_id": 413,
+     "hour": 2,
+     "minute": 0,
+     "text": "TAF KEDW 2402/2508 VRB06KT 9999 SKC QNH3024INS\n     BECMG 2417/2418 04012G18KT 9999 SKC QNH3027INS\n     TEMPO 2420/2424 05015G25KT 520009\n     BECMG 2501/2502 VRB06KT 9999 FEW250 QNH3018INS TX19/2422Z\n     TNM02/2414Z="
+    },
+    {
+     "product_id": 8,
+     "hour": 3,
+     "minute": 23,
+     "location": "KOAK",
+     "records": [
+      [
+       8835,
+       4,
+       true,
+       "NOTAM-FDC KOAK.4/8835 170323Z !FDC 4/8835 OAK IAP METROPOLITAN OAKLAND INTL, OAKLAND, CA.\n   ILS OR LOC RWY 30, AMDT 28...\n   ILS RWY 30 (SA CAT I), AMDT 28...\n   ILS RWY 30 (CAT II & III), AMDT 28...\n     CHANGE PLANVIEW NOTE TO READ: GPS OR RADAR REQUIRED.\n     1409240527-1503240527EST"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 551,
+   "apdus": [
+    {
+     "product_id": 8,
+     "hour": 21,
+     "minute": 22,
+     "location": "",
+     "records": [
+      [
+       6093,
+       5,
+       true,
+       ""
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 554,
+   "apdus": [
+    {
+     "product_id": 13,
+     "hour": 13,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       2106,
+       15,
+       true,
+       "SUA 231300 3555456|4755|W|R|4501B|1501231300|1501240600|000|022|A|Y||4501B||"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 557,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 47,
+     "text": "METAR KSQL 240347Z 28004KT 10SM SKC 14/07 A3027="
+    },
+    {
+     "product_id": 413,
+     "hour": 4,
+     "minute": 35,
+     "text": "METAR KL18 240435Z AUTO 00000KT 10SM CLR 14/M03 A3014 RMK AO2="
+    },
+    {
+     "product_id": 413,
+     "hour": 4,
+     "minute": 15,
+     "text": "METAR KSEE 240415Z AUTO 00000KT 10SM CLR 12/M02 A3015 RMK AO2="
+    },
+    {
+     "product_id": 413,
+     "hour": 4,
+     "minute": 15,
+     "text": "METAR KIZA 240415Z AUTO 07005KT 10SM CLR 10/03 A3020 RMK AO2="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KP68 240353Z AUTO 19003KT M03/M06 A3050 RMK AO1 SLP352\nT10331061="
+    }
+   ]
+  },
+  {
+   "line": 560,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR KGXA 240355Z AUTO 10SM CLR 08/M10 A3027 RMK AO2 SLP280 T00751101\n      TSNO $="
+    }
+   ]
+  },
+  {
+   "line": 563,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KLVK 240353Z 00000KT 10SM CLR 12/04 A3026 RMK AO2 SLP248\n    T01220044="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KSTS 240353Z AUTO 00000KT 9SM CLR 12/10 A3025 RMK AO2 SLP237\n    T01220100="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KLOL 240353Z AUTO 00000KT 10SM CLR M02/M11 A3051 RMK AO2\n    SLP373 T10221111="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KWVI 240353Z AUTO 31003KT 10SM CLR 13/07 A3024 RMK AO2 SLP240\n    T01280067 $="
+    }
+   ]
+  },
+  {
+   "line": 566,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KFAT 240353Z 09005KT 2 1/2SM BR OVC005 07/06 A3031 RMK AO2 SFC\n    VIS 3 SLP264 T00720056="
+    },
+    {
+     "product_id": 8,
+     "hour": 0,
+     "minute": 1,
+     "location": "KSJC",
+     "records": [
+      [
+       12010,
+       15,
+       true,
+       "NOTAM-D KSJC.01/010 200001Z !SJC 01/010 SJC TWY F BTW TWY W-1 AND TWY V CLSD 1501200001-1507042359"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 569,
+   "apdus": [
+    {
+     "product_id": 8,
+     "hour": 18,
+     "minute": 29,
+     "location": "KSCK",
+     "records": [
+      [
+       12032,
+       15,
+       true,
+       "NOTAM-D KSCK.01/032 201829Z !SCK 01/032 SCK OBST TOWER LGT (ASR 1258204) 375548.20N1211459.50W (2.2NM NNW SCK) 99.1FT (76.1FT AGL) OUT OF SERVICE 1501201829-1502041729"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 572,
+   "apdus": [
+    {
+     "product_id": 8,
+     "hour": 23,
+     "minute": 24,
+     "location": "KSFO",
+     "records": [
+      [
+       12053,
+       15,
+       true,
+       "NOTAM-D KSFO.01/053 182324Z !SFO 01/053 SFO OBST TOWER LGT (ASR 1010562) 374123.40N1222617.20W (5.3NM NW SFO) 1476.7FT (259.8FT AGL) OUT OF SERVICE 1501182324-1502022324"
+      ]
+     ]
+    },
+    {
+     "product_id": 8,
+     "hour": 18,
+     "minute": 21,
+     "location": "KMAE",
+     "records": [
+      [
+       12004,
+       15,
+       true,
+       "NOTAM-D KMAE.01/004 191821Z !MAE 01/004 MAE OBST TOWER LGT (ASR 1011707) 365720.00N1200201.70W (4.3NM ESE MAE) 585.0FT (312.0FT AGL) OUT OF SERVICE 1501191821-1502031821"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 581,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 4,
+     "minute": 35,
+     "text": "SPECI KMOD 240435Z 12006KT 2SM BR OVC003 08/07 A3030 RMK AO2\n    T00780067="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KSNS 240353Z 28005KT 10SM CLR 13/06 A3023 RMK AO2 SLP246\n    T01330061="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KSJC 240353Z 30009KT 10SM CLR 13/05 A3024 RMK AO2 SLP241\n    T01280050="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KSMF 240353Z 19006KT 3SM BR CLR 08/07 A3028 RMK AO2 SLP253\n    T00780067="
+    },
+    {
+     "product_id": 413,
+     "hour": 4,
+     "minute": 31,
+     "text": "SPECI KHJO 240431Z AUTO 12005KT 2SM BR OVC007 07/06 A3031 RMK AO2\n    T00670056="
+    }
+   ]
+  },
+  {
+   "line": 582,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KTVL 240353Z AUTO 01005KT 10SM CLR 06/M09 A3047 RMK AO2 SLP321\n    T00561089="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 56,
+     "text": "METAR KNXF 240356Z AUTO 09005KT 9SM CLR 13/06 A3013 RMK AO2 SLP290\nT01280056 PNO $="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 55,
+     "text": "METAR K9L2 240355Z AUTO 00000KT 10SM CLR 07/M04 A3027 RMK AO2 SLP264\nT00671044 TSNO $="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 53,
+     "text": "METAR KMCE 240353Z AUTO 09004KT 1 3/4SM BR OVC003 08/06 A3030 RMK\n    AO2 SLP261 T00780061="
+    },
+    {
+     "product_id": 8,
+     "hour": 20,
+     "minute": 0,
+     "location": "KSCK",
+     "records": [
+      [
+       12053,
+       15,
+       true,
+       "NOTAM-D KSCK.01/053 252000Z !SCK 01/053 SCK AIRSPACE ECA 01/052 HIGH ALT BALLOON 1501252000-1501260100"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 583,
+   "apdus": [
+    {
+     "product_id": 8,
+     "hour": 17,
+     "minute": 0,
+     "location": "KSCK",
+     "records": [
+      [
+       12051,
+       15,
+       true,
+       "NOTAM-D KSCK.01/051 241700Z !SCK 01/051 SCK TWY B CLSD TO ACFT WINGSPAN MORE THAN 91FT 1501241700-1501242000"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 584,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 4,
+     "minute": 35,
+     "text": "METAR KF70 240435Z AUTO 00000KT 10SM CLR 09/M01 A3016 RMK AO1="
+    },
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 0,
+     "text": "TAF KNXP 2403/2503 33010KT 9999 FEW150 QNH3020INS\n     TEMPO 2409/2415 34013G20KT\n     BECMG 2417/2419 35015G25KT 9999 FEW200 QNH3012INS\n     FM250100 34009KT 9999 FEW200 QNH3013INS T04/2412Z T18/2422Z="
+    }
+   ]
+  },
+  {
+   "line": 623,
+   "apdus": [
+    {
+     "product_id": 413,
+     "hour": 3,
+     "minute": 0,
+     "text": "TAF KBAB 2403/2509 VRB06KT 9999 SKC QNH3022INS\n     BECMG 2405/2406 VRB06KT 4800 BR SCT010 QNH3018INS\n     BECMG 2410/2411 VRB06KT 0800 FG VV001 QNH3030INS\n     BECMG 2418/2419 VRB06KT 4800 BR SCT010 QNH3037INS\n     BECMG 2421/2422 33009KT 9999 NSW SKC QNH3028INS TX19/2421Z\n     TN06/2413Z="
+    }
+   ]
+  },
+  {
+   "line": 670,
+   "apdus": [
+    {
+     "product_id": 13,
+     "hour": 20,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       4860,
+       15,
+       true,
+       "SUA 242000 3559243|6020|W|M|DOME MOA|1501242000|1501242300|100|180|A|Y||DOME MOA|MOA US 01275|DOME MOA, AZ"
+      ]
+     ]
+    },
+    {
+     "product_id": 13,
+     "hour": 16,
+     "minute": 0,
+     "location": "",
+     "records": [
+      [
+       4861,
+       15,
+       true,
+       "SUA 241600 3559244|6020|W|M|DOME MOA|1501241600|1501241800|100|180|A|Y||DOME MOA|MOA US 01275|DOME MOA, AZ"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "line": 682,
+   "apdus": [
+    {
+     "product_id": 13,
+     "hour": 16,
+     "minute": 30,
+     "location": "",
+     "records": [
+      [
+       2855,
+       15,
+       true,
+       "SUA 241630 3559306|6010|W|M|BUCKHORN MOA|1501241630|1501242100|002|180|A|Y||BUCKHORN MOA|MOA US 01152|BUCKHORN MOA, CA"
+      ]
+     ]
+    },
+    {
+     "product_id": 11,
+     "hour": 14,
+     "minute": 45,
+     "location": "",
+     "records": [
+      [
+       3890,
+       15,
+       true,
+       "AIRMET KSFO 241445 SFOT WA 241445\nAIRMET TANGO UPDT 2 FOR TURB AND LLWS VALID UNTIL 242100\nLLWS POTENTIAL...CA AND CSTL WTRS\nBOUNDED BY 20SE EHF-30SW HEC-60S TRM-20S MZB-RZS-20SE EHF\nLLWS EXP. CONDS ENDG 18-21Z"
+      ]
+     ]
+    }
+   ]
+  }
+ ],
+ "joined": [
+  {
+   "product_id": 8,
+   "hour": 23,
+   "minute": 52,
+   "location": "",
+   "records": [
+    [
+     4342,
+     5,
+     true,
+     "NOTAM-TFR 5/4342 152352Z PART 1 OF 2 CA..AIRSPACE BEALE AFB, CA..TEMPORARY FLIGHT RESTRICTIONS. JANUARY 24-25, 2015 LOCAL. PURSUANT TO 49 USC 40103(B), THE FEDERAL AVIATION ADMINISTRATION (FAA) CLASSIFIES THE AIRSPACE DEFINED IN THIS NOTAM AS 'NATIONAL DEFENSE AIRSPACE'. ANY PERSON WHO KNOWINGLY OR WILLFULLY VIOLATES THE RULES CONCERNING OPERATIONS IN THIS AIRSPACE MAY BE SUBJECT TO CERTAIN CRIMINAL PENALTIES UNDER 49 USC 46307. PILOTS WHO DO NOT ADHERE TO THE FOLLOWING PROCEDURES MAY BE INTERCEPTED, DETAINED AND INTERVIEWED BY LAW ENFORCEMENT/SECURITY PERSONNEL. PURSUANT TO TITLE 14 CFR SECTION 99.7, SPECIAL SECURITY INSTRUCTIONS, ALL AIRCRAFT FLIGHT OPERATIONS ARE PROHIBITED WITHIN AN AREA DEFINED AS 10NM RADIUS OF 390803N1212615W (MYV055006.7) 4100FT MSL-FL180 EFFECTIVE 1501242200 UTC (1400 LOCAL 01/24/15) UNTIL 1501252000 UTC (1200 LOCAL 01/25/15). EXCEPT AS SPECIFIED BELOW AND/OR UNLESS AUTHORIZED 1501242200-1501252000 END PART 1 OF 2. PART 2 OF 2 CA..AIRSPACE BY ATC: 1. ALL AIRCRAFT ENTERING OR EXITING THE TFR MUST BE ON A DISCRETE CODE ASSIGNED BY AN AIR TRAFFIC CONTROL (ATC) FACILITY. 2. AIRCRAFT MUST BE SQUAWKING THE DISCRETE CODE AT ALL TIMES WHILE IN THE TFR. 3. ALL AIRCRAFT ENTERING OR EXITING THE TFR MUST REMAIN IN TWO-WAY RADIO COMMUNICATIONS WITH ATC. 4. NORTHERN CALIFORNIA TRACON, PHONE 916-366-4080, IS THE FAA COORDINATION FACILITY. 1501242200-1501252000 END PART 2 OF 2"
+    ]
+   ],
+   "last_line": 470
+  }
+ ]
+}
