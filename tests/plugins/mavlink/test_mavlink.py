@@ -49,6 +49,13 @@ class FakeParent:
     def db_get_item(self, key):
         return FakeItem(self, key)
 
+    def db_callback_add(self, key, function, udata=None):
+        self.callbacks = getattr(self, "callbacks", [])
+        self.callbacks.append((key, function))
+
+    def db_callback_del(self, key, function, udata=None):
+        self.callbacks.remove((key, function))
+
 
 class FakeItem:
     def __init__(self, parent, key):
@@ -120,6 +127,7 @@ class Msg(SimpleNamespace):
 def make_mav(messages=None, parent=None, options=None):
     mav = mav_module.Mav.__new__(mav_module.Mav)
     mav.parent = parent or FakeParent()
+    mav.autopilot = None
     mav._apreq = "INIT"
     mav._apstat = "TRIM"
     mav._apmode = "INIT"
@@ -682,8 +690,9 @@ def test_avg_and_get_avg_limit_samples():
 class FakeMainMav:
     instances = []
 
-    def __init__(self, parent, port, baud, options):
+    def __init__(self, parent, port, baud, options, autopilot=None):
         self.parent = parent
+        self.autopilot = autopilot
         self.port = port
         self.baud = baud
         self.options = options
