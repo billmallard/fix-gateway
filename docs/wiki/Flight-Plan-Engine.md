@@ -56,6 +56,7 @@ not one string:
 | `FPL<n>FLAGS` | int | bits: 1 fly-over, 2 IAF, 4 FAF, 8 MAP, 16 MAHP, 32 from a coded procedure |
 | `FPL<n>CTRLAT`, `FPL<n>CTRLON` | float | arc centre (RF, AF) |
 | `FPL<n>TURN` | str | `L`, `R` or `""`: arc, hold or PI turn direction |
+| `FPL<n>TA` | float | written by the engine, not the editor: the fly-by turn distance `d` at this fix, nm (see *Fly-by turns*), so a map can draw the arc; 0 where there is no arc |
 
 `FPLCOUNT` is the number of slots in use and `FPLNAME` the plan's name. A
 segment table (`FPLSEGCNT`, then `FPLS<n>KIND`, `ID`, `ENT`, `EXT`, `FIRST`,
@@ -131,7 +132,11 @@ on the next leg instead of overshooting it.
 
 There is no anticipation, and the engine sequences abeam the fix instead, when
 the waypoint is flagged fly-over, the turn is more than 120 degrees, there is no
-next leg, or either leg is an arc, CA/FA, hold or PI.
+next leg, or either leg is an arc, CA/FA, hold or PI. Where the only reason is a
+turn of more than 120 degrees, an aircraft that turns back short of the fix never gets abeam it, so
+the leg also ends once the distance to the fix has opened 0.05 nm past its
+closest approach, if that closest approach was within `d` for the full course
+change.
 
 `FPLALERT` goes true before each waypoint: within the turn distance plus
 `alert_s` seconds of flight (at least 1 nm).

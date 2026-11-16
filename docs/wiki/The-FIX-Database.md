@@ -105,8 +105,8 @@ updates. Instead:
 - **Add or override items** → `database/custom.yaml`, under a top-level
   `items:` key. A definition there replaces the whole item from any earlier
   include. It is read after everything except `flightplan.yaml`,
-  `traffic.yaml`, `sim.yaml`, `demo.yaml` and `last.yaml`, so it cannot
-  override those.
+  `traffic.yaml`, `stratux.yaml`, `sim.yaml`, `demo.yaml` and `last.yaml`, so
+  it cannot override those.
 - **Set initial / aircraft-specific values** → the `init_data/*.ini`
   files (e.g. `IAS.Vne = 160`, `OILP1.lowAlarm = 25`). Later files override
   earlier ones, so a per-airplane overlay layers cleanly over the defaults.
@@ -121,6 +121,7 @@ See **[[Configuration]]** for how these files are wired together.
 | AHRS | `PITCH`, `ROLL`, `YAW`, `ALAT`, `ALONG`, `ANORM` |
 | Engine (per engine/cyl) | `TACH1`, `MAP1`, `EGT1x`, `CHT1x`, `OILP1`, `OILT1`, `FUELF1` |
 | Radios / nav | `COMACTFREQ1`, `NAV1CRS`, `NAV1CDI`, `NAVSRC`, `COURSE`, `CDI`, `GSI` |
+| Autopilot / flight director | `APENG`, `FDENG`, `APLAT`, `APVERT`, `FDPITCH`, `FDROLL`, `VSSEL`, `IASSEL` |
 | Flight plan | `FPL1ID`…`FPL100ID`, `FPLCMD`, `FPLCRS`, `FPLCDI`, `WPNAME` — see [[Flight Plan Engine]] |
 | Controls / trims | `CTLPTCH`, `CTLROLL`, `TRIMP`, `TRIMR`, `TRIMY` |
 
