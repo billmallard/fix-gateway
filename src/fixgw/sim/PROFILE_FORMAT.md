@@ -501,7 +501,7 @@ and its proof is the readback log and someone looking at the glass.
 The `demo` plugin (`fixgw/plugins/demo`, on in the shipped config) is live
 mode run inside the gateway instead of over netfix, so the writer registry
 (AER-4476) names every write `demo`. It flies `profile` (default
-`fp8-ksmx-rnav30-missed.yaml`) at x1 and starts over at the end. The steps
+`demo5-ksba-v27-ksmx-rnav30-missed.yaml`) at x1 and starts over at the end. The steps
 are the ones above, with these differences:
 
 - It writes the generator's sensor keys and the route block and `FPLCMD`,

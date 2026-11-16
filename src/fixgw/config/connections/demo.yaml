@@ -13,7 +13,7 @@
 demo:
   load: DEMO
   module: fixgw.plugins.demo
-  # profile: fp8-ksmx-rnav30-missed.yaml  # in src/fixgw/sim/profiles/, or a full path
+  # profile: demo5-ksba-v27-ksmx-rnav30-missed.yaml  # in src/fixgw/sim/profiles/, or a full path
   # watch_s: 3        # watch LAT/LONG this long for another writer first
   # restart_s: 5      # between loops: plan cleared, position flagged bad
   # frequency_ms: 200 # one row of source keys every 200 ms
