@@ -760,6 +760,71 @@ def test_main_thread_run_success_and_error_paths(monkeypatch):
     assert FakeMainMav.instances[-1].closed is True
 
 
+def test_main_thread_keeps_one_autopilot_adapter_across_reconnects(monkeypatch):
+    # The request baseline and the disconnect latch must survive a
+    # reconnect, and the APCMDSEQ callback must be removed when it stops.
+    monkeypatch.setattr(mav_plugin, "Mav", FakeMainMav)
+    parent = FakeParent()
+    parent.config = {"type": "serial", "options": {"raise_heartbeat": True}}
+    thread = mav_plugin.MainThread(parent)
+    parent.thread = thread
+    sleeps = 0
+
+    def stop_after_three(_seconds):
+        nonlocal sleeps
+        sleeps += 1
+        if sleeps > 5:
+            thread.getout = True
+
+    monkeypatch.setattr(mav_plugin.time, "sleep", stop_after_three)
+    FakeMainMav.instances.clear()
+    thread.run()
+    adapters = {id(m.autopilot) for m in FakeMainMav.instances}
+    assert len(FakeMainMav.instances) >= 2 and len(adapters) == 1
+    assert FakeMainMav.instances[0].autopilot is thread.autopilot
+    assert parent.callbacks == []
+
+
+def test_main_thread_runs_check_mode_at_once_for_a_head_request(monkeypatch):
+    # checkMode otherwise runs every 40 loops: up to 4 s on a quiet link.
+    class PendingOnce:
+        def __init__(self, parent):
+            self.left = 1
+
+        def pending(self):
+            self.left -= 1
+            return self.left >= 0
+
+        def close(self):
+            pass
+
+    class Recording(FakeMainMav):
+        def checkMode(self):
+            self.first_check = getattr(self, "first_check", self.process_calls)
+
+    monkeypatch.setattr(mav_plugin, "Mav", Recording)
+    monkeypatch.setattr(mav_plugin, "Autopilot", PendingOnce)
+    parent = FakeParent()
+    parent.config = {"type": "serial", "options": {}}
+    thread = mav_plugin.MainThread(parent)
+    parent.thread = thread
+    thread.run()
+    assert FakeMainMav.instances[-1].first_check == 1
+
+
+def test_main_thread_autopilot_option_off(monkeypatch):
+    monkeypatch.setattr(mav_plugin, "Mav", FakeMainMav)
+    parent = FakeParent()
+    parent.config = {"type": "serial", "options": {"autopilot": False}}
+    thread = mav_plugin.MainThread(parent)
+    parent.thread = thread
+    FakeMainMav.instances.clear()
+    thread.run()
+    assert thread.autopilot is None
+    assert FakeMainMav.instances[-1].autopilot is None
+    assert getattr(parent, "callbacks", []) == []
+
+
 def test_main_thread_run_init_failure_logs_and_retries(monkeypatch):
     monkeypatch.setattr(mav_plugin, "Mav", FakeMainMav)
     parent = FakeParent()
