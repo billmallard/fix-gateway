@@ -5,10 +5,9 @@ maos-workspace repo), with Bill's rulings D1-D7 of 2026-10-26; backlog item
 AFC1 (AER-5569). The keys are defined in `database/autopilot.yaml`, which the
 default `database.yaml` includes.
 
-This is a contract only. Nothing in fix-gateway writes these keys yet. The
-X-Plane adapter (AFC2) is the first autopilot source, the `autopilot_panel`
-instrument (AFC3) the first request writer, and the PFD annunciation and
-flight director bars (AFC4, AFC5) the first readers.
+The X-Plane adapter (AFC2, below) is the first autopilot source. The
+`autopilot_panel` instrument (AFC3) is the first request writer, and the PFD
+annunciation and flight director bars (AFC4, AFC5) are the first readers.
 
 ## The rule: the head asks, the autopilot decides
 
@@ -156,6 +155,77 @@ tol.
 
 Targets and requests keep tol 0. They are written when the pilot acts, so a tol
 would flag them old between edits.
+
+## The X-Plane source (AFC2)
+
+`fixgw.plugins.xplane.autopilot`, turned on by `autopilot: enabled: true` in
+`connections/xplane.yaml` (on in the shipped file; the XPLANE plugin itself is
+off by default). It subscribes its own datarefs over RREF, so nothing has to
+be added under `datarefs:`. Every dataref and command name is in X-Plane 12's
+own `DataRefs.txt` and `Commands.txt`. If the running sim does not answer one
+of them, the adapter publishes nothing and logs the silent names once, after
+10 s.
+
+**Requests.** Each request presses one X-Plane command, and that is all it
+does. The state keys change only when X-Plane reports that its mode changed.
+
+| Request | X-Plane command | Refused (nothing sent, reason on `APMSG`) when |
+|---|---|---|
+| `AP` | `sim/autopilot/servos_on`, or `servos_off_any` when engaged | |
+| `FD` | `sim/autopilot/fdir_on`, or `servos_fdir_off` when on | the autopilot is engaged and FD is on |
+| `YD` | `sim/systems/yaw_damper_toggle` | |
+| `LVL` | `sim/autopilot/return_to_level` | |
+| `HDG` | `sim/autopilot/heading` | |
+| `TRK` | `sim/autopilot/track` | |
+| `NAV` | `sim/autopilot/NAV` | the HSI source has no lateral signal, unless NAV is already armed or active (that press cancels) |
+| `APR` | `sim/autopilot/approach` | the same, for approach |
+| `IAS` | `sim/autopilot/level_change`, then `IASSEL` to the speed dial 0.5 s later, unless `IASSEL` is 0 | |
+| `VNAV` | `sim/autopilot/vnav` | |
+| `VS` | `sim/autopilot/alt_vs` (VS at the current rate, ALT armed), then `VSSEL` to the VS dial 0.5 s later | |
+| `ALT` | `sim/autopilot/altitude_hold` | |
+| `DISC` | `sim/autopilot/servos_off_any` when engaged; when `APDISC` is set, it only acknowledges | |
+
+Every request is also refused when it is not in `APCAPS`, or when the
+adapter has had no complete, fresh set of datarefs for 1 s.
+
+**State.** Read from `sim/cockpit2/autopilot/`, where each mode's `*_status`
+is 0 off, 1 armed, 2 captured:
+
+| Key | From |
+|---|---|
+| `APENG` | `servos_on` |
+| `FDENG` | `flight_director_mode` 1 or 2 |
+| `YDENG` | `sim/cockpit2/switches/yaw_damper_on` |
+| `APLAT` | the first captured of `backcourse_status` (BC), `nav_status`, `gpss_status` (GPS), `heading_status` or `heading_hold_status` (HDG), `track_status` (TRK), `roll_status`, `rate_status` or `attitude_status` (ROL) |
+| `APLATARM` | `backcourse_status`, `nav_status` and `gpss_status` that are armed |
+| `APVERT` | the first captured of `glideslope_status` (GS, or GP when the HSI is on GPS), `vnav_status`, `altitude_hold_status` (ALT), `speed_status` (IAS), `vvi_status` (VS), `pitch_status` or `attitude_status` (PIT) |
+| `APVERTARM` | `altitude_hold_status`, `vnav_status` and `glideslope_status` that are armed, in that order |
+| `FDPITCH`, `FDROLL` | `flight_director_pitch_deg`, `flight_director_roll_deg` |
+| `APCAPS` | the aircraft's `sim/aircraft/autopilot/preconfigured_ap_type`, less ALT, VS, IAS and VNAV for a single-axis autopilot, plus YD when it has a yaw damper switch |
+| `APDISC` | latched by the adapter whenever `servos_on` goes from 1 to 0 |
+
+NAV's state is named by what the HSI follows
+(`HSI_source_select_pilot`): GPS on GPS1 or GPS2; on NAV1 or NAV2, LOC when
+that radio's `nav_type` is a localizer (4 or 5) and VOR otherwise.
+
+What X-Plane does not report, and the adapter therefore never claims:
+
+- **No LVL state.** X-Plane's "return to level" flies its roll and pitch hold
+  modes, so after `LVL` the keys show the modes it reports, not `LVL`.
+- **No capture phase.** `altitude_hold_status` goes from armed straight to
+  captured, so `APALTCAP` is always false from this source.
+
+**Targets.** `ALTSEL`, `VSSEL` and `IASSEL` follow the sim's
+`altitude_dial_ft`, `vvi_dial_fpm` and `airspeed_dial_kts`, and a pilot change
+on the bus is written to the dial (DREF). Until the dial follows, for up to
+2 s, the dial is not copied back, so the pilot's value does not flicker. A
+value the sim will not take settles to the sim's. `HEADBUG` still flows one
+way, sim to bus, as before.
+
+**Staleness.** State is written only from fresh replies: every one of the
+adapter's datarefs heard within 1 s. An unchanged key is rewritten every
+0.5 s. When X-Plane stops sending, the adapter writes nothing, and the keys go
+old by their own tol.
 
 ## Divergence from upstream
 
