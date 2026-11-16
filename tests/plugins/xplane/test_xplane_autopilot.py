@@ -19,8 +19,8 @@ import fixgw.plugin as plugin_base
 from fixgw.plugins.xplane import MainThread
 from fixgw.plugins.xplane import autopilot as ap
 
-# A Laminar C172 G1000 (GFC-700) in level cruise: AP on, HDG, ALT hold, the
-# HSI on GPS with a signal.
+# A Laminar C172 G1000 (GFC-700) in level cruise: AP on, HDG, ALT hold at
+# 3500 with 4500 preselected, the HSI on GPS with a signal.
 CRUISE = {
     "servos_on": 1, "fd_mode": 2, "yd_on": 0,
     "heading_status": 2, "heading_hold_status": 0, "track_status": 0,
@@ -29,7 +29,7 @@ CRUISE = {
     "approach_status": 0,
     "pitch_status": 0, "vvi_status": 0, "speed_status": 0,
     "altitude_hold_status": 2, "glideslope_status": 0, "vnav_status": 0,
-    "fd_pitch": 2.5, "fd_roll": -4.0,
+    "fd_pitch": 2.5, "fd_roll": -4.0, "alt_hold": 3500.0,
     "alt_dial": 4500.0, "vvi_dial": 0.0, "ias_dial": 100.0,
     "hsi_source": 2, "hsi_signal": 1, "nav1_type": 0, "nav2_type": 0,
     "ap_type": 2, "single_axis": 0, "has_yd": 0,
@@ -120,10 +120,32 @@ def test_cruise_state(sim):
     assert (sim.read("APLAT"), sim.read("APLATARM")) == ("HDG", "")
     assert (sim.read("APVERT"), sim.read("APVERTARM")) == ("ALT", "")
     assert sim.read("APALTCAP") is False
+    assert sim.read("APALTREF") == 3500
     assert (sim.read("FDPITCH"), sim.read("FDROLL")) == (2.5, -4.0)
     assert sim.read("APCAPS") == "AP,FD,LVL,HDG,NAV,APR,IAS,VNAV,VS,ALT,DISC"
     assert sim.read("APMSG") == ""
     assert sim.read("APDISC") is False
+
+
+def test_held_altitude_is_the_sims_hold_not_the_preselect(sim):
+    """APALTREF follows altitude_hold_ft; turning the dial (ALTSEL) while
+    holding moves only ALTSEL (Bill, AER-5808)."""
+    sim.step(alt_dial=6500.0)
+    assert sim.read("ALTSEL") == 6500
+    assert sim.read("APALTREF") == 3500
+    sim.step(alt_hold=6499.6)
+    assert sim.read("APALTREF") == 6500
+
+
+def test_held_altitude_goes_old_with_the_rest_when_the_sim_stops(sim, monkeypatch):
+    now = [time.time()]
+    monkeypatch.setattr(time, "time", lambda: now[0])
+    sim.step()
+    assert sim.db.read("APALTREF")[2] is False
+    now[0] += 2.1
+    sim.clock.t += 2.1
+    sim.ap.publish()
+    assert sim.db.read("APALTREF")[2] is True
 
 
 def test_hdg_to_nav_capture_on_gps(sim):

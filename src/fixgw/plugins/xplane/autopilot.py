@@ -75,6 +75,9 @@ DATAREFS = (
     # Flight director commanded attitude, pos up / pos right.
     ("fd_pitch", "sim/cockpit2/autopilot/flight_director_pitch_deg"),
     ("fd_roll", "sim/cockpit2/autopilot/flight_director_roll_deg"),
+    # The altitude ALT hold holds (read only), which is not the dial: the
+    # pilot may preselect the next altitude while holding this one.
+    ("alt_hold", "sim/cockpit2/autopilot/altitude_hold_ft"),
     # Target dials.
     ("alt_dial", "sim/cockpit2/autopilot/altitude_dial_ft"),
     ("vvi_dial", "sim/cockpit2/autopilot/vvi_dial_fpm"),
@@ -145,7 +148,8 @@ TYPE_CAPS = {
 
 # The keys this adapter writes. All must be in the database, or it stays off.
 STATE_KEYS = ("APENG", "FDENG", "YDENG", "APLAT", "APLATARM", "APVERT",
-              "APVERTARM", "APALTCAP", "FDPITCH", "FDROLL", "APCAPS",
+              "APVERTARM", "APALTCAP", "APALTREF", "FDPITCH", "FDROLL",
+              "APCAPS",
               "APMSG", "APDISC")
 READ_KEYS = ("APCMD", "APCMDSEQ")
 
@@ -369,6 +373,7 @@ class Autopilot:
         # armed to captured in one step. Never claim a capture it did not
         # report.
         self._write("APALTCAP", False, now)
+        self._write("APALTREF", int(round(raw["alt_hold"])), now)
         self._write("FDPITCH", raw["fd_pitch"], now)
         self._write("FDROLL", raw["fd_roll"], now)
         self._write("APCAPS", ",".join(capabilities(raw)), now)
