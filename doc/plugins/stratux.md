@@ -224,10 +224,12 @@ cannot be dated from its own text is not stored, and a product dated more
 than 10 minutes after the clock is `old`: the clock is wrong (a host without
 a time source), so its age is unknown. A TWGO cancellation removes the
 report. Segmented TWGO products are joined; a file not complete within 10
-minutes of its first segment is dropped. The age limits are proposals awaiting
-a ruling (AER-5651).
+minutes of its first segment is dropped. The age limits were ruled on
+2026-11-16 (AER-5651).
 
 The plugin status shows `FIS-B uplinks`, `FIS-B products`, `FIS-B current`
-(how many are current now) and the count of each kind. Nothing reads the store yet: how weather reaches pyEfis is an open
-decision. Graphical products (NEXRAD, AIRMET/SIGMET and TFR geometry) are not
+(how many are current now) and the count of each kind. Nothing reads the store
+yet. The ruled delivery path (AER-5651) is a netfix request that returns one
+station's products, each with the state the gateway works out at that moment;
+pyEfis never works out an age itself. Graphical products (NEXRAD, AIRMET/SIGMET and TFR geometry) are not
 decoded.

@@ -7,8 +7,8 @@
 # future or old -- is computed when it is read, never stored.  A product whose
 # text cannot be dated is not stored at all.
 #
-# The age limits below are proposals awaiting Bill's ruling (AER-5651 design
-# note); DO-358B gives retention minimums after last reception, not display
+# The age limits below are Bill's ruling of 2026-11-16 (AER-5651 design
+# note).  DO-358B gives retention minimums after last reception, not display
 # ages.
 
 import calendar
