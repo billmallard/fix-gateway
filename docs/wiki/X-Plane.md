@@ -7,7 +7,8 @@ Data Output rows and named datarefs, and can write datarefs back.
 Plugin reference:
 [`doc/plugins/xplane.rst`](https://github.com/billmallard/fix-gateway/blob/dev/doc/plugins/xplane.rst).
 It is off in the shipped config: set `XPLANE: true` and turn `DEMO` off, since
-both write attitude (see [[Configuration]]).
+both write attitude (see [[Configuration]]). The plugin refuses to start while
+`demo` is loaded.
 
 ## X-Plane settings
 
@@ -49,19 +50,23 @@ Values of -999 (X-Plane's "no data") are dropped.
 
 ## Named datarefs (`datarefs`)
 
-`KEY: dataref`, or `KEY: [dataref, scale]`:
+`KEY: dataref`, `KEY: [dataref, scale]`, or `KEY: [dataref, {code: value}]` for
+a dataref whose codes differ from the key's. With a map, the rounded dataref
+value is looked up, and a code not in the map writes 0:
 
 ```yaml
 datarefs:
   EXTCRS:  sim/cockpit/radios/gps_course_degtm
   EXTCDI:  [sim/cockpit/radios/gps_hdef_dot, 0.4]
+  NAV1TYPE: ["sim/cockpit/radios/nav_type[0]", {3: 1, 4: 2, 5: 2}]
 ```
 
 The shipped file subscribes the X-Plane GPS as the external navigator
 (`EXTCRS`, `EXTCDI`, `EXTTF`, and its glidepath `EXTGSI`/`EXTGSF`; select it
 with `GPSSRC` = 1, see
-[[Flight Plan Engine]]), both NAV radios' course, deviation, glideslope and
-TO/FROM, the VOR bearings, and `HEADBUG`.
+[[Flight Plan Engine]]), both NAV radios' course, deviation, glideslope,
+TO/FROM and tuned navaid type (`NAV1TYPE`/`NAV2TYPE`: 1 VOR, 2 localizer, 0
+anything else), the VOR bearings, and `HEADBUG`.
 
 ## Writing back (`dataref_writes`)
 
