@@ -29,14 +29,14 @@ connection file; write one and wire it in as **[[Configuration]]** describes.
 |---|---|
 | `xplane` | X-Plane 11/12 over UDP — air data, attitude, position, nav radios and the X-Plane GPS; writes the HSI source back. See **[[X-Plane]]** |
 | `fgfs` | FlightGear generic protocol — the same keys as `xplane` |
-| `demo` | a simulated flight, looped: the synthetic tier flies the KSMX RNAV 30 approach, missed and hold, and the real flight-plan engine guides it. Needs `pip install 'fixgw[sim]'`, and refuses to run beside another source of its keys |
+| `demo` | a simulated flight, looped: the synthetic tier flies the KSMX RNAV 30 approach, missed and hold, and the real flight-plan engine guides it. It also writes engine-monitor values and, with `traffic: true` (the default), a few ADS-B targets around the hold. Needs `pip install 'fixgw[sim]'`, and refuses to run beside another source of its keys |
 | `data_playback` | replays `data_recorder` files (`--playback-start-time`, or `data_playback.yaml`) |
 
 ### GPS, navigators & ADS-B
 | Plugin | Brings in |
 |---|---|
 | `gpsd` | position, track, ground speed, GPS altitude, fix type and accuracy from a `gpsd` daemon |
-| `stratux` | GDL90 from a Stratux: ADS-B traffic (`TFC*`), AHRS and ground speed; no position. AHRS over Wi-Fi drives the attitude display: set `source:` to the receiver's address |
+| `stratux` | GDL90 from a Stratux: ADS-B traffic (`TFC*`), AHRS and ground speed. The receiver's own position, integrity and GPS altitude go to its `STX*` keys, never `LAT`/`LONG`, and receiver health and GPS quality come from its `/getStatus` page. AHRS over Wi-Fi drives the attitude display: set `source:` to the receiver's address (the health poll needs it too). Traffic matching `ownship_address` (in the connection file, or top-level in `preferences.yaml.custom`) is not shown |
 | `navigator_adapter` | an external navigator's RS-232 NMEA: position and `EXT*` guidance, see **[[Navigator Adapter]]** |
 | `garmin_gnx375` | Garmin GNX 375 NMEA: position and `EXT*` guidance (GPS and nav only) |
 | `ifly` | next waypoint (`WPNAME`, `WPLAT`, `WPLON`) from the iFly EFB over UDP; experimental |
@@ -72,6 +72,7 @@ connection file; write one and wire it in as **[[Configuration]]** describes.
 | `rpi_virtualwire` | VirtualWire radio receiver for `IAS` / `OAT` |
 | `rtl_433` | sensors decoded by `rtl_433` on an RTL-SDR; shipped for tire pressure |
 | `knobster` | Sim Innovations Knobster USB encoder |
+| `tessera` | a Tessera touch panel over USB serial as a control head: its keys show FIX values, and a press writes the FIX keys its page file names; experimental, see [`doc/plugins/tessera.md`](https://github.com/billmallard/fix-gateway/blob/dev/doc/plugins/tessera.md) |
 | `rais` | a RAIS sensor pipeline |
 | `X728` / `strom_pi` | Pi UPS boards: power-fail and battery keys, and shutdown after a delay |
 
