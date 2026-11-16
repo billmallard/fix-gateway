@@ -313,8 +313,8 @@ def test_long_press_writes_nothing(rig, database):
 
 
 def test_press_before_the_panel_accepted_the_page_writes_nothing(rig, database):
-    """The panel shows the layout it saved until it accepts ours: a press on
-    it must not run our page's action for that id."""
+    """The panel shows the layout it saved until it accepts the host's page: a
+    press on it must not run the host page's action for that id."""
     rec = Recorder()
     database.callback_add("test", "TSBTN12", rec, None)
     p, panel = rig()
