@@ -131,9 +131,14 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   SUSP` and `FPLPHASE = "VECTORS"`, with `FPLCRS`/`FPLXTK`/`FPLCDI`/`WPDIS`/
   `WPETE`/`FPLREMDIS`/`FPLREMETE` all reading 0 — the box invents no
   heading, and no distance to one either (guardrail 4). `RESUME` off a
-  vector leg activates the next slot direct from the aircraft's actual
-  position (like a `DTO`, not a resumed track), or posts `"NO NEXT LEG"`
-  and stays suspended if there is nothing after it.
+  vector leg activates the next slot from the aircraft's actual position,
+  not a resumed track, or posts `"NO NEXT LEG"` and stays suspended if
+  there is nothing after it. A `TF` or `DF` next leg is then the line from
+  the aircraft to its fix, like a `DTO`, with no `DF` coded turn. A `CF`
+  next leg is flown on its coded course, so `RESUME` is an intercept of
+  that course and the needle shows how far off it the aircraft is
+  (fix-gateway #174). `WPFROM` reads empty in both cases: the vector leg
+  ended at no fix.
 - **Arcs (PA13)**: `RF`/`AF` fly a real constant-radius circle around
   `FPLfCTRLAT`/`FPLfCTRLON` at radius `FPLfDST`, direction `FPLfTURN` — not
   a straight-line approximation. `FPLXTK` is distance-from-center minus
