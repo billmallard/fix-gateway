@@ -105,7 +105,11 @@ class MainThread(threading.Thread):
                     # So we only deal with the AP once every 200 cycles
                     # Close to once every 0.2 seconds, fast enough
                     # for users asking for a mode change
-                    if loopc > 40:
+                    # A head request (APCMD) is a pilot waiting on a press,
+                    # so it does not wait for the next turn.
+                    if loopc > 40 or (
+                        self.autopilot and self.autopilot.pending()
+                    ):
                         self.conn.checkMode()
                         loopc = 0
                     loopc += 1

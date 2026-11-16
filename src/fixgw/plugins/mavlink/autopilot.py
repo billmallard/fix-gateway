@@ -161,6 +161,11 @@ class Autopilot:
         if not self.enabled:
             return
         now = self.clock()
+        if self.mode is not None and custom_mode != self.mode:
+            # A new mode is newer news than an earlier refusal: without
+            # this, "VS is not available" hid "ArduPlane mode FBWA" for up
+            # to MSG_HOLD_S after a mode switch on the transmitter.
+            self.msg = ""
         self.mode = custom_mode
         self.heard = now
         eng = engaged(custom_mode)
@@ -216,6 +221,9 @@ class Autopilot:
             return
         self.seq = seq
         self.requests.put(str(self._read("APCMD")).strip().upper())
+
+    def pending(self):
+        return self.enabled and not self.requests.empty()
 
     def poll(self, mav):
         """Run from Mav.checkMode: turn queued requests into MAVREQ* keys.
