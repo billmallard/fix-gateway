@@ -48,9 +48,13 @@ class Mav:
             "accel": True,
             "pressure": True,
         },
+        autopilot=None,
     ):
         # Currently all that is supported is serial so conn_type is not yet used
         self.parent = parent
+        # The autopilot state keys (AFC7), or None. Owned by the plugin
+        # thread, so a reconnect keeps its request baseline and latch.
+        self.autopilot = autopilot
 
         self._apreq = "INIT"  # Requested mode
         self._apstat = "INIT"  # Current status
@@ -179,6 +183,8 @@ class Mav:
 
     def process(self):
         self.checkLink()
+        if self.autopilot:
+            self.autopilot.refresh()
         # Process recenived messages
         msg = self.conn.recv_match(timeout=0.1, blocking=True)
         if not msg:
@@ -314,6 +320,8 @@ class Mav:
             if msg.type == 1:
                 self._link_ok = True
                 self._last_heartbeat = time.monotonic()
+                if self.autopilot:
+                    self.autopilot.heartbeat(msg.custom_mode)
                 # custom_mode has current flight mode
                 # 0 = manual, 8 = autotune, 10 = auto, 7 = cruise https://ardupilot.org/plane/docs/parameters.html#fltmod
 
@@ -529,6 +537,9 @@ class Mav:
 
     def checkMode(self):
         self.checkWaypoint()
+        if self.autopilot:
+            # APCMD requests become MAVREQ* keys, which the loop below sends.
+            self.autopilot.poll(self)
         if not self.parent.quorum.leader:
             logger.debug("Nothing else to check because leader = true")
             return

@@ -1,0 +1,3 @@
+MANUAL  stick right: (SERVO1, SERVO3)=(1900, 1000) armed=False mode=MANUAL | centred: (1500, 1000)
+FBWA    stick right: (SERVO1, SERVO3)=(1900, 1000) armed=False mode=FBWA | centred: (1499, 1000)
+CRUISE  stick right: (SERVO1, SERVO3)=(1900, 1000) armed=False mode=CRUISE | centred: (1499, 1000)
