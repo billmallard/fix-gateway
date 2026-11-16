@@ -104,6 +104,7 @@ command is in place when the counter lands.
 | `APVERT` | str | | | "" | 2000 | autopilot source | Active vertical mode: `PIT`, `ALT`, `VS`, `IAS`, `VNAV`, `GS`, `GP`, `LVL`, or "" for none |
 | `APVERTARM` | str | | | "" | 2000 | autopilot source | Armed vertical modes, comma-separated, from the `APVERT` names |
 | `APALTCAP` | bool | | | false | 2000 | autopilot source | Capturing `ALTSEL`: the transition between a climb or descent and ALT hold |
+| `APALTREF` | int | ft | -1000 to 60000 | 0 | 2000 | autopilot source | The altitude ALT hold is holding. Not `ALTSEL`: the pilot may preselect the next altitude while holding this one |
 
 - The state names are the modes the source is flying, not the buttons. `NAV`
   is a request, and the state it produces is `GPS`, `VOR` or `LOC`, depending
@@ -114,6 +115,11 @@ command is in place when the counter lands.
   the order given. "" means nothing is armed.
 - `APLAT` and `APVERT` are "" when neither the autopilot nor the flight
   director is on.
+- `APALTREF` means something only while `APVERT` is `ALT`; a display shows it
+  then and ignores it otherwise. A source with no held-altitude value never
+  writes it, so it stays old and a display shows `ALT` with no number. It is
+  never filled in from `ALTSEL` (Bill, AER-5808, 2026-11-16: showing the
+  preselect as the held altitude is the shortcoming this key fixes).
 
 ## Flight director
 
@@ -204,6 +210,7 @@ is 0 off, 1 armed, 2 captured:
 | `APLATARM` | `backcourse_status`, `nav_status` and `gpss_status` that are armed |
 | `APVERT` | the first captured of `glideslope_status` (GS, or GP when the HSI is on GPS), `vnav_status`, `altitude_hold_status` (ALT), `speed_status` (IAS), `vvi_status` (VS), `pitch_status` or `attitude_status` (PIT) |
 | `APVERTARM` | `altitude_hold_status`, `vnav_status` and `glideslope_status` that are armed, in that order |
+| `APALTREF` | `sim/cockpit2/autopilot/altitude_hold_ft` ("Altitude hold commanded in feet indicated"), rounded to the foot |
 | `FDPITCH`, `FDROLL` | `flight_director_pitch_deg`, `flight_director_roll_deg` |
 | `APCAPS` | the aircraft's `sim/aircraft/autopilot/preconfigured_ap_type`, less ALT, VS, IAS and VNAV for a single-axis autopilot, plus YD when it has a yaw damper switch |
 | `APDISC` | latched by the adapter whenever `servos_on` goes from 1 to 0 |
@@ -302,6 +309,8 @@ heartbeat:
   "": ArduPlane has no flight director and no separate yaw damper switch, and
   reports no armed modes and no capture phase. `FDPITCH` and `FDROLL` are
   never written, so they stay old and no display draws bars.
+- `APALTREF` is not written yet, so it stays old and a display shows `ALT`
+  with no number.
 - `APDISC` is latched on any change from an engaged mode to MANUAL, whatever
   caused it: the head, the transmitter's mode switch or a failsafe.
 - The mode keys `MAVMODE`, `MAVSTATE` and `MAVMSG`, and the buttons that read
