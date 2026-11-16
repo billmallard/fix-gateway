@@ -26,7 +26,9 @@ tolerances are QA's and are not edited to fit a result.
 AER-5173): V27 from HENER to DOYLE, the slice X-Plane flew as SIM2b's
 session `9b6d523db79a`. `demo9-ksmx-rw30-climb-out-gvo.yaml` is the first
 to open with a departure (DEMO9, AER-5463): a climb-out from KSMX RW30, then
-direct GVO and V27.
+direct GVO and V27. `demo5-ksba-v27-ksmx-rnav30-missed.yaml` is the demo
+route (DEMO5, AER-5802), every kind of item in one flight: a climb-out from
+KSBA, V27, a GPS loss, the KSMX approach, its missed approach and the hold.
 
 ## The rule for the reference
 

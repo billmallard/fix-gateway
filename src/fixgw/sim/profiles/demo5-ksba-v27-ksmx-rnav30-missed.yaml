@@ -1,0 +1,114 @@
+# DEMO5 (AER-5802): the demo route, one continuous flight so the loop never
+# teleports (briefs/demo_mode_redesign.md section 3.2). From over the KSBA
+# RW07 threshold, a climb-out on the runway heading to 8,000 ft, direct
+# DEANO, V27 west through KWANG to GOLET, then the KSMX RNAV (GPS) RWY 30
+# via GVO: GOLET-GVO is V27's last segment, flown as the leg into the
+# transition's IF. The GPS loses its fix for 30 s on that leg, and the route
+# goes on through the MAP, the missed approach to WINCH and five minutes in
+# the WINCH hold. Format: ../PROFILE_FORMAT.md
+#
+# Why KSBA and V27 west: the transition starts at GVO, and en-route items
+# may not end where the procedure starts, so the airway has to end at a fix
+# short of GVO. Flown west, V27 ends at GOLET with a 59 degree fly-by into
+# the transition (9 degrees at GVO). Flown east from GVO, the route turns
+# back to GVO at its exit: 180 degrees at GOLET, 150 at KWANG. V27 GVO-AVOLS
+# runs 116 nm away from KSMX. KSBA's RW07 climbs east, towards V27. 8,000
+# ft: the highest MEA on DEANO-GVO is 6,400 (GOLET-GVO), and westbound IFR
+# flies even thousands.
+#
+# The CIFP excerpt is the KSMX R30 excerpt of fp8 plus the V27 excerpt of
+# demo9 (which adds the KSMX RW30 runway record) and the KSBA RW07 runway
+# record.
+name: demo5-ksba-v27-ksmx-rnav30-missed
+description: >
+  KSBA RW07 climb-out to 8,000 ft, direct DEANO, V27 to GOLET, KSMX RNAV
+  (GPS) RWY 30 via GVO with 30 s of no GPS fix on GOLET-GVO, missed
+  approach to WINCH, 5 min in the WINCH hold.
+
+departure: KSBA
+destination: KSMX
+
+cifp:
+  cycle: "2611"
+  file: cifp/FAACIFP18-2611-DEMO5-KSBA-V27-KSMX-R30
+
+aircraft: {tas_kt: 110, climb_fpm: 700, descent_fpm: 600, bank_max_deg: 25}
+
+environment:
+  magvar_deg: -11.9                # FIX MAGVAR, positive west: fp8's, at KSMX (the V27 fixes are E011.7)
+  wind: {from_deg: 0, kt: 0}
+
+start: {runway: RW07, alt_ft: 61}   # 50 ft over the 11 ft threshold
+
+route:
+  - climb_out: {runway: RW07, alt_ft: 8000}
+  - waypoint: DEANO
+  - airway: {id: V27, exit: GOLET}
+  - procedure: {airport: KSMX, approach: R30, transition: GVO, missed: true}
+
+pilot:
+  missed_after_map_s: 5
+
+events:
+  - id: gps_loss
+    at: {leg: GOLET-GVO, after_s: 200}
+    do: {gps_loss_s: 30}
+  - id: hold
+    at: {hold_at: WINCH}
+    do: {hold_min: 5}
+
+end: {after_event: hold, max_s: 7200}
+
+checks:
+  # The GPS loss puts the whole route through the plugin (plugin_replay), so
+  # the loss-of-fix checks are those of qa1-gps-loss-mid-leg-ksmx-r30: on
+  # every row the guidance is flagged or agrees with the reference, it is
+  # flagged within 1 s of losing the fix, and clears within 1 s of its return.
+  # FPLCRS: 1.0 deg, and runs under 0.5 s (one update) forgiven. Through the
+  # plugin, guidance cycles are rate limited and a 1 s timer cycle runs on
+  # the last position, so in the hold's turns (3 deg/s) the course trails the
+  # reference by up to one update, and the hold's phase changes one update
+  # apart. Through the engine, in step, the same stream holds 0.5 deg with
+  # nothing forgiven (tests/sim/test_demo5_route.py).
+  - key_pair: [FPLCRS, REFCRS]
+    tol_deg: 1.0
+    tolerate_s: 0.5
+    unless_flagged: true
+    skip_when_silent: {LAT: 0.5}
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+  - key_pair: [FPLXTK, REFXTK]
+    tol: 0.02
+    unless_flagged: true
+    skip_when_silent: {LAT: 0.5}
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+  - key_pair: [FPLCDI, REFCDI]
+    tol: 0.05
+    same_sign: true
+    unless_flagged: true
+    skip_when_silent: {LAT: 0.5}
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+  - key_pair: [WPDIS, REFDIS]
+    # 0.5%: sphere vs WGS-84 distance; 0.015 nm: two 0.2 s updates at 110 kt.
+    # A CA has no fix: the reference says 0, the engine the distance to the
+    # slot's point on the course
+    tol: 0.015
+    tol_rel: 0.005
+    skip_when: {REFWPT: ""}
+    unless_flagged: true
+    skip_when_silent: {LAT: 0.5}
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+  - flagged: [FPLCRS, FPLXTK, FPLCDI, WPDIS]
+    while_no_fix: true
+    within_s: 1.0
+    clear_within_s: 1.0
+  - key_pair: [WPNAME, REFWPT]
+    skip_when: {GPS_FIX_TYPE: 1}
+    except_s_around_sequence: 5
+    around_keys: [REFWPT]
+    tolerate_s: 1.0            # the first update after the fix returns: the flag's own 1 s bound
+  - sequence: [DEANO, KWANG, GOLET, GVO, NIRLE, ELZUS, PAMJI, CIMSO, ANIBY, RW30, HANNU, WINCH]
+    keys: [WPNAME, REFWPT]
