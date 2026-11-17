@@ -58,7 +58,10 @@ the request, saying why in `APMSG`, or sync to the current airspeed.
 Several plugins may write a target, as with `HEADBUG` today (netfix for
 pyEfis, the X-Plane connection from the sim's panel). The one-writer check
 (AER-4476) logs a warning the first time a second plugin writes one. That is
-expected for these four keys, and only for these.
+expected for these four keys. It is also expected for the three pilot settings
+the X-Plane source keeps in step the same way (AFC2b, "Targets" under "The
+X-Plane source (AFC2)" below): `NAV1CRS`, `NAV2CRS` and `BARO`. It is expected
+for these seven keys, and only for these.
 
 ## Requests
 
@@ -226,12 +229,34 @@ What X-Plane does not report, and the adapter therefore never claims:
 - **No capture phase.** `altitude_hold_status` goes from armed straight to
   captured, so `APALTCAP` is always false from this source.
 
-**Targets.** `ALTSEL`, `VSSEL` and `IASSEL` follow the sim's
-`altitude_dial_ft`, `vvi_dial_fpm` and `airspeed_dial_kts`, and a pilot change
-on the bus is written to the dial (DREF). Until the dial follows, for up to
-2 s, the dial is not copied back, so the pilot's value does not flicker. A
-value the sim will not take settles to the sim's. `HEADBUG` still flows one
-way, sim to bus, as before.
+**Targets.** Each of these keys follows its sim dial, and a pilot change on
+the bus is written to the dial (DREF):
+
+| Key | X-Plane dataref (all writable in `DataRefs.txt` 1210) |
+|---|---|
+| `ALTSEL` | `sim/cockpit2/autopilot/altitude_dial_ft` |
+| `VSSEL` | `sim/cockpit2/autopilot/vvi_dial_fpm` |
+| `IASSEL` | `sim/cockpit2/autopilot/airspeed_dial_kts` |
+| `HEADBUG` | `sim/cockpit2/autopilot/heading_dial_deg_mag_pilot` |
+| `NAV1CRS` | `sim/cockpit2/radios/actuators/nav1_obs_deg_mag_pilot` |
+| `NAV2CRS` | `sim/cockpit2/radios/actuators/nav2_obs_deg_mag_pilot` |
+| `BARO` | `sim/cockpit2/gauges/actuators/barometer_setting_in_hg_pilot` |
+
+Until the dial follows, for up to 2 s, the dial is not copied back, so the
+pilot's value does not flicker, and a reply already in flight cannot put the
+old value back. A pilot change that lands at the same moment as a dial
+movement wins: it is sent before the dial is read. A value the sim will not
+take settles to the sim's. The heading bug and the courses are compared
+around the circle, so 359 to 0 is a 1 degree change, and a dial at 360 reads
+0. `BARO` is the pilot-side altimeter, so X-Plane's altitude capture and the
+glass use one setting. The GPS course is not a target: it is the active leg
+(`GPSCRS`), which the pilot does not set.
+
+The shipped `xplane.yaml` reads none of these keys under `datarefs:`. A row
+for one of them under `datarefs:` or `dataref_writes:` (an older, seeded
+copy of the file) is ignored with a warning while the adapter is on, so each
+key has one path. With the adapter off, the commented rows in `xplane.yaml`
+put `HEADBUG`, `NAV1CRS` and `NAV2CRS` back as plain reads, sim to bus only.
 
 **Staleness.** State is written only from fresh replies: every one of the
 adapter's datarefs heard within 1 s. An unchanged key is rewritten every
