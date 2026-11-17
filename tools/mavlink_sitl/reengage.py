@@ -1,13 +1,32 @@
-"""The GUIDED re-engagement hazard (AER-5822, found while recording AFC7).
-session.py up to CRUISE, then: NAV (GUIDED), the transmitter takes MANUAL,
-the flight plan moves to the next waypoint. Does ArduPlane go back to GUIDED?
+"""The GUIDED re-engagement hazard (AER-5822, found while recording AFC7;
+fixed by AFC7a, AER-5897).
+session.py up to CRUISE, then three cases, each after the plugin itself
+engaged GUIDED (NAV) and the transmitter took MANUAL:
+
+  A. the flight plan moves to the next waypoint 2 s later;
+  B. the waypoint moves at the same instant as the switch, before the
+     plugin has seen a MANUAL heartbeat;
+  C. the waypoint goes invalid (the flight plan is cleared).
+
+ArduPlane must stay MANUAL in all three. Two checks follow:
+
+  D. with no transmitter switch, a new waypoint still moves the GUIDED
+     target the plugin engaged (it must stay GUIDED);
+  E. in MANUAL, a DO_REPOSITION without the mode-change flag, sent on the
+     transmitter link, is refused and ArduPlane stays MANUAL. The plugin's
+     waypoint updates rely on this when the switch beats the heartbeat.
+ Its mode is read from its own
+heartbeats on the transmitter link, which the plugin does not share, and
+every change is logged with its time.
 
 AFC7 end to end: ArduPlane SITL, the real mavlink plugin in the real fixgw
 server, a netfix client as the control head, a second MAVLink link as the
 pilot's RC transmitter.
 
-usage: session.py <fix-gateway tree> <out dir>
+usage: reengage.py <fix-gateway tree> <out dir>
 Run with pymavlink on PYTHONPATH. Every key read is logged with its flags.
+The autopilot's side is recorded in <out>/fc.tlog, the plugin's in
+<out>/gcs.tlog.
 """
 import json
 import os
@@ -82,7 +101,7 @@ ctl = os.path.join(OUT, "ctl")
 os.makedirs(ctl)
 bridge = subprocess.Popen(
     [sys.executable, os.path.join(HERE, "bridge.py"), str(SERIAL0), link,
-     os.path.join(OUT, "fc.tlog"), ctl],
+     os.path.join(OUT, "fc.tlog"), ctl, os.path.join(OUT, "gcs.tlog")],
     stdout=open(OUT + "/bridge.log", "w"), stderr=subprocess.STDOUT,
     start_new_session=True)
 procs.append(bridge)
@@ -258,26 +277,100 @@ rc_mode("CRUISE")
 wait_for("CRUISE (RC)", mode_is("CRUISE"))
 time.sleep(3)
 state("CRUISE held")
-press("NAV")
-wait_for("NAV->GUIDED", mode_is("GUIDED"))
-rc_mode("MANUAL")
-wait_for("MANUAL (RC)", mode_is("TRIM"))
-time.sleep(2)
-state("pilot has it")
+
+
+def watch(label, secs):
+    """ArduPlane's own mode, from its heartbeats on the transmitter link,
+    for ``secs``: every change, with its time. Buffered messages are
+    drained first, so nothing older than the call is read."""
+    while rc.recv_match(blocking=False) is not None:
+        pass
+    seen = []
+    t0 = time.time()
+    while time.time() - t0 < secs:
+        m = rc_hb()
+        if m is None:
+            continue
+        name = mavutil.mode_mapping_apm.get(m.custom_mode, m.custom_mode)
+        if not seen or seen[-1] != name:
+            say("ArduPlane %s: %s" % (label, name))
+            seen.append(name)
+    say("ArduPlane %s: modes %s" % (label, " -> ".join(map(str, seen))))
+    return seen
+
+
+results = {}
+
+
+def nav_then_manual(label, wp_lat, same_instant):
+    """The plugin engages GUIDED, the transmitter takes MANUAL, then the
+    waypoint is written (or, in B, both at once)."""
+    if state(label + " start")["MAVMODE"][0] == "GUIDED":
+        press("NAV")        # back to CRUISE first
+        wait_for(label + " CRUISE", mode_is("CRUISE"))
+    if state(label + " start")["APENG"][0] != "True":
+        press("AP")
+        wait_for(label + " AP", mode_is("CRUISE"))
+    press("NAV")
+    if wait_for(label + " NAV->GUIDED", mode_is("GUIDED")) is None:
+        # The plugin never engaged GUIDED, so the switch tests nothing.
+        results[label] = None
+        return
+    if same_instant:
+        rc_mode("MANUAL")
+        q("@wWPLAT;%s" % wp_lat)
+        say("FPL: waypoint", wp_lat, "with the switch")
+    else:
+        rc_mode("MANUAL")
+        wait_for(label + " MANUAL (RC)", mode_is("TRIM"))
+        time.sleep(2)
+        state(label + " pilot has it")
+        q("@wWPLAT;%s" % wp_lat)
+        say("FPL: waypoint", wp_lat)
+    results[label] = watch(label, 6)
+    state(label + " end")
+
+
+# From here the script writes the waypoint itself, so only the case's own
+# write moves it. Each case starts it fresh (50 s tol) at WPT1.
 FEED[0] = False
+time.sleep(1)
+for case, lat, same_instant in (("A", "34.4500", False),
+                                ("B", "34.4550", True),
+                                ("C", "0", False)):
+    for line in ("@wWPLAT;%f" % WP[0], "@wWPLON;%f" % WP[1],
+                 "@wWPNAME;%s" % WP[2]):
+        q(line)
+    nav_then_manual(case, lat, same_instant)
+# D: the plugin's own GUIDED follows the flight plan.
+for line in ("@wWPLAT;%f" % WP[0], "@wWPLON;%f" % WP[1], "@wWPNAME;%s" % WP[2]):
+    q(line)
+press("AP")
+wait_for("D AP", mode_is("CRUISE"))
+press("NAV")
+wait_for("D NAV->GUIDED", mode_is("GUIDED"))
 q("@wWPLAT;34.4500")
-say("FPL: next waypoint 34.4500")
-t0 = time.time()
-while time.time() - t0 < 8:
-    s_ = {k: r(k) for k in KEYS}
-    if s_["APENG"][0] == "True":
-        state("RE-ENGAGED")
-        break
-    time.sleep(0.2)
-else:
-    state("still MANUAL")
-m = rc_hb()
-say("ArduPlane reports", mavutil.mode_mapping_apm.get(m.custom_mode) if m else None)
+say("FPL: waypoint 34.4500, no switch")
+results["D"] = watch("D", 4)
+state("D end")
+
+# E: ArduPlane's own rule for a reposition without the mode-change flag.
+rc_mode("MANUAL")
+wait_for("E MANUAL (RC)", mode_is("TRIM"))
+while rc.recv_match(blocking=False) is not None:
+    pass
+rc.mav.command_int_send(rc.target_system, rc.target_component,
+                        mavutil.mavlink.MAV_FRAME_GLOBAL,
+                        mavutil.mavlink.MAV_CMD_DO_REPOSITION, 0, 0,
+                        0, 0, 0, 0, int(34.45 * 1e7), int(-119.92 * 1e7), 300)
+ack = rc.recv_match(type="COMMAND_ACK", blocking=True, timeout=3)
+say("E: DO_REPOSITION change_mode=0 in MANUAL ->",
+    ack and mavutil.mavlink.enums["MAV_RESULT"][ack.result].name)
+results["E"] = watch("E", 3)
+for k, v in results.items():
+    say("case %s: %s" % (k, "VOID, the plugin never engaged GUIDED" if v is None
+                         else "ArduPlane stayed " + v[0] if len(v) == 1
+                         else "ArduPlane went " + " -> ".join(map(str, v))))
 json.dump(records, open(os.path.join(OUT, "states.json"), "w"), indent=1)
 srv.send_signal(signal.SIGINT)
 try:
