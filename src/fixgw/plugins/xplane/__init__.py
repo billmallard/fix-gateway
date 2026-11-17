@@ -68,7 +68,7 @@ import struct
 import sys
 
 import fixgw.plugin as plugin
-from fixgw.plugins.xplane.autopilot import Autopilot
+from fixgw.plugins.xplane.autopilot import TARGET_KEYS, Autopilot
 
 # Plugins that write the same flight keys. Loading one of them alongside this
 # plugin gives each key two writers, and the last write silently wins.
@@ -244,11 +244,29 @@ class MainThread(threading.Thread):
         self.autopilot = None
         if ap_cfg.get("enabled", False) is True:
             self.autopilot = Autopilot(parent, self._send_ap, ap_cfg)
+            if self.autopilot.enabled:
+                self._drop_plain_target_rows()
 
         self.log.info(
             "xplane: listening udp:%d, dest %s:%d; recv indices=%s, send indices=%s",
             self.udp_in, self.xplane_ip, self.udp_out,
             sorted(self.recv_map.keys()), sorted(self.send_map.keys()))
+
+    def _drop_plain_target_rows(self):
+        """The adapter keeps its targets in step both ways. A plain read of
+        one would copy a reply in flight over the pilot's change, and a plain
+        write would send it back to the sim, so a target has one path."""
+        for index, (key, dref, _scale) in list(self.dataref_map.items()):
+            if key in TARGET_KEYS:
+                del self.dataref_map[index]
+                self.log.warning(
+                    "xplane: datarefs: %s (%s) ignored: the autopilot adapter "
+                    "keeps %s in step with the sim", key, dref, key)
+        for key in [k for k in self.dref_writes if k in TARGET_KEYS]:
+            del self.dref_writes[key]
+            self.log.warning(
+                "xplane: dataref_writes: %s ignored: the autopilot adapter "
+                "keeps %s in step with the sim", key, key)
 
     # ------------------------------------------------------------------
     # X-Plane -> FIX

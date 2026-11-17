@@ -31,6 +31,7 @@ CRUISE = {
     "altitude_hold_status": 2, "glideslope_status": 0, "vnav_status": 0,
     "fd_pitch": 2.5, "fd_roll": -4.0, "alt_hold": 3500.0,
     "alt_dial": 4500.0, "vvi_dial": 0.0, "ias_dial": 100.0,
+    "hdg_dial": 90.0, "nav1_obs": 180.0, "nav2_obs": 270.0, "baro": 29.92,
     "hsi_source": 2, "hsi_signal": 1, "nav1_type": 0, "nav2_type": 0,
     "ap_type": 2, "single_axis": 0, "has_yd": 0,
 }
@@ -59,12 +60,17 @@ class Sim:
 
     def step(self, dt=0.05, **changes):
         """Advance the clock, apply changes to the sim, deliver one reply."""
+        self.reply(dt, **changes)
+        self.ap.poll()
+
+    def reply(self, dt=0.05, **changes):
+        """One reply only: what the plugin does when a packet lands before
+        its next loop pass."""
         self.clock.t += dt
         self.state.update(changes)
         for name, value in self.state.items():
             assert self.ap.feed(INDEX[name], value)
         self.ap.publish()
-        self.ap.poll()
 
     def read(self, key):
         return self.db.read(key)[0]
@@ -530,13 +536,156 @@ def test_ias_press_with_no_target_takes_the_sims_speed(sim):
 
 
 # ---------------------------------------------------------------------------
+# The heading bug, the OBS courses and the altimeter (AFC2b, AER-5856)
+# ---------------------------------------------------------------------------
+
+# (key, the sim's dataref name here, its DREF path, a pilot step).
+SETTINGS = [
+    ("HEADBUG", "hdg_dial",
+     "sim/cockpit2/autopilot/heading_dial_deg_mag_pilot", 1.0),
+    ("NAV1CRS", "nav1_obs",
+     "sim/cockpit2/radios/actuators/nav1_obs_deg_mag_pilot", 1.0),
+    ("NAV2CRS", "nav2_obs",
+     "sim/cockpit2/radios/actuators/nav2_obs_deg_mag_pilot", 1.0),
+    ("BARO", "baro",
+     "sim/cockpit2/gauges/actuators/barometer_setting_in_hg_pilot", 0.01),
+]
+ANGLES = [s for s in SETTINGS if s[0] != "BARO"]
+
+
+def test_every_setting_is_a_target_on_one_sync():
+    by_key = {t[0]: t for t in ap.TARGETS}
+    for key, name, dref, _step in SETTINGS:
+        assert by_key[key][1:3] == (name, dref)
+        assert (name, dref) in ap.DATAREFS
+
+
+@pytest.mark.parametrize("key, name, _dref, step", SETTINGS)
+def test_a_change_in_the_sims_cockpit_shows_on_the_bus(sim, key, name, _dref,
+                                                       step):
+    start = sim.read(key)
+    assert start == pytest.approx(CRUISE[name])
+    sim.step(**{name: CRUISE[name] + 5 * step})
+    assert sim.read(key) == pytest.approx(CRUISE[name] + 5 * step)
+    assert sim.drefs() == []                # nothing echoed back to the sim
+
+
+@pytest.mark.parametrize("key, name, dref, step", SETTINGS)
+def test_a_pilot_change_moves_the_dial_and_stays(sim, key, name, dref, step):
+    want = CRUISE[name] + 3 * step
+    sim.db.write(key, want)
+    sim.step()
+    assert sim.drefs() == [(dref, pytest.approx(want))]
+    for _ in range(5):                      # the dial has not followed yet
+        sim.step()
+        assert sim.read(key) == pytest.approx(want)
+    sim.step(**{name: want})
+    for _ in range(3):
+        sim.step(dt=ap.TARGET_SETTLE_S)
+        assert sim.read(key) == pytest.approx(want)
+    assert len(sim.drefs()) == 1
+
+
+@pytest.mark.parametrize("key, name, dref, step", SETTINGS)
+def test_a_reply_in_flight_does_not_revert_a_pilot_change(sim, key, name,
+                                                          dref, step):
+    """The pilot's change lands, then a reply sent before X-Plane saw it
+    arrives ahead of the plugin's next loop pass, with the dial a step off
+    from where the bus last had it."""
+    want = CRUISE[name] + 10 * step
+    sim.db.write(key, want)
+    sim.reply(**{name: CRUISE[name] + step})
+    assert sim.read(key) == pytest.approx(want)
+    sim.ap.poll()
+    sim.step(**{name: CRUISE[name] + step})
+    assert sim.read(key) == pytest.approx(want)
+    assert sim.drefs() == [(dref, pytest.approx(want))]
+
+
+@pytest.mark.parametrize("key, name, dref, step", SETTINGS)
+def test_a_fast_knob_spin_never_steps_back(sim, key, name, dref, step):
+    """Twelve clicks, one per reply, with the sim's dial two replies behind:
+    the bus only ever moves forward and ends on the last click."""
+    start = CRUISE[name]
+    clicks = [start + (i + 1) * step for i in range(12)]
+    seen = []
+    for i, value in enumerate(clicks):
+        sim.db.write(key, value)
+        lagged = clicks[i - 2] if i >= 2 else start
+        sim.step(**{name: lagged})
+        seen.append(sim.read(key))
+    for _ in range(3):
+        sim.step(**{name: clicks[-1]})
+        seen.append(sim.read(key))
+    assert seen == sorted(seen)
+    assert seen[-1] == pytest.approx(clicks[-1])
+    assert sim.drefs()[-1] == (dref, pytest.approx(clicks[-1]))
+
+
+def test_a_setting_the_sim_will_not_take_settles_to_the_sims(sim):
+    sim.db.write("BARO", 31.50)
+    sim.step()
+    sim.step(dt=ap.TARGET_SETTLE_S + 0.1)   # the dial stays at 29.92
+    assert sim.read("BARO") == pytest.approx(29.92)
+    sim.step()
+    assert len(sim.drefs()) == 1
+
+
+@pytest.mark.parametrize("key, name, dref, _step", ANGLES)
+def test_a_pilot_wrap_from_359_to_0_is_one_degree(sim, key, name, dref, _step):
+    sim.step(**{name: 359.0})
+    assert sim.read(key) == 359.0
+    sent = len(sim.drefs())
+    sim.db.write(key, 0.0)
+    sim.step()
+    assert sim.drefs()[sent:] == [(dref, 0.0)]
+    # X-Plane may report the dial a hair under 360, or at 360, rather than
+    # at 0: the dial followed, so the pilot's 0 stays.
+    for value in (359.98, 360.0):
+        for _ in range(3):
+            sim.step(dt=ap.TARGET_SETTLE_S, **{name: value})
+            assert sim.read(key) == 0.0
+    assert len(sim.drefs()) == sent + 1
+
+
+@pytest.mark.parametrize("key, name, _dref, _step", ANGLES)
+def test_a_dial_turned_to_360_in_the_sim_reads_0(sim, key, name, _dref, _step):
+    sim.step(**{name: 360.0})
+    assert sim.read(key) == 0.0
+
+
+@pytest.mark.parametrize("key, name, _dref, _step", ANGLES)
+def test_a_sim_wrap_from_359_to_0_is_one_degree(sim, key, name, _dref, _step):
+    sim.step(**{name: 359.5})
+    sim.step(**{name: 0.4})
+    assert sim.read(key) == pytest.approx(0.4)
+    sim.step(**{name: 359.95})              # the database holds 359.9 at most
+    assert sim.read(key) == pytest.approx(359.9)
+    writes = []
+    with patch.object(sim.parent, "db_write",
+                      side_effect=lambda k, v: writes.append(k)):
+        for _ in range(3):
+            sim.step(dt=0.2)
+    assert key not in writes                # not rewritten on every reply
+    assert sim.drefs() == []
+
+
+@pytest.mark.parametrize("a, b, angle, d", [
+    (359.0, 0.0, True, 1.0), (0.0, 359.0, True, 1.0), (10.0, 350.0, True, 20.0),
+    (360.0, 0.0, True, 0.0), (180.0, 0.0, True, 180.0), (359.0, 0.0, False, 359.0),
+])
+def test_target_diff(a, b, angle, d):
+    assert ap.target_diff(a, b, angle) == pytest.approx(d)
+
+
+# ---------------------------------------------------------------------------
 # Wiring into the plugin
 # ---------------------------------------------------------------------------
 
 def _thread(database, autopilot=True):
     parent = plugin_base.PluginBase("xplane", {}, {})
     parent.config = {"udp_in": 49001, "udp_out": 49000,
-                     "datarefs": {"HEADBUG": "sim/cockpit/autopilot/heading_mag"}}
+                     "datarefs": {"NAV1CDI": "sim/cockpit/radios/nav1_hdef_dot"}}
     if autopilot:
         parent.config["autopilot"] = {"enabled": True}
     with patch("socket.socket"):
@@ -549,18 +698,18 @@ def test_plugin_subscribes_the_adapters_datarefs(database):
     sent = [struct.unpack("<4sxii400s", c.args[0])
             for c in th.sock.sendto.call_args_list]
     by_index = {i: d.rstrip(b"\x00").decode() for _h, _f, i, d in sent}
-    assert by_index[1000] == "sim/cockpit/autopilot/heading_mag"
+    assert by_index[1000] == "sim/cockpit/radios/nav1_hdef_dot"
     for name, dref in ap.DATAREFS:
         assert by_index[INDEX[name]] == dref
 
 
 def test_plugin_routes_rref_replies_and_publishes(database):
     th = _thread(database)
-    pairs = [(INDEX[n], float(v)) for n, v in CRUISE.items()] + [(1000, 123.0)]
+    pairs = [(INDEX[n], float(v)) for n, v in CRUISE.items()] + [(1000, 0.5)]
     data = b"RREF," + b"".join(struct.pack("<If", i, v) for i, v in pairs)
     th._ingest_rref(data)
     assert database.read("APLAT")[0] == "HDG"
-    assert database.read("HEADBUG")[0] == 123.0
+    assert database.read("NAV1CDI")[0] == 0.5
     assert database.get_raw_item("APLAT").writers == ["xplane"]
 
 
@@ -586,3 +735,38 @@ def test_shipped_xplane_yaml_turns_the_adapter_on():
     cfg = yaml.safe_load(
         Path("src/fixgw/config/connections/xplane.yaml").read_text())
     assert cfg["xplane"]["autopilot"]["enabled"] is True
+
+
+def test_plugin_ignores_a_plain_row_for_a_target(database):
+    """An older xplane.yaml with HEADBUG still under datarefs: the plain read
+    would copy a reply in flight over the pilot's change, so it is dropped."""
+    parent = plugin_base.PluginBase("xplane", {}, {})
+    parent.config = {"udp_in": 49001, "udp_out": 49000,
+                     "datarefs": {"HEADBUG": "sim/cockpit/autopilot/heading_mag",
+                                  "NAV1CDI": "sim/cockpit/radios/nav1_hdef_dot"},
+                     "dataref_writes": {"BARO": "sim/x"},
+                     "autopilot": {"enabled": True}}
+    parent.log = MagicMock()
+    with patch("socket.socket"):
+        th = MainThread(parent)
+    assert [k for k, _d, _s in th.dataref_map.values()] == ["NAV1CDI"]
+    assert th.dref_writes == {}
+    warned = " ".join(c.args[1] for c in parent.log.warning.call_args_list)
+    assert "HEADBUG" in warned and "BARO" in warned
+
+
+def test_plugin_keeps_the_plain_row_with_the_adapter_off(database):
+    parent = plugin_base.PluginBase("xplane", {}, {})
+    parent.config = {"udp_in": 49001, "udp_out": 49000,
+                     "datarefs": {"HEADBUG": "sim/cockpit/autopilot/heading_mag"}}
+    with patch("socket.socket"):
+        th = MainThread(parent)
+    assert [k for k, _d, _s in th.dataref_map.values()] == ["HEADBUG"]
+
+
+def test_shipped_xplane_yaml_gives_each_target_one_path():
+    cfg = yaml.safe_load(
+        Path("src/fixgw/config/connections/xplane.yaml").read_text())["xplane"]
+    for key in ap.TARGET_KEYS:
+        assert key not in cfg["datarefs"]
+        assert key not in cfg.get("dataref_writes", {})
