@@ -12,10 +12,11 @@ items:
   initial: false
   description: "When true some buttons will be hidden, if they are configured to do so"
 
-# pyEfis opens its system menu (Data Status, About, Screens) on a write of
-# true. A momentary command like a button: the writer (a control head icon, a
-# knob binding) writes true on the press and false on the release. pyEfis only
-# reads it.
+# pyEfis opens its system menu (Data Status, About, Screens) when this goes
+# from false to true. A momentary command like a button: the writer (a control
+# head icon, a knob binding) writes true on the press and false on the release.
+# A key held true does not reopen the menu after it closes, and a press while it
+# is open does nothing. pyEfis only reads it.
 - key: SYSMENU
   type: bool
   initial: false
