@@ -56,9 +56,14 @@ class Mav:
         # thread, so a reconnect keeps its request baseline and latch.
         self.autopilot = autopilot
 
+        # _apmode is the mode the autopilot's own HEARTBEAT reports, and
+        # _apreq the last mode this plugin asked for. They differ while a
+        # request is in flight, and after a mode change the plugin did not
+        # make (the pilot's transmitter, a failsafe): the plugin must never
+        # undo or re-command such a change (AFC7a, AER-5897).
         self._apreq = "INIT"  # Requested mode
         self._apstat = "INIT"  # Current status
-        self._apmode = "INIT"
+        self._apmode = "INIT"  # Reported mode
         self._apwpv = False  # valid waypoint or not
 
         self._apmodes = dict()  # List of customs modes we use with TRIM being default
@@ -356,23 +361,20 @@ class Mav:
                 # Or having this set could be useful from MAVMODE old
                 if msg.custom_mode == self._apmodes["TRIM"]:
                     # TRIM mode allows manual control of servos
-                    self.sendMode("TRIM", "Trim Mode")
-                    self.checkInit("TRIM")
+                    self.reportMode("TRIM", "Trim Mode")
 
                 elif msg.custom_mode == self._apmodes["CRUISE"]:
                     # CRUISE mode is like heading hold
                     # Using the TRIM inputs you could change
                     # course or altitude
-                    self.sendMode("CRUISE", "Heading Hold")
-                    self.checkInit("CRUISE")
+                    self.reportMode("CRUISE", "Heading Hold")
 
                 elif msg.custom_mode == self._apmodes["AUTOTUNE"]:
                     # AUTOTUNE helps to train the auto pilot
                     # You have to make full trim deflections on all axis
                     # numerous times for it to learn how best
                     # to control your aircraft
-                    self.sendMode("AUTOTUNE", "Auto Tune")
-                    self.checkInit("AUTOTUNE")
+                    self.reportMode("AUTOTUNE", "Auto Tune")
 
                 elif msg.custom_mode == self._apmodes["GUIDED"]:
                     # Will navigate to a pont defined by fix keys:
@@ -381,13 +383,13 @@ class Mav:
                     # Altitude is set to your current altitude MSL
                     # Trims can be used to change altitude
                     # Maybe we can add other methods in the future.
-                    self.sendMode(
+                    self.reportMode(
                         "GUIDED", f"Nav to: {self.parent.db_read('WPNAME')[0]}"
                     )
-                    self.checkInit("GUIDED")
 
                 else:
                     self.parent.db_write("MAVMODE", "UNKNOWN")
+                    self._apmode = "UNKNOWN"
                     self.setStat("ERROR", "Unknown Condition")
                     # TODO Likely need to do more here
                     # But we should never end up here in the first place
@@ -446,13 +448,14 @@ class Mav:
         self.parent.db_write("ALT", 0)
         self.parent.db_write("VS", 0)
 
-    def checkInit(self, mode):
+    def reportMode(self, mode, msg):
+        """The mode a HEARTBEAT reports: the only writer of MAVMODE and
+        _apmode, so neither shows a mode the autopilot has not taken."""
         if self._apmode == "INIT":
-            self._apmode = mode
+            # The first report is the request baseline: a MAVREQ* key left
+            # set for this mode is not a new request.
             self._apreq = mode
-            self.parent.db_write("MAVMODE", mode)
-
-    def sendMode(self, mode, msg):
+        self._apmode = mode
         self.parent.db_write("MAVMODE", mode)
         self.writeMsg(msg)
 
@@ -545,14 +548,17 @@ class Mav:
             return
 
         new_mode = "INIT"
-        logger.debug(f"Current mode is {self._apmode}")
+        logger.debug(f"Current mode is {self._apmode}, requested {self._apreq}")
         for f in self._apmodes:
             requested = self.parent.db_read(f"MAVREQ{f}")[0]
             logger.debug(f"Processing {f}: MAVREQ{f}: {requested}")
-            if requested and f != self._apmode:
-                # Requested and not the current active mode
+            # Compared with the last request, not the reported mode: a
+            # MAVREQ* key stays set, and after the transmitter leaves the
+            # requested mode it would otherwise be sent again.
+            if requested and f != self._apreq:
+                # Requested and not the last requested mode
                 # so this is what we want.
-                # If it is the current mode, another one might be requested
+                # If it is the last request, another one might be requested
                 logger.debug(f"Mode {f} was requested True")
                 new_mode = f
                 break
@@ -564,7 +570,7 @@ class Mav:
                     self.parent.db_write(f"MAVREQ{f}", False)
                     logger.debug(f"MAVREQ{f} set to False")
             # Check if a mode change has been requested
-            if self._apmode != new_mode and new_mode != "INIT":
+            if self._apreq != new_mode and new_mode != "INIT":
                 # Set the mode
                 self.setMode(new_mode)
 
@@ -581,8 +587,14 @@ class Mav:
             )
         ):
             # The WPLAT/LON are old or not set
-            # IF we are in GUIDED mode we want to drop to CRUISE mode
-            if self._apreq == "GUIDED" and self.parent.quorum.leader:
+            # IF we are in GUIDED mode we want to drop to CRUISE mode,
+            # only if the autopilot still reports the GUIDED we asked for:
+            # after the pilot took it out, CRUISE would re-engage it.
+            if (
+                self._apreq == "GUIDED"
+                and self._apmode == "GUIDED"
+                and self.parent.quorum.leader
+            ):
                 # drop to CRUISE mode ( Heading Hold )
                 # order matters:
                 self.parent.db_write("MAVREQGUIDED", False)
@@ -599,16 +611,21 @@ class Mav:
             self._apwpv = True
             if self.parent.quorum.leader:
                 self.parent.db_write("MAVWPVALID", True)
-            # Did the waypoint change?
+            # Did the waypoint change? Follow it only in a GUIDED we asked for
+            # and the autopilot still reports, and without the mode-change
+            # flag, so ArduPlane takes it only if it is still in GUIDED when
+            # the command arrives (the transmitter may have switched since
+            # its last heartbeat).
             if (
                 self._waypoint
                 != f"{self.parent.db_read('WPLON')[0]}{self.parent.db_read('WPLAT')[0]}{self.parent.db_read('WPNAME')[0]}"
+                and self._apreq == "GUIDED"
                 and self._apmode == "GUIDED"
             ):
                 if self.parent.quorum.leader:
-                    self.setMode("GUIDED")
+                    self.setMode("GUIDED", change_mode=False)
 
-    def setMode(self, mode):
+    def setMode(self, mode, change_mode=True):
         logger.debug(f"Trying to set mode {mode}")
         # Can we set that mode?
         if self._apstat in ["TRIM", "ARMED"] and mode in self._apmodes:
@@ -636,7 +653,9 @@ class Mav:
                     0,  # not used
                     0,  # not used
                     0,  # default speed
-                    1,  # goto location now
+                    # MAV_DO_REPOSITION_FLAGS_CHANGE_MODE: switch to GUIDED.
+                    # Without it a reposition only moves an active GUIDED.
+                    1 if change_mode else 0,
                     0,  # radius
                     0,  # loiter direction
                     int(self.parent.db_read("WPLAT")[0] * 10**7),  # int32_t degE7
@@ -660,11 +679,8 @@ class Mav:
                 )
             # Send the command
             self.conn.mav.send(message)
+            # MAVMODE and _apmode follow when the heartbeat reports the mode.
             self._apreq = mode
-
-            # Set APREQ to in case the mode change was made internally
-            self.parent.db_write("MAVMODE", mode)
-            self._apmode = mode
         else:
             # TODO Likely need more logic here
             pass
