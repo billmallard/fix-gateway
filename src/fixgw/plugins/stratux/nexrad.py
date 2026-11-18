@@ -78,7 +78,7 @@ MIN = 60.0
 # A block is old, and dropped, this long after its image's observation time:
 # the 30-minute expiry Garmin gives FIS-B NEXRAD (AXIS Pilot's Guide for
 # Experimental Aircraft, table 33).  DO-358B's 75 minutes is a retention
-# minimum, not a display age.  A proposal pending Bill's ruling (AER-5937).
+# minimum, not a display age.  Bill's ruling of 2026-11-18 (AER-5937).
 NEXRAD_OLD_S = 30 * MIN
 
 # Why a block was refused, for the counts.

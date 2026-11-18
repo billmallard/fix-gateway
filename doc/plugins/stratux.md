@@ -261,8 +261,8 @@ one. A block is **old 30 minutes after its image's observation time**, the
 expiry Garmin gives FIS-B NEXRAD (AXIS Pilot's Guide for Experimental
 Aircraft, table 33): a reader never gets it as current, and the once-a-second
 purge drops it. A block already old when it arrives is not stored, and one
-dated more than 10 minutes after the clock is old. The 30-minute limit is a
-proposal awaiting Bill's ruling (AER-5937); DO-358B's 75 minutes is a
+dated more than 10 minutes after the clock is old. The 30-minute limit was
+ruled on 2026-11-18 (AER-5937); DO-358B's 75 minutes is a
 retention minimum, not a display age.
 
 Refused, and counted in `NEXRAD refused`: blocks above 60N, whose bin layout
