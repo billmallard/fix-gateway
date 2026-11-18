@@ -158,6 +158,23 @@ xplane:
         XPHSISRC: sim/cockpit2/radios/actuators/HSI_source_select_pilot
 
     # ---------------------------------------------------------------------
+    # X-Plane as the autopilot source (AFC2, doc/autopilot_keys.md). The
+    # control head writes requests (APCMD, then APCMDSEQ); this presses the
+    # matching X-Plane autopilot command, and writes what X-Plane reports
+    # back into the state, flight director and health keys (APENG, APLAT,
+    # FDPITCH, APCAPS, APMSG, ...). Nothing is written while X-Plane is
+    # silent, so those keys go old within their tol and the displays remove
+    # them. ALTSEL, VSSEL and IASSEL follow the sim's autopilot dials, and a
+    # pilot change on the bus is written to the dial, so the selected
+    # altitude here sets X-Plane's altitude capture. The adapter subscribes
+    # its own datarefs; nothing to add under datarefs: above.
+    #   raw_log: <path>   optional: append every change of the adapter's
+    #                     datarefs as JSON lines (the playback fixture format)
+    # ---------------------------------------------------------------------
+    autopilot:
+        enabled: true
+
+    # ---------------------------------------------------------------------
     # FIX -> X-Plane.  pyEfis/hardware writes its controls back so a hardware
     # throttle/mixture / autopilot can DRIVE the simulator. Same per-index
     # 8-slot format. Omit a slot with "_" to leave that X-Plane control

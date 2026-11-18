@@ -20,7 +20,7 @@
 #              bump the counter" idea as FPLSEQ, so two presses of one button
 #              are two commands. Pilot-written. tol 0: a request is an event.
 #   State      APENG, FDENG, YDENG, APLAT, APLATARM, APVERT, APVERTARM,
-#              APALTCAP. The autopilot source only (one writer).
+#              APALTCAP, APALTREF. The autopilot source only (one writer).
 #   FD         FDPITCH, FDROLL. The autopilot source only.
 #   Health     APCAPS, APMSG, APDISC. The autopilot source only.
 #
@@ -124,6 +124,18 @@ items:
   description: Capturing the selected altitude (ALTSEL), the transition into ALT
   type: bool
   initial: false
+  tol: 2000
+
+# The altitude ALT hold holds, which need not be ALTSEL: the pilot may
+# preselect the next altitude while holding this one (Bill, AER-5808,
+# 2026-11-16). A source with no such value never writes it, and it stays old.
+- key: APALTREF
+  description: Altitude the autopilot's ALT hold is holding (not ALTSEL)
+  type: int
+  min: -1000
+  max: 60000
+  units: ft
+  initial: 0
   tol: 2000
 
 # --- Flight director (autopilot source only; tol 1000) ---------------------
