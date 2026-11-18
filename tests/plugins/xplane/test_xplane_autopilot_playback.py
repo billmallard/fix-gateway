@@ -27,6 +27,11 @@ DATA = Path(__file__).parent / "data"
 RAW = DATA / "afc2_c172_bf3a33402db4_raw.jsonl"
 BUS = DATA / "afc2_c172_bf3a33402db4_bus.json"
 INDEX = {name: ap.AP_RREF_BASE + i for i, (name, _d) in enumerate(ap.DATAREFS)}
+# The session was recorded before AFC2b (AER-5856) added these datarefs. The
+# replay sends them at a fixed value, as a sim whose pilot never touched them;
+# none of the KEYS below is built from them.
+AFTER_RECORDING = {"hdg_dial": 90.0, "nav1_obs": 0.0, "nav2_obs": 0.0,
+                   "baro": 29.92}
 KEYS = ("APENG", "FDENG", "APLAT", "APLATARM", "APVERT", "APVERTARM", "APDISC",
         "APCAPS")
 
@@ -54,7 +59,7 @@ def replay(database):
 
     for key in KEYS:                        # the adapter's writes only
         database.callback_add("t", key, record, None)
-    state = {}
+    state = dict(AFTER_RECORDING)
     for row in rows:
         clock[0] = 1000.0 + row["t"] - t0
         state.update(row["refs"])
@@ -64,9 +69,11 @@ def replay(database):
     return seen, json.loads(BUS.read_text())["transitions"]
 
 
-def test_the_raw_log_covers_every_dataref():
+def test_the_raw_log_covers_every_dataref_but_the_later_ones():
     first = json.loads(RAW.read_text().splitlines()[0])
-    assert set(first["refs"]) == {name for name, _d in ap.DATAREFS}
+    names = {name for name, _d in ap.DATAREFS}
+    assert set(first["refs"]) == names - set(AFTER_RECORDING)
+    assert set(AFTER_RECORDING) <= names
 
 
 @pytest.mark.parametrize("key", KEYS)

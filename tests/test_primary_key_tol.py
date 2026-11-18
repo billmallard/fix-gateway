@@ -67,8 +67,9 @@ SETTINGS_AND_EVENTS = {
     "EGTBTN2": "EGT mode button",
     "EGTBTN3": "EGT mode button",
     "EGTBTN4": "EGT mode button",
-    # CERT2a (AER-5270): pilot selections. Only the X-Plane connection streams
-    # any of them (HEADBUG, NAV1CRS, NAV2CRS, from the sim's own panel).
+    # CERT2a (AER-5270): pilot selections. Only the X-Plane connection also
+    # writes any of them (HEADBUG, NAV1CRS, NAV2CRS, kept in step with the
+    # sim's own panel both ways, AFC2b).
     "HEADBUG": "pilot setting (heading bug), written on change",
     "NAVSRC": "pilot selection (CDI source), written on change",
     "NAV1CRS": "pilot setting (NAV1 OBS), written on change",

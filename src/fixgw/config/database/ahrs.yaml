@@ -123,6 +123,8 @@ items:
   initial: 0.0
   tol: 2000
 
+# Writer: the pilot, through the baro knob; with X-Plane on, its autopilot
+# adapter keeps it in step with the sim's pilot-side altimeter, both ways.
 - key: BARO
   description: Altimeter Setting
   type: float
@@ -168,8 +170,8 @@ items:
   initial: 0.0
   tol: 2000
 
-# Writer: the pilot, through pyEfis (HDG knob, buttons); X-Plane streams it
-# from the sim's autopilot panel when that connection is on.
+# Writer: the pilot, through pyEfis (HDG knob, buttons); with X-Plane on, its
+# autopilot adapter keeps it in step with the sim's heading dial, both ways.
 # tol 0 (CERT2a, AER-5270): it is written on change, so a tol would flag a good
 # setting old seconds after every edit (docs/primary_flight_key_tol.md).
 - key: HEADBUG
@@ -300,8 +302,8 @@ items:
   initial: 0.0
   tol: 2000
 
-# Writer: the pilot, through the HSI's CRS knob; X-Plane streams it from the
-# sim's OBS when that connection is on.
+# Writer: the pilot, through the HSI's CRS knob; with X-Plane on, its
+# autopilot adapter keeps it in step with the sim's OBS, both ways.
 # tol 0 (CERT2a, AER-5270): it is written on change, so a tol would flag a good
 # setting old seconds after every edit (docs/primary_flight_key_tol.md).
 - key: NAV1CRS

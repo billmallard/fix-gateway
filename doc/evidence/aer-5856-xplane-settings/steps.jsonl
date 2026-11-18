@@ -1,0 +1,66 @@
+{"t": 1794995981.96, "step": "0-live", "msg": "waiting for the dials and a coupled autopilot"}
+{"t": 1794996096.568, "step": "0-live", "msg": "PASS live", "dials": {"HEADBUG": 73.42132568359375, "NAV1CRS": 241.0, "NAV2CRS": 0.0, "BARO": 29.920000076293945, "ALTSEL": 7500.0, "VSSEL": 0.0, "IASSEL": 105.0}, "aplat": "@rAPLAT;GPS;00000"}
+{"t": 1794996096.568, "step": "HEADBUG", "msg": "start", "bus": 73.42132568359375, "sim": 73.42132568359375}
+{"t": 1794996096.568, "step": "HEADBUG", "msg": "PASS bus starts on the sim's dial", "bus": 73.42132568359375, "sim": 73.42132568359375}
+{"t": 1794996096.669, "step": "HEADBUG", "msg": "PASS pilot: X-Plane's dial followed", "want": 78.42132568359375, "sim": 78.4000015258789}
+{"t": 1794996101.718, "step": "HEADBUG", "msg": "PASS pilot: bus and dial stayed 5 s", "first_bad": []}
+{"t": 1794996102.469, "step": "HEADBUG", "msg": "PASS cockpit: the sim's knob moved its dial", "before": 78.4000015258789, "sim": 81.4000015258789}
+{"t": 1794996104.489, "step": "HEADBUG", "msg": "PASS cockpit: the bus follows the sim's dial", "bus": 81.4000015258789, "sim": 81.4000015258789}
+{"t": 1794996109.189, "step": "HEADBUG", "msg": "PASS spin: bus never off the click path or stepping back", "samples": 9670, "off": [], "back": []}
+{"t": 1794996109.189, "step": "HEADBUG", "msg": "PASS spin: bus and dial end on the last click", "last": 7.0, "bus": 7.0, "sim": 7.0}
+{"t": 1794996110.242, "step": "HEADBUG", "msg": "PASS restore", "want": 73.42132568359375, "sim": 73.4000015258789}
+{"t": 1794996112.243, "step": "NAV1CRS", "msg": "start", "bus": 241.0, "sim": 241.0}
+{"t": 1794996112.243, "step": "NAV1CRS", "msg": "PASS bus starts on the sim's dial", "bus": 241.0, "sim": 241.0}
+{"t": 1794996112.344, "step": "NAV1CRS", "msg": "PASS pilot: X-Plane's dial followed", "want": 246.0, "sim": 246.0}
+{"t": 1794996117.389, "step": "NAV1CRS", "msg": "PASS pilot: bus and dial stayed 5 s", "first_bad": []}
+{"t": 1794996118.14, "step": "NAV1CRS", "msg": "PASS cockpit: the sim's knob moved its dial", "before": 246.0, "sim": 249.0}
+{"t": 1794996120.161, "step": "NAV1CRS", "msg": "PASS cockpit: the bus follows the sim's dial", "bus": 249.0, "sim": 249.0}
+{"t": 1794996124.917, "step": "NAV1CRS", "msg": "PASS spin: bus never off the click path or stepping back", "samples": 9331, "off": [], "back": []}
+{"t": 1794996124.917, "step": "NAV1CRS", "msg": "PASS spin: bus and dial end on the last click", "last": 7.0, "bus": 7.0, "sim": 7.0}
+{"t": 1794996126.021, "step": "NAV1CRS", "msg": "PASS restore", "want": 241.0, "sim": 241.0}
+{"t": 1794996128.022, "step": "NAV2CRS", "msg": "start", "bus": 0.0, "sim": 0.0}
+{"t": 1794996128.022, "step": "NAV2CRS", "msg": "PASS bus starts on the sim's dial", "bus": 0.0, "sim": 0.0}
+{"t": 1794996128.123, "step": "NAV2CRS", "msg": "PASS pilot: X-Plane's dial followed", "want": 5.0, "sim": 5.0}
+{"t": 1794996133.168, "step": "NAV2CRS", "msg": "PASS pilot: bus and dial stayed 5 s", "first_bad": []}
+{"t": 1794996133.919, "step": "NAV2CRS", "msg": "PASS cockpit: the sim's knob moved its dial", "before": 5.0, "sim": 8.0}
+{"t": 1794996135.938, "step": "NAV2CRS", "msg": "PASS cockpit: the bus follows the sim's dial", "bus": 8.0, "sim": 8.0}
+{"t": 1794996140.683, "step": "NAV2CRS", "msg": "PASS spin: bus never off the click path or stepping back", "samples": 9614, "off": [], "back": []}
+{"t": 1794996140.683, "step": "NAV2CRS", "msg": "PASS spin: bus and dial end on the last click", "last": 7.0, "bus": 7.0, "sim": 7.0}
+{"t": 1794996141.787, "step": "NAV2CRS", "msg": "PASS restore", "want": 0.0, "sim": 0.0}
+{"t": 1794996143.787, "step": "BARO", "msg": "start", "bus": 29.920000076293945, "sim": 29.920000076293945}
+{"t": 1794996143.787, "step": "BARO", "msg": "PASS bus starts on the sim's dial", "bus": 29.920000076293945, "sim": 29.920000076293945}
+{"t": 1794996143.888, "step": "BARO", "msg": "PASS pilot: X-Plane's dial followed", "want": 29.970000076293946, "sim": 29.969999313354492}
+{"t": 1794996148.935, "step": "BARO", "msg": "PASS pilot: bus and dial stayed 5 s", "first_bad": []}
+{"t": 1794996149.686, "step": "BARO", "msg": "PASS cockpit: the sim's knob moved its dial", "before": 29.969999313354492, "sim": 30.0}
+{"t": 1794996151.706, "step": "BARO", "msg": "PASS cockpit: the bus follows the sim's dial", "bus": 30.0, "sim": 30.0}
+{"t": 1794996155.349, "step": "BARO", "msg": "PASS spin: bus never off the click path or stepping back", "samples": 10672, "off": [], "back": []}
+{"t": 1794996155.35, "step": "BARO", "msg": "PASS spin: bus and dial end on the last click", "last": 30.15, "bus": 30.15, "sim": 30.149999618530273}
+{"t": 1794996156.453, "step": "BARO", "msg": "PASS restore", "want": 29.920000076293945, "sim": 29.920000076293945}
+{"t": 1794996158.454, "step": "ALTSEL", "msg": "start", "bus": 7500.0, "sim": 7500.0}
+{"t": 1794996158.454, "step": "ALTSEL", "msg": "PASS bus starts on the sim's dial", "bus": 7500.0, "sim": 7500.0}
+{"t": 1794996158.555, "step": "ALTSEL", "msg": "PASS pilot: X-Plane's dial followed", "want": 8000.0, "sim": 8000.0}
+{"t": 1794996163.599, "step": "ALTSEL", "msg": "PASS pilot: bus and dial stayed 5 s", "first_bad": []}
+{"t": 1794996164.349, "step": "ALTSEL", "msg": "PASS cockpit: the sim's knob moved its dial", "before": 8000.0, "sim": 8300.0}
+{"t": 1794996166.365, "step": "ALTSEL", "msg": "PASS cockpit: the bus follows the sim's dial", "bus": 8300.0, "sim": 8300.0}
+{"t": 1794996170.002, "step": "ALTSEL", "msg": "PASS spin: bus never off the click path or stepping back", "samples": 10875, "off": [], "back": []}
+{"t": 1794996170.002, "step": "ALTSEL", "msg": "PASS spin: bus and dial end on the last click", "last": 9800.0, "bus": 9800.0, "sim": 9800.0}
+{"t": 1794996171.055, "step": "ALTSEL", "msg": "PASS restore", "want": 7500.0, "sim": 7500.0}
+{"t": 1794996173.056, "step": "VSSEL", "msg": "start", "bus": 0.0, "sim": 0.0}
+{"t": 1794996173.056, "step": "VSSEL", "msg": "PASS bus starts on the sim's dial", "bus": 0.0, "sim": 0.0}
+{"t": 1794996173.157, "step": "VSSEL", "msg": "PASS pilot: X-Plane's dial followed", "want": 500.0, "sim": 500.0}
+{"t": 1794996178.2, "step": "VSSEL", "msg": "PASS pilot: bus and dial stayed 5 s", "first_bad": []}
+{"t": 1794996178.951, "step": "VSSEL", "msg": "PASS cockpit: the sim's knob moved its dial", "before": 500.0, "sim": 800.0}
+{"t": 1794996180.97, "step": "VSSEL", "msg": "PASS cockpit: the bus follows the sim's dial", "bus": 800.0, "sim": 800.0}
+{"t": 1794996184.592, "step": "VSSEL", "msg": "PASS spin: bus never off the click path or stepping back", "samples": 9902, "off": [], "back": []}
+{"t": 1794996184.592, "step": "VSSEL", "msg": "PASS spin: bus and dial end on the last click", "last": 2300.0, "bus": 2300.0, "sim": 2300.0}
+{"t": 1794996185.646, "step": "VSSEL", "msg": "PASS restore", "want": 0.0, "sim": 0.0}
+{"t": 1794996187.646, "step": "IASSEL", "msg": "start", "bus": 105.0, "sim": 105.0}
+{"t": 1794996187.646, "step": "IASSEL", "msg": "PASS bus starts on the sim's dial", "bus": 105.0, "sim": 105.0}
+{"t": 1794996187.747, "step": "IASSEL", "msg": "PASS pilot: X-Plane's dial followed", "want": 110.0, "sim": 110.0}
+{"t": 1794996192.789, "step": "IASSEL", "msg": "PASS pilot: bus and dial stayed 5 s", "first_bad": []}
+{"t": 1794996193.54, "step": "IASSEL", "msg": "PASS cockpit: the sim's knob moved its dial", "before": 110.0, "sim": 113.0}
+{"t": 1794996195.561, "step": "IASSEL", "msg": "PASS cockpit: the bus follows the sim's dial", "bus": 113.0, "sim": 113.0}
+{"t": 1794996199.193, "step": "IASSEL", "msg": "PASS spin: bus never off the click path or stepping back", "samples": 9552, "off": [], "back": []}
+{"t": 1794996199.193, "step": "IASSEL", "msg": "PASS spin: bus and dial end on the last click", "last": 128.0, "bus": 128.0, "sim": 128.0}
+{"t": 1794996200.297, "step": "IASSEL", "msg": "PASS restore", "want": 105.0, "sim": 105.0}
+{"t": 1794996202.298, "step": "end", "msg": "done"}

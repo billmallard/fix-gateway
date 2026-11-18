@@ -17,8 +17,9 @@ turns each pilot request (``APCMD``, acted on when ``APCMDSEQ`` changes) into
 the matching X-Plane autopilot command, and writes the state X-Plane reports
 back into the autopilot keys: engaged flags, active and armed modes, the
 flight director, the supported requests and a message for the pilot. It also
-keeps the targets ``ALTSEL``, ``VSSEL`` and ``IASSEL`` in step with the sim's
-autopilot dials, both ways.
+keeps the pilot's targets and settings (``TARGETS``: the autopilot dials, the
+heading bug, both OBS courses and the altimeter setting) in step with the sim,
+both ways.
 
 Every dataref and command name below is in X-Plane 12's own ``DataRefs.txt``
 and ``Commands.txt`` (version stamp 1210). The adapter also logs, once, any of
@@ -49,7 +50,7 @@ AP_RREF_BASE = 2000
 CMND_HEADER = b"CMND\x00"
 
 # (name used here, X-Plane dataref). All are read-only to the adapter except
-# the three dials, which it also writes (DREF) when the pilot sets a target.
+# the ones in TARGETS, which it also writes (DREF) when the pilot sets them.
 DATAREFS = (
     ("servos_on", "sim/cockpit2/autopilot/servos_on"),
     ("fd_mode", "sim/cockpit2/autopilot/flight_director_mode"),
@@ -82,6 +83,11 @@ DATAREFS = (
     ("alt_dial", "sim/cockpit2/autopilot/altitude_dial_ft"),
     ("vvi_dial", "sim/cockpit2/autopilot/vvi_dial_fpm"),
     ("ias_dial", "sim/cockpit2/autopilot/airspeed_dial_kts"),
+    # The pilot-side settings beside them: heading bug, OBS courses, altimeter.
+    ("hdg_dial", "sim/cockpit2/autopilot/heading_dial_deg_mag_pilot"),
+    ("nav1_obs", "sim/cockpit2/radios/actuators/nav1_obs_deg_mag_pilot"),
+    ("nav2_obs", "sim/cockpit2/radios/actuators/nav2_obs_deg_mag_pilot"),
+    ("baro", "sim/cockpit2/gauges/actuators/barometer_setting_in_hg_pilot"),
     # What the HSI shows (0=NAV1, 1=NAV2, 2=GPS1, 3=GPS2), whether it has a
     # lateral signal, and what each nav radio has tuned (3=VOR, 4=ILS
     # localizer, 5=standalone localizer).
@@ -95,13 +101,27 @@ DATAREFS = (
     ("has_yd", "sim/aircraft/overflow/has_yawdamp_but"),
 )
 
-# Each pilot target and the sim dial it is kept in step with, with the
-# smallest difference that counts as a change.
+# Each pilot target and the sim dial it is kept in step with, the smallest
+# difference that counts as a change, and whether it is an angle (compared
+# around the circle, so 359 to 0 is a 1 degree change, and written in 0-360).
+# The angles' 0.1 covers the database's 359.9 maximum: a dial at 359.95 is
+# stored as 359.9 and must not count as a change on every reply.
 TARGETS = (
-    ("ALTSEL", "alt_dial", "sim/cockpit2/autopilot/altitude_dial_ft", 1.0),
-    ("VSSEL", "vvi_dial", "sim/cockpit2/autopilot/vvi_dial_fpm", 1.0),
-    ("IASSEL", "ias_dial", "sim/cockpit2/autopilot/airspeed_dial_kts", 0.05),
+    ("ALTSEL", "alt_dial", "sim/cockpit2/autopilot/altitude_dial_ft", 1.0,
+     False),
+    ("VSSEL", "vvi_dial", "sim/cockpit2/autopilot/vvi_dial_fpm", 1.0, False),
+    ("IASSEL", "ias_dial", "sim/cockpit2/autopilot/airspeed_dial_kts", 0.05,
+     False),
+    ("HEADBUG", "hdg_dial", "sim/cockpit2/autopilot/heading_dial_deg_mag_pilot",
+     0.1, True),
+    ("NAV1CRS", "nav1_obs", "sim/cockpit2/radios/actuators/nav1_obs_deg_mag_pilot",
+     0.1, True),
+    ("NAV2CRS", "nav2_obs", "sim/cockpit2/radios/actuators/nav2_obs_deg_mag_pilot",
+     0.1, True),
+    ("BARO", "baro", "sim/cockpit2/gauges/actuators/barometer_setting_in_hg_pilot",
+     0.005, False),
 )
+TARGET_KEYS = tuple(t[0] for t in TARGETS)
 
 REQUESTS = ("AP", "FD", "YD", "LVL", "HDG", "TRK", "NAV", "APR", "IAS",
             "VNAV", "VS", "ALT", "DISC")
@@ -168,6 +188,15 @@ MSG_MAX = 64
 def cmnd_packet(command):
     """X-Plane's UDP command packet: "CMND", a null, the command path."""
     return CMND_HEADER + command.encode("ascii")
+
+
+def target_diff(a, b, angle):
+    """How far apart two target values are; the short way round for an angle."""
+    d = abs(a - b)
+    if angle:
+        d %= 360.0
+        d = min(d, 360.0 - d)
+    return d
 
 
 def _on(raw, name, level=2):
@@ -278,7 +307,7 @@ class Autopilot:
         self.requests = queue.Queue()
         self.deferred = []          # (due, dref, value)
         self.targets = {key: {"fix": None, "pending": None}
-                        for key, _n, _d, _e in TARGETS}
+                        for key in TARGET_KEYS}
         self.raw_log = None
         self.raw_logged = {}
         self.enabled = self._keys_present()
@@ -295,7 +324,7 @@ class Autopilot:
     # ------------------------------------------------------------------
     def _keys_present(self):
         missing = []
-        for key in STATE_KEYS + READ_KEYS + tuple(t[0] for t in TARGETS):
+        for key in STATE_KEYS + READ_KEYS + TARGET_KEYS:
             try:
                 self.parent.db_get_item(key)
             except KeyError:
@@ -303,7 +332,8 @@ class Autopilot:
         if missing:
             self.log.error(
                 "xplane: autopilot adapter off: the database has no %s "
-                "(add database/autopilot.yaml)", ", ".join(missing))
+                "(add database/autopilot.yaml); %s are not kept in step with "
+                "the sim either", ", ".join(missing), ", ".join(TARGET_KEYS))
             return False
         return True
 
@@ -379,6 +409,9 @@ class Autopilot:
         self._write("APCAPS", ",".join(capabilities(raw)), now)
         self._write("APMSG", self.msg, now)
         self._write("APDISC", self.disc_latched, now)
+        # A pilot change not yet sent wins over a dial that moved at the same
+        # time: send it first, so it is pending before the dial is read.
+        self._sync_to_sim(now)
         self._sync_from_sim(now)
 
     def _check_unanswered(self, now):
@@ -410,12 +443,12 @@ class Autopilot:
     # ------------------------------------------------------------------
     def _sync_from_sim(self, now):
         """A dial the pilot did not just set is copied into its FIX key."""
-        for key, name, _dref, eps in TARGETS:
+        for key, name, _dref, eps, angle in TARGETS:
             t = self.targets[key]
-            sim = self.raw[name]
+            sim = self.raw[name] % 360.0 if angle else self.raw[name]
             if t["pending"] is not None:
                 value, sent = t["pending"]
-                if abs(sim - value) < eps:
+                if target_diff(sim, value, angle) < eps:
                     t["pending"] = None
                 elif now - sent < TARGET_SETTLE_S:
                     continue            # the dial has not followed yet
@@ -423,19 +456,19 @@ class Autopilot:
                     t["pending"] = None
                     self.log.info("xplane: autopilot: %s %r not taken, the sim"
                                   " holds %r", key, value, sim)
-            if t["fix"] is not None and abs(sim - t["fix"]) < eps:
+            if t["fix"] is not None and target_diff(sim, t["fix"], angle) < eps:
                 continue
             self.parent.db_write(key, sim)
             t["fix"] = self._read(key)
 
     def _sync_to_sim(self, now):
         """A target the pilot changed on the bus is written to its dial."""
-        for key, _name, dref, eps in TARGETS:
+        for key, _name, dref, eps, angle in TARGETS:
             t = self.targets[key]
             value = self._read(key)
             if t["fix"] is None:
                 continue                # the sim's dial has not been read yet
-            if abs(value - t["fix"]) < eps:
+            if target_diff(value, t["fix"], angle) < eps:
                 continue
             t["fix"] = value
             t["pending"] = (value, now)
