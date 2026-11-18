@@ -145,7 +145,7 @@ def test_server_specific_commands_return_status_kill_and_errors(monkeypatch):
     assert drain_queue(connection) == [
         b'@xstatus;{"ok": true}\n',
         b"@xkill\n",
-        b"@xwat!001",
+        b"@xwat!001\n",
     ]
     assert parent.quit_called is True
 

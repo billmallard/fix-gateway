@@ -560,7 +560,7 @@ def test_kill_command(plugin):
 def test_bad_command(plugin):
     plugin.sock.sendall("@xbad\n".encode())
     res = plugin.sock.recv(1024).decode()
-    assert res == '@xbad!001'
+    assert res == '@xbad!001\n'
 
 def test_set_flag_for_bad_id(plugin):
     plugin.sock.sendall("@fNOPE;a;1\n".encode())

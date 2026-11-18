@@ -13,6 +13,7 @@
 
 import calendar
 import re
+import threading
 import time
 import zlib
 from collections import namedtuple
@@ -290,12 +291,19 @@ class WeatherStore:
 
     def __init__(self, log=None):
         self.log = log
+        # The stratux thread writes the store and a netfix connection thread
+        # reads it (station_reply), so every access holds the lock.
+        self.lock = threading.Lock()
         self.items = {}
         self.reassembler = fisb.Reassembler()
         self.counts = {"uplinks": 0, "apdus": 0, "undated": 0, "cancelled": 0}
         self.undated_kinds = set()
 
     def ingest(self, uplink, rx):
+        with self.lock:
+            self._ingest(uplink, rx)
+
+    def _ingest(self, uplink, rx):
         self.counts["uplinks"] += 1
         for apdu in uplink.apdus:
             self.counts["apdus"] += 1
@@ -345,22 +353,90 @@ class WeatherStore:
         self.items[product.key] = product
 
     def purge(self, now):
-        for key, p in list(self.items.items()):
-            if p.purge_at is not None and now >= p.purge_at:
-                del self.items[key]
-            elif p.retain_s is not None and now - p.last_rx > p.retain_s:
-                del self.items[key]
-        self.reassembler.expire(now)
+        with self.lock:
+            for key, p in list(self.items.items()):
+                if p.purge_at is not None and now >= p.purge_at:
+                    del self.items[key]
+                elif p.retain_s is not None and now - p.last_rx > p.retain_s:
+                    del self.items[key]
+            self.reassembler.expire(now)
 
     def products(self, now):
         """Every stored product with its state at now: [(Product, state)]."""
-        return [(p, state(p, now)) for p in self.items.values()]
+        with self.lock:
+            return [(p, state(p, now)) for p in self.items.values()]
 
     def by_station(self, station, now):
-        return [(p, state(p, now)) for p in self.items.values() if p.station == station]
+        with self.lock:
+            return [(p, state(p, now)) for p in self.items.values()
+                    if p.station == station]
 
     def kind_counts(self):
         out = {}
-        for p in self.items.values():
-            out[p.kind] = out.get(p.kind, 0) + 1
+        with self.lock:
+            for p in self.items.values():
+                out[p.kind] = out.get(p.kind, 0) + 1
         return out
+
+
+# The stores that answer the netfix weather request (AER-5936): one per
+# stratux plugin with fisb: true, registered while its thread runs.  The
+# request reads them here rather than through FIX keys, by Bill's ruling of
+# 2026-11-16 (pyEfis asks the gateway per station).
+_stores = []
+_stores_lock = threading.Lock()
+
+
+def register(store):
+    with _stores_lock:
+        if store not in _stores:
+            _stores.append(store)
+
+
+def unregister(store):
+    with _stores_lock:
+        if store in _stores:
+            _stores.remove(store)
+
+
+def _iso(t):
+    if t is None:
+        return None
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
+
+
+def station_reply(station, now):
+    """The netfix weather reply for station at now, as a dict, or None if no
+    store is registered.
+
+    A store with nothing for the station gives an empty product list; None
+    means nothing could have answered, and the request says so instead.
+    Times are UTC, ISO 8601; state is computed at now, the gateway's clock,
+    which the reply also carries.
+    """
+    with _stores_lock:
+        stores = list(_stores)
+    if not stores:
+        return None
+    found = []
+    for store in stores:
+        found.extend(store.by_station(station, now))
+    found.sort(key=lambda ps: (ps[0].kind, -(ps[0].issued or 0.0), ps[0].text))
+    return {
+        "station": station,
+        "now": _iso(now),
+        "products": [
+            {
+                "kind": p.kind,
+                "station": p.station,
+                "text": p.text,
+                "issued": _iso(p.issued),
+                "valid_from": _iso(p.valid_from),
+                "old_at": _iso(p.old_at),
+                "first_received": _iso(p.first_rx),
+                "last_received": _iso(p.last_rx),
+                "state": s,
+            }
+            for p, s in found
+        ],
+    }

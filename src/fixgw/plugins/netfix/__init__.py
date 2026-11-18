@@ -27,13 +27,19 @@ from collections import OrderedDict
 from collections import defaultdict
 from collections import deque
 import json
+import re
 import fixgw.plugin as plugin
 import fixgw.status as status
 import fixgw.netfix as netfix
+from fixgw.plugins.stratux import weather
 import time
 
 # Track where data came from to prevent loops
 client_block = defaultdict(set)
+
+# The station a weather request may name: an identifier as FIS-B text carries
+# it (KSCK, SCK, PHNL).  It is echoed in the reply, so nothing else is let in.
+WEATHER_STATION_RE = re.compile(r"^[0-9A-Z]{2,5}$")
 
 
 # This holds the data and functions that are needed by both connection threads.
@@ -119,8 +125,28 @@ class Connection(object):
         elif d == "kill":
             self.queue.put("@xkill\n".encode())
             self.parent.quit()
+        elif d == "weather" or d.startswith("weather;"):
+            self.__weather(d[len("weather;"):])
         else:
-            self.queue.put("@x{}!001".format(d).encode())
+            self.queue.put("@x{}!001\n".format(d).encode())
+
+    # FIS-B text weather for one station (AER-5936).  The reply is JSON on one
+    # line: json.dumps escapes the line breaks in a TAF or a TFR, and a ';' in
+    # the text is inside the JSON, after the last field separator, so the
+    # line protocol carries both unchanged (AER-5626 was a ';' in a value).
+    def __weather(self, station):
+        station = station.strip().upper()
+        if not WEATHER_STATION_RE.match(station):
+            self.queue.put("@xweather;{}!003\n".format(station).encode())
+            return
+        reply = weather.station_reply(station, time.time())
+        if reply is None:
+            # No stratux plugin with fisb: true is running: say so, rather
+            # than answer an empty list that reads as "no weather here".
+            self.queue.put("@xweather;{}!005\n".format(station).encode())
+            return
+        s = json.dumps(reply, separators=(",", ":"))
+        self.queue.put("@xweather;{};{}\n".format(station, s).encode())
 
     def __flag(self, d):
         a = d.split(";")
