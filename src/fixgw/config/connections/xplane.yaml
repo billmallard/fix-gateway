@@ -96,9 +96,12 @@ xplane:
         EXTCRS:  sim/cockpit/radios/gps_course_degtm
         EXTCDI:  [sim/cockpit/radios/gps_hdef_dot, 0.4]
         EXTTF:   sim/cockpit/radios/gps_fromto
-        NAV1CRS: sim/cockpit/radios/nav1_obs_degm
+        # NAV1CRS and NAV2CRS (the OBS courses) are kept in step both ways by
+        # the autopilot block below, so they are not read here. With that
+        # block off, add them back as plain reads (sim to bus only):
+        #   NAV1CRS: sim/cockpit/radios/nav1_obs_degm
+        #   NAV2CRS: sim/cockpit/radios/nav2_obs_degm
         NAV1CDI: [sim/cockpit/radios/nav1_hdef_dot, 0.4]
-        NAV2CRS: sim/cockpit/radios/nav2_obs_degm
         NAV2CDI: [sim/cockpit/radios/nav2_hdef_dot, 0.4]
         # Vertical deviation (glidepath / glideslope) -> the GSI needle, same
         # +/-2.5-dot -> +/-1.0 scaling. gps_vdef is the GPS LPV/glidepath.
@@ -142,11 +145,10 @@ xplane:
         # into BRG1/BRG2 per the per-pointer source selector.
         VOR1BRG: sim/cockpit2/radios/indicators/nav1_bearing_deg_mag
         VOR2BRG: sim/cockpit2/radios/indicators/nav2_bearing_deg_mag
-        # Autopilot selected heading (deg mag) -> cyan heading bug. X-Plane
-        # always publishes this (no nav tuning needed), so it doubles as an
-        # RREF health check. NOTE: this makes X-Plane drive HEADBUG, so it will
-        # override the HDG +/- buttons (which write HEADBUG locally).
-        HEADBUG: sim/cockpit/autopilot/heading_mag
+        # HEADBUG (the heading bug) is kept in step both ways by the autopilot
+        # block below, like the OBS courses. With that block off, a plain read
+        # puts it back one way, and the sim then overrides every pyEfis edit:
+        #   HEADBUG: sim/cockpit/autopilot/heading_mag
     # RREF stream rate (Hz).
     dataref_hz: 10
 
@@ -156,6 +158,25 @@ xplane:
     # source the EFIS has selected.
     dataref_writes:
         XPHSISRC: sim/cockpit2/radios/actuators/HSI_source_select_pilot
+
+    # ---------------------------------------------------------------------
+    # X-Plane as the autopilot source (AFC2, doc/autopilot_keys.md). The
+    # control head writes requests (APCMD, then APCMDSEQ); this presses the
+    # matching X-Plane autopilot command, and writes what X-Plane reports
+    # back into the state, flight director and health keys (APENG, APLAT,
+    # FDPITCH, APCAPS, APMSG, ...). Nothing is written while X-Plane is
+    # silent, so those keys go old within their tol and the displays remove
+    # them. ALTSEL, VSSEL, IASSEL, HEADBUG, NAV1CRS, NAV2CRS and BARO follow
+    # the sim's pilot-side dials, and a pilot change on the bus is written to
+    # the dial, so the selected altitude and the altimeter setting here are
+    # the ones X-Plane's altitude capture uses. The adapter subscribes its own
+    # datarefs; nothing to add under datarefs: above. A row for one of those
+    # keys under datarefs: or dataref_writes: is ignored, with a warning.
+    #   raw_log: <path>   optional: append every change of the adapter's
+    #                     datarefs as JSON lines (the playback fixture format)
+    # ---------------------------------------------------------------------
+    autopilot:
+        enabled: true
 
     # ---------------------------------------------------------------------
     # FIX -> X-Plane.  pyEfis/hardware writes its controls back so a hardware

@@ -46,6 +46,11 @@ Config schema (``connections/xplane.yaml``):
         send:
             25: [THR1, _, _, _, _, _, _, _]              # throttle command
 
+        # Optional: X-Plane as the autopilot source (AFC2). See
+        # fixgw.plugins.xplane.autopilot and doc/autopilot_keys.md.
+        autopilot:
+            enabled: true
+
 Legacy ``idxN: KEY1,KEY2,...`` entries at the top level are still
 honoured and treated as ``send`` mappings (matching the old plugin's
 behaviour).
@@ -63,6 +68,7 @@ import struct
 import sys
 
 import fixgw.plugin as plugin
+from fixgw.plugins.xplane.autopilot import TARGET_KEYS, Autopilot
 
 # Plugins that write the same flight keys. Loading one of them alongside this
 # plugin gives each key two writers, and the last write silently wins.
@@ -232,10 +238,35 @@ class MainThread(threading.Thread):
         # Plugin.stop() calls thread.close() after the join.
         self.sock_closed = False
 
+        # X-Plane as the autopilot source (AFC2): requests to sim commands,
+        # state and flight director back from its own RREF subscriptions.
+        ap_cfg = cfg.get("autopilot") or {}
+        self.autopilot = None
+        if ap_cfg.get("enabled", False) is True:
+            self.autopilot = Autopilot(parent, self._send_ap, ap_cfg)
+            if self.autopilot.enabled:
+                self._drop_plain_target_rows()
+
         self.log.info(
             "xplane: listening udp:%d, dest %s:%d; recv indices=%s, send indices=%s",
             self.udp_in, self.xplane_ip, self.udp_out,
             sorted(self.recv_map.keys()), sorted(self.send_map.keys()))
+
+    def _drop_plain_target_rows(self):
+        """The adapter keeps its targets in step both ways. A plain read of
+        one would copy a reply in flight over the pilot's change, and a plain
+        write would send it back to the sim, so a target has one path."""
+        for index, (key, dref, _scale) in list(self.dataref_map.items()):
+            if key in TARGET_KEYS:
+                del self.dataref_map[index]
+                self.log.warning(
+                    "xplane: datarefs: %s (%s) ignored: the autopilot adapter "
+                    "keeps %s in step with the sim", key, dref, key)
+        for key in [k for k in self.dref_writes if k in TARGET_KEYS]:
+            del self.dref_writes[key]
+            self.log.warning(
+                "xplane: dataref_writes: %s ignored: the autopilot adapter "
+                "keeps %s in step with the sim", key, key)
 
     # ------------------------------------------------------------------
     # X-Plane -> FIX
@@ -300,14 +331,28 @@ class MainThread(threading.Thread):
     def subscribe_datarefs(self, freq):
         for index, (_key, dref, _scale) in self.dataref_map.items():
             self._send_rref(freq, index, dref)
+        if self.autopilot is not None:
+            for index, dref in self.autopilot.subscriptions():
+                self._send_rref(freq, index, dref)
+
+    def _send_ap(self, packet):
+        """The autopilot adapter's CMND and DREF packets, to X-Plane."""
+        try:
+            self.sock.sendto(packet, (self.xplane_ip, self.udp_out))
+        except OSError as e:
+            self.log.warning("xplane: autopilot send failed (%s)", e)
 
     def _ingest_rref(self, data):
         # "RREF," 5-byte header, then N x (int32 index, float32 value).
         payload = data[5:]
         offset = 0
+        autopilot_seen = False
         while offset + 8 <= len(payload):
             index, value = struct.unpack_from("<If", payload, offset)
             offset += 8
+            if self.autopilot is not None and self.autopilot.feed(index, value):
+                autopilot_seen = True
+                continue
             entry = self.dataref_map.get(index)
             if entry is None:
                 continue
@@ -327,6 +372,8 @@ class MainThread(threading.Thread):
                 self.parent.db_write(key, float(value) * scale)
             except Exception as e:
                 self.log.warning("xplane: db_write %s failed (%s)", key, e)
+        if autopilot_seen:
+            self.autopilot.publish()
 
     # ------------------------------------------------------------------
     # FIX -> X-Plane
@@ -381,7 +428,8 @@ class MainThread(threading.Thread):
     # Loop
     # ------------------------------------------------------------------
     def run(self):
-        if self.dataref_map:
+        subscribing = bool(self.dataref_map) or self.autopilot is not None
+        if subscribing:
             self.subscribe_datarefs(self.dataref_hz)
         # Wall clock, not loop passes: every received packet is a pass, so a
         # pass count shrinks the interval as the link gets busier.
@@ -403,13 +451,15 @@ class MainThread(threading.Thread):
                 self.senddata()
             if self.dref_writes:
                 self.senddref()
-            if self.dataref_map and time.monotonic() >= next_resub:
+            if self.autopilot is not None:
+                self.autopilot.poll()
+            if subscribing and time.monotonic() >= next_resub:
                 self.subscribe_datarefs(self.dataref_hz)   # survive X-Plane restart
                 next_resub = time.monotonic() + self.rref_resubscribe
 
     def stop(self):
         self.getout = True
-        if self.dataref_map and not self.sock_closed:
+        if (self.dataref_map or self.autopilot is not None) and not self.sock_closed:
             try:
                 self.subscribe_datarefs(0)   # freq 0 cancels the subscriptions
             except Exception:
@@ -420,6 +470,8 @@ class MainThread(threading.Thread):
             pass
 
     def close(self):
+        if self.autopilot is not None:
+            self.autopilot.close()
         if not self.sock_closed:
             self.sock.close()
             self.sock_closed = True

@@ -32,6 +32,7 @@ STATE = {
     "APVERT": ("str", None, None, "", "", 2000),
     "APVERTARM": ("str", None, None, "", "", 2000),
     "APALTCAP": ("bool", None, None, "", False, 2000),
+    "APALTREF": ("int", -1000, 60000, "ft", 0, 2000),
 }
 FD = {
     "FDPITCH": ("float", -90.0, 90.0, "deg", 0.0, 1000),
