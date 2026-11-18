@@ -3,7 +3,7 @@ import threading
 import time
 from collections import OrderedDict
 import fixgw.plugin as plugin
-from fixgw.plugins.stratux import fisb, gdl90
+from fixgw.plugins.stratux import fisb, gdl90, nexrad
 from fixgw.plugins.stratux.ownship import OwnshipWriter
 from fixgw.plugins.stratux.status import StatusPoller
 from fixgw.plugins.stratux.traffic import TrafficWriter, resolve_ownship_address
@@ -120,13 +120,15 @@ class MainThread(threading.Thread):
             self.log.info("status: no source address, receiver status not polled")
 
         # FIS-B text weather from the 0x07 Uplink message, held in a store
-        # rather than FIX keys (AER-5651).  The receive time is this host's
-        # UTC clock: the message carries none.
+        # rather than FIX keys (AER-5651), and the NEXRAD mosaic (AER-5937).
+        # The receive time is this host's UTC clock: the message carries none.
         self.weather = None
+        self.nexrad = None
         self.wall_clock = time.time
         self.fisb_tick_at = 0.0
         if config.get("fisb", False):
             self.weather = WeatherStore(self.log)
+            self.nexrad = nexrad.Mosaic(self.log)
 
     def run(self):
         if self.poller is not None:
@@ -182,6 +184,16 @@ class MainThread(threading.Thread):
         self.parent.status["FIS-B by kind"] = ", ".join(
             "%s %d" % kv for kv in sorted(kinds.items())
         )
+        self.nexrad.purge(now)
+        blocks = self.nexrad.product_counts()
+        self.parent.status["NEXRAD blocks"] = ", ".join(
+            "%s %d" % (name, blocks.get(name, 0))
+            for name in (nexrad.PRODUCT_NAMES[p] for p in nexrad.PRODUCTS)
+        )
+        if self.nexrad.refused:
+            self.parent.status["NEXRAD refused"] = ", ".join(
+                "%s %d" % kv for kv in sorted(self.nexrad.refused.items())
+            )
 
     def report_drops(self):
         now = time.monotonic()
@@ -233,7 +245,9 @@ class MainThread(threading.Thread):
         elif msg[0] == fisb.UPLINK and self.weather is not None:
             uplink = fisb.parse_uplink_message(msg)
             if uplink is not None:
-                self.weather.ingest(uplink, self.wall_clock())
+                rx = self.wall_clock()
+                self.weather.ingest(uplink, rx)
+                self.nexrad.ingest(uplink, rx)
 
         if self.ownship is not None:
             self.ownship.handle(msg)
