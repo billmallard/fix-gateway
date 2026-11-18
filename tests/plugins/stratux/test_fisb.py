@@ -444,3 +444,47 @@ def test_reassembler_drops_a_stale_partial_file():
     assert r.add(a, 0.0) is None
     assert r.add(b, 601.0) is None  # the first part expired; still waiting
     assert r.dropped == 1
+
+
+# --- the netfix weather request's registry (AER-5936) -------------------------
+
+
+def test_store_answers_requests_only_while_the_thread_runs(monkeypatch):
+    seen = []
+    sock = FakeSocket([b""])
+    parent = MagicMock()
+    parent.config = {"traffic": False, "status": False, "fisb": True}
+    parent.status = {}
+    monkeypatch.setattr(stratux.socket, "socket", lambda *_args: sock)
+    thread = MainThread(parent)
+    assert weather.station_reply("KCXP", RX) is None
+
+    def recvfrom(_size):
+        seen.append(list(weather._stores))
+        thread.getout = True
+        return b"", ("192.168.10.1", 4000)
+
+    sock.recvfrom = recvfrom
+    thread.run()
+    assert seen == [[thread.weather]]
+    assert weather._stores == []
+    assert weather.station_reply("KCXP", RX) is None
+
+
+def test_fisb_off_registers_no_store(monkeypatch):
+    seen = []
+    sock = FakeSocket([b""])
+    parent = MagicMock()
+    parent.config = {"traffic": False, "status": False}
+    parent.status = {}
+    monkeypatch.setattr(stratux.socket, "socket", lambda *_args: sock)
+    thread = MainThread(parent)
+
+    def recvfrom(_size):
+        seen.append(list(weather._stores))
+        thread.getout = True
+        return b"", ("192.168.10.1", 4000)
+
+    sock.recvfrom = recvfrom
+    thread.run()
+    assert seen == [[]]

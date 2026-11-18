@@ -266,6 +266,31 @@ def test_en_route_items_then_the_approach_fly_as_one_route(tmp_path):
     assert [r.passed for r in results] == [True, True, True], [r.detail for r in results]
 
 
+def test_the_last_en_route_fix_is_a_fly_by_into_the_procedure(tmp_path):
+    """GOLET, the last en-route fix, then the GVO transition's IF: a 59 deg
+    fly-by, as at any fly-by fix (guidance table row 2). The reference took
+    no next course from an IF until DEMO5 (AER-5802), so it flew GOLET
+    abeam while the engine turned at turn start, and FPLCRS read the
+    GOLET-GVO course for 5 s while REFCRS still read KWANG-GOLET. The test
+    above starts on the leg into GVO and never turns at GOLET."""
+    text = BASE.replace("HENER, before_nm: 3.0", "GOLET, before_nm: 3.0") + "departure: KSBA\nroute:\n" \
+        "  - waypoint: KWANG\n  - waypoint: GOLET\n" \
+        "  - procedure: {airport: KSMX, approach: R30, transition: GVO, missed: false}\n" \
+        "events:\n  - {id: past, at: {leg: GVO-NIRLE, after_s: 30}, do: {offset_nm: 0.0}}\n" \
+        "end: {after_event: past, max_s: 900}\n" + CDI_CHECK + \
+        "  - {key_pair: [FPLCRS, REFCRS], tol_deg: 0.5, except_s_around_sequence: 5}\n" \
+        "  - {sequence: [GOLET, GVO, NIRLE], keys: [WPNAME, REFWPT]}\n"
+    path = _profile(tmp_path, text, cifp=_joined(tmp_path))
+    results, rows = _evaluate(path)
+    assert [r.passed for r in results] == [True] * 4, [r.detail for r in results]
+    cifp = Cifp(_joined(tmp_path))
+    golet, gvo = cifp.fix("GOLET"), cifp.fix("GVO")
+    golet_gvo = refnav.wrap360(refnav.inverse(golet.lat, golet.lon, gvo.lat, gvo.lon)[1] - 11.45)
+    turned = next(t for t, r in rows if abs(refnav.wrap180(r["REFCRS"] - golet_gvo)) < 1.0)
+    sequenced = next(t for t, r in rows if r["REFWPT"] == "GVO")
+    assert sequenced - turned > 5.0     # the course moved at turn start, before the bisector
+
+
 def test_en_route_items_ending_where_the_procedure_starts_are_refused(tmp_path):
     # GVO twice in a row: a pilot would not file it, and the X-Plane driver
     # would turn back to GVO after sequencing it.
