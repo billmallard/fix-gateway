@@ -1,0 +1,14 @@
+# AER-5856 (AFC2b): the pilot's settings both ways with X-Plane. En route on
+# V27 with the autopilot coupled to GPS, so the heading bug and the OBS
+# courses steer nothing. The sequencer (seq.py) moves HEADBUG, NAV1CRS,
+# NAV2CRS, BARO, ALTSEL, VSSEL and IASSEL from the bus and from X-Plane's own
+# knobs, and puts each back. BARO moves at most 0.25 inHg, so ALT hold drifts
+# up to about 250 ft and comes back when it is restored. No disconnect.
+name: afc2b-xplane-settings
+destination: KSMX
+departure: KSBA
+start: {fix: HENER, before_nm: 3, alt_ft: 7500}
+route:
+  - waypoint: GVO
+  - airway: {id: V27, exit: AVOLS}
+end: {after_fix: DOYLE, max_s: 1200}
