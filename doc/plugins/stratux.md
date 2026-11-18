@@ -228,9 +228,10 @@ minutes of its first segment is dropped. The age limits were ruled on
 2026-11-16 (AER-5651).
 
 The plugin status shows `FIS-B uplinks`, `FIS-B products`, `FIS-B current`
-(how many are current now) and the count of each kind. Nothing reads the store
-yet. The ruled delivery path (AER-5651) is a netfix request that returns one
-station's products, each with the state the gateway works out at that moment;
+(how many are current now) and the count of each kind. A client reads the
+store one station at a time with the netfix request `@xweather;<station>`
+(`doc/plugins/netfix.rst`, AER-5936), the delivery path ruled on AER-5651.
+Each product comes back with the state the gateway works out at that moment;
 pyEfis never works out an age itself. AIRMET, SIGMET and TFR geometry are not
 decoded.
 
