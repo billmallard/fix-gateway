@@ -261,6 +261,16 @@ is...
 ``@xstatus`` and the server will respond with a JSON string representing
 the status of the server.
 
+``@xweather;<station>`` returns the FIS-B text weather held for one station
+as ``@xweather;<station>;<JSON>``.  It is described in the Net-FIX plugin
+documentation.
+
+Error Codes:
+
+* 001 - Unknown command
+* 003 - Missing or invalid argument (``weather``)
+* 005 - Nothing can answer: no FIS-B weather store is running (``weather``)
+
 The client/server is asynchronous so the client does not have to wait
 for a response from the server before sending another command.  Data
 updates from subscriptions may also come in between the client command
