@@ -211,7 +211,7 @@ is 0 off, 1 armed, 2 captured:
 | `APVERT` | the first captured of `glideslope_status` (GS, or GP when the HSI is on GPS), `vnav_status`, `altitude_hold_status` (ALT), `speed_status` (IAS), `vvi_status` (VS), `pitch_status` or `attitude_status` (PIT) |
 | `APVERTARM` | `altitude_hold_status`, `vnav_status` and `glideslope_status` that are armed, in that order |
 | `APALTREF` | `sim/cockpit2/autopilot/altitude_hold_ft` ("Altitude hold commanded in feet indicated"), rounded to the foot |
-| `FDPITCH`, `FDROLL` | `flight_director_pitch_deg`, `flight_director_roll_deg` |
+| `FDPITCH`, `FDROLL` | `flight_director_pitch_deg`, `flight_director_roll_deg`: the commanded attitude, not an error (at the steady points the bench logged, FDPITCH was within 0.3 deg of PITCH) |
 | `APCAPS` | the aircraft's `sim/aircraft/autopilot/preconfigured_ap_type`, less ALT, VS, IAS and VNAV for a single-axis autopilot, plus YD when it has a yaw damper switch |
 | `APDISC` | latched by the adapter whenever `servos_on` goes from 1 to 0 |
 
@@ -219,7 +219,9 @@ NAV's state is named by what the HSI follows
 (`HSI_source_select_pilot`): GPS on GPS1 or GPS2; on NAV1 or NAV2, LOC when
 that radio's `nav_type` is a localizer (4 or 5) and VOR otherwise.
 
-What X-Plane does not report, and the adapter therefore never claims:
+What X-Plane does not report, and the adapter therefore never claims (both
+seen on the GFC-700 in sim-bench session bf3a33402db4,
+`doc/evidence/aer-5806-xplane-autopilot/`):
 
 - **No LVL state.** X-Plane's "return to level" flies its roll and pitch hold
   modes, so after `LVL` the keys show the modes it reports, not `LVL`.
