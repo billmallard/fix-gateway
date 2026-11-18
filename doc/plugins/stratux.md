@@ -10,7 +10,7 @@ a Stratux sends it). It decodes:
 | Ownship Geometric Altitude | `0x0B` | `STXGALT`, `STXVFOM`, `STXVWARN` |
 | Heartbeat | `0x00` | traffic source liveness |
 | Traffic Report | `0x14` | the `TFC` traffic block |
-| Uplink (FIS-B) | `0x07` | no keys: text weather into the plugin's store, with `fisb: true` |
+| Uplink (FIS-B) | `0x07` | no keys: text weather and the NEXRAD mosaic into the plugin's stores, with `fisb: true` |
 
 It also polls the receiver's `/getStatus` JSON for receiver health and GPS
 quality, which GDL90 does not carry (see *Receiver health*).
@@ -31,7 +31,7 @@ and a frame whose FCS does not match is discarded.
 | `traffic` | `true` | write ADS-B traffic into the `TFC` block. Exactly one traffic writer per installation |
 | `evict_s` | `10` | seconds without a report before a target's slot is emptied |
 | `ownship_address` | `""` | our 24-bit ICAO address as a **quoted** hex string, e.g. `"A1B2C3"`. Set by the configurator from the aircraft registration |
-| `fisb` | `false` | decode FIS-B text weather from `0x07` Uplink messages. The receiver must have UAT (978 MHz) enabled. See *FIS-B text weather* |
+| `fisb` | `false` | decode FIS-B text weather and NEXRAD from `0x07` Uplink messages. The receiver must have UAT (978 MHz) enabled. See *FIS-B text weather* and *FIS-B NEXRAD* |
 
 ## AHRS is a network input to the attitude display
 
@@ -231,5 +231,47 @@ The plugin status shows `FIS-B uplinks`, `FIS-B products`, `FIS-B current`
 (how many are current now) and the count of each kind. Nothing reads the store
 yet. The ruled delivery path (AER-5651) is a netfix request that returns one
 station's products, each with the state the gateway works out at that moment;
-pyEfis never works out an age itself. Graphical products (NEXRAD, AIRMET/SIGMET and TFR geometry) are not
+pyEfis never works out an age itself. AIRMET, SIGMET and TFR geometry are not
 decoded.
+
+## FIS-B NEXRAD
+
+With `fisb: true` the plugin also decodes the radar products, 63 (regional)
+and 64 (CONUS), into blocks on FIS-B's fixed grid and keeps the latest block at
+every position in a mosaic (`plugins/stratux/nexrad.py`):
+
+| | Regional (63) | CONUS (64) |
+|---|---|---|
+| Scale sent | 0: a block is 48' x 4', bins 1.5' x 1' | 1: a block is 4 deg x 20', bins 7.5' x 5' |
+| Level 0 | below 5 dBZ | no data |
+| Level 1 | 5-19 dBZ | below 20 dBZ |
+| Levels 2-7 | 20-29, 30-39, 40-44, 45-49, 50-54, 55+ dBZ | the same |
+
+Each block is 32 x 4 bins, west to east and then north to south, and carries
+the observation time of its image (the APDU hours and minutes, resolved to
+the nearest day on the host's UTC clock). An empty block (radar coverage, no
+precipitation) has no bins: the two products do not define its level the
+same way, so the display decides how to draw it.
+
+The mosaic keeps, per position, the block from the newest image, with that
+image's observation time and when the block was first and last received. An
+empty block from a newer image replaces a block with returns from an older
+one. A block is **old 30 minutes after its image's observation time**, the
+expiry Garmin gives FIS-B NEXRAD (AXIS Pilot's Guide for Experimental
+Aircraft, table 33): a reader never gets it as current, and the once-a-second
+purge drops it. A block already old when it arrives is not stored, and one
+dated more than 10 minutes after the clock is old. The 30-minute limit is a
+proposal awaiting Bill's ruling (AER-5937); DO-358B's 75 minutes is a
+retention minimum, not a display age.
+
+Refused, and counted in `NEXRAD refused`: blocks above 60N, whose bin layout
+the two open decoders disagree on and no capture here covers (no radar is
+drawn north of 60N, rather than radar in the wrong place), southern-hemisphere
+blocks, the reserved scale, and malformed blocks. The plugin status shows
+`NEXRAD blocks`, the count per product. Nothing reads the mosaic yet: the map
+layer comes with the display brief.
+
+A full CONUS mosaic on the Pi 5, the worst case (every CONUS and every
+regional position from 20N to 55N and 130W to 60W, 48,090 blocks), holds
+27 MiB and the purge costs 1.9% of one core
+(`doc/evidence/aer-5937-nexrad-pi5/`).

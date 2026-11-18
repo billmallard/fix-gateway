@@ -62,3 +62,42 @@ python3 make_fisb_oracle.py fisb-decode dump978-sample-2015.txt.gz > fisb_oracle
 
 fisb-decode is BSD-2-Clause Plus Patent and is not a dependency; only its
 output is committed.
+
+# FIS-B NEXRAD (GDL3, AER-5937)
+
+### `fisb-decode-tg30-2020.978.gz`
+
+fisb-decode's test group 30, `tg/tg-source/generated/tg30.978`, gzipped and
+otherwise unchanged (md5 of the uncompressed file
+`13828213408db1a6884887e14caebdcb`). Its author describes it as "a local
+capture from my system ... around 8 minutes of live data", received on
+2020-10-30 from 08:52 to 09:00 UTC: 963 ground uplinks, each line ending in
+its receive time (`t=` epoch seconds). It holds radar returns in both
+products: four regional (63) images and one CONUS (64) image, 1,535
+run-length blocks and 450 empty-block runs. The 2015 dump978 sample above
+holds only empty-block runs.
+
+- Source: https://github.com/rand-projects/fisb-decode, at commit
+  `c3d3b0473429336b1a98672b2e8b276c24d49765`.
+- Licence: BSD-2-Clause Plus Patent, compatible with this repository.
+
+### `nexrad_oracle_tg30.json.gz`, `nexrad_oracle_2015.json.gz`
+
+What fisb-decode makes of every NEXRAD block in the two captures: its level 0
+block decode, its level 2 expansion of empty-block runs, and the block
+corners from its image writer. `test_nexrad.py` requires fixgw's decoder to
+agree on every block: position in arcminutes, scale and all 128 bins.
+
+To regenerate:
+
+```sh
+git clone https://github.com/rand-projects/fisb-decode
+git -C fisb-decode checkout c3d3b0473429336b1a98672b2e8b276c24d49765
+python3 make_nexrad_oracle.py fisb-decode fisb-decode-tg30-2020.978.gz | gzip -9n > nexrad_oracle_tg30.json.gz
+python3 make_nexrad_oracle.py fisb-decode dump978-sample-2015.txt.gz | gzip -9n > nexrad_oracle_2015.json.gz
+```
+
+dump978's `extract_nexrad.c` disagrees with fisb-decode on empty-block runs:
+it reads one bitmap byte fewer and steps one cell at every scale. tg30
+decides for fisb-decode (see `nexrad.py`), and `test_nexrad.py` pins the
+evidence.

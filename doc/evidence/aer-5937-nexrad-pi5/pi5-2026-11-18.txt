@@ -1,0 +1,36 @@
+== run 1, 0.06 0.11 0.06 1/239 1163489
+host pyefis aarch64 python 3.13.5
+model Raspberry Pi 5 Model B Rev 1.1
+capture: 963 uplinks over 457 s, 1985 NEXRAD APDUs, 2274 cells
+capture: decode+ingest 0.051 s CPU (0.051 s wall) = 0.011% of one core at the capture's rate
+full mosaic: CONUS 1890 blocks, regional 46200 blocks (20N-55N, 130W-60W)
+full mosaic: held 27.1 MiB (tracemalloc), RSS 37.4 -> 64.0 MiB (+26.5)
+full mosaic: built in 0.567 s CPU (11.8 us per block)
+full mosaic: CONUS alone is 1890 of 48090 cells
+full mosaic: purge() 18.7 ms (once a second: 1.9% of a core)
+full mosaic: current() 19.6 ms, current(CONUS) 4.7 ms
+process max RSS 100.3 MiB
+== run 2, 0.13 0.12 0.07 2/239 1163491
+host pyefis aarch64 python 3.13.5
+model Raspberry Pi 5 Model B Rev 1.1
+capture: 963 uplinks over 457 s, 1985 NEXRAD APDUs, 2274 cells
+capture: decode+ingest 0.049 s CPU (0.049 s wall) = 0.011% of one core at the capture's rate
+full mosaic: CONUS 1890 blocks, regional 46200 blocks (20N-55N, 130W-60W)
+full mosaic: held 27.1 MiB (tracemalloc), RSS 37.4 -> 63.9 MiB (+26.5)
+full mosaic: built in 0.567 s CPU (11.8 us per block)
+full mosaic: CONUS alone is 1890 of 48090 cells
+full mosaic: purge() 18.7 ms (once a second: 1.9% of a core)
+full mosaic: current() 18.0 ms, current(CONUS) 4.8 ms
+process max RSS 100.3 MiB
+== run 3, 0.20 0.14 0.08 1/240 1163494
+host pyefis aarch64 python 3.13.5
+model Raspberry Pi 5 Model B Rev 1.1
+capture: 963 uplinks over 457 s, 1985 NEXRAD APDUs, 2274 cells
+capture: decode+ingest 0.050 s CPU (0.050 s wall) = 0.011% of one core at the capture's rate
+full mosaic: CONUS 1890 blocks, regional 46200 blocks (20N-55N, 130W-60W)
+full mosaic: held 27.1 MiB (tracemalloc), RSS 37.4 -> 64.0 MiB (+26.5)
+full mosaic: built in 0.565 s CPU (11.8 us per block)
+full mosaic: CONUS alone is 1890 of 48090 cells
+full mosaic: purge() 18.8 ms (once a second: 1.9% of a core)
+full mosaic: current() 19.5 ms, current(CONUS) 4.7 ms
+process max RSS 100.3 MiB
