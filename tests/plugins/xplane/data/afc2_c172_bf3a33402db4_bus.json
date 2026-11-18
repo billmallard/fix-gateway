@@ -1,0 +1,157 @@
+{
+ "session": "bf3a33402db4",
+ "aircraft": "Laminar C172 G1000 (GFC-700)",
+ "xplane": "12.4.3",
+ "gateway": "fix-gateway 5a5d9f6 (private instance on the Beelink)",
+ "note": "Per-key value changes the live gateway published (fresh flag only), from the bench bus log; t is seconds after the first raw row.",
+ "transitions": {
+  "APENG": [
+   [
+    0.002,
+    "False"
+   ],
+   [
+    8.872,
+    "True"
+   ],
+   [
+    176.574,
+    "False"
+   ]
+  ],
+  "FDENG": [
+   [
+    0.002,
+    "False"
+   ],
+   [
+    8.872,
+    "True"
+   ]
+  ],
+  "APLAT": [
+   [
+    0.002,
+    ""
+   ],
+   [
+    8.872,
+    "ROL"
+   ],
+   [
+    9.132,
+    "HDG"
+   ],
+   [
+    9.838,
+    "GPS"
+   ],
+   [
+    24.96,
+    "HDG"
+   ],
+   [
+    146.274,
+    "GPS"
+   ],
+   [
+    156.354,
+    "ROL"
+   ],
+   [
+    166.46,
+    "GPS"
+   ]
+  ],
+  "APLATARM": [
+   [
+    0.002,
+    ""
+   ]
+  ],
+  "APVERT": [
+   [
+    0.002,
+    ""
+   ],
+   [
+    8.872,
+    "PIT"
+   ],
+   [
+    9.677,
+    "ALT"
+   ],
+   [
+    42.743,
+    "VS"
+   ],
+   [
+    96.808,
+    "ALT"
+   ],
+   [
+    108.422,
+    "IAS"
+   ],
+   [
+    136.106,
+    "ALT"
+   ],
+   [
+    156.354,
+    "PIT"
+   ],
+   [
+    157.844,
+    "ALT"
+   ]
+  ],
+  "APVERTARM": [
+   [
+    0.002,
+    ""
+   ],
+   [
+    42.743,
+    "ALT"
+   ],
+   [
+    96.808,
+    ""
+   ],
+   [
+    108.422,
+    "ALT"
+   ],
+   [
+    136.106,
+    ""
+   ],
+   [
+    156.354,
+    "ALT"
+   ],
+   [
+    157.844,
+    ""
+   ]
+  ],
+  "APDISC": [
+   [
+    0.003,
+    "False"
+   ],
+   [
+    176.574,
+    "True"
+   ]
+  ],
+  "APCAPS": [
+   [
+    0.003,
+    "AP,FD,LVL,HDG,NAV,APR,IAS,VNAV,VS,ALT,DISC"
+   ]
+  ]
+ }
+}
