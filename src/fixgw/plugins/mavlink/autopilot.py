@@ -294,14 +294,14 @@ class Autopilot:
             self._say("{} refused: autopilot not armed".format(request), now)
             return
         name = MODE_NAMES[target]
-        # Mav keeps the mode it last set, not the one the autopilot reports:
-        # after a mode change from the transmitter they differ, and checkMode
-        # would skip a request for the mode it thinks is current. The pilot
-        # is asking now, so start from what the autopilot reports.
+        # checkMode sends only a mode it did not last request: after a mode
+        # change from the transmitter, a request for the mode the plugin
+        # last set would be skipped. The pilot is asking now, so start from
+        # what the autopilot reports.
         reported = MODE_NAMES.get(self.mode, mode_name(self.mode))
         if reported == name:
             return
-        mav._apmode = reported
+        mav._apreq = reported
         for other in mav._apmodes:
             if other != name and self._read("MAVREQ" + other):
                 self.parent.db_write("MAVREQ" + other, False)
