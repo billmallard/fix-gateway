@@ -540,7 +540,9 @@ class ReferenceNavigator:
             return None
         nxt = self.legs[k + 1]
         cur = self.legs[k]
-        if nxt.pt in ("TF", "DF") and nxt.lat is not None:
+        # An IF after a fix is flown as a TF from it (_line_for): the
+        # procedure's first fix after the en-route items (DEMO5, AER-5802)
+        if nxt.pt in ("TF", "IF", "DF") and nxt.lat is not None:
             return inverse(cur.lat, cur.lon, nxt.lat, nxt.lon)[1]
         if nxt.pt == "CA":
             return nxt.course_true

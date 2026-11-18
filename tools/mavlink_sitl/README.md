@@ -10,13 +10,15 @@ No X-Plane and no hardware are involved.
 
 | File | What it is |
 |---|---|
-| `bridge.py` | A pty for the plugin's serial port, relayed to SITL's TCP port. Records every message the autopilot sends as a tlog. Touching `<out>/ctl/pause` cuts the link both ways. |
+| `bridge.py` | A pty for the plugin's serial port, relayed to SITL's TCP port. Records every message the autopilot sends as a tlog, and with a fifth argument every message the plugin sends. Touching `<out>/ctl/pause` cuts the link both ways. |
 | `session.py` | The session: start SITL, the bridge and a private fixgw (`fixgw.server:main`, MAVLINK on, netfix on a free port), then run the sequence below and log every key with its old flag. |
-| `cut_fixture.py` | Cuts the recorded `fc.tlog` to the autopilot's own fixed-wing heartbeats, keeping each record's exact wire bytes. |
+| `cut_fixture.py` | Cuts the recorded `fc.tlog` to the autopilot's own fixed-wing heartbeats, keeping each record's exact wire bytes, optionally between two times. |
 | `disarm_probe.py` | A separate SITL instance with no plugin: does a disarmed ArduPlane still drive its control surfaces? |
-| `reengage.py` | The same session cut short to show a pre-existing hazard: after the transmitter takes ArduPlane out of GUIDED, the next waypoint change puts it back in GUIDED. |
+| `reengage.py` | The session cut short, then three times: the plugin engages GUIDED, the transmitter takes MANUAL, and the flight plan moves on (A), moves at the same instant (B) or is cleared (C). ArduPlane must stay MANUAL. Then D (a new waypoint still moves the plugin's own GUIDED) and E (in MANUAL, ArduPlane refuses a reposition without the mode-change flag). It produced `tests/plugins/mavlink/data/arduplane_4.7.2_reengage.tlog` (AFC7a, AER-5897). |
 | `session_4.7.2.log` | The session that made the fixture. |
-| `reengage_4.7.2.log` | `reengage.py`'s run. The autopilot's own heartbeats read MANUAL until 0.39 s after the waypoint write, then GUIDED. |
+| `trace.py` | Merges a run's `gcs.tlog` and `fc.tlog`: each mode command the plugin sent, ArduPlane's ack, and each mode change. |
+| `reengage_4.7.2.log` | `reengage.py` on the fixed plugin, then `trace.py`: A, B and C stay MANUAL and the plugin sends nothing after each switch; D's new waypoint goes without the mode-change flag; E is refused (`MAV_RESULT_FAILED`). |
+| `reengage_4.7.2_dev.log` | The same on the plugin before AFC7a: A and B went back to GUIDED, C to CRUISE. |
 | `disarm_probe_4.7.2.txt` | The probe's output. |
 
 ## Regenerate
@@ -31,6 +33,9 @@ PYTHONPATH=deps python3 session.py ../.. out
 PYTHONPATH=deps python3 cut_fixture.py out/fc.tlog ../../tests/plugins/mavlink/data/arduplane_4.7.2_modes.tlog
 PYTHONPATH=deps python3 disarm_probe.py probe
 PYTHONPATH=deps python3 reengage.py ../.. re
+PYTHONPATH=deps python3 trace.py re
+# <from>: 1 s before "A start" in re/session.log; <to>: the "case A:" line
+PYTHONPATH=deps python3 cut_fixture.py re/fc.tlog ../../tests/plugins/mavlink/data/arduplane_4.7.2_reengage.tlog <from> <to>
 ```
 
 The recording used `firmware-version.txt` `4.7.2-FIRMWARE_VERSION_TYPE_OFFICIAL`

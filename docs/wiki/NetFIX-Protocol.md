@@ -61,8 +61,9 @@ after the request (e.g. `@rXYZ!001`):
 |---|---|
 | `001` | key not found, or unknown `@x` subcommand |
 | `002` | already subscribed, or unknown flag letter |
-| `003` | bad flag value, or missing or bad value on `@w` |
+| `003` | bad flag value, missing or bad value on `@w`, or bad station on `@xweather` |
 | `004` | unknown command |
+| `005` | `@xweather`: no FIS-B weather store is running |
 
 | Command | Form | Purpose |
 |---|---|---|
@@ -74,6 +75,7 @@ after the request (e.g. `@rXYZ!001`):
 | **Report** | `@q<ID>` | metadata for a key (description, type, min/max, units, tol, aux…) |
 | **Flag** | `@f<ID>;<flag>;<0\|1>` | set/clear a quality flag on a key |
 | **Status / admin** | `@xstatus`, `@xkill` | server status as JSON; shut down the whole gateway |
+| **FIS-B weather** | `@xweather;<station>` | one station's FIS-B text products as JSON, each with its state: `@xweather;<station>;<JSON>` (see `doc/plugins/netfix.rst`) |
 
 **Subscribe** is the normal mode for a display: subscribe to the keys it shows,
 then react to the update stream — no polling. The subscription does not send the

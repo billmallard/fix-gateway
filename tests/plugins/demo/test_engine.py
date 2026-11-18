@@ -95,8 +95,12 @@ def test_fuel_burns_down_by_the_fuel_flow(modelled):
     burned = q[0][1] - q[-1][1]
     expect = sum(a[2] * (b[0] - a[0]) for a, b in zip(q, q[1:])) / 3600.0
     assert burned == pytest.approx(expect, rel=0.03)
-    # a loop burns a little over a gallon a tank: never near empty
-    assert 1.0 < burned < 4.0
+    # the 67-minute route burns under five gallons a tank: every tank ends
+    # each loop well above its configured lowWarn, so the demo never shows a
+    # low-fuel caution it did not mean to
+    assert 1.0 < burned
+    for tank in ("FUELQ1", "FUELQ2"):
+        assert min(r[tank] for _, r in rows if tank in r) > 2 * _ini_limits(tank)["lowWarn"]
 
 
 def test_one_cylinder_crosses_warn_then_alarm_in_the_climb_and_recovers(modelled):

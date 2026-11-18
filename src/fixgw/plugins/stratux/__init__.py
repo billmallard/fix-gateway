@@ -131,6 +131,8 @@ class MainThread(threading.Thread):
     def run(self):
         if self.poller is not None:
             self.poller.start()
+        if self.weather is not None:
+            weather.register(self.weather)
 
         while not self.getout:
             try:
@@ -147,6 +149,8 @@ class MainThread(threading.Thread):
                 self.traffic.tick()
             self.fisb_tick()
 
+        if self.weather is not None:
+            weather.unregister(self.weather)
         if self.poller is not None:
             self.poller.stop()
         self.s.close()

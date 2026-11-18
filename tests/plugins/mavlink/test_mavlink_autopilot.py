@@ -16,6 +16,11 @@ mav_module = importlib.import_module("fixgw.plugins.mavlink.Mav")
 # server: the autopilot's own heartbeats, as a tlog, with an 8 s link loss.
 # tools/mavlink_sitl/README.md has the session and the commands.
 TLOG = os.path.join(os.path.dirname(__file__), "data", "arduplane_4.7.2_modes.tlog")
+# The same, from tools/mavlink_sitl/reengage.py (AFC7a, AER-5897): three
+# times the plugin engages GUIDED and the transmitter takes MANUAL, then the
+# plugin's own GUIDED with no switch.
+REENGAGE_TLOG = os.path.join(os.path.dirname(__file__), "data",
+                             "arduplane_4.7.2_reengage.tlog")
 
 STATE = ("APENG", "FDENG", "YDENG", "APLAT", "APLATARM", "APVERT",
          "APVERTARM", "APALTCAP", "APCAPS", "APMSG", "APDISC")
@@ -426,10 +431,10 @@ class ReplayConn(Conn):
     recording's clock. Between two records it returns None every 0.1 s, as
     the plugin's 0.1 s recv timeout does on a quiet link."""
 
-    def __init__(self, clocks):
+    def __init__(self, clocks, path=TLOG):
         super().__init__()
         self.clocks = clocks
-        log = mavutil.mavlink_connection(TLOG)
+        log = mavutil.mavlink_connection(path)
         self.records = []
         while True:
             m = log.recv_match()
@@ -532,3 +537,112 @@ def test_recorded_link_loss_takes_the_state_old_within_tol(database, monkeypatch
     assert olds and olds[0] - last <= mav_module.LINK_TIMEOUT + 0.25
     after = [k for t, hb, k in ticks if hb is not None and t >= back][0]
     assert after["APENG"][1] is False and after["MAVMSG"][1] is False
+
+
+# --------------------------------------------------------------------------
+# AFC7a: a mode change the plugin did not make is never undone (AER-5897)
+# --------------------------------------------------------------------------
+# Mav's name for each ArduPlane mode in the recording; MAVMODE shows it.
+MAVMODE_OF = {"MANUAL": "TRIM", "CRUISE": "CRUISE", "GUIDED": "GUIDED"}
+NEXT_WP = 34.45
+
+
+def repositions(sent):
+    """(change_mode flag, lat) of each DO_REPOSITION in ``sent``."""
+    return [(m[1][7], m[1][10]) for m in sent
+            if m[0] == "int" and m[1][3] == mavutil.mavlink.MAV_CMD_DO_REPOSITION]
+
+
+def test_recorded_transmitter_takeover_is_never_undone(database, monkeypatch):
+    """ArduPlane's own heartbeats from reengage.py, through the plugin loop
+    (process, then checkMode, every tick). The head presses AP and NAV where
+    the recording shows the plugin's own mode changes. After each GUIDED to
+    MANUAL, which the transmitter made, the flight plan moves to the next
+    waypoint and then is cleared: the plugin must send nothing. On dev it
+    sent DO_REPOSITION with the mode-change flag (GUIDED again) and then
+    DO_SET_MODE CRUISE."""
+    now = [0.0]
+    monkeypatch.setattr(fixdatabase.time, "time", lambda: now[0])
+    monkeypatch.setattr(mav_module.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(mav_module.time, "sleep", lambda _s: None)
+    adapter, mav, parent, _clock = make(database)
+    adapter.clock = lambda: now[0]
+    conn = ReplayConn([now], REENGAGE_TLOG)
+    mav.conn = conn
+    names = [mavutil.mode_mapping_apm[m.custom_mode] for m in conn.records]
+    assert "GUIDED" in names and "MANUAL" in names
+    now[0] = conn.records[0]._timestamp - 0.05
+    mav._link_ok = False
+    mav._last_heartbeat = now[0]
+    mav.ids, mav.no_msg_count, mav._interval = [], 0, {}
+    mav._ahrs = mav._gps = mav._airspeed = mav._groundspeed = False
+    mav._accel = mav._pressure = False
+    mav._apreq = mav._apmode = "INIT"
+
+    def plan(lat):
+        database.write("WPLAT", lat)
+        database.write("WPLON", -119.92)
+        database.write("WPNAME", "WPT1")
+
+    reported = None         # the last replayed heartbeat's mode
+    pressed_for = -1        # the record index a press was made for
+    takeovers = 0
+    takeover = None         # (record index, sent count) of a MANUAL takeover
+    guided_since = None
+    retargets = []
+    presses = []
+    moves = 0
+    while conn.i < len(conn.records):
+        before = conn.i
+        mav.process()
+        if conn.i > before:
+            prev, reported = reported, names[before]
+            if reported == "MANUAL" and prev == "GUIDED":
+                takeovers += 1
+                takeover = (before, len(conn.sent), now[0])
+            guided_since = now[0] if reported == "GUIDED" and prev != "GUIDED" \
+                else guided_since
+        nxt = conn.i
+        nxt_name = names[nxt] if nxt < len(names) else None
+        # The head's own presses, just before the recorded change they made.
+        if (nxt_name not in (None, reported) and pressed_for != nxt
+                and conn.records[nxt]._timestamp - now[0] < 0.15
+                and (reported, nxt_name) in (("MANUAL", "CRUISE"),
+                                             ("CRUISE", "GUIDED"))):
+            pressed_for = nxt
+            takeover = None
+            plan(34.44)
+            presses.append("AP" if nxt_name == "CRUISE" else "NAV")
+            press(database, presses[-1])
+        if takeover is not None:
+            # The pilot has it: the flight plan moves on, then is cleared.
+            t = now[0] - takeover[2]
+            if 0.5 <= t < 0.6:
+                plan(NEXT_WP)
+                moves += 1
+            elif 2.0 <= t < 2.1:
+                plan(0.0)
+                moves += 1
+            assert conn.sent[takeover[1]:] == [], (
+                "the plugin re-commanded ArduPlane after the transmitter "
+                "took MANUAL", conn.sent[takeover[1]:])
+        if (reported == "GUIDED" and guided_since is not None
+                and now[0] - guided_since > 1.0 and not retargets):
+            # The plugin's own GUIDED, no switch: it follows the plan.
+            n = len(conn.sent)
+            plan(NEXT_WP)
+            mav.checkMode()
+            retargets = repositions(conn.sent[n:])
+        mav.checkMode()
+        if reported is not None:
+            # MAVMODE is what ArduPlane reports, never a request in flight.
+            assert read("MAVMODE")[0] == MAVMODE_OF.get(reported, "UNKNOWN"), (
+                now[0], reported)
+    # NAV for A; AP and NAV for B, C and D. Each takeover (A, B, C and E)
+    # saw the plan move and then clear.
+    assert presses == ["NAV"] + ["AP", "NAV"] * 3
+    assert takeovers == 4 and moves == 2 * takeovers
+    # A new waypoint moves the plugin's own GUIDED, without the mode flag.
+    assert retargets == [(0, int(NEXT_WP * 10**7))]
+    # NAV itself still asks for GUIDED.
+    assert (1, int(34.44 * 10**7)) in repositions(conn.sent)
