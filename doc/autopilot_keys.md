@@ -232,8 +232,17 @@ heartbeat:
   never written, so they stay old and no display draws bars.
 - `APDISC` is latched on any change from an engaged mode to MANUAL, whatever
   caused it: the head, the transmitter's mode switch or a failsafe.
-- The mode keys `MAVMODE`, `MAVSTATE` and `MAVMSG`, and the buttons that read
-  them, are unchanged.
+- `MAVMODE` is written only from the heartbeat: a mode request shows there
+  when ArduPlane reports the new mode, not when the plugin sends it (AFC7a).
+  `MAVSTATE`, `MAVMSG` and the buttons that read them are unchanged.
+- **A mode change the plugin did not make is never undone.** When the
+  transmitter or a failsafe takes ArduPlane out of the GUIDED the plugin
+  engaged, a new waypoint is not sent and a cleared flight plan does not
+  drop it to CRUISE: both act only while ArduPlane still reports that
+  GUIDED. A new waypoint goes as `DO_REPOSITION` without the mode-change
+  flag, so ArduPlane itself ignores it if the switch came after its last
+  heartbeat. Only a pilot request (`APCMD`, or a `MAVREQ*` button) changes
+  the mode (AFC7a, AER-5897; `tools/mavlink_sitl/reengage.py`).
 
 **Staleness.** Every state key is rewritten on each heartbeat (1 Hz) and
 every 0.5 s while the last heartbeat is at most 1.5 s old, so one missed

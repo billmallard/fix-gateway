@@ -621,14 +621,14 @@ def test_check_waypoint_invalid_guided_drops_to_cruise_and_valid_updates_mode():
     parent = FakeParent()
     mav = make_mav(parent=parent)
     calls = []
-    mav.setMode = lambda mode: calls.append(mode)
+    mav.setMode = lambda mode, change_mode=True: calls.append((mode, change_mode))
     mav._apreq = "GUIDED"
     mav._apmode = "GUIDED"
     parent.values["WPLAT"] = (0.0, False, False, False, False, False)
 
     mav.checkWaypoint()
 
-    assert calls == ["CRUISE"]
+    assert calls == [("CRUISE", True)]
     assert_write(parent, "MAVREQGUIDED", False)
     assert_write(parent, "MAVREQCRUISE", True)
     assert_write(parent, "MAVWPVALID", False)
@@ -641,8 +641,25 @@ def test_check_waypoint_invalid_guided_drops_to_cruise_and_valid_updates_mode():
     mav.checkWaypoint()
 
     assert mav._apwpv is True
-    assert calls == ["GUIDED"]
+    # A new waypoint moves the GUIDED target and never asks for GUIDED.
+    assert calls == [("GUIDED", False)]
     assert_write(parent, "MAVWPVALID", True)
+
+
+def test_a_guided_the_plugin_did_not_ask_for_is_left_alone():
+    # AFC7a: a ground station put ArduPlane in GUIDED. The flight plan's
+    # waypoint must not retarget it, nor a cleared plan drop it to CRUISE.
+    parent = FakeParent()
+    mav = make_mav(parent=parent, messages=[heartbeat(7), heartbeat(15)])
+    mav._apstat = "ARMED"
+    mav.process()                       # CRUISE: the request baseline
+    mav.process()                       # GUIDED, from somewhere else
+    assert (mav._apreq, mav._apmode) == ("CRUISE", "GUIDED")
+    mav._waypoint = "old"
+    mav.checkMode()
+    parent.values["WPLAT"] = (0.0, False, False, False, False, False)
+    mav.checkMode()
+    assert mav.conn.mav.sent == []
 
 
 def test_set_mode_valid_invalid_guided_and_non_leader(monkeypatch):
@@ -663,13 +680,19 @@ def test_set_mode_valid_invalid_guided_and_non_leader(monkeypatch):
     parent.quorum.leader = True
     mav.setMode("CRUISE")
     assert mav.conn.mav.sent[-1][0] == "long"
-    assert mav._apmode == "CRUISE"
-    assert_write(parent, "MAVMODE", "CRUISE")
+    # A request is not a report: MAVMODE and _apmode wait for the heartbeat
+    # (AFC7a).
+    assert mav._apreq == "CRUISE"
+    assert mav._apmode == "INIT"
+    assert "MAVMODE" not in [k for k, _v in parent.writes]
 
     mav._apwpv = True
     mav.setMode("GUIDED")
     assert mav.conn.mav.sent[-1][0] == "int"
+    assert mav.conn.mav.sent[-1][1][7] == 1     # param2: change mode
     assert mav._waypoint == "-88.040.0HOME"
+    mav.setMode("GUIDED", change_mode=False)
+    assert mav.conn.mav.sent[-1][1][7] == 0     # only moves an active GUIDED
 
     mav._apstat = "ERROR"
     mav.setMode("TRIM")
