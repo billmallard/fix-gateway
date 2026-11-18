@@ -128,7 +128,7 @@ class Connection(object):
         elif d == "weather" or d.startswith("weather;"):
             self.__weather(d[len("weather;"):])
         else:
-            self.queue.put("@x{}!001".format(d).encode())
+            self.queue.put("@x{}!001\n".format(d).encode())
 
     # FIS-B text weather for one station (AER-5936).  The reply is JSON on one
     # line: json.dumps escapes the line breaks in a TAF or a TFR, and a ';' in

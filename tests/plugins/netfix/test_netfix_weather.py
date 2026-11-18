@@ -189,3 +189,8 @@ def test_products_from_every_registered_store(plugin, store):
         weather.unregister(second)
     assert [p["kind"] for p in _reply(plugin.sock, "KSCK")["products"]] == ["METAR"]
 
+
+def test_unknown_x_command_reply_ends_its_line(plugin):
+    # The reply had no newline, so a line-reading client waited for the next
+    # line: a new client asking an older gateway for weather would hang.
+    assert _ask(plugin.sock, "@xbogus\n") == "@xbogus!001"
