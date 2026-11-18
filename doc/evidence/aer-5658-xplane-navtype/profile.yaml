@@ -1,0 +1,17 @@
+# AER-5658 (G67 follow-up): X-Plane drives NAV1TYPE onto the glass.
+# A short leg west of KSBA that lies inside both San Marcus VOR (RZS 114.9)
+# range and the KSBA ILS 7 localizer (ISBA 110.3) front course. The bench
+# hook retunes NAV1 by DREF; the driver keeps flying GPS (no approach is
+# loaded, so it never touches NAV1).
+name: aer5658-navtype-gvo-golet
+description: >
+  GVO direct, V27 towards KWANG, from 8 nm before GVO at 6,000 ft,
+  ending once GOLET is sequenced.
+departure: KSMX
+destination: KSBA
+aircraft: {tas_kt: 110}
+start: {fix: GVO, before_nm: 8.0, alt_ft: 6000, heading: on_course}
+route:
+  - waypoint: GVO
+  - airway: {id: V27, exit: KWANG}
+end: {after_fix: GOLET, max_s: 1500}
