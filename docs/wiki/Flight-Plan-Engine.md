@@ -116,7 +116,9 @@ the aircraft passes the MAP the engine suspends (`FPLSTATE` = 3,
 the last slot keeps circling.
 
 Hold entries follow AIM 5-3-8: teardrop, parallel or direct by the arrival
-track, with a 60-second entry leg. Hold turns use `turn_rate_deg_s`, but never
+track, with a 60-second entry leg. The entry is on the bus before the fix:
+`FPLHOLDENT` predicts it from the planned track into the fix, and
+`FPLHOLDCOMMIT` turns true when the fix is reached. Hold turns use `turn_rate_deg_s`, but never
 more than 25 degrees of bank, so the radius grows at higher ground speed.
 
 ## Fly-by turns
@@ -191,6 +193,7 @@ plugin does not write it.
 | `FPLREMDIS`, `FPLREMETE`, `FPLSEGREM` | distance and time to the end of the plan, distance to the end of the segment |
 | `FPLALERT` | waypoint alert |
 | `FPLTURN` | `L`/`R` while flying the coded turn that opens a `DF` |
+| `FPLHOLDSLOT`, `FPLHOLDENT`, `FPLHOLDCOMMIT` | the next hold's slot and its entry (`DIRECT`/`TEARDROP`/`PARALLEL`), predicted before the fix, committed (true) once flown |
 | `FPLMSG`, `FPLCMDACK`, `FPLLDSEQ` | messages, command acknowledgement, loaded route number |
 
 ## Internal plan or external navigator

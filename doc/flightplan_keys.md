@@ -1,4 +1,4 @@
-# Flight plan FIX keys (FP1, PA3, PA4, PA13, RS1, TURN3)
+# Flight plan FIX keys (FP1, PA3, PA4, PA13, RS1, TURN3, HOLDENT1)
 
 Spec: [fix-gateway#22](https://github.com/billmallard/fix-gateway/issues/22)
 (FP1), [fix-gateway#27](https://github.com/billmallard/fix-gateway/issues/27)
@@ -336,6 +336,9 @@ circuit/turn; `HA` exits automatically once the coded altitude is reached.
 | `FPLSEGREM` | float | 0..9999.9 nm | Distance remaining in the active segment (RS1): to the TO fix, then along the plan to the segment's `LAST` slot. 0 with no active segment, on a vector leg, and during failed guidance (flagged `fail`/`bad` with the other distance outputs) |
 | `FPLALERT` | bool | | Waypoint sequencing alert (10 s or 1 nm before turn start, whichever is longer; at a fly-by fix the waypoint itself sequences later, at the turn bisector) |
 | `FPLTURN` | str | `"L"` / `"R"` / `""` | Commanded turn direction (AER-4541): the coded direction while the engine flies the turn that opens a `DF`, `""` otherwise and during failed guidance. One writer, the engine. A display annunciates it and never derives it from `FPLfTURN` and the track; with the key absent (older gateway, or a database edited before AER-4541, which the engine logs once) it shows nothing |
+| `FPLHOLDSLOT` | int | 0..100 | Slot of the hold `FPLHOLDENT` describes (HOLDENT1): the active slot if it is a hold, else the first hold after it, or the first hold in the plan when none is active (plan loaded but not activated, or an off-route direct-to). 0 = no hold. One writer, the engine |
+| `FPLHOLDENT` | str | `"DIRECT"` / `"TEARDROP"` / `"PARALLEL"` / `""` | AIM 5-3-8 entry for the hold at `FPLHOLDSLOT` (HOLDENT1). From the fix on (`FPLHOLDCOMMIT` true) it is the entry the engine is flying. Before the fix it is predicted with the same `hold_entry` call, from the same arrival track the engine will take on reaching the fix: the great circle into the fix of the leg that reaches it (for `TF X` then `HM X`, the `TF`'s leg, from the slot before it; for a hold with its own leg, from the slot before the hold; from a direct-to's activation point). Where that leg's start is not known until the aircraft is there (after a `CA`/`FA` or vector leg, at slot 1, or a `DF` whose coded turn is not yet flown), the line from the aircraft to the fix stands in until it is. `""` with no hold, or with the aircraft over the fix and no planned leg to predict from. Kept through failed guidance, like `FPLACTSEG`. One writer, the engine. A display shows it and never derives an entry from the plan and the track; with the key absent (older gateway, or a database edited before HOLDENT1, which the engine logs once) it shows no entry |
+| `FPLHOLDCOMMIT` | bool | | `FPLHOLDENT` is the entry being flown (HOLDENT1): true from reaching the hold fix until the hold is left (or the plan reloads, or a new activation starts the leg again), false while it is a prediction. A restart mid-hold restores it with the entry from the state file |
 
 `WPLAT`/`WPLON`/`WPNAME` (`database/mavlink.yaml`) are pre-existing keys; the
 engine becomes their writer when the `flightplan` plugin is enabled (FP2).
