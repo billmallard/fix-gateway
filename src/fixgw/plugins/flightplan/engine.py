@@ -1439,13 +1439,13 @@ class Engine:
             ac_lat, ac_lon = self._last_lat, self._last_lon
 
         stale = self._last_good_time is None or (now - self._last_good_time) > POSITION_TIMEOUT_S
-        if stale:
-            return self._fail_outputs()
-
-        if fix_type_ok is False:
-            return self._fail_outputs()
+        if stale or fix_type_ok is False:
+            out = self._fail_outputs()
+            self._add_hold_entry(out, magvar_deg)
+            return out
 
         out = self._compute_guidance(ac_lat, ac_lon, gs_kt, magvar_deg, alt_ft)
+        self._add_hold_entry(out, magvar_deg)
         self._compute_phase_and_integrity(out, ac_lat, ac_lon, accuracy_nm)
         if out.pop("vectors", False):
             out["phase"] = "VECTORS"  # PA4 guardrail 4 -- wins over ENR/TERM/LNAV
@@ -1457,6 +1457,15 @@ class Engine:
         if self._pending_msg is not None:
             out["msg"] = self._pending_msg
         return out
+
+    def _add_hold_entry(self, out, magvar_deg):
+        """The next hold's entry (HOLDENT1), after this cycle's sequencing:
+        a hold reached this cycle reads committed at once. Kept through
+        failed guidance like FPLACTSEG -- it is the plan's, and a committed
+        entry is the one being flown -- with the last good position for a
+        prediction that needs one."""
+        position = None if self._last_lat is None else (self._last_lat, self._last_lon)
+        out["hold_slot"], out["hold_ent"], out["hold_commit"] = self._hold_entry_outputs(position, magvar_deg)
 
     def _fail_outputs(self):
         out = {
@@ -1718,13 +1727,17 @@ class Engine:
         anchor = self._leg_from_anchor(next_wp, to, next_to, magvar_deg)
         return self._line_geometry(anchor, next_to, ac_lat, ac_lon)
 
-    def _sequence(self, reached_to):
-        prev_from = self.from_point
+    def _active_leg_arrival_from(self):
+        """The point the active leg arrives at its fix from: the FROM point,
+        or, for a DF that opened with its coded turn (AER-4541), the turn's
+        end -- a hold at its fix is entered from that track, not from the
+        line from where the DF began."""
         if self._df_turn is not None:
-            # A DF that opened with its coded turn arrived along the line
-            # from the turn's end (AER-4541): a hold at its fix is entered
-            # from that track, not from the line from where the DF began.
-            prev_from = Point(self._df_turn["exit_lat"], self._df_turn["exit_lon"])
+            return Point(self._df_turn["exit_lat"], self._df_turn["exit_lon"])
+        return self.from_point
+
+    def _sequence(self, reached_to):
+        prev_from = self._active_leg_arrival_from()
         self.from_point = reached_to
         self.act_leg += 1
         new_to = Point.from_waypoint(self.route[self.act_leg - 1])
@@ -1769,6 +1782,71 @@ class Engine:
             self._hold_entry = hold_entry(inbound_true, to_wp.turn, arrival_true)
         self._ensure_hold_dims(self._cycle_gs_kt)
         self._leg_phase = LEGPHASE_TURN_OUT if self._hold_entry == HOLD_ENTRY_DIRECT else LEGPHASE_ENTRY
+
+    def _hold_entry_outputs(self, position, magvar_deg):
+        """FPLHOLDSLOT/FPLHOLDENT/FPLHOLDCOMMIT (HOLDENT1): the next hold in
+        the plan -- the active slot or the first one after it, the first in
+        the plan when none is active -- and its entry. Once the hold has
+        been reached it is the entry being flown (committed). Before that
+        it is the entry _start_pattern will pick, from the same point and
+        with the same hold_entry call, so on the planned track the two
+        cannot differ. Where that point is not known until the aircraft
+        gets there (_planned_arrival_from), the line from the aircraft to
+        the fix stands in. position is (lat, lon) or None.
+
+        Returns (slot, entry, committed): (0, "", False) with no hold, and
+        an entry of "" when there is nothing to predict it from."""
+        start = self.act_leg if self.act_leg else 1
+        h = next((i for i in range(start, self.count + 1) if self.route[i - 1].pt in PT_HOLD), None)
+        if h is None:
+            return 0, "", False
+        if h == self.act_leg and self._hold_entry is not None:
+            return h, self._hold_entry, True
+        hold = self.route[h - 1]
+        fr, fix = self._planned_arrival_from(h)
+        live = fr is None
+        if live:
+            if position is None:
+                return h, "", False
+            fr = Point(*position)
+        arrival_true = self._arrival_track_true(fr, fix)
+        if arrival_true is None:
+            # A planned FROM at the fix is _start_pattern's "arrival
+            # unknown", a direct entry. The aircraft over the fix with no
+            # planned FROM gives nothing to predict from.
+            return h, "" if live else HOLD_ENTRY_DIRECT, False
+        inbound_true = geo.wrap360(hold.crs - magvar_deg)
+        return h, hold_entry(inbound_true, hold.turn, arrival_true), False
+
+    def _planned_arrival_from(self, h):
+        """(from, fix): the two points the arrival track at hold slot h will
+        be taken between when the fix is reached. from is None where it
+        depends on where the aircraft will be.
+
+        Mirrors the two places a hold starts. A hold coded at the fix the
+        slot before it ends at (TF X then HM X) starts in _sequence, at
+        that slot's fix, from the point its leg arrives from
+        (_active_leg_arrival_from). Any other hold flies its own leg to the
+        fix and starts in _advance_hold_or_pt, from that leg's FROM point.
+        A leg not yet active starts at the fix of the slot before it, as
+        _sequence sets it, except after a CA/FA or vector leg, which ends
+        wherever the aircraft is, and at slot 1, which ACT starts from the
+        aircraft. A DF with its coded turn arrives from the turn's end,
+        fixed only when the DF starts, from the GS then."""
+        hold_fix = Point.from_waypoint(self.route[h - 1])
+        if h == self.act_leg:
+            return self.from_point, self.to_point
+        k = h - 1   # the slot before the hold
+        if k < 1 or self.route[k - 1].pt in (PT_ALT_TERM | PT_VECTOR):
+            return None, hold_fix
+        prev = Point.from_waypoint(self.route[k - 1])
+        if geo.distance_nm(prev.lat, prev.lon, hold_fix.lat, hold_fix.lon) >= COINCIDENT_FIX_NM:
+            return prev, hold_fix
+        if k == self.act_leg:
+            return self._active_leg_arrival_from(), prev
+        if k < 2 or self.route[k - 2].pt in (PT_ALT_TERM | PT_VECTOR) or self._df_coded_turn(self.route[k - 1]):
+            return None, prev
+        return Point.from_waypoint(self.route[k - 2]), prev
 
     def _ensure_hold_dims(self, gs_kt):
         if self._hold_r_nm is None:
