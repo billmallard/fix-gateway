@@ -515,6 +515,64 @@ def test_link_timeout_flag_survives_plugin_writes_until_a_heartbeat(
     assert item.old is True
 
 
+# The keys Mav.init() zeroes on connect; the ahrs option is what reads each.
+INIT_KEYS = ("ROLL", "PITCH", "HEAD", "AGL", "ALT", "VS")
+DATA_OFF = {
+    "airspeed": False,
+    "groundspeed": False,
+    "gps": False,
+    "ahrs": False,
+    "accel": False,
+    "pressure": False,
+}
+
+
+def connect_mav(database, monkeypatch, options):
+    """The real constructor, as on every connect, against a fake link."""
+    monkeypatch.setattr(mav_module, "stat", lambda _port: True)
+    monkeypatch.setattr(mav_module.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        mav_module.mavutil, "mavlink_connection", lambda *_a, **_k: FakeConn()
+    )
+    return mav_module.Mav(DbParent(database), port="/dev/fake", options=options)
+
+
+def test_connect_with_data_options_off_leaves_attitude_and_altitude_alone(
+    database, monkeypatch
+):
+    # AER-6068: as the autopilot source only (AFC7), the plugin is not the
+    # attitude or altitude source, and a connect must not blank another
+    # source's values or become a second writer of its keys.
+    for n, key in enumerate(INIT_KEYS, start=1):
+        database.write(key, 10 * n + 0.5)
+    before = {key: database.read(key) for key in INIT_KEYS}
+
+    connect_mav(database, monkeypatch, DATA_OFF)
+
+    assert {key: database.read(key) for key in INIT_KEYS} == before
+    writers = database.writers()
+    assert {key: writers.get(key, []) for key in INIT_KEYS} == {
+        key: [] for key in INIT_KEYS
+    }
+
+
+def test_connect_with_ahrs_on_still_zeroes_attitude_and_altitude(
+    database, monkeypatch
+):
+    for key in INIT_KEYS:
+        database.write(key, 12.5)
+
+    connect_mav(database, monkeypatch, dict(DATA_OFF, ahrs=True))
+
+    assert {key: database.read(key)[0] for key in INIT_KEYS} == {
+        key: 0 for key in INIT_KEYS
+    }
+    writers = database.writers()
+    assert {key: writers.get(key) for key in INIT_KEYS} == {
+        key: ["mavlink"] for key in INIT_KEYS
+    }
+
+
 def test_reconnected_link_clears_old_left_by_previous_connection(
     database, monkeypatch
 ):

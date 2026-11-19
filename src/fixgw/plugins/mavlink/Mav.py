@@ -441,6 +441,11 @@ class Mav:
         # Not sure what all we need to check for
 
     def init(self):
+        # Only the ahrs option reads these keys. Without it another source
+        # owns them (the plugin is then only the autopilot source, AFC7), and
+        # zeroing them on each connect would blank its values (AER-6068).
+        if not self._ahrs:
+            return
         self.parent.db_write("ROLL", 0)
         self.parent.db_write("PITCH", 0)
         self.parent.db_write("HEAD", 0)
