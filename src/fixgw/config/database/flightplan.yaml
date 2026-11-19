@@ -526,6 +526,26 @@ items:
   initial: ""
   tol: 5000
 
+- key: FPLHOLDSLOT
+  description: "Slot of the hold FPLHOLDENT describes (HOLDENT1): the active hold or the next one in the plan, the first in the plan when none is active. 0 = no hold. Engine-written, one writer"
+  type: int
+  min: 0
+  max: 100
+  initial: 0
+  tol: 5000
+
+- key: FPLHOLDENT
+  description: 'Entry for the hold at FPLHOLDSLOT (HOLDENT1, AIM 5-3-8): "DIRECT", "TEARDROP" or "PARALLEL", or "" with no hold or nothing to predict it from. Predicted from the planned track into the fix until the fix is reached, then the entry being flown (FPLHOLDCOMMIT). Engine-written, one writer. Absent on an older gateway: show no entry'
+  type: str
+  initial: ""
+  tol: 5000
+
+- key: FPLHOLDCOMMIT
+  description: "FPLHOLDENT is the entry being flown (HOLDENT1): true from reaching the hold fix until the hold is left, false while it is a prediction"
+  type: bool
+  initial: false
+  tol: 5000
+
 # --- GPS guidance source selection ------------------------------------------
 # 0 = internal plan (FPLCRS/FPLCDI/FPLTF/FPLXTK, no glidepath), 1 = external
 # navigator (EXTCRS/EXTCDI/EXTTF/EXTXTK, EXTGSI/EXTGSV). Persisted by

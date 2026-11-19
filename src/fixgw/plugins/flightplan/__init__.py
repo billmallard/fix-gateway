@@ -116,6 +116,7 @@ class MainThread(threading.Thread):
         self._ta_time = 0.0
         self._ta_missing = False
         self._turn_missing = False
+        self._hold_entry_missing = False
         self._last_update_time = 0.0
         self._restoring = False
         self._last_persisted = None
@@ -413,6 +414,23 @@ class MainThread(threading.Thread):
             self.log.warning("flightplan: no FPLTURN in the database, so a DF's coded turn is not "
                              "annunciated (database/flightplan.yaml predates AER-4541)")
 
+    def _write_hold_entry(self, out):
+        """FPLHOLDSLOT/FPLHOLDENT/FPLHOLDCOMMIT (HOLDENT1): the next hold
+        and its entry, predicted or committed. A database without the keys
+        (a config edited before HOLDENT1) turns the output off with one log
+        line, as FPLTURN does: the hold is flown the same either way, and a
+        display then shows no entry."""
+        if self._hold_entry_missing:
+            return
+        try:
+            self._setval("FPLHOLDSLOT", out["hold_slot"])
+            self._setval("FPLHOLDENT", out["hold_ent"])
+            self._setval("FPLHOLDCOMMIT", out["hold_commit"])
+        except KeyError:
+            self._hold_entry_missing = True
+            self.log.warning("flightplan: no FPLHOLDSLOT/FPLHOLDENT/FPLHOLDCOMMIT in the database, so hold "
+                             "entries are not published (database/flightplan.yaml predates HOLDENT1)")
+
     def _write_outputs(self, out):
         fail = out.get("fail", False)
         bad = out.get("bad", False)
@@ -449,6 +467,7 @@ class MainThread(threading.Thread):
         self._setval("FPLSEGREM", out["seg_rem"], fail=fail, bad=bad)
         self._setval("FPLALERT", out["alert"])
         self._write_turn(out["turn"])
+        self._write_hold_entry(out)
         if out.get("msg"):
             self.parent.db_write("FPLMSG", out["msg"])
 

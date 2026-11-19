@@ -187,6 +187,21 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   next fix passage. A hold/PT coded as the very last slot, with nothing to
   sequence onto, keeps flying the pattern rather than freezing on arrival —
   the same "no next leg" backstop a vector leg has.
+- **The hold entry on the bus (HOLDENT1)**: `FPLHOLDSLOT` names the next
+  hold (the active slot or the first hold after it), `FPLHOLDENT` its entry
+  and `FPLHOLDCOMMIT` whether that entry is being flown. Before the fix the
+  entry is a prediction: the same `hold_entry` call the engine makes on
+  reaching the fix, on the same arrival track, which is the great circle of
+  the leg into the fix from where that leg starts. So flown on the planned
+  track, prediction and commit cannot differ. A missed-approach hold
+  (`TF X` then `HM X`) is predicted from the `TF`'s start as soon as the
+  plan is loaded. Where the leg's start is fixed only in flight (after a
+  `CA`/`FA` or vector leg, at slot 1, or before a coded `DF` turn has
+  begun), the line from the aircraft to the fix stands in until it is
+  fixed. A re-route or a direct-to that moves the leg's start moves the
+  prediction. On reaching the fix `FPLHOLDCOMMIT` turns true with the entry
+  committed, and the state file restores it. These keys are read-only
+  outputs: how the entry is flown is unchanged.
 - **Altitude-terminated legs (PA13)**: `CA` (no fix, course held from
   activation) and `FA` (flies to its fix like `DF`, then continues on
   `FPLfCRS` past it) both end only when a live altitude input crosses
