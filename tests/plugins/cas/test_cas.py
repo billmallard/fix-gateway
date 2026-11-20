@@ -45,13 +45,31 @@ def shipped_config():
         return yaml.safe_load(f)["cas"]
 
 
-def make(database, entries=None, clock=None, **options):
+def make(database, entries=None, clock=None, wallclock=None, **options):
     config = shipped_config() if entries is None else {"entries": entries}
     config.update(options)
     p = cas.Plugin("cas", config, None)
     p.clock = clock or Clock()
+    if wallclock is not None:
+        p.wallclock = wallclock
     p.setup()
     return p
+
+
+def full_restart(database):
+    """A gateway process restart: every key back to its initial value, as
+    the server does, while a display keeps what it last read."""
+    database.init("src/fixgw/config/database.yaml")
+    while True:
+        try:
+            database.get_raw_item("ZZLOADER")
+            return
+        except KeyError:
+            time.sleep(0.01)
+
+
+def acked(database, ident):
+    return dict((i, a) for _l, a, i, _t in lines(database))[ident]
 
 
 def step(p, dt=0.0):
@@ -394,18 +412,18 @@ def test_casack_ahead_of_casseq_is_ignored(database):
     assert not any(a for _l, a, _i, _t in lines(database))
 
 
-def test_a_stale_ignored_casack_does_not_swallow_a_real_one(database):
+def test_acknowledges_are_never_deduplicated(database):
+    """Every CASACK write reaches the plugin thread, even one equal to the
+    last: the callback's change filter must not drop a repeated press."""
     p = make(database, priority_catalogue())
-    past_test(p, database)
+    step(p)
+    before = p.events.qsize()
     seq = database.read("CASSEQ")[0]
-    database.write("CASACK", seq + 1)  # ahead: ignored
-    step(p)
-    database.write("HIDEBUTTON", True)
-    step(p)
-    assert database.read("CASSEQ")[0] == seq + 1
-    database.write("CASACK", seq + 1)  # the same number, now real
-    step(p)
-    assert all(a for _l, a, _i, _t in lines(database))
+    database.write("CASACK", seq)
+    database.write("CASACK", seq)
+    database.write("CASACKBTN", False)
+    database.write("CASACKBTN", False)
+    assert p.events.qsize() - before == 4
 
 
 def test_casseq_starts_above_a_stale_casack_after_restart(database):
@@ -423,6 +441,57 @@ def test_casseq_starts_above_a_stale_casack_after_restart(database):
     step(p2)
     assert ("WARN" in ids(database)
             and not dict((i, a) for _l, a, i, _t in lines(database))["WARN"])
+
+
+def test_stale_casack_after_a_full_restart_cannot_ack_a_new_warning(database):
+    """Safety and Compliance's probe (AER-6093), on a box whose clock gives
+    the epoch nothing (a Pi booted without NTP). A display holds CASACK 40
+    from before a gateway restart. Re-sent on reconnect it is ahead and
+    ignored; if CASSEQ then climbed past 40, the same value re-sent on the
+    next reconnect would acknowledge a warning nobody drew. CASSEQ jumps
+    above it instead."""
+    no_ntp = lambda: float(cas.SEQ_EPOCH - 86400)  # a clock before the epoch
+    p = make(database, priority_catalogue(), wallclock=no_ntp)
+    step(p)
+    p.stop()
+    full_restart(database)
+    p = make(database, priority_catalogue(), wallclock=no_ntp)
+    past_test(p, database)
+    assert database.read("CASSEQ")[0] < 40
+    database.write("CASACK", 40)  # reconnect: the stale value re-sent
+    step(p)
+    assert database.read("CASSEQ")[0] > 40
+    for _ in range(4):  # the list changes a few times
+        database.write("HIDEBUTTON", not database.read("HIDEBUTTON")[0])
+        step(p)
+    database.write("SYSMENU", True)  # a new warning
+    step(p)
+    database.write("CASACK", 40)  # the next reconnect re-sends it again
+    step(p)
+    assert acked(database, "WARN") is False
+    assert database.read("CASTOP")[0] == 3
+
+
+def test_epoch_seed_starts_a_new_run_above_an_earlier_one(database):
+    """With a working clock, a full restart's first CASSEQ is already above
+    everything the earlier run published, before any CASACK arrives."""
+    t = [float(cas.SEQ_EPOCH + 1000000)]
+    p = make(database, priority_catalogue(), wallclock=lambda: t[0])
+    for _ in range(5):
+        database.write("HIDEBUTTON", not database.read("HIDEBUTTON")[0])
+        step(p)
+    last = database.read("CASSEQ")[0]
+    p.stop()
+    full_restart(database)
+    t[0] += 30  # the restart took 30 s
+    p = make(database, priority_catalogue(), wallclock=lambda: t[0])
+    step(p)
+    assert database.read("CASSEQ")[0] > last
+    database.write("SYSMENU", True)
+    step(p)
+    database.write("CASACK", last)  # the earlier run's value, re-sent
+    step(p)
+    assert acked(database, "WARN") is False
 
 
 def test_casseq_is_monotonic_across_a_plugin_restart(database):
@@ -732,22 +801,52 @@ def test_slow_failing_evaluation_does_not_slow_a_watched_writer(database,
     assert database.read("CASSEQ")[0] == 0
 
 
-def test_a_failing_callback_does_not_raise_into_the_writer(database):
-    """The aux path in database.py calls callbacks with no try/except."""
-    entry = {"id": "OILP", "level": "warning", "text": "OIL PRESS",
-             "when": {"annunciate": "OILP1"}}
-    p = make(database, [entry])
+def test_the_callback_catches_its_own_exceptions(database):
+    """Called directly, so nothing between it and the test catches for it:
+    the aux path in database.py has no try/except of its own."""
+    p = make(database)
 
     class Broken:
         def put(self, item):
             raise RuntimeError("injected")
 
     p.events = Broken()
-    item = database.get_raw_item("OILP1")
-    item.set_aux_value("lowAlarm", 10.0)  # an aux write reaches the callback
-    item.set(60.0, old=False, bad=True, fail=False)
-    item.set(60.0, old=False, bad=False, fail=False)
-    assert p.callback_errors >= 1
+    p.on_change("HEAD", (90.0, False, False, False, True, False), None)
+    assert p.callback_errors == 1
+    p.on_change("HEAD", (90.0, False, False, False, False, False), None)
+    assert p.callback_errors == 2
+
+
+def test_an_aux_write_is_ignored_by_the_callback(database):
+    p = make(database, [{"id": "OILP", "level": "warning", "text": "OIL PRESS",
+                         "when": {"annunciate": "OILP1"}}])
+    before = p.events.qsize()
+    p.on_change("OILP1.lowAlarm", 10.0, None)  # aux: a value, not a tuple
+    database.get_raw_item("OILP1").set_aux_value("lowAlarm", 12.0)
+    assert p.events.qsize() == before and p.callback_errors == 0
+
+
+def test_a_failing_evaluation_does_not_grow_the_queue(database, monkeypatch):
+    """A failing cycle drains one change at a time; against a flapping input
+    the queue would grow all flight. The except path discards it."""
+    p = cas.Plugin("cas", shipped_config(), None)
+
+    def broken(now, polled=True):
+        raise RuntimeError("injected")
+
+    monkeypatch.setattr(p, "_evaluate", broken)
+    p.run()
+    try:
+        item = database.get_raw_item("HEAD")
+        for n in range(300):
+            item.set(90.0, old=False, bad=bool(n % 2), fail=False)
+            time.sleep(0.01)
+        time.sleep(0.5)
+        depth = p.events.qsize()
+    finally:
+        p.stop()
+    assert p.errors >= 1
+    assert depth < 30, depth
 
 
 def test_callback_queues_flag_edges_only(database):

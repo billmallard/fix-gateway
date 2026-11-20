@@ -57,6 +57,11 @@ import fixgw.plugin as plugin
 
 LEVELS = {"advisory": 1, "caution": 2, "warning": 3}
 SLOTS = 12
+# CASSEQ's wall-clock origin, 2026-01-01T00:00:00Z. Seeding from seconds since
+# then puts every run's sequence above every earlier run's, so a display's
+# CASACK from before a gateway restart is below anything this run publishes
+# (C3). int32 holds it until 2094.
+SEQ_EPOCH = 1767225600
 SLOT_KEYS = ["CASMSG{}".format(n + 1) for n in range(SLOTS)]
 ACK_KEYS = ("CASACK", "CASACKBTN")
 CAS_KEYS = SLOT_KEYS + ["CASCNT", "CASTOP", "CASSEQ"] + list(ACK_KEYS)
@@ -330,6 +335,8 @@ class Plugin(plugin.PluginBase):
     def __init__(self, name, config, config_meta):
         super(Plugin, self).__init__(name, config, config_meta)
         self.clock = time.monotonic
+        self.wallclock = time.time
+        self.jump = False  # a CASACK arrived ahead: republish above it
         self.events = queue.Queue()
         self.messages = []
         self.watched = OrderedDict()  # key -> KeyState
@@ -454,11 +461,17 @@ class Plugin(plugin.PluginBase):
         except (TypeError, ValueError):
             return
         if seq > self.seq:
-            # A sequence this plugin has not published yet: a display's stale
-            # setting after a restart. Honouring it would acknowledge alerts
-            # nobody has seen (C3).
-            self.log.warning("{} {} is ahead of CASSEQ {}: ignored"
-                             .format(source, seq, self.seq))
+            # A sequence this plugin has not published: a display's setting
+            # from before a gateway restart, on a box whose clock defeated the
+            # epoch seed (a Pi without NTP). Honouring it would acknowledge
+            # alerts nobody has seen. Ignoring it is not enough: once CASSEQ
+            # climbs past it, the same value re-sent on the next reconnect
+            # would cover new messages. So CASSEQ jumps above it; the value
+            # can then cover only what was published before the jump (C3).
+            self.log.warning("{} {} is ahead of CASSEQ {}: ignored, and "
+                             "CASSEQ moves above it".format(source, seq, self.seq))
+            self.seq = seq
+            self.jump = True
             return
         for m in self.messages:
             if m.active and m.onset_seq is not None and m.onset_seq <= seq:
@@ -564,7 +577,8 @@ class Plugin(plugin.PluginBase):
     def _publish(self, now):
         unseen = [m for m in self.messages if m.active and m.onset_seq is None]
         state = [(m.entry.id, m.level, m.acked) for m in self.ordered()]
-        changed = bool(unseen) or state != self.published
+        changed = bool(unseen) or state != self.published or self.jump
+        self.jump = False
         nav = self.has_navfail and "CDI" in self.watched
         if changed:
             self.seq += 1
@@ -618,10 +632,21 @@ class Plugin(plugin.PluginBase):
                 # Skip this cycle's refresh: a list that cannot be computed
                 # must go old on the bus, not be rewritten as current (C4).
                 self.errors += 1
+                # Drop what is queued: a failing cycle drains one change at a
+                # time, so a flapping input would grow the queue all flight.
+                # _poll() re-reads the current state on the next good cycle.
+                self._discard_events()
                 if self.errors <= 5 or self.errors % 100 == 0:
                     self.log.error("CAS evaluation failed ({}): {}"
                                    .format(self.errors, e))
                 self.getout.wait(0.2)
+
+    def _discard_events(self):
+        try:
+            while True:
+                self.events.get_nowait()
+        except queue.Empty:
+            pass
 
     # -- plugin interface --------------------------------------------------
 
@@ -663,9 +688,13 @@ class Plugin(plugin.PluginBase):
             self.watched[k].update(self.db_read(k))
         self.nav_lost = False
         # Restart-safe sequence (C3): start above any CASSEQ or CASACK on the
-        # bus, so a stale acknowledge cannot cover the next message.
+        # bus (a plugin restart under a running gateway) and above any earlier
+        # run's (the epoch: a full gateway restart, where the bus starts at 0
+        # but a display still holds its old CASACK). The max keeps a box with
+        # a wrong clock no worse; _ack_to's jump covers that case.
         self.seq = max(int(self.db_read("CASSEQ")[0]),
-                       int(self.db_read("CASACK")[0]), 0)
+                       int(self.db_read("CASACK")[0]),
+                       int(self.wallclock()) - SEQ_EPOCH, 0)
         self.start_time = self.clock()
         for k in keys:
             self.db_callback_add(k, self.on_change)
