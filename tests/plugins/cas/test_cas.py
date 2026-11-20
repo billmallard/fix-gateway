@@ -260,16 +260,31 @@ def test_switching_to_a_never_received_source_raises_nothing(database):
 
 
 @pytest.mark.parametrize("key,flag", [("CDI", "old"), ("CDI", "bad"),
-                                      ("CDIV", "fail"), ("COURSE", "bad"),
-                                      ("COURSE", "fail")])
+                                      ("CDI", "fail"), ("COURSE", "bad"),
+                                      ("COURSE", "fail"), ("CDIV", 0.4)])
 def test_navfail_follows_the_hsi_rule(database, key, flag):
     p = make(database)
     nav_valid(database)
     step(p)
     assert database.read("NAVFAIL")[0] is False
-    setattr(database.get_raw_item(key), flag, True)
+    if isinstance(flag, str):
+        setattr(database.get_raw_item(key), flag, True)
+    else:
+        fresh(database, key, flag)
     step(p, 0.1)  # inside the 1 s refresh: the change goes out at once
     assert database.read("NAVFAIL")[0] is True
+
+
+@pytest.mark.parametrize("key,flag", [("CDIV", "old"), ("COURSE", "old")])
+def test_navfail_ignores_what_the_hsi_ignores(database, key, flag):
+    """The HSI reads CDIV's value and COURSE's bad and fail only; a stale
+    CDIV of 1 still shows the needle, and COURSE is a setting (tol 0)."""
+    p = make(database)
+    nav_valid(database)
+    step(p)
+    setattr(database.get_raw_item(key), flag, True)
+    step(p, 0.1)
+    assert database.read("NAVFAIL")[0] is False
 
 
 # -- priority, acknowledge, sequence ----------------------------------------

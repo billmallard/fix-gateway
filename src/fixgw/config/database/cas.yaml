@@ -28,7 +28,7 @@
 #
 # NAVFAIL is the HSI's NAV flag rule, owned here so the HSI and CAS read one
 # rule (brief 5.4): the selected source's CDI old, bad or failed, CDIV below
-# 0.5 or untrusted, or COURSE bad or failed. A display falls back to its own
+# 0.5, or COURSE bad or failed, exactly as pyEfis's HSI decides it today. A display falls back to its own
 # rule when NAVFAIL is absent or old. CAS raises NAV FAIL only when guidance a
 # source had earlier is lost, never for a source that was never received.
 

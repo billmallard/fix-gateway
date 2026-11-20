@@ -56,7 +56,9 @@ instant as a press can be acknowledged unseen. Touch does not have that gap.
 
 `NAVFAIL` is the HSI's NAV flag rule, moved to the gateway so the HSI and CAS
 read one rule: the selected source's `CDI` old, bad or failed, `CDIV` below
-0.5 or itself untrusted, or `COURSE` bad or failed. A display falls back to
+0.5, or `COURSE` bad or failed. That is the HSI's rule as pyEfis has it
+today (`_nav_flag_shown`), so the HSI's flag does not change when it starts
+reading the key. A display falls back to
 its own rule when `NAVFAIL` is absent or old. The key flags an untuned VOR, as
 the HSI does; the `NAV FAIL` alert does not (below).
 

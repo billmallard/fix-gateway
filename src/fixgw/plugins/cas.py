@@ -460,13 +460,15 @@ class Plugin(plugin.PluginBase):
             st.update(self.db_read(key))
 
     def _lateral_lost(self):
-        """The HSI's NAV flag rule (pyEfis hsi ``_nav_flag_shown``): the
-        selected source's CDI stale, invalid or failed, no lateral signal
-        (CDIV below 0.5, or CDIV itself untrusted), or no valid COURSE."""
+        """The HSI's NAV flag rule, exactly (pyEfis hsi ``_nav_flag_shown``):
+        the selected source's CDI stale, invalid or failed, no lateral signal
+        (CDIV below 0.5; the HSI reads its value only), or COURSE bad or
+        failed. A different rule here would change the HSI's flag the day
+        it reads this key."""
         cdi = self.watched["CDI"]
         cdiv = self.watched["CDIV"]
         _annunc, _old, course_bad, course_fail = self.watched["COURSE"].flags
-        return (not cdi.valid or not cdiv.valid or cdiv.value < 0.5
+        return (not cdi.valid or cdiv.value < 0.5
                 or course_bad or course_fail)
 
     def _update_nav(self):
