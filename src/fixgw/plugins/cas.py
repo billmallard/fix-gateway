@@ -283,12 +283,13 @@ def fuel_entries(tanks, grace):
 
 class KeyState(object):
     """What the plugin thread knows about one watched key. ``ever_valid``
-    and ``last_valid`` count only written values: a key's initial value from
-    the database is not a reading, and arming on it would alert on an
-    install that has no such source."""
+    and ``last_valid`` count only readings (``Plugin.seen``): a key's
+    initial value from the database or an ini file is not one, and arming on
+    it would alert on an install that has no such source."""
 
-    def __init__(self, item):
+    def __init__(self, item, seen):
         self.item = item
+        self.seen = seen
         self.value = None
         self.flags = (False, False, False, False)  # annunciate, old, bad, fail
         self.valid = False
@@ -302,7 +303,7 @@ class KeyState(object):
         self.flags = (bool(annunc), bool(old), bool(bad), bool(fail))
         self.annunciate = bool(annunc)
         self.valid = not (old or bad or fail)
-        if self.valid and self.item.written:
+        if self.valid and self.seen(self.item):
             self.ever_valid = True
             self.last_valid = v
 
@@ -394,6 +395,16 @@ class Plugin(plugin.PluginBase):
             entries.append(e)
         return entries
 
+    def seen(self, item):
+        """True once a source has written the key. ``db_item.written`` alone
+        also counts the server's ini files, which write before any plugin
+        starts and are credited to no plugin: a site ini with ``HEAD = 20``
+        armed HDG FAIL past its grace on the bench, and an ini fuel value
+        would hide FUEL QTY NO DATA for good. So a write counts if a plugin
+        made it, or if it came after this plugin started."""
+        return item.written and (bool(item.writers)
+                                 or item.timestamp >= self.start_wall)
+
     # -- callback side (runs in the writer's thread) ----------------------
 
     def _signature(self, key, x):
@@ -476,7 +487,7 @@ class Plugin(plugin.PluginBase):
             return
         self.navfail = self._lateral_lost()
         src = int(round(self.watched["NAVSRC"].value or 0))
-        if not self.navfail and all(self.watched[k].item.written
+        if not self.navfail and all(self.seen(self.watched[k].item)
                                     for k in ("CDI", "CDIV")):
             self.nav_had_valid.add(src)
         self.nav_lost = self.navfail and src in self.nav_had_valid
@@ -489,7 +500,7 @@ class Plugin(plugin.PluginBase):
             return self.nav_lost
         if c.kind == "never_written":
             return (now - self.start_time >= c.grace
-                    and not self.db_get_item(c.key).written)
+                    and not self.seen(self.db_get_item(c.key)))
         st = self.watched[c.key]
         if c.kind == "invalid":
             if st.valid:
@@ -622,6 +633,7 @@ class Plugin(plugin.PluginBase):
     def setup(self):
         """Everything run() does except start the thread; tests then drive
         step() with their own clock."""
+        self.start_wall = time.time()  # before any read: see seen()
         missing = [k for k in CAS_KEYS if not self._has_key(k)]
         if missing:
             # An install whose edited database.yaml lacks the cas.yaml
@@ -647,7 +659,7 @@ class Plugin(plugin.PluginBase):
             if c is not None and c.kind == "value":
                 self.value_keys.add(c.key)
         for k in keys:
-            self.watched[k] = KeyState(self.db_get_item(k))
+            self.watched[k] = KeyState(self.db_get_item(k), self.seen)
             self.watched[k].update(self.db_read(k))
         self.nav_lost = False
         # Restart-safe sequence (C3): start above any CASSEQ or CASACK on the

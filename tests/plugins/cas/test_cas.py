@@ -184,6 +184,39 @@ def test_hdg_fail_waits_30_s_for_a_heading_at_power_up(database):
     assert (2, False, "HDGFAIL", "HDG FAIL") in lines(database)
 
 
+def test_an_ini_seeded_heading_is_not_a_reading(database):
+    """The server writes ini values before any plugin starts, credited to no
+    plugin. The bench's custom.ini has HEAD = 20.0, which armed HDG FAIL at
+    once instead of after the grace."""
+    database.write("HEAD", 20.0)  # as the server's ini loader does
+    p = make(database)
+    step(p)
+    database.get_raw_item("HEAD").expire()
+    step(p, 1)
+    assert "HDGFAIL" not in ids(database)
+    step(p, 29.2)
+    assert "HDGFAIL" in ids(database)
+
+
+def test_an_ini_seeded_fuel_value_still_raises_no_data(database):
+    database.write("FUELQ3", 10.0)  # as the server's ini loader does
+    p = make(database, fuel_no_data_tanks=[3], fuel_no_data_grace=10)
+    step(p, 10.1)
+    assert "FUELQ3ND" in ids(database)
+
+
+def test_a_plugin_write_before_start_is_a_reading(database):
+    """A source that started before cas has really written its key."""
+    g = {"__name__": "fixgw.plugins.xplane", "database": database}
+    exec("database.get_raw_item('APENG').set(True, old=False, bad=False, "
+         "fail=False)", g)
+    p = make(database)
+    step(p)
+    database.get_raw_item("APENG").old = True
+    step(p, 6)
+    assert (3, False, "APLINK", "AP LINK LOST") in lines(database)
+
+
 @pytest.mark.parametrize("tank", [1, 2, 3])
 def test_fuel_qty_no_data_is_a_caution_for_a_listed_tank(database, tank):
     p = make(database, fuel_no_data_tanks=[tank], fuel_no_data_grace=30)

@@ -106,8 +106,13 @@ raise every CHT and EGT on a cold start (brief section 8.2).
 | `invalid: KEY` | KEY is old, bad or failed. With `after_valid: true`, only once KEY has been written valid in this run. With `grace: s`, a KEY not yet valid holds off for s seconds after start, so a source still starting up does not alert at every power-up |
 | `annunciate: KEY` | KEY's annunciate flag is set and KEY is valid. A failed value is published as 0, below every low limit, and is not an exceedance |
 | `value: KEY op LITERAL` | The comparison holds and KEY is valid, e.g. `APDISC == true`. Operators `< <= == != > >=` |
-| `never_written: KEY` | KEY has had no write `grace` seconds (default 30) after start. Its own expiry is not a write |
+| `never_written: KEY` | KEY has had no write `grace` seconds (default 30) after start. Its own expiry is not a write, and nor is a value from an ini file |
 | `nav_lost: true` | `NAVFAIL` is true and the selected `NAVSRC` had valid guidance earlier in this run |
+
+"Valid" and "written" mean a reading from a source: a write a plugin made, or
+any write after cas started. The server's ini files write before any plugin
+starts, credited to none, so a site `custom.ini` that seeds `HEAD = 20` does
+not count as a heading the pilot had.
 
 Other fields: `on_delay` (seconds the condition must hold before the line
 shows; on a warning it needs an `on_delay_reason`, because it is latency on a
