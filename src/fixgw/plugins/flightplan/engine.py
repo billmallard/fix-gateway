@@ -55,6 +55,12 @@
 #  (segment_integrity_reason, the same whole-commit rejection as an
 #  unsupported leg), reports the active segment and the distance left in it,
 #  and persists the table with the route.
+#
+#  OBS2 (AER-6084; makerplane/briefs/gps_obs_mode.md) adds GPS OBS mode: a
+#  pilot course through the active waypoint (FPLCMD OBS <deg>, FPLSTATE 4).
+#  The needle measures from that course line, TO/FROM follows the geometry
+#  and nothing sequences until the pilot cancels it (OBS OFF) or activates
+#  something else: Garmin's rule, Bill's ruling on packet AER-6048.
 
 import math
 
@@ -388,6 +394,7 @@ STATE_NONE = 0
 STATE_LEG = 1
 STATE_DIRECT = 2
 STATE_SUSP = 3
+STATE_OBS = 4   # OBS2 (AER-6084): a pilot course through the TO waypoint
 
 # --- Tier-2 internal sub-leg phase (PA13; not on the wire, persisted only
 # for restart continuity) -- HM/HF/HA/PI fly the sub-legs below around the
@@ -454,6 +461,16 @@ HAL_NM_DEFAULT = {"enr": 2.0, "term": 1.0, "lnav": 0.3}
 POSITION_TIMEOUT_S = 2.0
 DTO_MATCH_TOLERANCE_DEG = 0.001
 DIRECT_TO_NEEDS_POSITION_REASON = "NO POSITION"
+# OBS2 refusals (FPLMSG). Garmin: "OBS not available" with no active waypoint
+# or no position (GNS 430W p.186), and "Cannot be set for final approach
+# course or published holding patterns" (p.198).
+OBS_NO_WPT_REASON = "OBS N/A NO WPT"
+OBS_NO_POSITION_REASON = "OBS N/A NO POSITION"
+OBS_FINAL_REASON = "OBS N/A FINAL APPROACH"
+OBS_HOLD_REASON = "OBS N/A HOLD"
+OBS_PROC_TURN_REASON = "OBS N/A PROC TURN"
+OBS_VECTORS_REASON = "OBS N/A VECTORS"
+OBS_NO_FIX_REASON = "OBS N/A NO FIX"
 
 
 class Waypoint:
@@ -643,6 +660,11 @@ class Engine:
 
         self.mode = "NONE"       # NONE | LEG | DIRECT
         self.suspended = False
+        # OBS2: the pilot's OBS course, magnetic, or None out of OBS. In OBS
+        # from_point is kept on that course line, CF_VIRTUAL_FROM_NM behind
+        # the TO waypoint, so whatever reads the leg's FROM point (the map,
+        # a hold entry predicted after it, OBS OFF) sees the course flown.
+        self.obs_crs = None
         self.act_leg = 0         # 1-based slot of the TO waypoint, 0 = none
         self.from_point = None   # Point
         self.to_point = None     # Point
@@ -722,6 +744,7 @@ class Engine:
     def _reset_activation(self):
         self.mode = "NONE"
         self.suspended = False
+        self.obs_crs = None
         self.act_leg = 0
         self.from_point = None
         self.to_point = None
@@ -749,6 +772,7 @@ class Engine:
             "dbcyc": self.dbcyc,
             "mode": self.mode,
             "suspended": self.suspended,
+            "obs_crs": self.obs_crs,
             "act_leg": self.act_leg,
             "from_point": self.from_point.to_dict() if self.from_point else None,
             "to_point": self.to_point.to_dict() if self.to_point else None,
@@ -789,6 +813,8 @@ class Engine:
         self.dbcyc = d.get("dbcyc", "")
         self.mode = d.get("mode", "NONE")
         self.suspended = d.get("suspended", False)
+        # A file from before OBS2 has no OBS course: not in OBS.
+        self.obs_crs = d.get("obs_crs")
         self.act_leg = d.get("act_leg", 0)
         fp = d.get("from_point")
         tp = d.get("to_point")
@@ -1179,6 +1205,8 @@ class Engine:
             self._cmd_resume(position)
         elif verb == "SCALE":
             self._cmd_scale(arg)
+        elif verb == "OBS":
+            self._cmd_obs(arg, position)
         else:
             raise _Reject("PARSE")
 
@@ -1205,6 +1233,7 @@ class Engine:
         self._map_suspended = False
         self._approach_suppressed = False
         self.suspended = False
+        self.obs_crs = None   # OBS2: any ACT/DTO/DTOX leaves OBS
         if was_none:
             self._integrity_msg_posted = False
         self._prev_atd = None
@@ -1322,6 +1351,8 @@ class Engine:
     def _cmd_susp(self):
         if self.mode == "NONE":
             raise _Reject("NO PLAN")
+        if self.obs_crs is not None:
+            raise _Reject("IN OBS")   # OBS already holds the waypoint; OBS OFF leaves it
         self.suspended = True
         # SUSP keeps the TO waypoint, so it keeps that waypoint's leg too:
         # a SUSP in a fly-by turn takes the desired track back from the
@@ -1330,6 +1361,8 @@ class Engine:
         self._turn_arc = None
 
     def _cmd_resume(self, position):
+        if self.obs_crs is not None:
+            raise _Reject("IN OBS")
         if self._map_suspended:
             faf_idx, map_idx = self._faf_map_idx()
             self._missed = True
@@ -1396,6 +1429,106 @@ class Engine:
         self.from_point = Point(ac_lat, ac_lon)
         self.to_point = Point.from_waypoint(self.route[next_idx - 1])
         self._cmd_msg = f"RESUME NAV -> {self.route[next_idx - 1].id}"
+
+    def _cmd_obs(self, arg, position):
+        """FPLCMD OBS <deg> (OBS2): enter OBS on the TO waypoint with this
+        magnetic course, or change the course while in OBS. FPLCMD OBS OFF:
+        leave it.
+
+        Refused with no active waypoint or no position, and on legs where
+        the box flies a path of its own that a pilot course would replace:
+        the final approach course (FAF to MAP, and a MAP however it is
+        reached, the auto-suspend included), coded holds and procedure
+        turns, vector legs, and an altitude-terminated leg with no fix to
+        hold (a CA, or an FA past its fix). SUSP is the tool there, as on
+        the GTN and GNX, which show SUSP for "leg types that do not support
+        OBS" (GTN p.3-102).
+
+        Entering OBS drops a fly-by turn in progress and a DF's coded turn,
+        as SUSP does, and takes over from a pilot SUSP."""
+        if arg is not None and arg.upper() == "OFF":
+            self._cmd_obs_off(position)
+            return
+        crs = self._obs_course_arg(arg)
+        if self.mode == "NONE" or self.to_point is None:
+            raise _Reject(OBS_NO_WPT_REASON)
+        if position is None or not position[2]:
+            raise _Reject(OBS_NO_POSITION_REASON)
+        reason = self._obs_refusal()
+        if reason is not None:
+            raise _Reject(reason)
+        self.obs_crs = crs
+        self.suspended = False
+        self._turning = False
+        self._turn_arc = None
+        self._clear_leg_phase()
+        self._prev_atd = None
+        self.from_point = self._obs_anchor(self._cycle_magvar_deg)
+        self._cmd_msg = f"OBS {crs:g}"
+
+    @staticmethod
+    def _obs_course_arg(arg):
+        try:
+            crs = float(arg)
+        except (TypeError, ValueError):
+            raise _Reject("PARSE")
+        if not 0.0 <= crs <= 360.0:   # also refuses nan; inf is out of range
+            raise _Reject("PARSE")
+        return crs % 360.0
+
+    def _obs_refusal(self):
+        """The FPLMSG reason OBS cannot be entered on the active leg, or
+        None. An off-route Direct-To's target is a plain fix."""
+        if not self.act_leg:
+            return None
+        wp = self.route[self.act_leg - 1]
+        if wp.pt in PT_VECTOR:
+            return OBS_VECTORS_REASON
+        faf_idx, map_idx = self._faf_map_idx()
+        if wp.flags & FLAG_MAP or (faf_idx is not None and faf_idx < self.act_leg <= map_idx):
+            return OBS_FINAL_REASON
+        if wp.pt in PT_HOLD:
+            return OBS_HOLD_REASON
+        if wp.pt in PT_PROC_TURN:
+            return OBS_PROC_TURN_REASON
+        if wp.pt == "CA" or (wp.pt == "FA" and self._leg_phase == LEGPHASE_FA_COURSE):
+            return OBS_NO_FIX_REASON
+        return None
+
+    def _obs_anchor(self, magvar_deg):
+        """A point on the OBS course line, CF_VIRTUAL_FROM_NM behind the TO
+        waypoint: the course is magnetic, made true with MAGVAR as a CF's
+        coded course is (_leg_from_anchor)."""
+        to = self.to_point
+        true_course = geo.wrap360(self.obs_crs - magvar_deg)
+        return Point(*geo.destination_point(to.lat, to.lon, geo.wrap360(true_course + 180.0), CF_VIRTUAL_FROM_NM))
+
+    def _cmd_obs_off(self, position):
+        """Leave OBS. Sequencing is enabled again, and "the unit will
+        automatically select the next waypoint in the flight plan once the
+        aircraft has crossed the present active-to waypoint" (GNS 430W
+        p.198). So past the fix (FROM) it sequences to the next leg now, as
+        RESUME does past a fix. Short of it (TO) the TO waypoint stays, and
+        the leg into it keeps the OBS course (G1000 p.62: it resumes
+        "following the course set in OBS Mode"): the FROM point stays on
+        that line and the slot's own leg decides what it means, as after
+        RESUME off vectors -- a TF or DF flies the OBS line, a CF its coded
+        course. The last waypoint and an off-route Direct-To have nothing
+        to sequence to and stay on the fix."""
+        if self.obs_crs is None:
+            raise _Reject("NOT IN OBS")
+        self.obs_crs = None
+        self._prev_atd = None
+        to = self.to_point
+        fr = self.from_point   # the OBS line's anchor, as of the last cycle
+        past = (position is not None and position[2]
+                and geo.along_track_distance_to_waypoint_nm(fr.lat, fr.lon, to.lat, to.lon,
+                                                            position[0], position[1]) < 0.0)
+        if past and not self._is_final(self.act_leg):
+            self._sequence(to)
+            self._cmd_msg, self._pending_msg = self._pending_msg, None
+        else:
+            self._cmd_msg = "OBS OFF"
 
     def _cmd_scale(self, arg):
         mapping = {"0.3": 0.3, "1.0": 1.0, "2.0": 2.0}
@@ -1504,6 +1637,8 @@ class Engine:
         return out
 
     def _display_state(self):
+        if self.obs_crs is not None:
+            return STATE_OBS
         if self.suspended:
             return STATE_SUSP
         return {"NONE": STATE_NONE, "LEG": STATE_LEG, "DIRECT": STATE_DIRECT}[self.mode]
@@ -1676,7 +1811,7 @@ class Engine:
                 continue
             to = Point.from_waypoint(to_wp)
             if slot == self.act_leg:
-                if self.suspended or self._turning:
+                if self.suspended or self._turning or self.obs_crs is not None:
                     continue
                 anchor = self._leg_from_anchor(to_wp, self.from_point, self.to_point, magvar_deg)
                 to = self.to_point
@@ -1975,7 +2110,14 @@ class Engine:
         self._cycle_gs_kt, self._cycle_magvar_deg = gs_kt, magvar_deg
         if to_wp.pt in PT_HOLD and self._leg_phase in LEGPHASES_PATTERN:
             self._ensure_hold_dims(gs_kt)   # restored mid-hold from a pre-#45 state file
-        anchor, atd, xtk, dtk_true = self._leg_geometry(to_wp, fr, to, ac_lat, ac_lon, magvar_deg)
+        obs = self.obs_crs is not None
+        if obs:
+            # OBS2: the course line through the TO waypoint, whatever the
+            # slot's leg type. from_point follows it (MAGVAR moves slowly).
+            anchor = fr = self.from_point = self._obs_anchor(magvar_deg)
+            atd, xtk, dtk_true = self._line_geometry(anchor, to, ac_lat, ac_lon)
+        else:
+            anchor, atd, xtk, dtk_true = self._leg_geometry(to_wp, fr, to, ac_lat, ac_lon, magvar_deg)
         if self._leg_phase == LEGPHASE_DF_TURN and atd <= 0.0:
             # Past the tangent point: the DF is now the line from it.
             self._leg_phase = None
@@ -1990,7 +2132,11 @@ class Engine:
         # altitude -- never on distance, since neither has a real endpoint
         # to be "reached". Checked every cycle regardless of atd/d_ta.
         alt_terminated = to_wp.pt == "CA" or (to_wp.pt == "FA" and self._leg_phase == LEGPHASE_FA_COURSE)
-        if df_turning:
+        if obs:
+            # OBS: no sequencing, no MAP auto-suspend, no hold or PT phase
+            # (none can be active), no waypoint alert. TO/FROM follows atd.
+            pass
+        elif df_turning:
             # In a DF's coded turn the fix is still ahead of the turn's end,
             # and nothing sequences or alerts until the turn is flown.
             pass
@@ -2069,7 +2215,7 @@ class Engine:
 
         tf = TF_TO if atd >= 0.0 else TF_FROM
         wp_dis = geo.distance_nm(ac_lat, ac_lon, to.lat, to.lon)
-        if to_wp.pt in PT_ARC:
+        if to_wp.pt in PT_ARC and not obs:
             wp_dis = abs(atd)  # arc length remaining, not the fix's straight-line chord distance
         wp_ete_bad = gs_kt < 30.0
         wp_ete = int(round(wp_dis / gs_kt * 3600.0)) if gs_kt > 0 else 0
@@ -2089,7 +2235,9 @@ class Engine:
         result = {
             "state": self._display_state(),
             "act_leg": self.act_leg,
-            "crs": geo.wrap360(dtk_true + magvar_deg),
+            # In OBS the course pointer is the pilot's course as set, not the
+            # great circle's track at the aircraft's abeam point.
+            "crs": self.obs_crs if obs else geo.wrap360(dtk_true + magvar_deg),
             "xtk": xtk,
             "cdi": None,  # filled in after CDISCALE is known
             "tf": tf,
@@ -2190,7 +2338,10 @@ class Engine:
             armed = dist_to_map <= self.terminal_nm and before_or_at_faf
 
             active = False
-            if not self._approach_suppressed and self.act_leg and faf_idx <= self.act_leg <= map_idx:
+            # OBS2: normal mode is required for the final approach course
+            # (GNS 430W p.198), so an OBS course to the FAF stays armed.
+            if (not self._approach_suppressed and self.obs_crs is None and self.act_leg
+                    and faf_idx <= self.act_leg <= map_idx):
                 if self.act_leg == faf_idx:
                     dist_to_faf = geo.distance_nm(
                         ac_lat, ac_lon, self.route[faf_idx - 1].lat, self.route[faf_idx - 1].lon
