@@ -102,10 +102,24 @@ connections:
         cond_bypass: [TACH1 < 500, IAS < IAS.Vgnd]
         deadband: 2
 
+      # Bypassed with the engine stopped on the ground; the low alarm waits
+      # TACH1.warmup seconds (30 if unset) from engine start (AER-6137).
       - key: CHT11
+        cond_bypass: &engine_stopped [TACH1 < 500, IAS < IAS.Vgnd]
+        warmup: &warmup
+          start: TACH1 >= 500
+          on_ground: IAS < IAS.Vgnd
+          seconds: TACH1.warmup
+          default: 30
       - key: CHT12
+        cond_bypass: *engine_stopped
+        warmup: *warmup
       - key: CHT13
+        cond_bypass: *engine_stopped
+        warmup: *warmup
       - key: CHT14
+        cond_bypass: *engine_stopped
+        warmup: *warmup
 
       - key: CURRNT
       - key: VOLT
