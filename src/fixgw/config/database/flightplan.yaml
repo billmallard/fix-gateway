@@ -583,6 +583,26 @@ items:
   initial: 0
   tol: 5000
 
+# The navigator's sequencing state and OBS course (OBS2, AER-6084), so a bench
+# flight can compare them with FPLSTATE and FPLCRS. Read from X-Plane 12's
+# gps_sequencing and gps_obs_degm; no compute selects them.
+- key: EXTSEQ
+  description: "External navigator sequencing (0 normal, 1 OBS, 2 suspended)"
+  type: int
+  min: 0
+  max: 2
+  initial: 0
+  tol: 5000
+
+- key: EXTOBSCRS
+  description: External navigator OBS course (magnetic)
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
+  tol: 5000
+
 # The navigator's own cross-track, so XTRACK follows GPSSRC like the needle
 # does (AER-4473; Bill accepted 2026-11-01). Same sign as FPLXTK/XTRACK.
 - key: EXTXTK

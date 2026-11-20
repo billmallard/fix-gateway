@@ -1384,6 +1384,8 @@ def test_flight_plan_keys_exist_with_specified_types_and_ranges(database):
         "EXTCDI": ("float", -1.0, 1.0),
         "EXTTF": ("int", 0, 2),
         "EXTXTK": ("float", -100.0, 100.0),
+        "EXTSEQ": ("int", 0, 2),
+        "EXTOBSCRS": ("float", 0.0, 359.9),
     }
     for key, (typestring, minval, maxval) in expectations.items():
         item = database.get_raw_item(key)

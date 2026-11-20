@@ -96,6 +96,11 @@ xplane:
         EXTCRS:  sim/cockpit/radios/gps_course_degtm
         EXTCDI:  [sim/cockpit/radios/gps_hdef_dot, 0.4]
         EXTTF:   sim/cockpit/radios/gps_fromto
+        # The FMS's sequencing state (0 normal, 1 OBS, 2 suspended; 12.0.0)
+        # and its OBS course (12.1.0), read only, for comparing with the
+        # engine's FPLSTATE and FPLCRS on a bench flight (OBS2, AER-6084).
+        EXTSEQ:    sim/cockpit/radios/gps_sequencing
+        EXTOBSCRS: sim/cockpit/radios/gps_obs_degm
         # NAV1CRS and NAV2CRS (the OBS courses) are kept in step both ways by
         # the autopilot block below, so they are not read here. With that
         # block off, add them back as plain reads (sim to bus only):
