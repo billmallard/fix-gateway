@@ -40,6 +40,17 @@ callback errors, and the gateway log has no `ERROR` line from cas.
 The gateway exits 255 on SIGTERM because the **demo** plugin "did not
 shutdown properly". Clean `dev` does the same, so that is not this change.
 
+## On the bench
+
+`bench.log`: the Beelink's running gateway, branch staged with
+`bench-deploy.sh --ref fix-gateway=aer-6083/cas-plugin`. A raw `@rCASCNT`
+answers `0;01000`: the keys are there, old because the bench's edited
+`preferences.yaml` does not turn the plugin on. With CAS turned on for the
+probe in `preferences.yaml.custom`, CAS TEST shows at 4 s and is gone at 8 s,
+and HDG FAIL appears between 25 s and 33 s, after its 30 s grace: X-Plane was
+off and the only HEAD write was the bench `custom.ini` seed, which is not a
+reading. The bench was then put back on `dev`.
+
 ## Not here
 
 - Steps 8, 9, 10, 14 and 16 are display-side (`CAS FAIL`, `GATEWAY LINK
