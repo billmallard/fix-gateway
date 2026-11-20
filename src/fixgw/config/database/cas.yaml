@@ -34,73 +34,73 @@
 
 items:
 - key: CASMSG1
-  description: CAS message slot 1 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  description: CAS message slot 1 (LEVEL|ACK|ID|TEXT|DETAIL or empty)
   type: str
   initial: ""
   tol: 3000
 
 - key: CASMSG2
-  description: CAS message slot 2 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  description: CAS message slot 2 (LEVEL|ACK|ID|TEXT|DETAIL or empty)
   type: str
   initial: ""
   tol: 3000
 
 - key: CASMSG3
-  description: CAS message slot 3 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  description: CAS message slot 3 (LEVEL|ACK|ID|TEXT|DETAIL or empty)
   type: str
   initial: ""
   tol: 3000
 
 - key: CASMSG4
-  description: CAS message slot 4 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  description: CAS message slot 4 (LEVEL|ACK|ID|TEXT|DETAIL or empty)
   type: str
   initial: ""
   tol: 3000
 
 - key: CASMSG5
-  description: CAS message slot 5 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  description: CAS message slot 5 (LEVEL|ACK|ID|TEXT|DETAIL or empty)
   type: str
   initial: ""
   tol: 3000
 
 - key: CASMSG6
-  description: CAS message slot 6 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  description: CAS message slot 6 (LEVEL|ACK|ID|TEXT|DETAIL or empty)
   type: str
   initial: ""
   tol: 3000
 
 - key: CASMSG7
-  description: CAS message slot 7 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  description: CAS message slot 7 (LEVEL|ACK|ID|TEXT|DETAIL or empty)
   type: str
   initial: ""
   tol: 3000
 
 - key: CASMSG8
-  description: CAS message slot 8 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  description: CAS message slot 8 (LEVEL|ACK|ID|TEXT|DETAIL or empty)
   type: str
   initial: ""
   tol: 3000
 
 - key: CASMSG9
-  description: CAS message slot 9 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  description: CAS message slot 9 (LEVEL|ACK|ID|TEXT|DETAIL or empty)
   type: str
   initial: ""
   tol: 3000
 
 - key: CASMSG10
-  description: CAS message slot 10 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  description: CAS message slot 10 (LEVEL|ACK|ID|TEXT|DETAIL or empty)
   type: str
   initial: ""
   tol: 3000
 
 - key: CASMSG11
-  description: CAS message slot 11 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  description: CAS message slot 11 (LEVEL|ACK|ID|TEXT|DETAIL or empty)
   type: str
   initial: ""
   tol: 3000
 
 - key: CASMSG12
-  description: CAS message slot 12 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  description: CAS message slot 12 (LEVEL|ACK|ID|TEXT|DETAIL or empty)
   type: str
   initial: ""
   tol: 3000
