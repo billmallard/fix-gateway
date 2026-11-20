@@ -92,6 +92,7 @@ connection file; write one and wire it in as **[[Configuration]]** describes.
 | `flightplan` | the GPS navigator: flies a route and writes guidance — see **[[Flight Plan Engine]]** |
 | `quorum` | leader election between redundant gateways |
 | `annunciate` | sets a key's `annunciate` flag when it crosses its alarm limits (`lowAlarm`/`highAlarm` by default) |
+| `cas` | **crew alerting**: watches the keys its catalogue names and publishes the sorted warning, caution and advisory list (`CASMSG1`..`CASMSG12`, `CASCNT`, `CASTOP`, `CASSEQ`) and `NAVFAIL`; on by default, see [`doc/plugins/cas.md`](https://github.com/billmallard/fix-gateway/blob/dev/doc/plugins/cas.md) |
 | `command` | an interactive console on the gateway's terminal (read, write, list, subscribe, flag) |
 | `state_persist` | persists pilot **selections** (`NAVSRC`, `GPSSRC`) across restarts |
 | `system` | the clock: `TIMEZ*` and `TIMEL` keys, once a second |

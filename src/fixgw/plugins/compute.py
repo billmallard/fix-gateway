@@ -37,6 +37,10 @@ from fixgw.geo import (
     _normalize_angle_rad,
 )
 
+# The altimeter-setting formula lives in fixgw.airdata (CERT13h, AER-6082) so
+# the onspeed plugin's ALT uses the same one.  BARO_PLAUSIBLE is re-exported.
+from fixgw.airdata import BARO_PLAUSIBLE, baro_offset_ft  # noqa: F401
+
 
 # The functions below cache each input's tuple from its last callback and OR
 # the cached flags on every recompute.  Old is the one flag that changes with
@@ -78,11 +82,6 @@ def _publish(o, value, old, bad, fail, secfail):
 # value (the schema initial, 29.92, until set) is what every consumer shows,
 # so it is read from the database when it has not been written. ALT is never
 # read that way: its schema initial is not an altitude.
-
-# Altimeter settings no sea-level pressure on record falls outside (the
-# extremes are about 25.69 and 32.03 inHg). Anything beyond is a bad input,
-# not weather.
-BARO_PLAUSIBLE = (25.0, 33.0)
 
 
 def altPressure(inputs, output, require_leader):
@@ -132,7 +131,7 @@ def altPressure(inputs, output, require_leader):
         if flag_fail or not flag_old:
             pa = 0.0
             if not flag_fail:
-                pa = vals[alt][0] + (145442.2 * (1 - (setting / 29.92126) ** 0.190261))
+                pa = vals[alt][0] + baro_offset_ft(setting)
             _publish(o, pa, flag_old, flag_bad, flag_fail, flag_secfail)
         else:
             # Old, not failed: flags only.  set() would stamp the value and
