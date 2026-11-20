@@ -416,9 +416,11 @@ On the bench, `xplane.yaml`'s nav RREF rows now write `EXTCRS`/`EXTCDI`
 navigator. `garmin_gnx375` and `navigator_adapter` write `EXTCRS` (APB
 field 8, the leg's desired track, magnetic), `EXTXTK` (RMB cross-track),
 `EXTCDI` (`-EXTXTK / cdi_full_scale_nm`) and `EXTTF` (APB perpendicular
-passed) too (AER-4473). Only `xplane.yaml` writes `EXTSEQ` and `EXTOBSCRS`,
-from X-Plane 12's `gps_sequencing` and `gps_obs_degm` (OBS2); NMEA carries
-no OBS state. Before that they wrote `COURSE`, `CDI` and `XTRACK` directly,
+passed) too (AER-4473). `xplane.yaml` writes `EXTSEQ` and `EXTOBSCRS` from
+X-Plane 12's `gps_sequencing` and `gps_obs_degm` (OBS2). FlightGear's
+`fix_fgfs.xml` writes `EXTOBSCRS` from `/instrumentation/gps/selected-course-deg`
+but not `EXTSEQ`: its GPS names its mode only as a string, which the generic
+protocol cannot carry. NMEA carries no OBS state. Before that they wrote `COURSE`, `CDI` and `XTRACK` directly,
 racing compute's `NAVSRC` selects and `xte` for the same keys, and their
 `COURSE` was the bearing from the aircraft to the waypoint, not the desired
 track.

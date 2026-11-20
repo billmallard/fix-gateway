@@ -209,6 +209,18 @@
     <factor>2</factor>
    </chunk>
 
+   <!-- EXTOBSCRS (OBS2): the GPS's selected course, which FlightGear copies
+        into desired-course-deg (EXTCRS above) in OBS mode, so it is the same
+        magnetic course. FlightGear names its mode only as a string (leg /
+        obs / dto), which this numeric protocol cannot carry, so there is no
+        EXTSEQ here: test_fgfs.py lists it as the one exception. -->
+   <chunk>
+    <name>EXTOBSCRS: GPS selected (OBS) course, magnetic (deg)</name>
+    <type>double</type>
+    <format>%.1f</format>
+    <node>/instrumentation/gps/selected-course-deg</node>
+   </chunk>
+
    <!-- FlightGear's stock GPS has no vertical guidance, so publish "no valid
         glidepath" (EXTGSF 1, EXTGSI 0) rather than leave the keys to go stale.
         Any always-present property times 0, plus the offset, is a constant. -->

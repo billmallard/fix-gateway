@@ -145,7 +145,7 @@ Two plugin rules extend what one chunk can do:
 What the shipped file sends
 ---------------------------
 
-Every key the X-Plane plugin writes, plus FlightGear-only extras:
+Every key the X-Plane plugin writes but one, plus FlightGear-only extras:
 
 - **Air data**: IAS (airspeed instrument), TAS, GS, VS (from the flight model).
 - **Attitude**: PITCH, ROLL, HEAD (magnetic), MAGVAR (west positive, as in
@@ -154,7 +154,10 @@ Every key the X-Plane plugin writes, plus FlightGear-only extras:
 - **Nav**: NAV1/NAV2 course, deviation, glideslope deviation and flags,
   TO/FROM and bearing to the station; the GPS course, deviation and TO/FROM
   as the EXT* keys; HEADBUG. FlightGear's stock GPS has no vertical guidance,
-  so EXTGSF is always 1 (no glidepath).
+  so EXTGSF is always 1 (no glidepath). EXTOBSCRS is the GPS's selected
+  (OBS) course. EXTSEQ, X-Plane's GPS sequencing state, is the one key not
+  sent: FlightGear names its GPS mode only as a string (leg, obs, dto),
+  which the generic protocol cannot carry, and has no suspended state.
 - **Extras**: OAT, VOLT and one engine's RPM, manifold pressure, oil, EGT,
   CHT, fuel flow and two tanks. These are the default piston single's
   property paths; on an aircraft without them FlightGear sends 0.
