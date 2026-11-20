@@ -23,13 +23,23 @@ ANNUNCIATE_YAML = "src/fixgw/config/connections/annunciate.yaml"
 HOT = "CHT1{}".format(engine.HOT_CYLINDER)
 
 
+def _names(template, key):
+    # CHTec names CHT13: each lowercase letter stands for one digit
+    return len(template) == len(key) and all(
+        t == k or (t.islower() and k.isdigit()) for t, k in zip(template, key)
+    )
+
+
 def _ini_limits(key):
+    # Read with no database, so a CHTec.highAlarm line counts for CHT13, and
+    # a later line naming CHT13 itself overrides it, as in the loader.
     out = {}
     with open(DEFAULT_INI) as f:
         for line in f:
             name, _, value = line.partition("=")
-            if name.strip().startswith(key + "."):
-                out[name.strip().split(".")[1]] = float(value)
+            name, dot, aux = name.strip().partition(".")
+            if dot and not line.lstrip().startswith("#") and _names(name, key):
+                out[aux] = float(value)
     return out
 
 
@@ -152,21 +162,10 @@ def test_the_event_follows_the_configured_limits(flown):
 # In the plugin, through the real annunciate
 # ---------------------------------------------------------------------------
 
-def _load_ini(path):
-    # the server's initialization-file loader (server.main_setup)
-    with open(path) as f:
-        for line in f:
-            line = line.strip()
-            if line and line[0] != "#":
-                x = line.split("=")
-                if len(x) >= 2:
-                    database.write(x[0].strip(), x[1].strip())
-
-
 def test_the_hot_cylinder_is_annunciated_by_the_annunciate_plugin(db, monkeypatch):
     from fixgw.plugins import annunciate
 
-    _load_ini(DEFAULT_INI)
+    database.load_init_file(DEFAULT_INI)  # the server's loader
     with open(ANNUNCIATE_YAML) as f:
         conf, meta = cfg.from_yaml(f.read(), metadata=True)
     ann = annunciate.Plugin("annunciate", conf["annunciate"], meta)
