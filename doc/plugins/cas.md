@@ -126,9 +126,21 @@ of the catalogue still loads. Refused ids show in the plugin status.
 
 ## Turning it on
 
-On by default (`CAS: true` in `preferences.yaml`). An install with its own
-`preferences.yaml.custom` or `default.yaml` needs `CAS_CONFIG` in both, as for
-any plugin. If `database.yaml` has been edited and lacks
+On by default: `CAS: true` and `CAS_CONFIG` in the shipped `preferences.yaml`.
+An update replaces that file only while it is unedited. An install that has
+edited `preferences.yaml` itself (the Beelink bench sets `XPLANE` and `DEMO`
+there) keeps its own copy. The gateway still starts and the CAS keys arrive,
+but the plugin stays off and the keys read old. Turn it on in
+`preferences.yaml.custom`:
+
+```yaml
+includes:
+  CAS_CONFIG: connections/cas.yaml
+enabled:
+  CAS: true
+```
+
+If `database.yaml` has been edited and lacks
 `- include: database/cas.yaml`, the plugin refuses to start and the log names
 the missing keys.
 
