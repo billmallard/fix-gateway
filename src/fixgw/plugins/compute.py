@@ -1068,13 +1068,10 @@ def windComponents(inputs, output, require_leader):
 # keys: with t: 3 in variables.yaml, FUELQt is FUELQ1, FUELQ2, FUELQ3.  So a
 # function over every tank follows the tank count (AER-5391).
 def _expand_inputs(inputs):
-    variables = getattr(database, "variables", {})
     expanded = []
     for each in inputs:
-        ch = database.check_for_variables({"key": each}) if isinstance(each, str) else None
-        if ch in variables:
-            entry = {"key": each, "description": ""}
-            expanded.extend(e["key"] for e in database.expand_entry(entry, ch, variables[ch]))
+        if isinstance(each, str):
+            expanded.extend(database.expand_key(each))
         else:
             expanded.append(each)
     return expanded

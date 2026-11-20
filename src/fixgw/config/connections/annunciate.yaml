@@ -43,15 +43,11 @@ annunciate:
       cond_bypass: [TACH1 < 500, IAS < IAS.Vgnd]
       deadband: 2
 
-    - key: CHT11
-    - key: CHT12
-    - key: CHT13
-    - key: CHT14
-
-    - key: EGT11
-    - key: EGT12
-    - key: EGT13
-    - key: EGT14
+    # Every cylinder of every engine, from the counts in
+    # database/variables.yaml: with c: 6, CHTec is CHT11 .. CHT16
+    # (fix-gateway#199).
+    - key: CHTec
+    - key: EGTec
 
     - key: CURRNT
     - key: VOLT

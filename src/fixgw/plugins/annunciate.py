@@ -21,6 +21,7 @@
 
 import operator
 from collections import OrderedDict
+import fixgw.database as database
 import fixgw.plugin as plugin
 
 
@@ -324,10 +325,16 @@ class Plugin(plugin.PluginBase):
         # of inputs and produce a single output.
         for item in self.config["items"]:
             if "deviation_from" in item:
-                i = DeviationItem(self, item)
-            else:
-                i = AnnunciateItem(self, self.config["defaults"], item)
-            self.items.append(i)
+                self.items.append(DeviationItem(self, item))
+                continue
+            # A key named with a database variable is one item per key it
+            # stands for: with c: 6, CHTec is CHT11 .. CHT16, so the checks
+            # follow the cylinder count (fix-gateway#199).
+            for key in database.expand_key(item["key"]):
+                itemdef = dict(item, key=key)
+                self.items.append(
+                    AnnunciateItem(self, self.config["defaults"], itemdef)
+                )
 
     def stop(self):
         for item in self.items:
