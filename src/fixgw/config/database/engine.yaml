@@ -181,7 +181,9 @@ items:
   units: RPM
   initial: 0
   tol: 2000
-  aux: [Min,Max,lowWarn,highWarn,lowAlarm,highAlarm]
+  # warmup: seconds the engine's low CHT and EGT alarms wait after engine
+  # start (annunciate.yaml).
+  aux: [Min,Max,lowWarn,highWarn,lowAlarm,highAlarm,warmup]
 
 - key: PROPe
   description: Propeller RPM Engine %e
