@@ -186,7 +186,8 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   indefinitely until `RESUME` posts `"HOLD EXIT ARMED"`, then exits at the
   next fix passage. A hold/PT coded as the very last slot, with nothing to
   sequence onto, keeps flying the pattern rather than freezing on arrival —
-  the same "no next leg" backstop a vector leg has.
+  the same "no next leg" backstop a vector leg has. `RESUME` on a last-slot
+  `HM` posts `"NO NEXT LEG"` and arms nothing (HOLDFIX4).
 - **The hold entry on the bus (HOLDENT1)**: `FPLHOLDSLOT` names the next
   hold (the active slot or the first hold after it), `FPLHOLDENT` its entry
   and `FPLHOLDCOMMIT` whether that entry is being flown. Before the fix the
@@ -269,7 +270,8 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   success, `-seq` rejection), reason on `FPLMSG` (`NO PLAN`, `BAD SLOT`,
   `NO POSITION`, `PARSE`, or — off a vector leg, PA4 —
   `"RESUME NAV -> <ident>"` / `"NO NEXT LEG"`, or — on a flying `HM` hold,
-  PA13 — `"HOLD EXIT ARMED"`, or the OBS messages below).
+  PA13 — `"HOLD EXIT ARMED"`, or `"NO NEXT LEG"` when the hold is the
+  last slot, or the OBS messages below).
   Unknown verbs are rejected, never ignored.
 - **GPS OBS mode** (OBS2, AER-6084; `makerplane/briefs/gps_obs_mode.md`):
   `OBS <deg>` sets a pilot course, magnetic, through the TO waypoint, for a
