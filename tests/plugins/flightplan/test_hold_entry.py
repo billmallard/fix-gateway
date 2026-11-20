@@ -138,7 +138,7 @@ def test_the_prediction_follows_a_reroute_and_a_direct_to():
 
     load(e, route(back(300.0, 20.0)), "T", 2)
     out = e.update(*back(90.0, 40.0), 120.0, 0.0, True, None, None, 1001.0)
-    assert e.mode == "NONE"   # a new FPLSEQ drops the activation; the plan still has its hold
+    assert e.mode == "NONE"   # B moved, so the active leg is gone (HOLDFIX0); the plan still has its hold
     assert entry(out) == (4, "PARALLEL", False)
 
     ack, msg = e.handle_command("3 DTO 3", (*back(240.0, 15.0), True))
