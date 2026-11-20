@@ -39,6 +39,7 @@ entries:
 - include: database/stratux.yaml
 - include: database/sim.yaml
 - include: database/demo.yaml
+- include: database/cas.yaml
 
 # The last.yaml must always be the last one.
 # It contains a key used to detect if all

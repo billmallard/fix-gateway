@@ -79,6 +79,7 @@ connections:
   - AVIONICSDUINO_CONFIG
   - ONSPEED_CONFIG
   - TESSERA_CONFIG
+  - CAS_CONFIG
 # Logging configuration - See Python logging.config module documenation
 # This is logging for system messages, not system data
 # If you want a Flight Data Recorder, see the file connections/data_recorder.yaml
