@@ -25,6 +25,10 @@ Conditions:
   invalid: KEY        the key is old, bad or failed. ``after_valid: true``
                       arms it only once the key has been valid, so a source
                       an install does not have never alerts (AER-5266).
+                      ``grace: s`` instead holds off a key that has not yet
+                      been valid for s seconds after start, so a source
+                      still starting up does not alert at every power-up;
+                      once it has been valid, a loss alerts at once.
   annunciate: KEY     the key's annunciate flag, only while the key is valid:
                       a failed value is not past its limit (brief 5.1, 2).
   value: KEY op LIT   a comparison, only while the key is valid.
@@ -157,8 +161,10 @@ class Condition(object):
         self.after_valid = bool(when.get("after_valid", False))
         if "after_valid" in when and self.kind != "invalid":
             raise CatalogueError("after_valid applies only to invalid")
-        if "grace" in when and self.kind != "never_written":
-            raise CatalogueError("grace applies only to never_written")
+        if "grace" in when and self.kind not in ("invalid", "never_written"):
+            raise CatalogueError("grace applies only to invalid and never_written")
+        if "grace" in when and self.after_valid:
+            raise CatalogueError("grace and after_valid do not combine")
         self.key = None
         self.keys = []
         if self.kind == "nav_lost":
@@ -178,8 +184,8 @@ class Condition(object):
         else:
             self.key = when[self.kind]
             self.keys = [self.key]
-        if self.kind == "never_written":
-            self.grace = _seconds(when.get("grace", 30), "grace")
+        default = 30 if self.kind == "never_written" else 0
+        self.grace = _seconds(when.get("grace", default), "grace")
         for k in self.keys:
             if not has_key(k):
                 raise CatalogueError("no FIX key {}".format(k))
@@ -484,7 +490,11 @@ class Plugin(plugin.PluginBase):
                     and not self.db_get_item(c.key).written)
         st = self.watched[c.key]
         if c.kind == "invalid":
-            return not st.valid and (st.ever_valid or not c.after_valid)
+            if st.valid:
+                return False
+            if st.ever_valid:
+                return True
+            return not c.after_valid and now - self.start_time >= c.grace
         if c.kind == "annunciate":
             return st.valid and st.annunciate
         return st.valid and c.oper(st.value, c.literal)

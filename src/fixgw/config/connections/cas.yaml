@@ -14,7 +14,10 @@
 #                  invalid: KEY        old, bad or failed. after_valid: true
 #                                      arms it only once KEY has been valid,
 #                                      so a source an install lacks never
-#                                      alerts
+#                                      alerts. grace: s instead waits s
+#                                      seconds after start for a KEY not yet
+#                                      valid; once valid, a loss alerts at
+#                                      once
 #                  annunciate: KEY     the annunciate flag (past an alarm
 #                                      point), only while KEY is valid
 #                  value: KEY op LIT   e.g. "APDISC == true", only while valid
@@ -65,10 +68,12 @@ cas:
     when: {invalid: APENG, after_valid: true}
     clear_delay: 5
 
+  # 30 s for a heading source to come up at power-up before HDG FAIL; once
+  # it has been valid, a loss shows at once.
   - id: HDGFAIL
     level: caution
     text: HDG FAIL
-    when: {invalid: HEAD}
+    when: {invalid: HEAD, grace: 30}
 
   - id: NAVFAIL
     level: caution

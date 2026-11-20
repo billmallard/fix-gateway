@@ -66,7 +66,7 @@ the HSI does; the `NAV FAIL` alert does not (below).
 |---|---|---|---|
 | `CASTEST` | `CAS TEST` | advisory | The first `test_time` seconds (5) after start. Always on |
 | `APLINK` | `AP LINK LOST` | warning if `APENG` was last true, else caution | `APENG` old, bad or failed, after it has been valid in this run. Clears 5 s after the link is steady |
-| `HDGFAIL` | `HDG FAIL` | caution | `HEAD` old, bad or failed |
+| `HDGFAIL` | `HDG FAIL` | caution | `HEAD` old, bad or failed. At once once it has been valid; a heading not yet valid 30 s after start also raises it |
 | `NAVFAIL` | `NAV FAIL` | caution | Lateral guidance lost on a nav source that had it earlier in this run |
 | `FUELQ<n>ND` | `FUEL QTY <n> NO DATA` | caution | `FUELQ<n>` not written 30 s after start, for tanks listed in `fuel_no_data_tanks` only |
 
@@ -101,7 +101,7 @@ raise every CHT and EGT on a cold start (brief section 8.2).
 
 | Condition | Holds when |
 |---|---|
-| `invalid: KEY` | KEY is old, bad or failed. With `after_valid: true`, only once KEY has been written valid in this run |
+| `invalid: KEY` | KEY is old, bad or failed. With `after_valid: true`, only once KEY has been written valid in this run. With `grace: s`, a KEY not yet valid holds off for s seconds after start, so a source still starting up does not alert at every power-up |
 | `annunciate: KEY` | KEY's annunciate flag is set and KEY is valid. A failed value is published as 0, below every low limit, and is not an exceedance |
 | `value: KEY op LITERAL` | The comparison holds and KEY is valid, e.g. `APDISC == true`. Operators `< <= == != > >=` |
 | `never_written: KEY` | KEY has had no write `grace` seconds (default 30) after start. Its own expiry is not a write |

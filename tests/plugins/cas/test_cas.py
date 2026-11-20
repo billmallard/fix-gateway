@@ -171,6 +171,19 @@ def test_hdg_fail_is_a_caution_on_heading_invalid(database):
         assert "HDGFAIL" not in ids(database)
 
 
+def test_hdg_fail_waits_30_s_for_a_heading_at_power_up(database):
+    """HEAD's initial value expires 2 s after start, before an AHRS (or the
+    demo) has written it: no HDG FAIL at every boot, but one if heading
+    never comes."""
+    p = make(database)
+    database.get_raw_item("HEAD").expire()  # never written
+    step(p)
+    step(p, 29.9)
+    assert "HDGFAIL" not in ids(database)
+    step(p, 0.2)
+    assert (2, False, "HDGFAIL", "HDG FAIL") in lines(database)
+
+
 @pytest.mark.parametrize("tank", [1, 2, 3])
 def test_fuel_qty_no_data_is_a_caution_for_a_listed_tank(database, tank):
     p = make(database, fuel_no_data_tanks=[tank], fuel_no_data_grace=30)
@@ -515,6 +528,9 @@ def test_never_written_ignores_the_keys_own_expiry(database):
     ({"clear_dealy": 5}, "unknown field"),
     ({"when": {"invalid": "NOSUCHKEY"}}, "no FIX key"),
     ({"when": {"invalid": "HEAD", "value": "HEAD > 1"}}, "exactly one"),
+    ({"when": {"invalid": "HEAD", "grace": 5, "after_valid": True}},
+     "do not combine"),
+    ({"when": {"annunciate": "OILP1", "grace": 5}}, "grace applies"),
     ({"level": "warning", "on_delay": 2}, "on_delay_reason"),
 ])
 def test_bad_entry_is_refused_and_named_and_the_rest_load(database, caplog,
