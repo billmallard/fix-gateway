@@ -686,6 +686,10 @@ def test_slow_failing_evaluation_does_not_slow_a_watched_writer(database,
         pitch_count, pitch_longest = _write_rate(database, "PITCH")
     finally:
         p.stop()
+    print("C1 HEAD writes/s base {} with-CAS {}; longest write base {:.4f} s "
+          "with-CAS {:.4f} s; PITCH {} longest {:.4f} s; evaluations {} errors {}"
+          .format(base_count, count, base_longest, longest, pitch_count,
+                  pitch_longest, len(calls), p.errors))
     assert calls, "the injected evaluation never ran"
     assert p.errors >= 1
     assert count >= 0.8 * base_count
