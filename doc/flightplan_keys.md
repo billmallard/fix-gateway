@@ -1,4 +1,4 @@
-# Flight plan FIX keys (FP1, PA3, PA4, PA13, RS1, TURN3, HOLDENT1)
+# Flight plan FIX keys (FP1, PA3, PA4, PA13, RS1, TURN3, HOLDENT1, OBS2)
 
 Spec: [fix-gateway#22](https://github.com/billmallard/fix-gateway/issues/22)
 (FP1), [fix-gateway#27](https://github.com/billmallard/fix-gateway/issues/27)
@@ -283,7 +283,7 @@ strictly-increasing integer per editor session -- a repeated identical
 command is still a new event, and it gives the editor an ack to wait on.
 Verbs: `ACT <slot>`, `DTO` (no arg: use the staged `DTO*` keys; with a slot
 arg, direct-to that plan waypoint), `DTOX`, `SUSP`, `RESUME`,
-`SCALE <0.3|1.0|2.0|AUTO>`. PA3 reserves `PROC`, `PROCX` and `AWY` for
+`SCALE <0.3|1.0|2.0|AUTO>`, `OBS <deg>`, `OBS OFF` (OBS2). PA3 reserves `PROC`, `PROCX` and `AWY` for
 procedure/airway loading (section 3.2) -- this engine does not dispatch them
 yet; unknown verbs are rejected (`PARSE`), never ignored.
 
@@ -306,17 +306,47 @@ and the aircraft completes the current circuit before sequencing onward.
 `HF` and `PI` never need this -- they exit automatically after one
 circuit/turn; `HA` exits automatically once the coded altitude is reached.
 
+**`OBS <deg>` (OBS2, AER-6084)** enters GPS OBS mode on the TO waypoint
+with this magnetic course (0..360, decimals allowed, 360 read as 0), or
+changes the course while in OBS. It posts `"OBS <deg>"`. In OBS
+(`FPLSTATE = 4`) `FPLCRS` is the course as set, `FPLXTK`/`FPLCDI` measure
+from the course line through the TO waypoint, `FPLTF` is TO short of the
+line at right angles through the fix and FROM past it, and nothing
+sequences: the waypoint is kept past the fix. `WPFROM` reads empty, and
+`FPLFRLAT`/`FPLFRLON` are a point on the course line 50 nm behind the fix,
+as for a `CF`. The approach does not go active in OBS (normal mode is
+required for the final approach course, GNS 430W p.198), so an OBS course
+to the FAF stays armed at `TERM` scaling. OBS lasts until `OBS OFF` or any
+`ACT`/`DTO`/`DTOX`, or a new plan commit; it survives a restart. Garmin's
+rule (Bill, 2026-11-20, packet AER-6048): Avidyne's automatic exit at the
+fix is not built.
+
+It is refused with the reason on `FPLMSG`: `OBS N/A NO WPT` with nothing
+active, `OBS N/A NO POSITION`, `OBS N/A FINAL APPROACH` on a leg after the
+FAF up to the MAP or on any MAP (the auto-suspend included), `OBS N/A HOLD`
+on an `HM`/`HF`/`HA`, `OBS N/A PROC TURN` on a `PI`, `OBS N/A VECTORS` on a
+vector leg, and `OBS N/A NO FIX` on a `CA` or an `FA` past its fix. A bad
+course is `PARSE`. `SUSP` and `RESUME` are refused in OBS with `IN OBS`.
+
+**`OBS OFF`** leaves OBS (`NOT IN OBS` when not in it). Past the fix
+(FROM) it sequences to the next leg at once and posts the `SEQ` trace. Short
+of the fix (TO) it keeps the TO waypoint and posts `"OBS OFF"`: the FROM
+point stays on the OBS course line, so a `TF` or `DF` flies that course
+into the fix and sequences there as usual, while a `CF` returns to its coded
+course. At the last waypoint or an off-route Direct-To there is nothing to
+sequence to, and the box stays on the fix.
+
 | Key | Type | Writer | Meaning |
 |---|---|---|---|
 | `FPLCMD` | str | editor | The command string |
 | `FPLCMDACK` | int | engine | `= seq` on success, `-seq` on rejection |
-| `FPLMSG` | str | engine | Last message / rejection reason. Commands: `NO PLAN`, `BAD SLOT`, `NO POSITION`, `PARSE`, a sequence trace like `SEQ GVO -> RZS` (or, PA13, `SEQ ALT -> <ident>` when a `CA`/`FA` leg terminates on altitude with no fix of its own), or (PA4, off a vector leg) `RESUME NAV -> <ident>` / `NO NEXT LEG`, or (PA13, on a flying `HM` hold) `HOLD EXIT ARMED`. Route loads (PA4/PA13, guardrail 1): `"UNSUPP <PT> <ident>"` for an unrecognized terminator, or `"BADTURN <PT> <ident>"` / `"BADRADIUS <PT> <ident>"` / `"BADCENTER <PT> <ident>"` / `"BADALT <PT> <ident>"` / `"BADLEGLEN <PT> <ident>"` for a recognized Tier-2 type missing the fields its geometry needs, or (RS1) one of the `SEG...` reasons in the segment table section -- either way the whole route is rejected, not just that leg |
+| `FPLMSG` | str | engine | Last message / rejection reason. Commands: `NO PLAN`, `BAD SLOT`, `NO POSITION`, `PARSE`, a sequence trace like `SEQ GVO -> RZS` (or, PA13, `SEQ ALT -> <ident>` when a `CA`/`FA` leg terminates on altitude with no fix of its own), or (PA4, off a vector leg) `RESUME NAV -> <ident>` / `NO NEXT LEG`, or (PA13, on a flying `HM` hold) `HOLD EXIT ARMED`, or (OBS2) `OBS <deg>` / `OBS OFF` / `NOT IN OBS` / `IN OBS` and the `OBS N/A ...` refusals above. Route loads (PA4/PA13, guardrail 1): `"UNSUPP <PT> <ident>"` for an unrecognized terminator, or `"BADTURN <PT> <ident>"` / `"BADRADIUS <PT> <ident>"` / `"BADCENTER <PT> <ident>"` / `"BADALT <PT> <ident>"` / `"BADLEGLEN <PT> <ident>"` for a recognized Tier-2 type missing the fields its geometry needs, or (RS1) one of the `SEG...` reasons in the segment table section -- either way the whole route is rejected, not just that leg |
 
 ## Engine outputs (FP2 writes; `tol: 5000`)
 
 | Key | Type | Range | Meaning |
 |---|---|---|---|
-| `FPLSTATE` | int | 0 NONE, 1 LEG, 2 DIRECT, 3 SUSP | Engine state |
+| `FPLSTATE` | int | 0 NONE, 1 LEG, 2 DIRECT, 3 SUSP, 4 OBS | Engine state. 4 (OBS2): GPS OBS mode, a pilot course through the TO waypoint (command channel above). An older gateway never writes 4 |
 | `FPLSUSPMAP` | int | 0/1 | Suspended at the MAP (G49): 1 only while `FPLSTATE = 3` is the MAP auto-suspend, where `FPLCMD RESUME` flies the missed approach (`FPLAPR` -> 3). 0 for any other state, including a pilot `SUSP` past the MAP (held from before the MAP, or after a missed with no MAHP leg), where RESUME only un-suspends. A display shows "Fly the missed" on 1 and "Resume" otherwise; with the key absent (older gateway) it shows "Resume" |
 | `FPLACTLEG` | int | 0..100 | Slot of the TO waypoint, 0 = none |
 | `FPLPHASE` | str | `ENR` / `TERM` / `LNAV` / `LOI` / `VECTORS` / `HOLD` / `PTURN` / `0.30 NM` / `1.00 NM` / `""` | Flight-phase annunciation. `VECTORS` (PA4, guardrail 4) wins over everything else while the active leg is `VA`/`VM`/`FM`/`VI` -- `FPLSTATE` is also forced to `SUSP` and `FPLCRS`/`FPLXTK`/`FPLCDI`/`WPDIS`/`WPETE`/`FPLREMDIS`/`FPLREMETE` all read 0 (the box invents no heading, and no distance to one either). `HOLD` (PA13) shows while flying a published `HM`/`HF`/`HA` circuit, `PTURN` while flying a `PI` procedure turn -- both keep live course/cross-track guidance, unlike `VECTORS` |
@@ -372,6 +402,8 @@ selects into `COURSE`/`CDI`/`TOFROM` for the HSI:
 | `EXTCDI` | float | -1..+1 | external navigator plugin | External navigator course deviation |
 | `EXTTF` | int | 0/1/2 | external navigator plugin | External navigator TO/FROM |
 | `EXTXTK` | float | +-100 nm, positive = right of track | external navigator plugin | External navigator cross-track error |
+| `EXTSEQ` | int | 0 normal, 1 OBS, 2 suspended | external navigator plugin | External navigator sequencing state (OBS2). Not selected into anything: it is for comparing with `FPLSTATE` (1 with 4, 2 with 3) |
+| `EXTOBSCRS` | float | 0..359.9 deg magnetic | external navigator plugin | External navigator OBS course (OBS2), for comparing with `FPLCRS` in OBS |
 | `GPSCRS` / `GPSCDI` / `GPSTF` | (existing) | | compute `select` on `GPSSRC` | `{FPLCRS,EXTCRS}`, `{FPLCDI,EXTCDI}`, `{FPLTF,EXTTF}` |
 | `XTRACK` | (existing) | | compute `select` on `GPSSRC` | `{FPLXTK,EXTXTK}` |
 | `EXTGSI` | float | -1..+1, positive = below the glidepath | external navigator plugin | External navigator vertical deviation |
@@ -384,7 +416,9 @@ On the bench, `xplane.yaml`'s nav RREF rows now write `EXTCRS`/`EXTCDI`
 navigator. `garmin_gnx375` and `navigator_adapter` write `EXTCRS` (APB
 field 8, the leg's desired track, magnetic), `EXTXTK` (RMB cross-track),
 `EXTCDI` (`-EXTXTK / cdi_full_scale_nm`) and `EXTTF` (APB perpendicular
-passed) too (AER-4473). Before that they wrote `COURSE`, `CDI` and `XTRACK` directly,
+passed) too (AER-4473). Only `xplane.yaml` writes `EXTSEQ` and `EXTOBSCRS`,
+from X-Plane 12's `gps_sequencing` and `gps_obs_degm` (OBS2); NMEA carries
+no OBS state. Before that they wrote `COURSE`, `CDI` and `XTRACK` directly,
 racing compute's `NAVSRC` selects and `xte` for the same keys, and their
 `COURSE` was the bearing from the aircraft to the waypoint, not the desired
 track.
