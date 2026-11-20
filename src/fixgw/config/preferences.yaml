@@ -39,6 +39,7 @@ includes:
   DYNON_CONFIG: connections/dynon.yaml
   DEMO_CONFIG: connections/demo.yaml
   RTL_433_CONFIG: connections/rtl_433.yaml
+  SDR_VOR_CONFIG: connections/sdr_vor.yaml
   KNOBSTER_CONFIG: connections/knobster.yaml
   STATE_PERSIST_CONFIG: connections/state_persist.yaml
   FLIGHTPLAN_CONFIG: connections/flightplan.yaml
@@ -84,6 +85,7 @@ enabled:
   DYNON: false
   DEMO: true
   RTL_433: false
+  SDR_VOR: false
   FLIGHTPLAN: true
   STATE_PERSIST: true
   KNOBSTER: false
