@@ -33,6 +33,14 @@ stopped or broken plugin therefore turns them old within 3 s, and a display
 can say `CAS FAIL` rather than draw an old list as current. If the list cannot
 be computed (an exception in the evaluation), the keys are not rewritten.
 
+The callbacks run inside the writing plugin's own write, so they only compare
+flags and queue the change. Everything else happens on the cas thread. A slow
+or failing evaluation does not slow the writer, and the tests show it. What
+they do not cover is an evaluation that burns CPU: Python's interpreter lock
+is shared by every plugin in the process. A 500 ms busy loop cut HEAD's write
+rate to 62% in Safety and Compliance's probe (AER-6093). The real evaluation
+is a few comparisons over about a dozen entries.
+
 ### Acknowledge
 
 Writing `CASACK = n` acknowledges every message first published at sequence n
@@ -40,17 +48,33 @@ or earlier, on every display. A message that arrived after the display drew n
 stays unacknowledged. Acknowledge stops the flash and nothing else: the line
 stays while its condition holds.
 
-Three rules keep a stale acknowledge from covering a new alert:
+Four rules keep a stale acknowledge from covering a new alert:
 
-- `CASSEQ` starts above any `CASSEQ` or `CASACK` already on the bus, so a
-  plugin restart under a running gateway cannot fall back below an old
-  acknowledge.
-- A `CASACK` above the current `CASSEQ` is ignored and logged. That is a
-  display re-writing its last value after a gateway restart.
+- `CASSEQ` starts above any `CASSEQ` or `CASACK` already on the bus. That
+  covers a plugin restart under a running gateway.
+- `CASSEQ` also starts above the seconds since 2026-01-01 UTC. After a full
+  gateway restart the bus starts at 0 again, but a display still holds its
+  `CASACK` from the last run. With a correct clock, that value is below
+  anything the new run publishes.
+- A `CASACK` above the current `CASSEQ` acknowledges nothing, and `CASSEQ`
+  moves above it at once. That covers a box whose clock defeats the epoch,
+  such as a Pi booted without NTP. Ignoring the value is not enough on its
+  own: once `CASSEQ` had climbed past it, the same value re-sent on the next
+  reconnect would cover messages nobody drew. After the jump it can cover
+  only messages published before the display reconnected.
 - `CASACKBTN` edges closer together than `ack_debounce` (0.5 s) are one press.
 
-A button cannot know what the pilot saw, so a message that arrives in the same
-instant as a press can be acknowledged unseen. Touch does not have that gap.
+**The panel button is optional, and it has a gap that touch does not.** A
+button press acknowledges the `CASSEQ` the plugin has already published. It
+cannot know what the pilot has seen. A message published in the time between
+the plugin writing it and the pilot seeing it is covered by any press in that
+window. The window is the display's redraw plus the pilot's reaction, on the
+order of a second. Alerts often arrive together: a heading loss can take the
+autopilot link with it, so a second alert tends to land while the pilot is
+reaching for the button to clear the first. A message acknowledged that way is
+drawn steady, never flashes, and does not count in `CASTOP`. Its line still
+shows. Touch writes the `CASSEQ` the display actually drew, so it has no such
+window. Fit the button only if that trade is acceptable (brief section 6.5).
 
 ### NAVFAIL
 
