@@ -14,10 +14,13 @@ import json
 import pytest
 
 import fixgw.geo as geo
+import fixgw.plugins.flightplan as flightplan
 import fixgw.plugins.flightplan.engine as engine
 
 from .routes import hold_circuit_points
 from .routes import load as _load
+from .test_plugin import make_config
+from .test_plugin import write_route as _write_route
 
 GS = 120.0
 
@@ -41,6 +44,10 @@ def fresh(route):
 
 def load(e, route, name, seq):
     return _load(e, fresh(route), name, seq)
+
+
+def write_route(database, route, seq):
+    _write_route(database, fresh(route), seq=seq)
 
 
 def update(e, lon, lat=0.0, t=1000.0):
@@ -324,6 +331,59 @@ def test_a_kept_leg_persists_at_its_new_slot():
     a = e.update(*probe, GS, 0.0, True, None, None, 1010.0)
     b = restored.update(*probe, GS, 0.0, True, None, None, 1010.0)
     assert guidance(b) == guidance(a) and b["act_leg"] == 4 and b["phase"] == "HOLD"
+
+
+# --- through the bus ----------------------------------------------------
+
+def _plugin_flying(database, tmp_path, route):
+    pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
+    pl.thread._restore()   # no state file: persistence opens
+    database.write("GPS_FIX_TYPE", 3)
+    database.write("GS", GS)
+    database.write("MAGVAR", 0.0)
+    write_route(database, route, seq=1)
+    database.write("LAT", 0.0)
+    database.write("LONG", 0.2)
+    database.write("FPLCMD", "1 ACT 3")
+    pl.thread._run_update_cycle()
+    assert database.read("FPLACTLEG")[0] == 3
+    return pl
+
+
+def test_a_commit_through_the_bus_keeps_the_leg_and_republishes_its_slot_at_once(database, tmp_path):
+    pl = _plugin_flying(database, tmp_path, [A, B, C, D])
+    database.write("FPLMSG", "")
+    write_route(database, [Z, A, B, C, D], seq=2)
+    # No update cycle called: the commit itself publishes the new slot.
+    assert database.read("FPLLDSEQ")[0] == 2
+    assert database.read("FPLACTLEG")[0] == 4
+    assert database.read("FPLSTATE")[0] == engine.STATE_LEG
+    assert database.read("WPNAME")[0] == "C"
+    assert database.read("FPLMSG")[0] == ""
+    assert json.loads((tmp_path / "flightplan_state.json").read_text())["act_leg"] == 4
+    assert pl.thread.engine.act_leg == 4
+
+
+def test_a_commit_that_drops_the_leg_says_why_after_it_is_loaded(database, tmp_path):
+    # pyEfis's FPL page takes an FPLMSG that lands while a commit is still
+    # unanswered (FPLLDSEQ behind FPLSEQ) as that commit's refusal (G61).
+    _plugin_flying(database, tmp_path, [A, B, C, D])
+    seen = []
+
+    def watch(key, value, udata):
+        if isinstance(value, tuple):
+            seen.append((key, value[0]))
+
+    for key in ("FPLLDSEQ", "FPLMSG"):
+        database.callback_add("holdfix0", key, watch, None)
+    try:
+        write_route(database, [A, B, D], seq=2)
+    finally:
+        for key in ("FPLLDSEQ", "FPLMSG"):
+            database.callback_del("holdfix0", key, watch, None)
+    assert seen == [("FPLLDSEQ", 2), ("FPLMSG", engine.ACTIVE_LEG_REMOVED_REASON)]
+    assert database.read("FPLSTATE")[0] == engine.STATE_NONE
+    assert database.read("FPLACTLEG")[0] == 0
 
 
 def test_a_to_fix_recoded_fly_over_or_map_is_a_new_leg():

@@ -244,7 +244,7 @@ class MainThread(threading.Thread):
                 )
             )
         try:
-            self.engine.load_route(
+            dropped = self.engine.load_route(
                 waypoints, name, seq, segments,
                 aprtype=self._read("FPLAPRTYPE"),
                 dbcyc=self._read("FPLDBCYC"),
@@ -261,6 +261,15 @@ class MainThread(threading.Thread):
         # it keeps the previous value, so a display can tell the slots on the
         # bus (the refused route) from the route actually loaded.
         self.parent.db_write("FPLLDSEQ", seq)
+        # HOLDFIX0: why the commit dropped the active leg. After FPLLDSEQ,
+        # never before it: an FPLMSG that lands while a commit is still
+        # unanswered is that commit's refusal to the pyEfis FPL page (G61).
+        if dropped:
+            self.parent.db_write("FPLMSG", dropped)
+        # The outputs now, not on the next position write: a kept leg has
+        # moved slot, and FPLACTLEG must not name the old slot in the new
+        # route.
+        self._run_update_cycle()
 
     def _republish_route(self):
         for i, wp in enumerate(self.engine.route, start=1):
