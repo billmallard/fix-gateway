@@ -1,0 +1,157 @@
+# Crew alerting keys (CAS2, AER-6083; CAP-119 first slice). Ratified by Bill
+# 2026-11-20 (promotion packet AER-6048) as specified in the CAS1 brief,
+# maos-workspace makerplane/briefs/crew_alerting.md sections 5.3 and 5.4, for
+# roadmap section 9.1.
+#
+# One writer for every key here except the two acknowledges: the cas plugin
+# (plugins/cas.py). It rewrites them every second, and each has tol 3000, so
+# a stopped plugin turns them old and a display can say CAS FAIL instead of
+# drawing an old list as current.
+#
+# CASMSG1..CASMSG12 are the active messages, already sorted: warnings, then
+# cautions, then advisories; within a level unacknowledged first, then newest
+# first. Each slot is one string, written in one write, so a reader never sees
+# half a message:
+#
+#     LEVEL|ACK|ID|TEXT|DETAIL      e.g.  3|0|APLINK|AP LINK LOST|
+#
+# LEVEL is 3 warning, 2 caution, 1 advisory; ACK is 1 once acknowledged. An
+# empty slot is "". Text never holds ';' (netfix) or '|' (the slot): the
+# plugin refuses such a catalogue entry at load.
+#
+# CASSEQ is bumped on every change to the list and written after the slots.
+# A display acknowledges by writing the CASSEQ it is showing to CASACK; that
+# acknowledges every message up to it, on every display, and nothing that
+# arrived later. A CASACK above CASSEQ is ignored, and CASSEQ starts above any
+# CASSEQ or CASACK already on the bus, so a stale acknowledge after a restart
+# cannot acknowledge a new message (C3).
+#
+# NAVFAIL is the HSI's NAV flag rule, owned here so the HSI and CAS read one
+# rule (brief 5.4): the selected source's CDI old, bad or failed, CDIV below
+# 0.5 or untrusted, or COURSE bad or failed. A display falls back to its own
+# rule when NAVFAIL is absent or old. CAS raises NAV FAIL only when guidance a
+# source had earlier is lost, never for a source that was never received.
+
+items:
+- key: CASMSG1
+  description: CAS message slot 1 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  type: str
+  initial: ""
+  tol: 3000
+
+- key: CASMSG2
+  description: CAS message slot 2 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  type: str
+  initial: ""
+  tol: 3000
+
+- key: CASMSG3
+  description: CAS message slot 3 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  type: str
+  initial: ""
+  tol: 3000
+
+- key: CASMSG4
+  description: CAS message slot 4 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  type: str
+  initial: ""
+  tol: 3000
+
+- key: CASMSG5
+  description: CAS message slot 5 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  type: str
+  initial: ""
+  tol: 3000
+
+- key: CASMSG6
+  description: CAS message slot 6 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  type: str
+  initial: ""
+  tol: 3000
+
+- key: CASMSG7
+  description: CAS message slot 7 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  type: str
+  initial: ""
+  tol: 3000
+
+- key: CASMSG8
+  description: CAS message slot 8 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  type: str
+  initial: ""
+  tol: 3000
+
+- key: CASMSG9
+  description: CAS message slot 9 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  type: str
+  initial: ""
+  tol: 3000
+
+- key: CASMSG10
+  description: CAS message slot 10 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  type: str
+  initial: ""
+  tol: 3000
+
+- key: CASMSG11
+  description: CAS message slot 11 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  type: str
+  initial: ""
+  tol: 3000
+
+- key: CASMSG12
+  description: CAS message slot 12 (LEVEL|ACK|ID|TEXT|DETAIL; empty when unused)
+  type: str
+  initial: ""
+  tol: 3000
+
+- key: CASCNT
+  description: CAS active message count, including any beyond slot 12
+  type: int
+  min: 0
+  max: 1000
+  initial: 0
+  tol: 3000
+
+- key: CASTOP
+  description: CAS highest unacknowledged level (0 none, 1 advisory, 2 caution, 3 warning)
+  type: int
+  min: 0
+  max: 3
+  initial: 0
+  tol: 3000
+
+- key: CASSEQ
+  description: CAS list sequence, bumped on every change to the list
+  type: int
+  min: 0
+  max: 2147483647
+  initial: 0
+  tol: 3000
+
+# Pilot input, several writers (every display), like other pilot settings.
+# tol 0: an acknowledge is an event.
+- key: CASACK
+  description: CAS acknowledge, the CASSEQ a display is showing
+  type: int
+  min: 0
+  max: 2147483647
+  initial: 0
+  tol: 0
+
+# A panel button (the rpi_button plugin writes true on press, false on
+# release). A rising edge acknowledges the current CASSEQ, debounced. A
+# button cannot know what the pilot saw, so a message arriving in the same
+# instant as the press can be acknowledged unseen; touch does not have this
+# gap, which is why the button is optional.
+- key: CASACKBTN
+  description: CAS acknowledge button (a rising edge acknowledges)
+  type: bool
+  initial: false
+  tol: 0
+
+- key: NAVFAIL
+  description: Selected-source lateral guidance lost (the HSI NAV flag)
+  type: bool
+  initial: false
+  tol: 3000
