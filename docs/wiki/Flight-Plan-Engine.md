@@ -103,7 +103,7 @@ it was rejected, `-1` if it could not be parsed.
 | `SUSP` | stop sequencing and hold the current TO waypoint; cancels a turn in progress | `NO PLAN` |
 | `RESUME` | in order: start the missed approach after the MAP; leave a vector leg direct to the next slot; arm the exit from an `HM` hold; otherwise stop suspending | `NO PLAN` |
 | `SCALE 0.3`, `1.0`, `2.0`, `AUTO` | set a manual ceiling on the CDI scale, or clear it | `PARSE` |
-| `OBS <deg>` | GPS OBS mode: fly this magnetic course to or from the TO waypoint, with no sequencing; again to change the course | `OBS N/A NO WPT`, `NO POSITION`, `FINAL APPROACH`, `HOLD`, `PROC TURN`, `VECTORS`, `NO FIX`; `PARSE` |
+| `OBS <deg>` | GPS OBS mode: fly this magnetic course to or from the TO waypoint, with no sequencing; again to change the course | `OBS N/A NO WPT`, `NO POSITION`, `FINAL APPROACH`, `HOLD`, `PROC TURN`, `VECTORS`, `NO FIX`, `DATABASE` (an installed `database/flightplan.yaml` from before OBS2); `PARSE` |
 | `OBS OFF` | leave OBS: past the fix, go on to the next leg; short of it, keep the OBS course into the fix and sequence there | `NOT IN OBS` |
 
 In OBS the engine keeps the TO waypoint after passing it, and the TO/FROM flag

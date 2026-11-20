@@ -598,7 +598,7 @@ def test_get_status_reports_route_state_and_active_leg(database, tmp_path):
     database.write("FPLCMD", "1 ACT 2")
 
     status = pl.get_status()
-    assert status == {"Route": "R1", "State": "LEG", "ActiveLeg": 2}
+    assert status == {"Route": "R1", "State": "LEG", "ActiveLeg": 2, "Database": "OK"}
 
 
 # ---------------------------------------------------------------------------

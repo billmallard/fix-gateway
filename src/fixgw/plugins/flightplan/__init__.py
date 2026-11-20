@@ -57,13 +57,31 @@ import threading
 import time
 
 import fixgw.plugin as plugin
-from fixgw.plugins.flightplan.engine import Engine, RouteRejected, Segment, Waypoint
+from fixgw.plugins.flightplan.engine import STATE_OBS, Engine, RouteRejected, Segment, Waypoint
 
 GPS_ACCURACY_FT_PER_NM = 6076.12
 
 #: FPLfTA rewrites that only follow the groundspeed are paced to this
 #: (TURN3): each one makes the map rebuild the route's paths.
 TA_INTERVAL_S = 1.0
+
+
+def _state_range_gap(parent):
+    """The installed FPLSTATE range, as text, when it cannot carry every
+    state the engine publishes; None when it can (AER-6144).
+
+    database/flightplan.yaml is config: an install whose copy was edited
+    keeps it across upgrades (the new one lands beside it as ``.dist``), and
+    the database clamps an out-of-range write without a flag. A pre-OBS2
+    file (``max: 3``) therefore turned STATE_OBS into SUSP on the bus."""
+    try:
+        item = parent.db_get_item("FPLSTATE")
+    except KeyError:
+        return None   # no FPLSTATE at all: nothing is clamped
+    lo, hi = item.min, item.max
+    if (lo is None or lo <= 0) and (hi is None or hi >= STATE_OBS):
+        return None
+    return f"min {lo}, max {hi}"
 
 
 def _quality_ok(value_tuple):
@@ -79,6 +97,16 @@ class MainThread(threading.Thread):
         self.log = parent.log
         cfg = parent.config
 
+        self.state_range_gap = _state_range_gap(parent)
+        if self.state_range_gap is not None:
+            self.log.error(
+                f"flightplan: the database declares FPLSTATE {self.state_range_gap}, "
+                f"which cannot carry OBS (FPLSTATE {STATE_OBS}): OBS is refused "
+                f"(FPLMSG 'OBS N/A DATABASE'). The installed database/flightplan.yaml "
+                f"predates OBS2; replace it with the flightplan.yaml.dist beside it "
+                f"or merge its FPLSTATE entry"
+            )
+
         self.engine = Engine(
             {
                 "terminal_nm": cfg.get("terminal_nm", 30.0),
@@ -87,6 +115,7 @@ class MainThread(threading.Thread):
                 "turn_bank_deg": cfg.get("turn_bank_deg", 15.0),
                 "alert_s": cfg.get("alert_s", 10.0),
                 "hal_nm": cfg.get("hal_nm", {"enr": 2.0, "term": 1.0, "lnav": 0.3}),
+                "obs_available": self.state_range_gap is None,
             }
         )
 
@@ -577,4 +606,8 @@ class Plugin(plugin.PluginBase):
             "Route": self.thread.engine.route_name,
             "State": self.thread.engine.mode,
             "ActiveLeg": self.thread.engine.act_leg,
+            "Database": (
+                "OK" if self.thread.state_range_gap is None
+                else f"FPLSTATE {self.thread.state_range_gap}: OBS unavailable"
+            ),
         }
