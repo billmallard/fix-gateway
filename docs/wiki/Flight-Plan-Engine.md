@@ -103,6 +103,12 @@ it was rejected, `-1` if it could not be parsed.
 | `SUSP` | stop sequencing and hold the current TO waypoint; cancels a turn in progress | `NO PLAN` |
 | `RESUME` | in order: start the missed approach after the MAP; leave a vector leg direct to the next slot; arm the exit from an `HM` hold; otherwise stop suspending | `NO PLAN` |
 | `SCALE 0.3`, `1.0`, `2.0`, `AUTO` | set a manual ceiling on the CDI scale, or clear it | `PARSE` |
+| `OBS <deg>` | GPS OBS mode: fly this magnetic course to or from the TO waypoint, with no sequencing; again to change the course | `OBS N/A NO WPT`, `NO POSITION`, `FINAL APPROACH`, `HOLD`, `PROC TURN`, `VECTORS`, `NO FIX`; `PARSE` |
+| `OBS OFF` | leave OBS: past the fix, go on to the next leg; short of it, keep the OBS course into the fix and sequence there | `NOT IN OBS` |
+
+In OBS the engine keeps the TO waypoint after passing it, and the TO/FROM flag
+works like a VOR's. OBS ends only when the pilot cancels it, or on `ACT`,
+`DTO`, `DTOX` or a new plan. `SUSP` and `RESUME` are refused in OBS (`IN OBS`).
 
 ## Sequencing
 
@@ -181,7 +187,7 @@ plugin does not write it.
 
 | Key | Meaning |
 |---|---|
-| `FPLSTATE` | 0..3: no plan active, on a leg, direct-to, suspended |
+| `FPLSTATE` | 0..4: no plan active, on a leg, direct-to, suspended, OBS |
 | `FPLACTLEG`, `FPLACTSEG` | active slot and segment |
 | `FPLPHASE`, `FPLAPR`, `FPLINTEG`, `CDISCALE` | phase, approach state, integrity, CDI scale |
 | `FPLCRS` | desired track, degrees magnetic |

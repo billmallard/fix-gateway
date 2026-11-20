@@ -264,12 +264,29 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   rewrites it in flight, and an editor re-commit would drop the activation
   anyway (any `FPLSEQ` change is a new plan).
 - **Commands** (`FPLCMD`): `ACT <k>`, `DTO` / `DTO <k>`, `DTOX`, `SUSP`,
-  `RESUME`, `SCALE <0.3|1.0|2.0|AUTO>`. See Appendix C of the brief for the
-  full grammar. Ack on `FPLCMDACK` (`seq` success, `-seq` rejection),
-  reason on `FPLMSG` (`NO PLAN`, `BAD SLOT`, `NO POSITION`, `PARSE`, or —
-  off a vector leg, PA4 — `"RESUME NAV -> <ident>"` / `"NO NEXT LEG"`, or —
-  on a flying `HM` hold, PA13 — `"HOLD EXIT ARMED"`).
+  `RESUME`, `SCALE <0.3|1.0|2.0|AUTO>`, `OBS <deg>` / `OBS OFF` (OBS2). See
+  Appendix C of the brief for the full grammar. Ack on `FPLCMDACK` (`seq`
+  success, `-seq` rejection), reason on `FPLMSG` (`NO PLAN`, `BAD SLOT`,
+  `NO POSITION`, `PARSE`, or — off a vector leg, PA4 —
+  `"RESUME NAV -> <ident>"` / `"NO NEXT LEG"`, or — on a flying `HM` hold,
+  PA13 — `"HOLD EXIT ARMED"`, or the OBS messages below).
   Unknown verbs are rejected, never ignored.
+- **GPS OBS mode** (OBS2, AER-6084; `makerplane/briefs/gps_obs_mode.md`):
+  `OBS <deg>` sets a pilot course, magnetic, through the TO waypoint, for a
+  clearance like "intercept the 270 course inbound to TONIE", or a hold
+  flown by hand at a fix no procedure codes. `FPLSTATE = 4`, `FPLCRS` is
+  the course as set, `FPLXTK`/`FPLCDI` measure from the course line, TO/FROM
+  follows the geometry, and nothing sequences. Another `OBS <deg>` changes
+  the course. It ends only on `OBS OFF`, `ACT`, `DTO`, `DTOX` or a new plan
+  (Garmin's rule, Bill 2026-11-20), and survives a restart. `OBS OFF` past
+  the fix sequences to the next leg; short of it the leg into the fix keeps
+  the OBS course for a `TF` or `DF` (a `CF` returns to its coded course) and
+  sequences there as usual. Refused (`OBS N/A ...`) with no active waypoint
+  or position, on the final approach course or any MAP, on coded holds and
+  procedure turns, vector legs, and a `CA` or an `FA` past its fix. The
+  approach does not go active in OBS. The full rules and messages are in
+  `doc/flightplan_keys.md`, command channel; the guidance-table row is in
+  `makerplane/briefs/flight_plan_plan.md` section 3.3.1.
 - **CDI scaling / flight phase (DO-229, full)**:
   - `ENR` (2.0 nm) beyond 30 nm of both the departure and destination
     (only counted when that slot is typed `airport`); `TERM` (1.0 nm)

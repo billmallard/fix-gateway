@@ -324,7 +324,7 @@ items:
 
 # --- Command channel (editor writes FPLCMD; engine answers) ----------------
 - key: FPLCMD
-  description: 'Flight plan command "<seq> VERB [arg]" (ACT/DTO/DTOX/SUSP/RESUME/SCALE -- PROC/PROCX/AWY reserved for procedure/airway loading, PA3, not yet dispatched by this engine)'
+  description: 'Flight plan command "<seq> VERB [arg]" (ACT/DTO/DTOX/SUSP/RESUME/SCALE/OBS -- OBS <deg> enters GPS OBS mode or changes its course, OBS OFF leaves it (OBS2) -- PROC/PROCX/AWY reserved for procedure/airway loading, PA3, not yet dispatched by this engine)'
   type: str
   initial: ""
   tol: 0
@@ -338,17 +338,17 @@ items:
   tol: 0
 
 - key: FPLMSG
-  description: "Flight plan last message / rejection reason (<=64 chars). PA4: a route with an unsupported path terminator posts \"UNSUPP <PT> <ident>\" and rejects the whole route (guardrail 1) -- RESUME off a vector leg posts \"RESUME NAV -> <ident>\" or \"NO NEXT LEG\". PA13: a recognized Tier-2 leg with incomplete data (no turn direction, no arc center/radius, no altitude constraint) rejects the whole route the same way, posting \"BADTURN\"/\"BADRADIUS\"/\"BADCENTER\"/\"BADALT\"/\"BADLEGLEN <PT> <ident>\" -- and RESUME on a flying HM hold posts \"HOLD EXIT ARMED\". RS1: a segment table that does not describe the slots rejects the whole commit the same way, posting SEGCNT/SEGSGI/SEGNONCONTIG/SEGORDER/SEGKIND/SEGRANGE/SEGENT/SEGEXT/SEGLEN/SEGID with the segment (S<p>) or slot it names"
+  description: "Flight plan last message / rejection reason (<=64 chars). PA4: a route with an unsupported path terminator posts \"UNSUPP <PT> <ident>\" and rejects the whole route (guardrail 1) -- RESUME off a vector leg posts \"RESUME NAV -> <ident>\" or \"NO NEXT LEG\". PA13: a recognized Tier-2 leg with incomplete data (no turn direction, no arc center/radius, no altitude constraint) rejects the whole route the same way, posting \"BADTURN\"/\"BADRADIUS\"/\"BADCENTER\"/\"BADALT\"/\"BADLEGLEN <PT> <ident>\" -- and RESUME on a flying HM hold posts \"HOLD EXIT ARMED\". OBS2: OBS posts \"OBS <deg>\", \"OBS OFF\" or the \"SEQ\" it made, and a refusal \"OBS N/A NO WPT/NO POSITION/FINAL APPROACH/HOLD/PROC TURN/VECTORS/NO FIX\", \"NOT IN OBS\", or \"IN OBS\" for SUSP/RESUME in OBS. RS1: a segment table that does not describe the slots rejects the whole commit the same way, posting SEGCNT/SEGSGI/SEGNONCONTIG/SEGORDER/SEGKIND/SEGRANGE/SEGENT/SEGEXT/SEGLEN/SEGID with the segment (S<p>) or slot it names"
   type: str
   initial: ""
   tol: 0
 
 # --- Engine outputs (engine writes; tol: 5000) ------------------------------
 - key: FPLSTATE
-  description: "Flight plan state (0 NONE, 1 LEG, 2 DIRECT, 3 SUSP)"
+  description: "Flight plan state (0 NONE, 1 LEG, 2 DIRECT, 3 SUSP, 4 OBS). OBS (OBS2): a pilot course through the TO waypoint, FPLCRS the course, no sequencing. Absent 4 on an older gateway"
   type: int
   min: 0
-  max: 3
+  max: 4
   initial: 0
   tol: 5000
 
@@ -581,6 +581,26 @@ items:
   min: 0
   max: 2
   initial: 0
+  tol: 5000
+
+# The navigator's sequencing state and OBS course (OBS2, AER-6084), so a bench
+# flight can compare them with FPLSTATE and FPLCRS. Read from X-Plane 12's
+# gps_sequencing and gps_obs_degm; no compute selects them.
+- key: EXTSEQ
+  description: "External navigator sequencing (0 normal, 1 OBS, 2 suspended)"
+  type: int
+  min: 0
+  max: 2
+  initial: 0
+  tol: 5000
+
+- key: EXTOBSCRS
+  description: External navigator OBS course (magnetic)
+  type: float
+  min: 0.0
+  max: 359.9
+  units: deg
+  initial: 0.0
   tol: 5000
 
 # The navigator's own cross-track, so XTRACK follows GPSSRC like the needle

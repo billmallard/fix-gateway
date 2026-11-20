@@ -208,10 +208,26 @@ def xplane_written_keys():
     return keys
 
 
+# Keys the xplane plugin writes that FlightGear has no numeric property for.
+# EXTSEQ (OBS2): FlightGear's GPS names its mode only as a string ("leg",
+# "obs", "dto"; src/Instrumentation/gps.cxx) and has no suspended state, and
+# the generic protocol sends numbers. A constant would claim "normal" while
+# FlightGear is in OBS, so the key is left unwritten instead.
+NOT_FROM_FLIGHTGEAR = {"EXTSEQ"}
+
+
 def test_shipped_xml_writes_every_key_the_xplane_plugin_writes():
     out, _ = fgfs.parse_protocol_file(SHIPPED_XML)
-    missing = xplane_written_keys() - set(out.keys)
+    missing = xplane_written_keys() - set(out.keys) - NOT_FROM_FLIGHTGEAR
     assert not missing, "xplane writes keys fgfs does not: {}".format(sorted(missing))
+
+
+def test_the_flightgear_exceptions_are_still_exceptions():
+    # Each one is an xplane key fgfs still does not write: once fgfs maps it,
+    # or xplane stops writing it, it leaves the list.
+    out, _ = fgfs.parse_protocol_file(SHIPPED_XML)
+    assert NOT_FROM_FLIGHTGEAR <= xplane_written_keys()
+    assert not NOT_FROM_FLIGHTGEAR & set(out.keys)
 
 
 def test_shipped_xml_keys_are_all_in_the_database(database):
