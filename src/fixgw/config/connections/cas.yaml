@@ -1,0 +1,81 @@
+# Crew alerting (CAS2, AER-6083). The gateway owns the message list; displays
+# only draw it. Keys: database/cas.yaml. Plugin: plugins/cas.py. Design:
+# maos-workspace makerplane/briefs/crew_alerting.md.
+#
+# Each entry is one alert:
+#
+#   id           1-12 upper case letters or digits, unique
+#   level        warning, caution or advisory
+#   text         the window line: upper case, at most 20 characters, no ';'
+#                or '|'. An entry that breaks a rule is refused at load and
+#                the log names it.
+#   detail       optional second line, at most 32 characters, same rules
+#   when         the condition, exactly one of:
+#                  invalid: KEY        old, bad or failed. after_valid: true
+#                                      arms it only once KEY has been valid,
+#                                      so a source an install lacks never
+#                                      alerts. grace: s instead waits s
+#                                      seconds after start for a KEY not yet
+#                                      valid; once valid, a loss alerts at
+#                                      once
+#                  annunciate: KEY     the annunciate flag (past an alarm
+#                                      point), only while KEY is valid
+#                  value: KEY op LIT   e.g. "APDISC == true", only while valid
+#                  never_written: KEY  not written grace seconds (default 30)
+#                                      after start
+#                  nav_lost: true      lateral guidance lost on a nav source
+#                                      that had it earlier; never on one that
+#                                      was never received (an untuned VOR)
+#   warning_if   optional KEY: raise as a warning instead when the last valid
+#                value of KEY was true at onset
+#   clear_delay  optional seconds the condition must stay clear before the
+#                line goes. Delays removal, never onset, so it is allowed on a
+#                warning
+#   on_delay     optional seconds the condition must hold before the line
+#                shows. Latency on a real alert: on a warning it needs an
+#                on_delay_reason
+#   latch        optional: the line stays until acknowledged even if the
+#                condition clears at once
+#
+# Engine limits are not in this first slice: the shipped annunciate list would
+# raise every CHT and EGT on a cold start (brief 8.2).
+cas:
+  load: CAS
+  module: fixgw.plugins.cas
+
+  # CAS TEST, an advisory shown for this many seconds at every start. It
+  # proves plugin, bus, display and glass end to end, so it cannot be off.
+  test_time: 5
+
+  # A panel button's rising edges closer together than this are one press.
+  ack_debounce: 0.5
+
+  # FUEL QTY <n> NO DATA, a caution, for each listed tank whose FUELQ<n> is
+  # never written within the grace time. List only tanks that are fitted:
+  # the database defines tanks many installs do not have.
+  #fuel_no_data_tanks: [1, 2]
+  fuel_no_data_grace: 30
+
+  entries:
+  # The autopilot link is lost: its keys go old 2 s after the last heartbeat.
+  # A warning if the autopilot was engaged, since the pilot no longer knows
+  # what it is doing; a caution if not. Held 5 s after the link returns, so
+  # an intermittent link does not flap the line.
+  - id: APLINK
+    level: caution
+    warning_if: APENG
+    text: AP LINK LOST
+    when: {invalid: APENG, after_valid: true}
+    clear_delay: 5
+
+  # 30 s for a heading source to come up at power-up before HDG FAIL; once
+  # it has been valid, a loss shows at once.
+  - id: HDGFAIL
+    level: caution
+    text: HDG FAIL
+    when: {invalid: HEAD, grace: 30}
+
+  - id: NAVFAIL
+    level: caution
+    text: NAV FAIL
+    when: {nav_lost: true}

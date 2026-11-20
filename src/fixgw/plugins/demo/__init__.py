@@ -36,7 +36,10 @@ It also writes its own two keys (DEMO4, ``database/demo.yaml``):
 which drives the DEMO marking on the glass; and ``DEMOPAGE``, the page the
 ``pages`` schedule names at that point in the route, which a pyEfis kiosk
 follows. It refuses to start on a database without them, so the demo cannot
-run without its marking.
+run without its marking. A third, ``DEMOLOOP``, is the number of the pass now
+flying (1, 2, ...), written as each pass starts; a kiosk resets the settings
+an attendee may have changed when it moves (DEMO12). It is optional: an
+older database without it runs the demo, said once in the log.
 
 At the end of the route it clears the plan, holds the position bad for
 ``restart_s`` (nav flags, SVS unavailable: honest), commits the route again
@@ -66,6 +69,7 @@ TRAFFIC_PREFIX = "TFC"
 LIVE_KEY = "DEMOLIVE"
 PAGE_KEY = "DEMOPAGE"
 DEMO_KEYS = (LIVE_KEY, PAGE_KEY)
+LOOP_KEY = "DEMOLOOP"
 LIVE_EVERY_S = 1.0
 WRITER = "demo"
 DEFAULT_PROFILE = "demo5-ksba-v27-ksmx-rnav30-missed.yaml"
@@ -187,6 +191,7 @@ class MainThread(threading.Thread):
         self.center = None
         self.live_at = None
         self.engine_last = {}
+        self.loop_key_on = False
 
     def stop(self):
         self.halt.set()
@@ -280,6 +285,8 @@ class MainThread(threading.Thread):
             cmd_base = abs(int(float(self._read("FPLCMDACK"))))
             self.status["State"] = "flying"
             self.status["Loops"] = loops
+            if self.loop_key_on:
+                database.get_raw_item(LOOP_KEY).set(loops + 1, bad=False)
             if self.traffic is not None and self.center is not None:
                 self.traffic.center_on(*self.center)
             stats = live.stream(_Run(renumber(rows, fplseq, cmd_base)), self._write,
@@ -380,8 +387,12 @@ class Plugin(plugin.PluginBase):
         except ValueError as e:
             self._fail(str(e))
         have = set(database.listkeys())
-        self.keys = (SOURCE_KEYS + DEMO_KEYS + tuple(k for k in ENGINE_KEYS if k in have)
-                     + self._traffic_keys())
+        self.thread.loop_key_on = LOOP_KEY in have
+        if not self.thread.loop_key_on:
+            self.log.warning("demo: the database has no {} (database/demo.yaml): a kiosk will "
+                             "not reset its visitor settings each loop".format(LOOP_KEY))
+        self.keys = (SOURCE_KEYS + DEMO_KEYS + ((LOOP_KEY,) if self.thread.loop_key_on else ())
+                     + tuple(k for k in ENGINE_KEYS if k in have) + self._traffic_keys())
         found = other_writers(self.keys)
         if found:
             self._fail("another source writes {}".format(_describe(found)))

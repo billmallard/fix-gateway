@@ -1,7 +1,7 @@
 # OnSpeed Gen2 AOA computer, ONSPEED serial sentence (10 Hz, 115200 8N1).
 # On the box: SERIALOUTFORMAT=ONSPEED. Serial3 is RS-232 levels; Serial1/5 are TTL.
-# Listen-only. Writes AOA and AOA.Warn and nothing else; see
-# doc/plugins/onspeed.md.
+# Listen-only. Writes AOA and AOA.Warn; the attitude and air-data outputs
+# below are off. See doc/plugins/onspeed.md.
 onspeed:
   load: ONSPEED
   module: fixgw.plugins.onspeed
@@ -11,3 +11,10 @@ onspeed:
   # box's MUTE_AUDIO_UNDER_IAS, or OnSpeed's low-speed zero is published as a
   # real AOA. Firmware default 30, shipped config 25.
   min_ias: 30
+  # Optional outputs, for an installation where OnSpeed is the attitude and
+  # air-data source (a redundant lane's, for one). Turn one on only if nothing
+  # else writes its keys: one key, one writer.
+  attitude: false   # PITCH and ROLL
+  airspeed: false   # IAS
+  altitude: false   # ALT: pressure altitude corrected to BARO. Lags in a
+                    # climb: the firmware smooths it over about 10 s.
