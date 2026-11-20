@@ -400,6 +400,18 @@ def test_button_rising_edge_acknowledges_and_is_debounced(database):
     assert lines(database)[0][1] is True
 
 
+def test_button_rewritten_true_while_held_is_not_a_press(database):
+    p = make(database, priority_catalogue()[:1], ack_debounce=0.5)
+    past_test(p, database)
+    database.write("CASACKBTN", True)
+    step(p)
+    database.write("HIDEBUTTON", True)  # a new message while it is held
+    step(p, 1.0)
+    database.write("CASACKBTN", True)  # the same level, rewritten
+    step(p, 1.0)
+    assert lines(database)[0][1] is False
+
+
 def test_button_held_true_at_start_is_not_a_press(database):
     database.write("CASACKBTN", True)
     p = make(database, priority_catalogue()[:1])
