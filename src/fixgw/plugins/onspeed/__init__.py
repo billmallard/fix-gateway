@@ -11,9 +11,14 @@
 #  GNU General Public License for more details.
 
 #  Reads the OnSpeed Gen2 AOA computer's 10 Hz ONSPEED serial sentence and
-#  publishes AOA and AOA.Warn.  Listen-only.  Every other field is decoded
-#  for get_status() and not written: one key, one writer.  The behaviour is
-#  pyEfis docs/fixgw_onspeed_in_spec.md; section numbers below refer to it.
+#  publishes AOA and AOA.Warn.  Listen-only.  The behaviour is pyEfis
+#  docs/fixgw_onspeed_in_spec.md; section numbers below refer to it.
+#
+#  It can also write PITCH and ROLL, IAS, and ALT (the sentence's pressure
+#  altitude corrected to BARO), each group off by default (CERT13h, AER-6082),
+#  so OnSpeed can be a redundant lane's attitude and air-data source.  Turn a
+#  group on only where nothing else writes those keys: one key, one writer.
+#  Every other field is decoded for get_status() and not written.
 
 import dataclasses
 import threading
@@ -23,6 +28,7 @@ from collections import OrderedDict
 import serial
 
 import fixgw.plugin as plugin
+from fixgw import airdata
 from fixgw.plugins.onspeed import sentence
 
 FIRMWARE_BAUD = 115200
@@ -32,8 +38,18 @@ MAX_LINE = 128  # bytes; a longer line is discarded unparsed (6.1)
 BACKOFF_START = 1.0  # s, doubling on each failed open
 BACKOFF_MAX = 10.0
 
+# Optional outputs: (config option, keys it turns on).  All off by default,
+# so the shipped config adds no writer to any key.
+OUTPUT_GROUPS = (
+    ("attitude", ("PITCH", "ROLL")),
+    ("airspeed", ("IAS",)),
+    ("altitude", ("ALT",)),
+)
+
 # CONFIGPATH is added to every plugin's config by the server.
-_KNOWN_CONFIG = {"port", "baud", "min_ias", "CONFIGPATH"}
+_KNOWN_CONFIG = {"port", "baud", "min_ias", "CONFIGPATH"} | {
+    option for option, _ in OUTPUT_GROUPS
+}
 
 _COUNTERS = (
     ("Lines Received", "lines"),
@@ -51,6 +67,21 @@ _COUNTERS = (
 
 # Marks "AOA.Warn never written by this run", distinct from a written None.
 _UNWRITTEN = object()
+
+
+def _option_on(value):
+    # YAML gives a bool; a quoted "false" must not turn a writer on.
+    return value is True or str(value).strip().lower() in ("true", "yes", "on", "1")
+
+
+def output_keys(config):
+    """The optional keys a config turns on, in OUTPUT_GROUPS order."""
+    return [
+        key
+        for option, keys in OUTPUT_GROUPS
+        if _option_on(config.get(option, False))
+        for key in keys
+    ]
 
 
 def warn_setpoint(frame):
@@ -86,6 +117,7 @@ class MainThread(threading.Thread):
         self._last_warn = _UNWRITTEN
         self._warned = set()
         self.min_ias = float(parent.config.get("min_ias", DEFAULT_MIN_IAS))
+        self.outputs = output_keys(parent.config)
         self.counters = {key: 0 for _, key in _COUNTERS}
         self.last_frame = None
         self.last_frame_time = None
@@ -121,7 +153,11 @@ class MainThread(threading.Thread):
         # old.  The first good frame's write clears it (5.4).
         self._once("port", "Serial port: {}".format(why), error=True)
         self._close()
-        self.parent.db_get_item("AOA").fail = True
+        for key in ["AOA"] + self.outputs:
+            try:
+                self.parent.db_get_item(key).fail = True
+            except KeyError:
+                pass  # reported, and turned off, by _write_output
 
     @property
     def port_open(self):
@@ -219,8 +255,71 @@ class MainThread(threading.Thread):
             self.parent.db_write("AOA.Warn", "None" if warn is None else warn)
             self._last_warn = warn
 
+        # After AOA, so a fault in an optional output never costs AOA.
+        for key, (value, bad) in self._output_values(frame):
+            self._write_output(key, value, bad)
+
         self.last_frame = frame
         self.last_frame_time = time.monotonic()
+
+    def _output_values(self, frame):
+        """(key, (value, bad)) for each optional output that is on.
+
+        The sentence carries no validity for these fields: OnSpeed sends its
+        AHRS and pressure readings whatever their state, and only AOA has a
+        low-speed rule.  So they go out good, unless ALT's BARO is unusable
+        or a value is outside the key's range (the database would clamp it to
+        a plausible-looking limit).
+        """
+        for key in list(self.outputs):
+            if key == "PITCH":
+                yield key, (frame.pitch, False)
+            elif key == "ROLL":
+                yield key, (frame.roll, False)
+            elif key == "IAS":
+                yield key, (frame.ias, False)
+            elif key == "ALT":
+                alt = self._altitude(frame)
+                if alt is not None:
+                    yield key, alt
+
+    def _altitude(self, frame):
+        # The sentence's PALT is ISA pressure altitude: the firmware computes
+        # it against 1013.25 hPa with no altimeter setting.  ALT is indicated
+        # altitude, so apply BARO.  BARO is a setting with no tol; read its
+        # current value (the schema initial, 29.92, until someone sets it).
+        try:
+            setting, _ann, _old, bad, fail, _sec = self.parent.db_read("BARO")
+        except KeyError:
+            self._drop_output("ALT", "no BARO key in the database")
+            return None
+        bad = bool(bad or fail or not airdata.baro_plausible(setting))
+        return frame.palt - airdata.baro_offset_ft(setting), bad
+
+    def _write_output(self, key, value, bad):
+        try:
+            item = self.parent.db_get_item(key)
+        except KeyError:
+            self._drop_output(key, "no {} key in the database".format(key))
+            return
+        if (item.min is not None and value < item.min) or (
+            item.max is not None and value > item.max
+        ):
+            self._once(
+                "range_" + key,
+                "{} {} is outside {} to {}; published bad".format(
+                    key, value, item.min, item.max
+                ),
+            )
+            bad = True
+        self.parent.db_write(key, (value, False, bad, False))
+
+    def _drop_output(self, key, why):
+        # An edited older database can lack a key this config turns on.
+        # Turn that output off rather than raise on every frame.
+        if key in self.outputs:
+            self.outputs.remove(key)
+        self._once("missing_" + key, "{}: {} output turned off".format(why, key), error=True)
 
     def _once(self, reason, message, error=False):
         if reason in self._warned:
@@ -259,6 +358,7 @@ class Plugin(plugin.PluginBase):
         status = OrderedDict()
         status["Port"] = self.config.get("port")
         status["Port Open"] = t.port_open
+        status["Outputs"] = ["AOA", "AOA.Warn"] + t.outputs
         for label, key in _COUNTERS:
             status[label] = t.counters[key]
         status["Last Frame Age (s)"] = (

@@ -1,7 +1,8 @@
 # OnSpeed plugin
 
 `fixgw.plugins.onspeed` reads the OnSpeed Gen2 AOA computer's `ONSPEED`
-serial sentence (10 Hz, 115200 8N1) and writes two keys:
+serial sentence (10 Hz, 115200 8N1) and writes two keys, plus up to four
+more if you turn them on (see [Attitude and air data](#attitude-and-air-data)):
 
 | Key | From | Meaning |
 |---|---|---|
@@ -12,12 +13,13 @@ That pair is what a pitch-limit indicator needs: the margin to the stall
 warning is `AOA.Warn - AOA` degrees. Both keys already exist (`AOA` is CAN-FIX
 parameter 386); the plugin adds none.
 
-The plugin is listen-only and writes nothing else. The sentence also carries
-pitch, roll, IAS, pressure altitude, VSI, accelerations, flight path, flap
-position and the OnSpeed band. Those are decoded and shown in the plugin
-status, so the decode can be checked against the box's own display, but they
-are not written: an installation with OnSpeed already has a primary AHRS and
-air data, and two writers on one key fight.
+The plugin is listen-only. The sentence also carries pitch, roll, IAS,
+pressure altitude, VSI, accelerations, flight path, flap position and the
+OnSpeed band. All of them are decoded and shown in the plugin status, so the
+decode can be checked against the box's own display. By default none of them
+is written: most installations with OnSpeed already have a primary AHRS and
+air data, and two writers on one key fight. Pitch, roll, IAS and altitude can
+be turned on for an installation where OnSpeed is the source.
 
 The design and its reasons are in pyEfis `docs/fixgw_onspeed_in_spec.md`. The
 sentence format is read off OnSpeed-Gen2 `DisplaySerial.ino` at `be1481c`;
@@ -39,6 +41,9 @@ covered.
 | `port` | (required) | serial device, e.g. `/dev/ttyUSB0` |
 | `baud` | `115200` | the firmware only sends at 115200; anything else logs a warning but is used |
 | `min_ias` | `30` | kt. Below this IAS (from the sentence), `AOA` is published `bad` |
+| `attitude` | `false` | also write `PITCH` and `ROLL` |
+| `airspeed` | `false` | also write `IAS` |
+| `altitude` | `false` | also write `ALT`, the sentence's pressure altitude corrected to `BARO` |
 
 The plugin ships off. Turn it on with `ONSPEED: true` under `enabled:` in
 `preferences.yaml.custom`. Unknown options log a warning.
@@ -53,6 +58,81 @@ so 30 is safe for both. Set higher errs safe; set lower does not.
 Do not run this plugin together with anything else that writes `AOA`: the
 X-Plane plugin, or a `compute` AOA function. The gateway logs a second-writer
 warning if you do.
+
+## Attitude and air data
+
+With `attitude`, `airspeed` or `altitude` on, the plugin also writes:
+
+| Key | From | Option |
+|---|---|---|
+| `PITCH` | pitch field, 0.1 deg, + nose up | `attitude` |
+| `ROLL` | roll field, 0.1 deg, + right wing down | `attitude` |
+| `IAS` | IAS field, 0.1 kt | `airspeed` |
+| `ALT` | pressure-altitude field, 1 ft, corrected to `BARO` | `altitude` |
+
+This is for an installation where OnSpeed is the attitude and air-data source,
+for example the second lane of a redundant pair, where OnSpeed has its own
+pitot, static and AOA ports and its own IMU. **Turn an option on only where
+nothing else writes its keys** (the X-Plane, MAVLink, Stratux or demo plugins,
+a CAN-FIX AHRS, a `compute` function). The gateway logs a second-writer
+warning if two plugins write one key, and the last writer wins. OnSpeed sends
+no heading, so `HEAD` has to come from somewhere else (the compass puck).
+
+`ALT`: the firmware computes pressure altitude against 1013.25 hPa
+(29.92 inHg) with no altimeter setting, so the plugin applies `BARO` with the
+same formula the `compute` plugin's `PALT` function uses
+(`fixgw/airdata.py`). `ALT` and a `compute` `PALT` fed from it round-trip to
+OnSpeed's pressure altitude. `BARO` is read on every frame, so a knob change
+shows on the next frame.
+
+Quality of these outputs:
+
+| Condition | `PITCH`, `ROLL`, `IAS` | `ALT` |
+|---|---|---|
+| Good frame | value, flags clear | value, flags clear |
+| `BARO` `bad` or `fail`, or outside 25 to 33 inHg | as above | value, `bad` |
+| Value outside the key's range (pitch past 90 deg, altitude past 60000 ft) | the database's limit, `bad`; logged once | the same |
+| IAS below `min_ias` | written good: taxi speed is a real airspeed | written good |
+| Frame rejected | nothing written | nothing written |
+| No frames for the key's `tol` | `old` | `old` |
+| Port cannot be opened, or fails | `fail` | `fail` |
+
+- The sentence carries no validity for these fields. OnSpeed sends its AHRS
+  and pressure readings in every frame whatever their state, including while
+  the AHRS settles after power-up, so the plugin cannot flag that.
+- If the database has no key for an output that is on (an edited older
+  database), the plugin logs an error once and turns that output off. With no
+  `BARO` key, `ALT` is turned off the same way. `AOA` is unaffected.
+- `Outputs` in the status lists every key the plugin is writing.
+
+### Source limitations to know before relying on them
+
+- **Altitude lags in a climb or descent by about 10 seconds' worth.** The
+  firmware smooths pressure altitude before sending it, much more heavily
+  than anything else (`DisplaySerial.ino`: an exponential filter with
+  `alpha = 2/(20+1)/10` per 100 ms frame, a time constant of about 10.4 s, on
+  top of its Kalman filter). At a steady 1000 fpm the sent altitude is about
+  173 ft behind; after levelling off the error is about 107 ft at 5 s, 67 ft at
+  10 s and 26 ft at 20 s. VSI is not smoothed that way. A pilot levelling off
+  on this altimeter would overshoot, and a comparator against another lane's
+  `ALT` would see that much disagreement in every climb. The fix belongs in
+  OnSpeed's firmware.
+- **IAS** is the box's own pitot reading (with its CAS curve applied, if one
+  is enabled), smoothed by a 15-sample median and a 10-sample mean at 50 Hz:
+  about 0.25 s of delay. In a firmware build with `SPHERICAL_PROBE` defined
+  (not the default), the IAS field is the airspeed OnSpeed received from the
+  EFIS, so writing it back as `IAS` would be circular. Do not turn on
+  `airspeed` with such a build.
+- **Pitch and roll** are the AHRS output with no further smoothing, at 10 Hz:
+  coarser than a typical AHRS feed. `PITCH` and `ROLL` have a 300 ms `tol`, so
+  three missed frames flag them `old`.
+- **Lateral G past 1 g drops whole frames** (below), and with them these
+  outputs, for as long as the excursion lasts.
+- **OnSpeed sends on one serial port.** The firmware writes the sentence to the
+  one port named by `SERIALOUTPORT` (`Serial1`, `Serial3` or `Serial5`), so
+  two gateways cannot each have their own port without a firmware change;
+  share one with an isolated buffer. `Serial1` is also the boom input and
+  `Serial3` the EFIS input, so on a box using both, only `Serial5` is free.
 
 ## Quality
 
