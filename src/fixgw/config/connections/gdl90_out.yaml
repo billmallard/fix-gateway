@@ -1,0 +1,48 @@
+gdl90_out:
+  load: GDL90_OUT
+  module: fixgw.plugins.gdl90_out
+  # GDL-90 to EFB apps (ForeFlight and others) over Wi-Fi UDP, unicast only:
+  # the panel's position, attitude and, if turned on, traffic.  Supplemental,
+  # situational awareness only.  Reads FIX keys, writes none.  Ships off: turn
+  # it on with GDL90_OUT: true under enabled: in preferences.yaml.custom.
+  # Design and field mapping: doc/plugins/gdl90_out.md.
+  #
+  # Listen for ForeFlight's discovery broadcast (UDP 63093, every 5 s while
+  # the app is in the foreground) and send to each tablet that announces.
+  discovery: true
+  discovery_host: ""
+  discovery_port: 63093
+  # Networks a discovered tablet may be on, e.g. ["192.168.1.0/24"].  The
+  # announcement is unauthenticated: anything on the Wi-Fi can send one.
+  # Empty accepts any unicast sender; an entry that does not parse accepts
+  # nobody.
+  discovery_allow: []
+  # Tablets that do not announce themselves: "ip" or "ip:port" (port 4000
+  # when omitted).  Unicast IPv4 only; GDL-90 is never broadcast.
+  clients: []
+  # Seconds without an announcement before a discovered tablet is dropped,
+  # and how many discovered tablets are held at once.
+  client_timeout_s: 60
+  max_clients: 4
+  # ForeFlight's AHRS message (0x65/1) at 5 Hz, from ROLL, PITCH, HEAD, IAS
+  # and TAS.
+  ahrs: true
+  # Re-send the TFC traffic block as Traffic Reports (0x14).  Leave false
+  # when the ADS-B receiver also feeds the tablet directly: the tablet would
+  # get every target twice.
+  traffic: false
+  # Ownship Geometric Altitude (0x0B): the key and its datum, ellipsoid or
+  # msl.  garmin_gnx375 and navigator_adapter write GPS MSL altitude into
+  # GPS_ELLIPSOID_ALT; with either of them set msl.
+  geo_altitude_key: GPS_ELLIPSOID_ALT
+  geo_altitude_datum: ellipsoid
+  # Ownship identity.  callsign: A-Z and 0-9, up to 8.  emitter_category:
+  # GDL-90 Table 11 (1 = light).  ownship_address: our 24-bit ICAO address,
+  # hex, QUOTED; "" uses the top-level ownship_address preference, and with
+  # neither the report carries 0x000000 (ForeFlight: GPS telemetry only).
+  callsign: ""
+  emitter_category: 1
+  ownship_address: ""
+  # ForeFlight internet policy while connected: 0 unrestricted, 1 expensive,
+  # 2 disallowed.
+  internet_policy: 0

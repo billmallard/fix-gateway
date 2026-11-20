@@ -50,6 +50,7 @@ includes:
   ONSPEED_CONFIG: connections/onspeed.yaml
   TESSERA_CONFIG: connections/tessera.yaml
   CAS_CONFIG: connections/cas.yaml
+  GDL90_OUT_CONFIG: connections/gdl90_out.yaml
 # This section is used to turn things on or off
 enabled:
   QUORUM: false
@@ -95,6 +96,7 @@ enabled:
   ONSPEED: false
   TESSERA: false
   CAS: true
+  GDL90_OUT: false
 
 # Our own 24-bit ICAO address, hex, QUOTED (e.g. "A1B2C3"), for the stratux
 # traffic writer's ownship filter.  pyefis-data config-pull writes it into
