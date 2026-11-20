@@ -93,6 +93,11 @@ class AnnunciateItem(object):
         self.conditions = [self._parse_condition(c) for c in conditions]
         # YAML gives start_bypass: no as False, which must not arm the latch
         self.start_bypass_latch = bool(self.start_bypass)
+        # No annunciation while no source has written the key: its expiry
+        # fires the callback with the initial 0, below any low alarm.  For a
+        # key the database defines on a count the install may not fill, as
+        # FUELQT's sum leaves such a tank out (AER-5391, AER-6138).
+        self.skip_unwritten = bool(itemdef.get("skip_unwritten", False))
         self.low_latch = False
         self.high_latch = False
 
@@ -177,6 +182,9 @@ class AnnunciateItem(object):
         return True
 
     def evaluate(self, k, x, udata):
+        if self.skip_unwritten and not self.item.written:
+            self.item.annunciate = False
+            return
         # The start bypass clears once the value is greater than the low
         # set point
         if "." in k:  # This is an aux value update
@@ -229,6 +237,8 @@ class AnnunciateItem(object):
             "  Start Bypass Enabled: {}".format("Yes" if self.start_bypass else "No")
         )
         s.append("  Conditional Bypass: {}".format(self.cond_bypass))
+        if self.skip_unwritten:
+            s.append("  Skip Unwritten: Yes")
         return "\n".join(s)
 
 
