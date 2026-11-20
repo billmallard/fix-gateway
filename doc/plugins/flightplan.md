@@ -261,8 +261,35 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   table: the remaining slots are still that airway segment, so `FPLACTSEG`
   keeps naming it and `FPLSEGREM` counts from the aircraft to the fix and
   on to the exit. The table belongs to the editor. The engine never
-  rewrites it in flight, and an editor re-commit would drop the activation
-  anyway (any `FPLSEQ` change is a new plan).
+  rewrites it in flight.
+- **An edit to the active plan keeps the active leg** (HOLDFIX0, AER-6165):
+  a commit that still contains the active leg keeps it active at its new
+  slot, so inserting a waypoint, an airway, an approach or a hold while
+  flying does not lose guidance. The leg is still there when the commit has
+  its TO fix (ident, and position within 0.001 deg), the same FROM fix in
+  the slot before it, and the same path into it: the path terminator (`IF`
+  and `TF` count as one, so a plain waypoint the editor merges into a
+  procedure's `IF` stays the same leg), the course, turn direction and arc
+  that terminator is flown from, and the fly-over and MAP flags. Altitude,
+  speed, a hold's leg length and the other flags are read from the route
+  every cycle, so an edit to them applies to the leg being flown. Everything
+  about how far along the leg the aircraft is goes with it: a hold's phase,
+  entry, turn radius and armed exit, a DF's turn, a fly-by turn in progress
+  (dropped if the leg after it changed, and judged again against the new
+  one), `SUSP` and OBS. A direct-to a plan fix is flown from where the
+  aircraft was, so only its TO fix and path count; an off-route direct-to
+  is not in the plan and no commit touches it. Slot 1 is flown from the
+  aircraft, so a commit that puts a fix before it changes the leg. A commit
+  that removes or changes the active leg drops the activation, as every
+  commit did before this, and `FPLMSG` says why: `ACTIVE LEG REMOVED` (the
+  TO fix is gone), `ACTIVE LEG CHANGED` (the TO fix is there, but not after
+  the same FROM fix or not on the same path) or `ACTIVE LEG AMBIGUOUS` (the
+  leg is in the plan more than once). Bill's ruling, 2026-11-20, packet
+  AER-6048. The message follows `FPLLDSEQ`, never precedes it: the pyEfis
+  FPL page reads an `FPLMSG` that lands while a commit is unanswered as that
+  commit's refusal. The engine outputs are written in the same callback, so
+  `FPLACTLEG` never names the old slot in the new route. A rejected commit
+  still leaves the route and the activation untouched (guardrail 1).
 - **Commands** (`FPLCMD`): `ACT <k>`, `DTO` / `DTO <k>`, `DTOX`, `SUSP`,
   `RESUME`, `SCALE <0.3|1.0|2.0|AUTO>`, `OBS <deg>` / `OBS OFF` (OBS2). See
   Appendix C of the brief for the full grammar. Ack on `FPLCMDACK` (`seq`
@@ -277,7 +304,8 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   flown by hand at a fix no procedure codes. `FPLSTATE = 4`, `FPLCRS` is
   the course as set, `FPLXTK`/`FPLCDI` measure from the course line, TO/FROM
   follows the geometry, and nothing sequences. Another `OBS <deg>` changes
-  the course. It ends only on `OBS OFF`, `ACT`, `DTO`, `DTOX` or a new plan
+  the course. It ends only on `OBS OFF`, `ACT`, `DTO`, `DTOX` or a commit that
+  drops the active leg
   (Garmin's rule, Bill 2026-11-20), and survives a restart. `OBS OFF` past
   the fix sequences to the next leg; short of it the leg into the fix keeps
   the OBS course for a `TF` or `DF` (a `CF` returns to its coded course) and

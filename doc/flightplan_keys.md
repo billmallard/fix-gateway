@@ -103,6 +103,13 @@ engine refused, and a display draws none of it (procedures brief guardrail
 1 on the map, pyEfis #239). A display that finds no `FPLLDSEQ` (an older
 gateway) treats the slots as loaded, as before the key existed.
 
+**An accepted commit keeps the active leg if it still has it** (HOLDFIX0,
+AER-6165): the same TO fix, after the same FROM fix, on the same path. The
+leg moves to its new slot with its phase and hold state, and `FPLACTLEG`
+follows in the same callback. A commit without it drops the activation and
+posts `ACTIVE LEG REMOVED`, `ACTIVE LEG CHANGED` or `ACTIVE LEG AMBIGUOUS` to
+`FPLMSG`, after `FPLLDSEQ`. The rules are in `doc/plugins/flightplan.md`.
+
 The rare fields a real procedure database carries (`theta`/`rho`/`rnp`/
 recommended navaid) are **not** on the wire -- resolved to geometry at load
 time by the editor, which has the procedures database open (PA5), rather
@@ -317,7 +324,7 @@ sequences: the waypoint is kept past the fix. `WPFROM` reads empty, and
 as for a `CF`. The approach does not go active in OBS (normal mode is
 required for the final approach course, GNS 430W p.198), so an OBS course
 to the FAF stays armed at `TERM` scaling. OBS lasts until `OBS OFF` or any
-`ACT`/`DTO`/`DTOX`, or a new plan commit; it survives a restart. Garmin's
+`ACT`/`DTO`/`DTOX`, or a commit that drops the active leg (HOLDFIX0); it survives a restart. Garmin's
 rule (Bill, 2026-11-20, packet AER-6048): Avidyne's automatic exit at the
 fix is not built.
 
@@ -345,7 +352,7 @@ sequence to, and the box stays on the fix.
 |---|---|---|---|
 | `FPLCMD` | str | editor | The command string |
 | `FPLCMDACK` | int | engine | `= seq` on success, `-seq` on rejection |
-| `FPLMSG` | str | engine | Last message / rejection reason. Commands: `NO PLAN`, `BAD SLOT`, `NO POSITION`, `PARSE`, a sequence trace like `SEQ GVO -> RZS` (or, PA13, `SEQ ALT -> <ident>` when a `CA`/`FA` leg terminates on altitude with no fix of its own), or (PA4, off a vector leg) `RESUME NAV -> <ident>` / `NO NEXT LEG`, or (PA13, on a flying `HM` hold) `HOLD EXIT ARMED`, or (OBS2) `OBS <deg>` / `OBS OFF` / `NOT IN OBS` / `IN OBS` and the `OBS N/A ...` refusals above. Route loads (PA4/PA13, guardrail 1): `"UNSUPP <PT> <ident>"` for an unrecognized terminator, or `"BADTURN <PT> <ident>"` / `"BADRADIUS <PT> <ident>"` / `"BADCENTER <PT> <ident>"` / `"BADALT <PT> <ident>"` / `"BADLEGLEN <PT> <ident>"` for a recognized Tier-2 type missing the fields its geometry needs, or (RS1) one of the `SEG...` reasons in the segment table section -- either way the whole route is rejected, not just that leg |
+| `FPLMSG` | str | engine | Last message / rejection reason. Commands: `NO PLAN`, `BAD SLOT`, `NO POSITION`, `PARSE`, a sequence trace like `SEQ GVO -> RZS` (or, PA13, `SEQ ALT -> <ident>` when a `CA`/`FA` leg terminates on altitude with no fix of its own), or (PA4, off a vector leg) `RESUME NAV -> <ident>` / `NO NEXT LEG`, or (PA13, on a flying `HM` hold) `HOLD EXIT ARMED`, or (OBS2) `OBS <deg>` / `OBS OFF` / `NOT IN OBS` / `IN OBS` and the `OBS N/A ...` refusals above. An accepted commit that drops the active leg (HOLDFIX0): `ACTIVE LEG REMOVED` / `ACTIVE LEG CHANGED` / `ACTIVE LEG AMBIGUOUS`, written after `FPLLDSEQ`. Route loads (PA4/PA13, guardrail 1): `"UNSUPP <PT> <ident>"` for an unrecognized terminator, or `"BADTURN <PT> <ident>"` / `"BADRADIUS <PT> <ident>"` / `"BADCENTER <PT> <ident>"` / `"BADALT <PT> <ident>"` / `"BADLEGLEN <PT> <ident>"` for a recognized Tier-2 type missing the fields its geometry needs, or (RS1) one of the `SEG...` reasons in the segment table section -- either way the whole route is rejected, not just that leg |
 
 ## Engine outputs (FP2 writes; `tol: 5000`)
 
