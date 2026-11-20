@@ -20,9 +20,8 @@ from fixgw.plugins import annunciate
 
 ANNUNCIATE_YAML = "src/fixgw/config/connections/annunciate.yaml"
 DEFAULT_INI = "src/fixgw/config/init_data/default.ini"
-WARMUP_KEYS = [f"{k}1{c}" for k in ("CHT", "EGT") for c in range(1, 5)]
 
-# default.ini: CHT1c.lowAlarm 80.3, highAlarm 232.2; EGT1c 380 and 650 degC
+# default.ini: CHTec.lowAlarm 80.3, highAlarm 232.2; EGTec 380 and 650 degC
 COLD = {"CHT": 20.0, "EGT": 20.0}
 WARM = {"CHT": 150.0, "EGT": 500.0}
 HOT = {"CHT": 240.0, "EGT": 660.0}
@@ -30,17 +29,6 @@ HOT = {"CHT": 240.0, "EGT": 660.0}
 
 def _value(table, key):
     return table[key[:3]]
-
-
-def _load_ini(db, path):
-    # The server's initialization-file loader (server.main_setup)
-    with open(path) as f:
-        for line in f:
-            line = line.strip()
-            if line and line[0] != "#":
-                x = line.split("=")
-                if len(x) >= 2:
-                    db.write(x[0].strip(), x[1].strip())
 
 
 class Clock:
@@ -62,7 +50,7 @@ def clock(monkeypatch):
 
 def _start(database, ini=True):
     if ini:
-        _load_ini(database, DEFAULT_INI)
+        database.load_init_file(DEFAULT_INI)  # the server's loader
     with open(ANNUNCIATE_YAML) as f:
         conf, meta = cfg.from_yaml(f.read(), metadata=True)
     pl = annunciate.Plugin("annunciate", conf["annunciate"], meta)
@@ -77,14 +65,22 @@ def gw(database, clock):
     pl.stop()
 
 
+def _keys(db):
+    # Every cylinder the database declares (CHTec, EGTec; c: 6 shipped)
+    return [f"{k}1{c}" for k in ("CHT", "EGT") for c in range(1, db.variables["c"] + 1)]
+
+
 def _write(db, table):
-    for key in WARMUP_KEYS:
+    keys = _keys(db)
+    for key in keys:
         db.write(key, _value(table, key))
-    return {key: db.get_raw_item(key).annunciate for key in WARMUP_KEYS}
+    return {key: db.get_raw_item(key).annunciate for key in keys}
 
 
 def _all(flag):
-    return {key: flag for key in WARMUP_KEYS}
+    from fixgw import database
+
+    return {key: flag for key in _keys(database)}
 
 
 def _cold_start(db, clock):
@@ -97,6 +93,10 @@ def _cold_start(db, clock):
 
 def test_shipped_warmup_is_30_s(gw):
     assert gw.read("TACH1.warmup") == 30.0
+
+
+def test_every_cylinder_is_covered(gw):
+    assert len(_keys(gw)) == 2 * gw.variables["c"] == 12
 
 
 def test_engine_stopped_on_ground_cold_sets_no_flag(gw):
@@ -153,7 +153,7 @@ def test_configured_warmup_is_read_at_each_evaluation(gw, clock):
 def test_without_a_configured_value_the_warmup_is_30_s(database, clock):
     # An install whose init files never set TACH1.warmup: the 30 s default
     # still holds (Bill, 2026-11-20)
-    _load_ini(database, DEFAULT_INI)
+    database.load_init_file(DEFAULT_INI)
     database.write("TACH1.warmup", "None")
     pl = _start(database, ini=False)
     try:
