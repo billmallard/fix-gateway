@@ -310,6 +310,10 @@ passage", not "un-suspend" -- the hold is actively flown, with live
 course/cross-track guidance the whole time (`FPLSTATE` stays `LEG`, not
 `SUSP`), so there is nothing to resume into. It posts `"HOLD EXIT ARMED"`
 and the aircraft completes the current circuit before sequencing onward.
+An `HM` coded as the plan's last slot has nothing to sequence onto: there
+`RESUME` posts `"NO NEXT LEG"`, as off a vector leg, arms no exit, and the
+hold goes on. A later commit that adds a leg after the hold lets `RESUME` arm
+as normal (HOLDFIX4).
 `HF` and `PI` never need this -- they exit automatically after one
 circuit/turn; `HA` exits automatically once the coded altitude is reached.
 
@@ -352,7 +356,7 @@ sequence to, and the box stays on the fix.
 |---|---|---|---|
 | `FPLCMD` | str | editor | The command string |
 | `FPLCMDACK` | int | engine | `= seq` on success, `-seq` on rejection |
-| `FPLMSG` | str | engine | Last message / rejection reason. Commands: `NO PLAN`, `BAD SLOT`, `NO POSITION`, `PARSE`, a sequence trace like `SEQ GVO -> RZS` (or, PA13, `SEQ ALT -> <ident>` when a `CA`/`FA` leg terminates on altitude with no fix of its own), or (PA4, off a vector leg) `RESUME NAV -> <ident>` / `NO NEXT LEG`, or (PA13, on a flying `HM` hold) `HOLD EXIT ARMED`, or (OBS2) `OBS <deg>` / `OBS OFF` / `NOT IN OBS` / `IN OBS` and the `OBS N/A ...` refusals above. An accepted commit that drops the active leg (HOLDFIX0): `ACTIVE LEG REMOVED` / `ACTIVE LEG CHANGED` / `ACTIVE LEG AMBIGUOUS`, written after `FPLLDSEQ`. Route loads (PA4/PA13, guardrail 1): `"UNSUPP <PT> <ident>"` for an unrecognized terminator, or `"BADTURN <PT> <ident>"` / `"BADRADIUS <PT> <ident>"` / `"BADCENTER <PT> <ident>"` / `"BADALT <PT> <ident>"` / `"BADLEGLEN <PT> <ident>"` for a recognized Tier-2 type missing the fields its geometry needs, or (RS1) one of the `SEG...` reasons in the segment table section -- either way the whole route is rejected, not just that leg |
+| `FPLMSG` | str | engine | Last message / rejection reason. Commands: `NO PLAN`, `BAD SLOT`, `NO POSITION`, `PARSE`, a sequence trace like `SEQ GVO -> RZS` (or, PA13, `SEQ ALT -> <ident>` when a `CA`/`FA` leg terminates on altitude with no fix of its own), or (PA4, off a vector leg) `RESUME NAV -> <ident>` / `NO NEXT LEG`, or (PA13, on a flying `HM` hold) `HOLD EXIT ARMED`, or `NO NEXT LEG` when that hold is the last slot, or (OBS2) `OBS <deg>` / `OBS OFF` / `NOT IN OBS` / `IN OBS` and the `OBS N/A ...` refusals above. An accepted commit that drops the active leg (HOLDFIX0): `ACTIVE LEG REMOVED` / `ACTIVE LEG CHANGED` / `ACTIVE LEG AMBIGUOUS`, written after `FPLLDSEQ`. Route loads (PA4/PA13, guardrail 1): `"UNSUPP <PT> <ident>"` for an unrecognized terminator, or `"BADTURN <PT> <ident>"` / `"BADRADIUS <PT> <ident>"` / `"BADCENTER <PT> <ident>"` / `"BADALT <PT> <ident>"` / `"BADLEGLEN <PT> <ident>"` for a recognized Tier-2 type missing the fields its geometry needs, or (RS1) one of the `SEG...` reasons in the segment table section -- either way the whole route is rejected, not just that leg |
 
 ## Engine outputs (FP2 writes; `tol: 5000`)
 

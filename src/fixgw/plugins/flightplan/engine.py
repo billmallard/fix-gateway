@@ -1516,8 +1516,15 @@ class Engine:
             # hold is actively flown (live CDI, not blanked like a vector
             # SUSP), so there is nothing to resume into except the plan's
             # normal suspended flag if the pilot had also frozen it.
-            self._hold_exit_requested = True
             self.suspended = False
+            if self.act_leg >= self.count:
+                # A hold coded as the last slot has nothing to exit to:
+                # the pattern goes on (can_exit=False), so say why rather
+                # than ack an exit that will never come (HOLDFIX4). A
+                # later commit that adds a leg after it arms as normal.
+                self._cmd_msg = "NO NEXT LEG"
+                return
+            self._hold_exit_requested = True
             self._cmd_msg = "HOLD EXIT ARMED"
             return
         if self.mode == "NONE":
