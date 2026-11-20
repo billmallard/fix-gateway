@@ -543,6 +543,10 @@ are the ones above, with these differences:
   or `SCREEN/TAB`, written on the route's own clock each loop; a pyEfis in
   kiosk mode shows it. Both are watched like the sensor keys, and the demo
   refuses to start on a database without them, so it never runs unmarked.
+- (DEMO12) `DEMOLOOP` is the number of the pass now flying, 1 on the first,
+  written as each pass starts. A pyEfis kiosk restores its show defaults for
+  the settings an attendee may change when it moves. It is watched like the
+  others when the database has it; without it the demo runs and says so once.
 
 Its plugin status reports `State` (`watching`, `flying`, `restarting`,
 `refused`, `stopped`), the profile, the route's length in seconds, the

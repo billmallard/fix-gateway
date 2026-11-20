@@ -11,6 +11,14 @@
 # also bring forward the tab with that label. It is presentation, not
 # aircraft state. pyEfis honours it only in its kiosk mode (`kiosk:` in the
 # pyEfis config), and holds off for its idle time after any touch.
+#
+# DEMOLOOP is the number of the pass now flying, 1 on the first and one more
+# each time the route starts over, written as the pass starts (DEMO12). A
+# pyEfis kiosk writes its configured show defaults for the settings an
+# attendee may change (NAVSRC, BARO, ALTSEL, MAPRANGE) when it moves, so one
+# visitor's VLOC tap does not stay for the next. Optional: the demo runs
+# without it, and the kiosk then resets only when the demo goes live and on
+# its idle return.
 
 items:
 - key: DEMOLIVE
@@ -23,3 +31,11 @@ items:
   description: Demo script page for a pyEfis kiosk, SCREEN or SCREEN/TAB ("" = none)
   type: str
   initial: ""
+
+- key: DEMOLOOP
+  description: Demo pass now flying (1, 2, ...), for a pyEfis kiosk's per-loop reset
+  type: int
+  min: 0
+  max: 1000000
+  initial: 0
+  tol: 0

@@ -142,10 +142,10 @@ def test_demo_writes_only_source_keys_and_the_editors_route_keys(db, monkeypatch
     editor = _editor_keys()
     route = {k for k in written if any(rx.match(k) for rx in editor)}
     tfc = {k for k in written if k.startswith("TFC")}
-    # every key it writes is a sensor's, the engine's (DEMO3), its own two
-    # (DEMO4), the editor's, or the traffic block (DEMO7) through the stratux
+    # every key it writes is a sensor's, the engine's (DEMO3), its own three
+    # (DEMO4, DEMO12), the editor's, or the traffic block (DEMO7) through the stratux
     # decoder
-    assert written - route - tfc == set(demo.SOURCE_KEYS + demo.DEMO_KEYS) | set(demo.ENGINE_KEYS), \
+    assert written - route - tfc == set(demo.SOURCE_KEYS + demo.DEMO_KEYS + (demo.LOOP_KEY,)) | set(demo.ENGINE_KEYS), \
         sorted(written - route - tfc)
     assert {"TFC1TGT", "TFCCOUNT"} <= tfc
     assert all(database.get_raw_item(k).writers == ["demo"] for k in tfc)
@@ -487,3 +487,49 @@ def test_a_second_writer_on_demolive_stops_it(db):
     assert p.status["State"] == "stopped"
     assert "DEMOLIVE (netfix)" in p.status["Reason"]
     assert database.read("DEMOLIVE")[0] is False
+
+
+# ---------------------------------------------------------------------------
+# DEMOLOOP (DEMO12, AER-6077): the pass number a kiosk resets its visitor
+# settings on
+# ---------------------------------------------------------------------------
+
+def test_demoloop_numbers_each_pass_as_it_starts(db):
+    seen = []
+    database.callback_add("t", "DEMOLOOP", lambda k, v, u: seen.append((v[0], database.read("FPLCOUNT")[0])), None)
+    p = make()
+    loops(p, 3)
+    p.run()
+    p.thread.join(60)
+    assert p.thread.refused is None, p.status
+    # 1, 2, 3, each written before that pass commits its route (the count is
+    # still the last pass's clear)
+    assert [n for n, _ in seen] == [1, 2, 3]
+    assert [c for _, c in seen][1:] == [0, 0]
+    assert database.get_raw_item("DEMOLOOP").writers == ["demo"]
+    assert database.read("DEMOLOOP")[3] is False
+
+
+def test_without_demoloop_it_flies_and_says_so_once(db, monkeypatch, caplog):
+    real = database.listkeys
+    monkeypatch.setattr(database, "listkeys", lambda: [k for k in real() if k != "DEMOLOOP"])
+    p = make()
+    loops(p, 2)
+    with caplog.at_level("WARNING"):
+        p.run()
+        p.thread.join(60)
+    assert p.thread.refused is None, p.status
+    assert "DEMOLOOP" not in demo_keys()
+    assert "DEMOLIVE" in demo_keys()
+    assert [r.getMessage() for r in caplog.records].count(
+        "demo: the database has no DEMOLOOP (database/demo.yaml): a kiosk will "
+        "not reset its visitor settings each loop") == 1
+
+
+def test_a_second_writer_on_demoloop_stops_it(db):
+    fast = FastClock(on_sleep=lambda n: as_plugin("netfix", "DEMOLOOP", 7) if n == 50 else None)
+    p = make(fast=fast)
+    p.start()
+    p.thread.join(30)
+    assert p.status["State"] == "stopped"
+    assert "DEMOLOOP (netfix)" in p.status["Reason"]
