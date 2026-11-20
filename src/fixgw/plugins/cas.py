@@ -62,6 +62,11 @@ SLOTS = 12
 # CASACK from before a gateway restart is below anything this run publishes
 # (C3). int32 holds it until 2094.
 SEQ_EPOCH = 1767225600
+# No real sequence, from this run or an earlier one, is this far above both
+# CASSEQ and the epoch clock. A CASACK beyond it comes from a defective
+# writer; jumping to it would clamp CASSEQ at the key's maximum, where no
+# acknowledge could ever reach a new message (AER-6093).
+SEQ_PLAUSIBLE = 10 ** 7
 SLOT_KEYS = ["CASMSG{}".format(n + 1) for n in range(SLOTS)]
 ACK_KEYS = ("CASACK", "CASACKBTN")
 CAS_KEYS = SLOT_KEYS + ["CASCNT", "CASTOP", "CASSEQ"] + list(ACK_KEYS)
@@ -459,6 +464,11 @@ class Plugin(plugin.PluginBase):
         try:
             seq = int(seq)
         except (TypeError, ValueError):
+            return
+        limit = max(self.seq, int(self.wallclock()) - SEQ_EPOCH) + SEQ_PLAUSIBLE
+        if seq > limit:
+            self.log.warning("{} {} is implausibly far above CASSEQ {}: refused"
+                             .format(source, seq, self.seq))
             return
         if seq > self.seq:
             # A sequence this plugin has not published: a display's setting

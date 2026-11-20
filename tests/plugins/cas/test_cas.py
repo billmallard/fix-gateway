@@ -472,6 +472,24 @@ def test_stale_casack_after_a_full_restart_cannot_ack_a_new_warning(database):
     assert database.read("CASTOP")[0] == 3
 
 
+def test_a_garbage_casack_cannot_stop_acknowledges(database):
+    """Safety and Compliance's probe (AER-6093): CASACK at the int32 maximum.
+    Jumping to it would clamp the published CASSEQ, and no acknowledge
+    could reach a new message again, even after a plugin restart."""
+    p = make(database, priority_catalogue())
+    past_test(p, database)
+    seq = database.read("CASSEQ")[0]
+    database.write("CASACK", 2147483647)
+    step(p)
+    assert database.read("CASSEQ")[0] == seq  # refused: no jump
+    database.write("SYSMENU", True)
+    step(p)
+    database.write("CASACK", database.read("CASSEQ")[0])
+    step(p)
+    assert acked(database, "WARN") is True
+    assert database.read("CASTOP")[0] == 0
+
+
 def test_epoch_seed_starts_a_new_run_above_an_earlier_one(database):
     """With a working clock, a full restart's first CASSEQ is already above
     everything the earlier run published, before any CASACK arrives."""

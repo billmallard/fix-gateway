@@ -64,6 +64,11 @@ Four rules keep a stale acknowledge from covering a new alert:
   only messages published before the display reconnected.
 - `CASACKBTN` edges closer together than `ack_debounce` (0.5 s) are one press.
 
+A `CASACK` more than 10^7 above both `CASSEQ` and the epoch clock is refused
+and logged. No real sequence is that far ahead, and jumping to such a value
+would pin `CASSEQ` at its maximum, where no acknowledge could reach a new
+message.
+
 **The panel button is optional, and it has a gap that touch does not.** A
 button press acknowledges the `CASSEQ` the plugin has already published. It
 cannot know what the pilot has seen. A message published in the time between
