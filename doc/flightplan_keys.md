@@ -327,6 +327,11 @@ FAF up to the MAP or on any MAP (the auto-suspend included), `OBS N/A HOLD`
 on an `HM`/`HF`/`HA`, `OBS N/A PROC TURN` on a `PI`, `OBS N/A VECTORS` on a
 vector leg, and `OBS N/A NO FIX` on a `CA` or an `FA` past its fix. A bad
 course is `PARSE`. `SUSP` and `RESUME` are refused in OBS with `IN OBS`.
+`OBS N/A DATABASE` (AER-6144) refuses it on every leg when the installed
+`database/flightplan.yaml` declares an `FPLSTATE` range that cannot carry 4,
+as a file from before OBS2 (`max: 3`) does: the database would clamp 4 to 3
+and the display would show SUSP. The engine logs the mismatch at startup,
+reports it in its status, and does not restore a saved OBS course onto it.
 
 **`OBS OFF`** leaves OBS (`NOT IN OBS` when not in it). Past the fix
 (FROM) it sequences to the next leg at once and posts the `SEQ` trace. Short

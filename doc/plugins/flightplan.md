@@ -283,7 +283,9 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   the OBS course for a `TF` or `DF` (a `CF` returns to its coded course) and
   sequences there as usual. Refused (`OBS N/A ...`) with no active waypoint
   or position, on the final approach course or any MAP, on coded holds and
-  procedure turns, vector legs, and a `CA` or an `FA` past its fix. The
+  procedure turns, vector legs, and a `CA` or an `FA` past its fix, and
+  everywhere when the installed `database/flightplan.yaml` predates OBS2
+  (`OBS N/A DATABASE`, logged at startup, AER-6144). The
   approach does not go active in OBS. The full rules and messages are in
   `doc/flightplan_keys.md`, command channel; the guidance-table row is in
   `makerplane/briefs/flight_plan_plan.md` section 3.3.1.

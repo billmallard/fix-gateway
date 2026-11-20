@@ -471,6 +471,10 @@ OBS_HOLD_REASON = "OBS N/A HOLD"
 OBS_PROC_TURN_REASON = "OBS N/A PROC TURN"
 OBS_VECTORS_REASON = "OBS N/A VECTORS"
 OBS_NO_FIX_REASON = "OBS N/A NO FIX"
+# AER-6144: the installed database/flightplan.yaml caps FPLSTATE below
+# STATE_OBS (a config dir from before OBS2), so the bus would clamp OBS to
+# SUSP. Refused rather than flown under the wrong annunciation.
+OBS_DATABASE_REASON = "OBS N/A DATABASE"
 
 
 class Waypoint:
@@ -642,6 +646,9 @@ class Engine:
         self.turn_bank_deg = float(config.get("turn_bank_deg", TURN_BANK_DEG_DEFAULT))
         self.alert_s = float(config.get("alert_s", ALERT_S_DEFAULT))
         self.hal_nm = dict(config.get("hal_nm", HAL_NM_DEFAULT))
+        # AER-6144: False when the bus cannot carry FPLSTATE = STATE_OBS. The
+        # plugin decides it from the database's declared range.
+        self.obs_available = bool(config.get("obs_available", True))
 
         self.route = []          # list[Waypoint]
         self.route_name = ""
@@ -813,8 +820,9 @@ class Engine:
         self.dbcyc = d.get("dbcyc", "")
         self.mode = d.get("mode", "NONE")
         self.suspended = d.get("suspended", False)
-        # A file from before OBS2 has no OBS course: not in OBS.
-        self.obs_crs = d.get("obs_crs")
+        # A file from before OBS2 has no OBS course: not in OBS. Nor is a
+        # file restored onto a bus that cannot carry STATE_OBS (AER-6144).
+        self.obs_crs = d.get("obs_crs") if self.obs_available else None
         self.act_leg = d.get("act_leg", 0)
         fp = d.get("from_point")
         tp = d.get("to_point")
@@ -1450,6 +1458,8 @@ class Engine:
             self._cmd_obs_off(position)
             return
         crs = self._obs_course_arg(arg)
+        if not self.obs_available:
+            raise _Reject(OBS_DATABASE_REASON)
         if self.mode == "NONE" or self.to_point is None:
             raise _Reject(OBS_NO_WPT_REASON)
         if position is None or not position[2]:
