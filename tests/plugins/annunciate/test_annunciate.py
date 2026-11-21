@@ -16,6 +16,9 @@ Coverage:
     each evaluation; an unset value never bypasses (AER-4619)
   - Start bypass: no annunciation until value first rises above low setpoint
   - start_bypass: no (YAML False) does not arm the start latch
+  - warmup: the low alarm waits a period from engine start, given as a
+    number or a FIX value; malformed specs are refused; stop() removes
+    the start watcher (AER-6137)
   - stop(): callbacks removed, flag no longer updated after shutdown
   - get_status(): item count reported correctly
 """
@@ -700,6 +703,98 @@ def test_shipped_annunciate_config_alerts_altsel_at_200_ft():
     database.write("ALT", 5300)                        # left it
     assert database.read("ALTSEL")[1] is True
     p.stop()
+
+
+_WARMUP = {
+    "start": "TACH1 >= 500",
+    "on_ground": "IAS < IAS.Vgnd",
+    "seconds": 30,
+}
+
+
+class TestWarmup(unittest.TestCase):
+    """The warmup option holds the low alarm for a period from engine start
+    (AER-6137).  The shipped CHT/EGT items are tested on the real config in
+    test_annunciate_warmup.py."""
+
+    def setUp(self):
+        database.init(io.StringIO(DB_CONFIG))
+        database.write("OILP1.lowAlarm", 10.0)
+        database.write("OILP1.highAlarm", 100.0)
+        database.write("IAS.Vgnd", 40.0)
+        database.write("IAS", 0.0)
+        database.write("TACH1", 0.0)
+        self.t = 1000.0
+        self._real_now = annunciate._now
+        annunciate._now = lambda: self.t
+
+    def tearDown(self):
+        annunciate._now = self._real_now
+
+    def flag(self):
+        return database.read("OILP1")[1]
+
+    def test_literal_seconds(self):
+        _make_plugin([{"key": "OILP1", "warmup": _WARMUP}])
+        database.write("TACH1", 800.0)
+        self.t += 29.0
+        database.write("OILP1", 5.0)
+        self.assertFalse(self.flag())
+        self.t += 2.0
+        database.write("OILP1", 5.0)
+        self.assertTrue(self.flag())
+
+    def test_no_engine_start_no_hold(self):
+        _make_plugin([{"key": "OILP1", "warmup": _WARMUP}])
+        database.write("OILP1", 5.0)
+        self.assertTrue(self.flag())
+
+    def test_negative_seconds_hold_nothing(self):
+        _make_plugin([{"key": "OILP1", "warmup": dict(_WARMUP, seconds=-5)}])
+        database.write("TACH1", 800.0)
+        database.write("OILP1", 5.0)
+        self.assertTrue(self.flag())
+
+    def test_unset_fix_value_without_default_holds_nothing(self):
+        spec = dict(_WARMUP, seconds="IAS.Vgnd")
+        _make_plugin([{"key": "OILP1", "warmup": spec}])
+        database.write("IAS.Vgnd", "None")
+        database.write("TACH1", 800.0)
+        database.write("OILP1", 5.0)
+        self.assertTrue(self.flag())
+
+    def test_on_ground_may_be_a_list_or_absent(self):
+        for on_ground in (["IAS < IAS.Vgnd"], None):
+            database.write("TACH1", 0.0)
+            spec = dict(_WARMUP, on_ground=on_ground)
+            p = _make_plugin([{"key": "OILP1", "warmup": spec}])
+            database.write("TACH1", 800.0)
+            database.write("OILP1", 5.0)
+            self.assertFalse(self.flag(), on_ground)
+            p.stop()
+
+    def test_malformed_specs_are_refused(self):
+        bad = [
+            ({k: v for k, v in _WARMUP.items() if k != "start"}, "No start"),
+            ({k: v for k, v in _WARMUP.items() if k != "seconds"}, "No seconds"),
+            (dict(_WARMUP, seconds="NOPE.warmup"), "Unknown value"),
+            (dict(_WARMUP, seconds="IAS.nope"), "Unknown value"),
+            (dict(_WARMUP, seconds="thirty"), "Unknown value"),
+        ]
+        for spec, message in bad:
+            with self.assertRaisesRegex(ValueError, message):
+                _make_plugin([{"key": "OILP1", "warmup": spec}])
+
+    def test_stop_removes_the_start_watcher(self):
+        p = _make_plugin([{"key": "OILP1", "warmup": _WARMUP}])
+        p.stop()
+        database.write("TACH1", 800.0)
+        self.assertIsNone(p.items[0].warmup.started)
+
+    def test_str_reports_the_warmup(self):
+        p = _make_plugin([{"key": "OILP1", "warmup": _WARMUP}])
+        self.assertIn("Warm-up: ", str(p.items[0]))
+        self.assertIn("TACH1 >= 500", str(p.items[0]))
 
 
 if __name__ == "__main__":

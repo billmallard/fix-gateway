@@ -9,9 +9,11 @@ The ground/air airspeed split is the aircraft's IAS.Vgnd setting, 40 kt in
 the shipped init_data/default.ini, not a literal in each item (AER-4619).
 """
 
+import shutil
 import time
 
 import pytest
+import yaml
 
 from fixgw import cfg
 
@@ -34,22 +36,11 @@ def _items():
         return cfg.from_yaml(f.read())["annunciate"]["items"]
 
 
-def _load_ini(db, path):
-    # The server's initialization-file loader (server.main_setup)
-    with open(path) as f:
-        for line in f:
-            line = line.strip()
-            if line and line[0] != "#":
-                x = line.split("=")
-                if len(x) >= 2:
-                    db.write(x[0].strip(), x[1].strip())
-
-
 @pytest.fixture
 def plugin(database):
     from fixgw.plugins import annunciate
 
-    _load_ini(database, DEFAULT_INI)
+    database.load_init_file(DEFAULT_INI)  # the server's loader
     for key, aux in LIMITS.items():
         for name, value in aux.items():
             database.write(f"{key}.{name}", value)
@@ -160,3 +151,106 @@ def test_without_the_setting_the_alarms_stay_armed_on_the_ground(database):
         assert _annunciating(database) == {key: True for key in ALARM}
     finally:
         pl.stop()
+
+
+# Every cylinder the database declares, from variables.yaml (c: 6 shipped).
+# CHT15 and CHT16 had no limits and no annunciate item (fix-gateway#199).
+def _cylinder_keys(db):
+    return [
+        f"{name}1{c}"
+        for name in ("CHT", "EGT")
+        for c in range(1, db.variables["c"] + 1)
+    ]
+
+
+def test_the_shipped_database_has_six_cylinders(database):
+    assert database.variables["c"] == 6
+
+
+def test_every_cylinder_alarms_above_its_high_limit(plugin):
+    fired = {}
+    for key in _cylinder_keys(plugin):
+        high = plugin.read(f"{key}.highAlarm")
+        assert high is not None, key
+        plugin.write(key, high - 20.0)
+        plugin.write(key, high + 5.0)
+        fired[key] = plugin.get_raw_item(key).annunciate
+    assert fired == {key: True for key in _cylinder_keys(plugin)}
+
+
+def test_cylinder_five_alarms_on_its_limit_alone(plugin):
+    # The annunciate list on its own: a limit set by hand, not from the ini
+    plugin.write("CHT15.highAlarm", 230.0)
+    plugin.write("CHT15", 200.0)
+    plugin.write("CHT15", 240.0)
+    assert plugin.get_raw_item("CHT15").annunciate is True
+    plugin.write("CHT15", 200.0)
+    assert plugin.get_raw_item("CHT15").annunciate is False
+
+
+AUX = ["Min", "Max", "lowWarn", "highWarn", "lowAlarm", "highAlarm"]
+
+
+def test_every_cylinder_has_cylinder_ones_limits(database):
+    database.load_init_file(DEFAULT_INI)
+    limits = {k: [database.read(f"{k}.{a}") for a in AUX] for k in _cylinder_keys(database)}
+    assert None not in limits["CHT11"] and None not in limits["EGT11"]
+    assert limits == {
+        k: limits["CHT11"] if k.startswith("CHT") else limits["EGT11"]
+        for k in limits
+    }
+
+
+def test_a_later_line_still_sets_one_cylinder(database, tmp_path):
+    overlay = tmp_path / "engine.ini"
+    overlay.write_text("CHT13.highAlarm = 220\n")
+    database.load_init_file(DEFAULT_INI)
+    database.load_init_file(str(overlay))
+    assert database.read("CHT13.highAlarm") == 220.0
+    assert database.read("CHT14.highAlarm") == pytest.approx(232.2222222)
+
+
+@pytest.fixture
+def four_cylinder_database(database, tmp_path):
+    # The shipped config with c: 4, as a four-cylinder install sets it
+    config = tmp_path / "config"
+    shutil.copytree("src/fixgw/config", config)
+    variables = config / "database" / "variables.yaml"
+    doc = yaml.safe_load(variables.read_text())
+    doc["variables"]["c"] = 4
+    variables.write_text(yaml.safe_dump(doc))
+    database.init(str(config / "database.yaml"))
+    assert database.variables["c"] == 4
+    return database, config
+
+
+def test_a_four_cylinder_config_loads_and_checks_four(four_cylinder_database):
+    from fixgw.plugins import annunciate
+
+    database, config = four_cylinder_database
+    database.load_init_file(str(config / "init_data" / "default.ini"))
+    assert database.read("CHT14.highAlarm") == pytest.approx(232.2222222)
+    with pytest.raises(KeyError):
+        database.get_raw_item("CHT15")
+    with open(config / "connections" / "annunciate.yaml") as f:
+        conf, meta = cfg.from_yaml(f.read(), metadata=True)
+    pl = annunciate.Plugin("annunciate", conf["annunciate"], meta)
+    pl.run()
+    try:
+        keys = [i.key for i in pl.items if i.key[:3] in ("CHT", "EGT")]
+        assert keys == _cylinder_keys(database)
+        assert len(keys) == 8
+    finally:
+        pl.stop()
+
+
+def test_expand_key(database):
+    assert database.expand_key("CHTec") == [f"CHT1{c}" for c in range(1, 7)]
+    assert database.expand_key("EGTec.highAlarm") == [
+        f"EGT1{c}.highAlarm" for c in range(1, 7)
+    ]
+    assert database.expand_key("CHT13.lowWarn") == ["CHT13.lowWarn"]
+    assert database.expand_key("IAS.Vgnd") == ["IAS.Vgnd"]
+    assert database.expand_key("FUELQt") == ["FUELQ1", "FUELQ2", "FUELQ3"]
+    # A letter this database does not set is left alone
+    assert database.expand_key("CHTxq") == ["CHTxq"]

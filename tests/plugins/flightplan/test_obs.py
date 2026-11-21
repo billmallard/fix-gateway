@@ -281,10 +281,24 @@ def test_act_dto_and_dtox_leave_obs(verb):
     assert e.obs_crs is None
 
 
-def test_a_new_plan_commit_leaves_obs():
+def test_a_commit_that_keeps_the_active_leg_keeps_obs():
+    # OBS lasts until the pilot cancels it (Garmin's rule, Bill on packet
+    # AER-6048), and an edit that keeps the active leg cancels nothing
+    # (HOLDFIX0).
     e, pos = tonie_active()
     cmd(e, "2 OBS 270", pos)
-    load(e, tonie_route(), "OBS", 2)
+    assert load(e, tonie_route(), "OBS", 2) is None
+    assert e.obs_crs == 270.0
+    out = update(e, pos)
+    assert out["state"] == engine.STATE_OBS and out["crs"] == 270.0
+
+
+def test_a_commit_that_drops_the_active_leg_leaves_obs():
+    e, pos = tonie_active()
+    cmd(e, "2 OBS 270", pos)
+    to = e.act_leg
+    route = [wp for i, wp in enumerate(tonie_route(), start=1) if i != to]
+    assert load(e, route, "OBS", 2) == engine.ACTIVE_LEG_REMOVED_REASON
     assert e.obs_crs is None
     assert update(e, pos)["state"] == engine.STATE_NONE
 

@@ -22,6 +22,7 @@ import copy
 from fixgw import cfg
 
 __database = {}
+variables = {}
 _update_thread = globals().get("_update_thread")
 _update_thread_stop = globals().get("_update_thread_stop")
 
@@ -424,6 +425,33 @@ def expand_entry(entry, var, count):
         else:
             line.append(newentry)
     return line
+
+
+# The keys a name stands for, expanded as the database expands its own keys:
+# with c: 6 in variables.yaml, CHTec is CHT11 .. CHT16 and CHTec.highAlarm is
+# CHT11.highAlarm .. CHT16.highAlarm.  A name with no variable, or one this
+# database does not set, is returned as it is.
+def expand_key(key):
+    name, dot, aux = key.partition(".")
+    ch = check_for_variables({"key": name})
+    if ch not in variables:
+        return [key]
+    entries = expand_entry({"key": name, "description": ""}, ch, variables[ch])
+    return [e["key"] + dot + aux for e in entries]
+
+
+# Set initial values from an initialization file: KEY = value, or
+# KEY.aux = value, one per line, # for a comment.  A key may be named with a
+# database variable, so one line sets a limit on every cylinder there is.
+def load_init_file(filename):
+    with open(filename, "r") as f:
+        for line in f.readlines():
+            l = line.strip()
+            if l and l[0] != "#":
+                x = l.split("=")
+                if len(x) >= 2:
+                    for key in expand_key(x[0].strip()):
+                        write(key, x[1].strip())
 
 
 def add_item(entry):
