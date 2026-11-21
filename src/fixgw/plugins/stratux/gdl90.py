@@ -244,6 +244,30 @@ def parse_geo_altitude(msg: bytes):
     )
 
 
+# A Heartbeat (0x00, G§3.1): the status bits a display acts on, and the
+# 17-bit time stamp in seconds since 0000Z (bit 16 is status byte 2 bit 7,
+# bits 15-0 follow LS byte first, G§3.1.3).
+Heartbeat = namedtuple(
+    "Heartbeat", ["gps_valid", "maintenance", "initialized", "utc_ok", "timestamp"]
+)
+
+HEARTBEAT_LEN = 7
+
+
+# Decode a 7-byte 0x00 message (ID included).  None if it is short.
+def parse_heartbeat(msg: bytes):
+    if len(msg) < HEARTBEAT_LEN:
+        return None
+    s1, s2 = msg[1], msg[2]
+    return Heartbeat(
+        gps_valid=bool(s1 & 0x80),
+        maintenance=bool(s1 & 0x40),
+        initialized=bool(s1 & 0x01),
+        utc_ok=bool(s2 & 0x01),
+        timestamp=((s2 & 0x80) << 9) | (msg[4] << 8) | msg[3],
+    )
+
+
 # GDL90 allows 0-9, A-Z, space and (before SW Mod D) '-' in the call sign
 # (G§3.5.1.11).  Anything that is not printable ASCII, or is the netfix field
 # separator, would corrupt the KEY;VALUE;FLAGS line protocol, so it becomes
