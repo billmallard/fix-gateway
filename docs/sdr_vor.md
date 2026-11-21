@@ -13,7 +13,7 @@ The plugin is one NAV radio slot, NAV2 by default (`nav_slot`), so it never
 shares keys with a real NAV1 radio. It tunes an RTL-SDR dongle to the
 frequency the pilot sets on the bus, decodes the VOR or localizer, and writes
 the slot's existing keys. The HSI shows it through `NAVSRC`, as it shows any
-NAV radio. Nothing is added on the display side.
+NAV radio, and marks it as supplemental from `NAVSUPP` (below).
 
 | Key | Written | Meaning here |
 |---|---|---|
@@ -22,6 +22,7 @@ NAV radio. Nothing is added on the display side.
 | `NAV2TF` | yes | 1 TO, 2 FROM. 0 on a localizer, while not valid, or with a failed course |
 | `NAV2TYPE` | yes | 1 VOR, 2 LOC, from the channel plan. 0 when not tuned |
 | `NAV2GSF` | yes | always 1: no glideslope, so compute keeps `NAV2GSV` 0 |
+| `NAV2SUPP` | yes | always 1, tuned or not: the slot's source is supplemental. New key, see below |
 | `VOR2BRG` | yes | bearing TO the station, magnetic (radial + 180). Failed unless a valid VOR |
 | `NAV2FREQ` | read | the active frequency, MHz. New key, see below |
 | `NAV2CRS` | read | the OBS course, pilot-set as before |
@@ -43,6 +44,26 @@ tol 0 because it is a setting written on change. The pilot is the writer.
 pyEfis has no tuning page yet, so for now the frequency is set with `fixgwc`
 (`w NAV2FREQ 113.9`). A tuning control is a separate item. The roadmap 9.1
 design-record block is on AER-6141 for a session to land.
+
+### Marking the source supplemental
+
+Without a mark, the HSI labels the SDR slot VOR2 or LOC2, exactly as it
+labels a certified radio. SDRVOR3 (AER-6245) adds `NAV1SUPP` and `NAV2SUPP`
+(`database/ahrs.yaml`): float, 1 = the receiver writing this slot is
+supplemental, initial 0, tol 0, because it is a property of the receiver and
+not a measurement. The plugin writes 1 on its own slot with every write of
+the slot, and nothing else writes either key. Compute selects the slot into
+`NAVSUPP` over `NAVSRC`, with the GPS slot the constant 0, the `NAVTYPE`
+shape. The select sets `unwritten: initial`, so a slot nothing claims (a real
+radio) reads 0, not failed, after the SDR slot's 1 was showing. The HSI reads
+`NAVSUPP`. With the key absent (an older gateway) or 0, the HSI is unchanged.
+The display never infers "supplemental" from a frequency or a plugin config.
+
+No autopilot adapter couples to a bus NAV source yet: the X-Plane adapter's
+NAV and APR fly the simulator's own radios, and the MAVLink adapter offers
+only AP, NAV (GPS waypoint) and DISC. So nothing arms LOC or APR on the SDR
+slot today. What a future adapter does with `NAVSUPP` = 1 is recorded on
+AER-6245.
 
 ## Signal model
 
@@ -150,4 +171,6 @@ fix-gateway is GPL-2.0-or-later.
   TO/FROM on both sides of the station, flagging on noise and below the floor,
   slot 1, and refused configs. It runs a stand-in `rtl_sdr` to check tuning,
   retuning and release. It runs the real gateway with compute to check
-  `NAV2CDIV`/`CDIV` and one writer per key.
+  `NAV2CDIV`/`CDIV` and one writer per key, and `NAVSUPP` following `NAVSRC`
+  with sdr_vor on and staying 0 with it off. A scan checks that no other
+  plugin or config names a `NAV<n>SUPP` key.
