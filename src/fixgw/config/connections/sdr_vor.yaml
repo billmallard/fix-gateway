@@ -1,0 +1,30 @@
+# Software VOR and localizer receiver on an RTL-SDR dongle (SDRVOR1).
+#
+# SUPPLEMENTAL, NOT A CERTIFIED NAV RECEIVER: day VFR situational awareness
+# only. Never an approach or IFR source. No glideslope.
+#
+# Tune it by writing the slot's frequency key in MHz (NAV2FREQ for the default
+# slot), e.g. `fixgwc` then `w NAV2FREQ 113.9`. 0 releases the dongle. Needs
+# rtl_sdr from the rtl-sdr package (osmocom librtlsdr). Do not enable it beside
+# another writer of the same slot's keys (X-Plane or a CAN-FiX NAV radio on
+# NAV2): one key, one writer. Design note: docs/sdr_vor.md.
+sdr_vor:
+  load: SDR_VOR
+  module: fixgw.plugins.sdr_vor
+  # NAV slot written: 1 or 2. 2 keeps it off a real NAV1 radio's keys.
+  nav_slot: 2
+  rtl_device: 0
+  # Tuner gain in dB; omit for the dongle's automatic gain.
+  #gain: 30
+  # Dongle frequency correction, ppm. The decoder also finds the carrier
+  # within +/-6 kHz, about 55 ppm at 108 MHz.
+  #ppm: 0
+  #rtl_sdr: /usr/bin/rtl_sdr
+  sample_rate: 240000
+  tune_offset: 60000
+  # Read an rtl_sdr capture (8-bit IQ, recorded at sample_rate, tuned
+  # tune_offset below the station) instead of the radio. The frequency key
+  # still selects VOR or localizer decoding and still releases the source.
+  #replay: /path/to/capture.cu8
+  #replay_realtime: true
+  #replay_loop: true

@@ -70,8 +70,14 @@ annunciate:
       cond_bypass: [TACH1 < 500, IAS < IAS.Vgnd]
 
     - key: FUELP1
-    - key: FUELQ1
-    - key: FUELQ2
+    # Every fuel tank, FUELQ1 .. FUELQ<t>, t being the tank count in
+    # database/variables.yaml (fix-gateway#201).  skip_unwritten: the
+    # database defines tanks many installs do not have, and a tank no source
+    # writes reads 0 when it expires, below its low alarm.  It is not
+    # annunciated until a source writes it, as FUELQT's sum leaves it out
+    # (AER-5391).
+    - key: FUELQt
+      skip_unwritten: yes
     - key: FUELQT
 
     - key: OAT
