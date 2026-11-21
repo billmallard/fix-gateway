@@ -54,6 +54,32 @@ jobs:
         # and pyEfis's test-evidence page are built from (TV11).
         pytest --junitxml=reports/junit.xml -o junit_family=xunit1
 
+    # AER-6212: a new FPLMSG code needs plain words in pyEfis
+    # (pyefis/flightplan/refusal.py) before it lands here. pyEfis's own CI runs
+    # this test against our dev, so a code that landed first turned every pyEfis
+    # PR red (fix-gateway #213, then #219/#223). Run it here, from pyEfis dev,
+    # against this tree's engine: the pyEfis words merge first, then the code.
+    # After the main pytest run, so a bare `pytest` never collects _pyefis.
+    - name: Check out pyEfis's FPLMSG words
+      uses: actions/checkout@v6
+      with:
+        repository: billmallard/pyEfis
+        ref: dev
+        path: _pyefis
+        sparse-checkout: |
+          src/pyefis/__init__.py
+          src/pyefis/flightplan/
+          tests/flightplan/test_refusal.py
+        sparse-checkout-cone-mode: false
+    - name: Every FPLMSG code the engine can write has pyEfis words
+      env:
+        FIXGW_FLIGHTPLAN_ENGINE: ${{ github.workspace }}/src/fixgw/plugins/flightplan/engine.py
+        PYTHONPATH: _pyefis/src
+      # pyEfis's conftest and pyproject options are not ours; this test needs neither.
+      run: >-
+        pytest -p no:cacheprovider -c /dev/null --noconftest --rootdir=_pyefis
+        _pyefis/tests/flightplan/test_refusal.py
+
     - name: Test evidence record and job summary
       if: always() && steps.pytest.outcome != 'skipped'
       env:
