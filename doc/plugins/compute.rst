@@ -107,7 +107,12 @@ Function catalog
     selector value is rounded and clamped to pick a source, whose value (and its
     ``bad`` / ``fail`` flags) is copied to ``output``.  This is the heart of the
     nav-source selector -- one canonical key always carries the *selected*
-    source.
+    source.  A source may be a number instead of a key: a constant that is
+    always fresh and valid.  A selected source key that nothing has written
+    fails ``output``, unless the function sets ``unwritten: initial``: then
+    the key's own initial value and flags are copied.  ``NAVSUPP`` uses this,
+    because only a supplemental receiver writes its ``NAV<n>SUPP`` and a real
+    radio's slot honestly reads its initial 0.
 
 ``remap``
     Emits ``table[round(index)]`` (clamped to the table) to ``output``, where
