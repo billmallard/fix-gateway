@@ -120,7 +120,7 @@ See **[[Configuration]]** for how these files are wired together.
 | Navigation | `LAT`, `LONG`, `ALT`, `IAS`, `TAS`, `GS`, `HEAD`, `TRACK`, `XTRACK` |
 | AHRS | `PITCH`, `ROLL`, `YAW`, `ALAT`, `ALONG`, `ANORM` |
 | Engine (per engine/cyl) | `TACH1`, `MAP1`, `EGT1x`, `CHT1x`, `OILP1`, `OILT1`, `FUELF1` |
-| Radios / nav | `COMACTFREQ1`, `NAV1CRS`, `NAV1CDI`, `NAVSRC`, `COURSE`, `CDI`, `GSI` |
+| Radios / nav | `COMACTFREQ1`, `NAV1FREQ`, `NAV1CRS`, `NAV1CDI`, `NAVSRC`, `COURSE`, `CDI`, `GSI` |
 | Autopilot / flight director | `APENG`, `FDENG`, `APLAT`, `APVERT`, `FDPITCH`, `FDROLL`, `VSSEL`, `IASSEL` |
 | Flight plan | `FPL1ID`…`FPL100ID`, `FPLCMD`, `FPLCRS`, `FPLCDI`, `WPNAME` — see [[Flight Plan Engine]] |
 | Controls / trims | `CTLPTCH`, `CTLROLL`, `TRIMP`, `TRIMR`, `TRIMY` |

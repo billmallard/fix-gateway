@@ -71,6 +71,7 @@ connection file; write one and wire it in as **[[Configuration]]** describes.
 | `rpi_button` | GPIO buttons |
 | `rpi_virtualwire` | VirtualWire radio receiver for `IAS` / `OAT` |
 | `rtl_433` | sensors decoded by `rtl_433` on an RTL-SDR; shipped for tire pressure |
+| `sdr_vor` | a VOR or localizer decoded from an RTL-SDR (`rtl_sdr`) into one NAV slot, NAV2 by default: needle, TO/FROM, type and bearing, tuned from `NAV2FREQ`. **Supplemental, not a certified nav receiver, day VFR situational awareness**; never an approach or IFR source, no glideslope. See [`docs/sdr_vor.md`](https://github.com/billmallard/fix-gateway/blob/dev/docs/sdr_vor.md) |
 | `knobster` | Sim Innovations Knobster USB encoder |
 | `tessera` | a Tessera touch panel over USB serial as a control head: its keys show FIX values, and a press writes the FIX keys its page file names; experimental, see [`doc/plugins/tessera.md`](https://github.com/billmallard/fix-gateway/blob/dev/doc/plugins/tessera.md) |
 | `rais` | a RAIS sensor pipeline |
