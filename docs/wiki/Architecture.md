@@ -77,6 +77,18 @@ For redundant *gateways*, the **`quorum`** plugin elects one leader (`LEADER`)
 from the `QVOTE<n>` keys the gateways exchange. Plugins that command
 equipment, such as `mavlink` and `canfix` outputs, act only on the leader.
 
+**Two lanes.** `config/two_lane_1.yaml` and `two_lane_2.yaml` are two display
+units, each with its own gateway and its own attitude and air-data source, on
+one CAN-FIX bus. They use `canfix/two_lane_map.yaml`, which takes no primary
+flight value (`PITCH`, `ROLL`, `IAS`, `ALT`, `TAS`, `VS`, `ALAT`, `ROT`,
+`AOA`) from the bus. The CAN-FIX input map has no filter on the sending node,
+so with the default map a lane that put its own attitude on the bus would
+become a second writer of the other lane's `PITCH`. No lane transmits those
+values under their parameter ids either. `tests/integration/test_two_lanes.py`
+runs both lanes. Known limits, pinned there: if the bus is cut, both lanes see
+no peer and both lead; the vote is the node id, not the lane's health; and
+nothing tells the pilot that a lane is lost.
+
 ## 4. The compute plugin — first-class derived data
 
 `compute` is worth calling out because a lot of avionics "logic" lives there
