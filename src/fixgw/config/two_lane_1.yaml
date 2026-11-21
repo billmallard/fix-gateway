@@ -1,0 +1,54 @@
+# Lane 1 of a two-lane panel.  Each lane is one display unit with its own
+# computer, its own gateway (this file), its own pyEfis and its own attitude
+# and air-data source.  The two gateways share one CAN-FIX bus, elect a
+# leader over it with the quorum plugin, and only the leader writes outputs
+# that command equipment (CAN-FIX outputs, the autopilot).
+#
+# two_lane_1.yaml and two_lane_2.yaml differ only in the node ids.  Both use
+# canfix/two_lane_map.yaml, which takes no primary flight value from the bus:
+# read the rule at the top of that file before adding inputs or outputs.
+#
+# What this does not cover yet (MAOS brief briefs/redundant_lanes.md):
+#   - If the bus is cut, each lane sees no peer and both lead (gap Q1).
+#   - The vote is the node id, not the lane's health (gap Q2).
+#   - Nothing tells the pilot a lane is lost, frozen or disagreeing (gap Q4).
+# tests/integration/test_two_lanes.py runs both lanes and pins each of these.
+#
+# Run: fixgw --config-file src/fixgw/config/two_lane_1.yaml
+
+database file: "{CONFIG}/database.yaml"
+auto start: true
+initialization files:
+   - "{CONFIG}/init_data/default.ini"
+
+connections:
+  netfix:
+    load: yes
+    module: fixgw.plugins.netfix
+    type: server
+    host: 0.0.0.0
+    port: 3490
+    buffer_size: 1024
+    timeout: 1.0
+
+  canfix:
+    load: yes
+    module: fixgw.plugins.canfix
+    interface: socketcan
+    channel: can0
+    mapfile: "{CONFIG}/canfix/two_lane_map.yaml"
+    # CAN-FIX node id: different on each lane.
+    node: 145
+    device: 145
+    revision: 0
+    model: 0
+
+  quorum:
+    load: yes
+    module: fixgw.plugins.quorum
+    # Quorum node id: 1 or 2.  The highest id seen leads.
+    nodeid: 1
+    total_nodes: 2
+
+  # Lane 1's own attitude and air data: the flight controller on the sensor
+  # rig, for example (connections/mavlink.yaml).  Exactly one source per key.
