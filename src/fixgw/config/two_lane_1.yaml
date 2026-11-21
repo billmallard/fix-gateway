@@ -46,8 +46,9 @@ connections:
   quorum:
     load: yes
     module: fixgw.plugins.quorum
-    # Quorum node id: 1 or 2.  The highest id seen leads.
-    nodeid: 1
+    # Quorum node id.  The highest id seen leads, so lane 1, the PFD, has 2
+    # and leads in normal flight; lane 2 takes over when it stops voting.
+    nodeid: 2
     total_nodes: 2
 
   # Lane 1's own attitude and air data: the flight controller on the sensor

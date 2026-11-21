@@ -242,9 +242,9 @@ def lanes(tmp_path):
         two = Lane(2, tmp_path, hub, mapfile, lane2_outputs)
         started.append(two)
         wait_for(
-            lambda: not one.leader() and two.leader(),
+            lambda: one.leader() and not two.leader(),
             STARTUP_LIMIT,
-            "lane 2 never led with lane 1 following: the lanes do not see each other",
+            "lane 1 never led with lane 2 following: the lanes do not see each other",
         )
         return hub, one, two
 
@@ -339,8 +339,9 @@ def test_two_lane_map_is_map_minus_own_source_inputs():
 def test_two_lane_configs_differ_only_in_node_ids():
     one = load_yaml(os.path.join(CONFIG, "two_lane_1.yaml"))
     two = load_yaml(os.path.join(CONFIG, "two_lane_2.yaml"))
-    assert one["connections"]["quorum"]["nodeid"] == 1
-    assert two["connections"]["quorum"]["nodeid"] == 2
+    # Lane 1 is the PFD and leads in normal flight: the highest vote wins.
+    assert one["connections"]["quorum"]["nodeid"] == 2
+    assert two["connections"]["quorum"]["nodeid"] == 1
     assert one["connections"]["canfix"]["node"] != two["connections"]["canfix"]["node"]
     for cfg in (one, two):
         assert (
@@ -354,19 +355,19 @@ def test_two_lane_configs_differ_only_in_node_ids():
 
 def test_leader_moves_when_lane_dies(lanes):
     hub, one, two = lanes()
-    took, samples = watch_takeover(one, two.proc.kill)
-    print(f"lane 1 led {took} s after SIGKILL of lane 2")
+    took, samples = watch_takeover(two, one.proc.kill)
+    print(f"lane 2 led {took} s after SIGKILL of lane 1")
     assert took is not None and took <= TAKEOVER_LIMIT, took
     assert_pitch_live(samples)
 
 
 def test_frozen_lane_loses_lead(lanes):
     hub, one, two = lanes()
-    took, samples = watch_takeover(one, lambda: two.proc.send_signal(signal.SIGSTOP))
-    print(f"lane 1 led {took} s after SIGSTOP of lane 2")
+    took, samples = watch_takeover(two, lambda: one.proc.send_signal(signal.SIGSTOP))
+    print(f"lane 2 led {took} s after SIGSTOP of lane 1")
     assert took is not None and took <= TAKEOVER_LIMIT, took
     assert_pitch_live(samples)
-    assert two.proc.poll() is None, "lane 2 should be stopped, not dead"
+    assert one.proc.poll() is None, "lane 1 should be stopped, not dead"
 
 
 def test_partition_today_makes_two_leaders(lanes):
@@ -376,16 +377,16 @@ def test_partition_today_makes_two_leaders(lanes):
     hub, one, two = lanes()
     hub.link = False
     t_cut = time.monotonic()
-    wait_for(one.leader, 10, "lane 1 never led after the cut")
-    print(f"lane 1 led {time.monotonic() - t_cut:.2f} s after the cut")
+    wait_for(two.leader, 10, "lane 2 never led after the cut")
+    print(f"lane 2 led {time.monotonic() - t_cut:.2f} s after the cut")
     end = time.monotonic() + 3.0
     while time.monotonic() < end:
         assert one.leader() and two.leader(), "a lane gave up the lead while cut"
         time.sleep(0.1)
-    # The link was the only cause: rejoin it and lane 1 follows again.
+    # The link was the only cause: rejoin it and lane 2 follows again.
     hub.link = True
-    wait_for(lambda: not one.leader(), 10, "lane 1 kept the lead after the rejoin")
-    assert two.leader()
+    wait_for(lambda: not two.leader(), 10, "lane 2 kept the lead after the rejoin")
+    assert one.leader()
 
 
 @pytest.mark.parametrize(
@@ -431,7 +432,10 @@ def test_cross_lane_attitude_is_not_ingested(lanes, mapfile):
     assert (
         len(sent) >= 10
     ), "lane 2 never put its PITCH on the bus; the test proves nothing"
-    assert not one.leader(), "lane 1 lost lane 2's votes: the bus was not delivering"
+    # Lane 2 votes as quorum node 1, and lane 1 hears it as QVOTE1.
+    assert not one.fix.read("QVOTE1")[
+        1
+    ], "lane 1 lost lane 2's votes: the bus was not delivering"
     assert set(seen) == {
         5.0
     }, f"lane 1's PITCH took lane 2's values: {sorted(set(seen))}"
