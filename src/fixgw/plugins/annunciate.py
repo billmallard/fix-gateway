@@ -20,8 +20,24 @@
 #  True Airspeed could be done also.
 
 import operator
+import time
 from collections import OrderedDict
+import fixgw.database as database
 import fixgw.plugin as plugin
+
+
+def _now():
+    return time.monotonic()
+
+
+def _holds(condition, operand_value):
+    """True when a parsed condition holds on a trusted input: one that is
+    old, bad or failed never holds, nor does an unset or untrusted
+    right-hand side."""
+    item, oper, operand = condition
+    v, _annunc, old, bad, fail, _secfail = item.value
+    value = operand_value(operand)
+    return not (old or bad or fail or value is None or not oper(v, value))
 
 
 class AnnunciateItem(object):
@@ -90,8 +106,15 @@ class AnnunciateItem(object):
         else:
             conditions = list(self.cond_bypass)
         self.conditions = [self._parse_condition(c) for c in conditions]
+        warmup = itemdef["warmup"] if "warmup" in itemdef else None
+        self.warmup = Warmup(self, warmup) if warmup else None
         # YAML gives start_bypass: no as False, which must not arm the latch
         self.start_bypass_latch = bool(self.start_bypass)
+        # No annunciation while no source has written the key: its expiry
+        # fires the callback with the initial 0, below any low alarm.  For a
+        # key the database defines on a count the install may not fill, as
+        # FUELQT's sum leaves such a tank out (AER-5391, AER-6138).
+        self.skip_unwritten = bool(itemdef.get("skip_unwritten", False))
         self.low_latch = False
         self.high_latch = False
 
@@ -168,14 +191,12 @@ class AnnunciateItem(object):
         """
         if not self.conditions:
             return False
-        for item, oper, operand in self.conditions:
-            v, _annunc, old, bad, fail, _secfail = item.value
-            value = self._operand_value(operand)
-            if old or bad or fail or value is None or not oper(v, value):
-                return False
-        return True
+        return all(_holds(c, self._operand_value) for c in self.conditions)
 
     def evaluate(self, k, x, udata):
+        if self.skip_unwritten and not self.item.written:
+            self.item.annunciate = False
+            return
         # The start bypass clears once the value is greater than the low
         # set point
         if "." in k:  # This is an aux value update
@@ -194,7 +215,9 @@ class AnnunciateItem(object):
         if b or self.start_bypass_latch:
             self.item.annunciate = False
         else:
-            if self.low_set_point:
+            if self.warmup is not None and self.warmup.holding():
+                self.low_latch = False
+            elif self.low_set_point:
                 lp = self.plugin.db_read(self.low_set_point)
                 if lp is None:
                     lp = self.item.min
@@ -228,7 +251,101 @@ class AnnunciateItem(object):
             "  Start Bypass Enabled: {}".format("Yes" if self.start_bypass else "No")
         )
         s.append("  Conditional Bypass: {}".format(self.cond_bypass))
+        if self.warmup is not None:
+            s.append("  Warm-up: {}".format(self.warmup))
+        if self.skip_unwritten:
+            s.append("  Skip Unwritten: Yes")
         return "\n".join(s)
+
+
+class Warmup(object):
+    """Hold an item's low alarm for a warm-up period after engine start.
+
+    A cold engine reads below its low CHT and EGT alarms for its first
+    minutes, so those alarms wait ``seconds`` from engine start (Bill,
+    AER-6137).  Only the low side waits: a high alarm is live throughout.
+
+    Engine start is the ``start`` condition (``TACH1 >= 500``) becoming
+    true while every ``on_ground`` condition (``IAS < IAS.Vgnd``) holds.
+    Both are judged as cond_bypass conditions are, so an old, bad or
+    failed input never starts the timer.  A start condition that was not
+    known to hold before (no reading yet, or an untrusted one) counts as
+    stopped, so an engine started before the gateway was up still gets
+    its warm-up; the on-ground condition keeps a restarted gateway or a
+    recovered tach in flight from starting one.
+
+    ``seconds`` is a number or a FIX value (``TACH1.warmup``) read at each
+    evaluation, so the configurator sets it; ``default`` stands in while
+    that value is unset.  The timer runs from the start's own callback, so
+    it does not wait for the item's next write.
+    """
+
+    def __init__(self, owner, spec):
+        self.owner = owner
+        for name in ("start", "seconds"):
+            if name not in spec:
+                raise ValueError(
+                    "No {} given for warm-up: {}".format(name, owner.key)
+                )
+        self.start = owner._parse_condition(spec["start"])
+        on_ground = spec.get("on_ground") or []
+        if isinstance(on_ground, str):
+            on_ground = [on_ground]
+        self.on_ground = [owner._parse_condition(c) for c in on_ground]
+        self.seconds = self._parse_seconds(spec["seconds"])
+        default = spec.get("default")
+        self.default = None if default is None else float(default)
+        self.spec = spec
+        self.running = False
+        self.started = None
+        self.start_key = self.start[0].key
+        owner.plugin.db_callback_add(self.start_key, self.watch)
+
+    def _parse_seconds(self, token):
+        if isinstance(token, (int, float)) and not isinstance(token, bool):
+            return float(token)
+        name, _, aux = str(token).partition(".")
+        try:
+            ref = self.owner.plugin.db_get_item(name) if aux else None
+        except KeyError:
+            ref = None
+        if ref is None or aux not in ref.aux:
+            raise ValueError(
+                "Unknown value {} for warm-up seconds: {}".format(token, self.owner.key)
+            )
+        return (ref, aux)
+
+    def watch(self, k, x, udata):
+        if "." in k:  # an aux of the start key, not a reading
+            return
+        operand = self.owner._operand_value
+        running = _holds(self.start, operand)
+        if (
+            running
+            and not self.running
+            and all(_holds(c, operand) for c in self.on_ground)
+        ):
+            self.started = _now()
+        self.running = running
+
+    def period(self):
+        """The warm-up length in seconds, never negative."""
+        if isinstance(self.seconds, tuple):
+            ref, aux = self.seconds
+            value = ref.get_aux_value(aux)
+            value = self.default if value is None else value
+        else:
+            value = self.seconds
+        return max(0.0, value or 0.0)
+
+    def holding(self):
+        return self.started is not None and _now() - self.started < self.period()
+
+    def stop(self):
+        self.owner.plugin.db_callback_del(self.start_key, self.watch)
+
+    def __str__(self):
+        return str(self.spec)
 
 
 class DeviationItem(object):
@@ -324,15 +441,23 @@ class Plugin(plugin.PluginBase):
         # of inputs and produce a single output.
         for item in self.config["items"]:
             if "deviation_from" in item:
-                i = DeviationItem(self, item)
-            else:
-                i = AnnunciateItem(self, self.config["defaults"], item)
-            self.items.append(i)
+                self.items.append(DeviationItem(self, item))
+                continue
+            # A key named with a database variable is one item per key it
+            # stands for: with c: 6, CHTec is CHT11 .. CHT16, so the checks
+            # follow the cylinder count (fix-gateway#199).
+            for key in database.expand_key(item["key"]):
+                itemdef = dict(item, key=key)
+                self.items.append(
+                    AnnunciateItem(self, self.config["defaults"], itemdef)
+                )
 
     def stop(self):
         for item in self.items:
             for key in item.callbacks():
                 self.db_callback_del(key, item.evaluate)
+            if getattr(item, "warmup", None) is not None:
+                item.warmup.stop()
 
     def get_status(self):
         """The get_status method should return a dict or OrderedDict that

@@ -43,23 +43,41 @@ annunciate:
       cond_bypass: [TACH1 < 500, IAS < IAS.Vgnd]
       deadband: 2
 
-    - key: CHT11
-    - key: CHT12
-    - key: CHT13
-    - key: CHT14
-
-    - key: EGT11
-    - key: EGT12
-    - key: EGT13
-    - key: EGT14
+    # Every cylinder of every engine, from the counts in
+    # database/variables.yaml: with c: 6, CHTec is CHT11 .. CHT16
+    # (fix-gateway#199).
+    #
+    # A cold engine reads below the low CHT and EGT alarms, so they are
+    # bypassed with the engine stopped on the ground, as the oil items are,
+    # and their low alarms wait a warm-up period from engine start: TACH1
+    # reaching 500 rpm (the oil items' running line) with IAS below
+    # IAS.Vgnd.  The period is TACH1.warmup, set in init_data (30 s) or the
+    # configurator, and 30 s if unset.  High alarms do not wait (AER-6137).
+    # Like the oil items these read engine 1's TACH1.
+    - key: CHTec
+      cond_bypass: &engine_stopped [TACH1 < 500, IAS < IAS.Vgnd]
+      warmup: &warmup
+        start: TACH1 >= 500
+        on_ground: IAS < IAS.Vgnd
+        seconds: TACH1.warmup
+        default: 30
+    - key: EGTec
+      cond_bypass: *engine_stopped
+      warmup: *warmup
 
     - key: CURRNT
     - key: VOLT
       cond_bypass: [TACH1 < 500, IAS < IAS.Vgnd]
 
     - key: FUELP1
-    - key: FUELQ1
-    - key: FUELQ2
+    # Every fuel tank, FUELQ1 .. FUELQ<t>, t being the tank count in
+    # database/variables.yaml (fix-gateway#201).  skip_unwritten: the
+    # database defines tanks many installs do not have, and a tank no source
+    # writes reads 0 when it expires, below its low alarm.  It is not
+    # annunciated until a source writes it, as FUELQT's sum leaves it out
+    # (AER-5391).
+    - key: FUELQt
+      skip_unwritten: yes
     - key: FUELQT
 
     - key: OAT

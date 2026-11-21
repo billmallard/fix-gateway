@@ -125,7 +125,9 @@ def test_no_subscriber_sees_the_placeholder_unflagged(database, tmp_path):
     for key in WP_KEYS:
         database.callback_add("nullwp1", key, watch, None)
     try:
-        write_route(database, _route(), seq=2)
+        # A commit without the active leg (HOLDFIX0 keeps a leg the commit
+        # still has): the waypoint goes to the placeholder.
+        write_route(database, [engine.Waypoint("KSBA", *KSBA), engine.Waypoint("KVBG", *KVBG)], seq=2)
         pl.thread._run_update_cycle()
     finally:
         for key in WP_KEYS:
@@ -182,8 +184,10 @@ def test_bearing_pointer_fails_through_the_shipped_compute_chain(compute, tmp_pa
     for key in ("GPSBRGT", "GPSBRG", "BRG1"):
         assert not _fail(database, key), key
 
-    # Plan replaced, nothing activated: no waypoint, so no pointer.
-    write_route(database, _route(), seq=2)
+    # Plan replaced by one without the active leg, nothing activated: no
+    # waypoint, so no pointer. (A commit that keeps the leg keeps it
+    # active, HOLDFIX0.)
+    write_route(database, [engine.Waypoint("KSBA", *KSBA), engine.Waypoint("KVBG", *KVBG)], seq=2)
     pl.thread._run_update_cycle()
     assert database.read("FPLSTATE")[0] == engine.STATE_NONE
     for key in ("GPSBRGT", "GPSBRG", "BRG1"):

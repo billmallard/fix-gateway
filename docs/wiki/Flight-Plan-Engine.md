@@ -66,8 +66,15 @@ segment table (`FPLSEGCNT`, then `FPLS<n>KIND`, `ID`, `ENT`, `EXT`, `FIRST`,
 every slot, then increments `FPLSEQ` to commit. The engine checks the whole
 route; if it is valid, it loads it and echoes the number in `FPLLDSEQ`. If not,
 it keeps the plan it had and writes the reason to `FPLMSG`, for example
-`UNSUPP PI KAUS` or `BADRADIUS RF FIX12`. Loading a new route clears any
-active leg.
+`UNSUPP PI KAUS` or `BADRADIUS RF FIX12`.
+
+**An edit keeps the active leg.** If the new route still has the leg being
+flown (the same TO fix, after the same FROM fix, on the same path), it stays
+active at its new slot, mid-hold included. Inserting a waypoint, an airway,
+an approach or a hold ahead of the aircraft does not lose guidance. If the
+edit removes or changes that leg, nothing is active until the pilot
+activates a leg again, and `FPLMSG` says why: `ACTIVE LEG REMOVED`,
+`ACTIVE LEG CHANGED` or `ACTIVE LEG AMBIGUOUS`.
 
 ### Leg types
 
@@ -103,12 +110,12 @@ it was rejected, `-1` if it could not be parsed.
 | `SUSP` | stop sequencing and hold the current TO waypoint; cancels a turn in progress | `NO PLAN` |
 | `RESUME` | in order: start the missed approach after the MAP; leave a vector leg direct to the next slot; arm the exit from an `HM` hold; otherwise stop suspending | `NO PLAN` |
 | `SCALE 0.3`, `1.0`, `2.0`, `AUTO` | set a manual ceiling on the CDI scale, or clear it | `PARSE` |
-| `OBS <deg>` | GPS OBS mode: fly this magnetic course to or from the TO waypoint, with no sequencing; again to change the course | `OBS N/A NO WPT`, `NO POSITION`, `FINAL APPROACH`, `HOLD`, `PROC TURN`, `VECTORS`, `NO FIX`; `PARSE` |
+| `OBS <deg>` | GPS OBS mode: fly this magnetic course to or from the TO waypoint, with no sequencing; again to change the course | `OBS N/A NO WPT`, `NO POSITION`, `FINAL APPROACH`, `HOLD`, `PROC TURN`, `VECTORS`, `NO FIX`, `DATABASE` (an installed `database/flightplan.yaml` from before OBS2); `PARSE` |
 | `OBS OFF` | leave OBS: past the fix, go on to the next leg; short of it, keep the OBS course into the fix and sequence there | `NOT IN OBS` |
 
 In OBS the engine keeps the TO waypoint after passing it, and the TO/FROM flag
 works like a VOR's. OBS ends only when the pilot cancels it, or on `ACT`,
-`DTO`, `DTOX` or a new plan. `SUSP` and `RESUME` are refused in OBS (`IN OBS`).
+`DTO`, `DTOX` or an edit that drops the active leg. `SUSP` and `RESUME` are refused in OBS (`IN OBS`).
 
 ## Sequencing
 

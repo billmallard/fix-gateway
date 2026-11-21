@@ -1838,6 +1838,36 @@ def test_hm_hold_repeats_until_resume_arms_exit_at_next_fix_passage():
     assert e._hold_exit_requested is False
 
 
+def test_hm_hold_in_the_last_slot_resume_says_no_next_leg_until_a_leg_is_added():
+    # HOLDFIX4: the hold is the plan's last slot, so RESUME has nothing to
+    # exit to. It says so, as off a vector leg, and the hold goes on.
+    e = engine.Engine()
+    load(e, _hold_route("HM")[:2], "T", 1)
+    e.handle_command("1 ACT 2", (0.0, -nm_to_deg_lon(20.0), True))
+    e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1000.0)
+    assert e._leg_phase == engine.LEGPHASE_TURN_OUT
+
+    ack, msg = e.handle_command("2 RESUME", (0.0, nm_to_deg_lon(0.05), True))
+    assert ack == 2 and msg == "NO NEXT LEG"
+    assert e._hold_exit_requested is False
+    assert e.suspended is False
+
+    held = _fly_circuit(e, 1001.0)
+    assert held["act_leg"] == 2
+    assert e._leg_phase == engine.LEGPHASE_TURN_OUT
+
+    # A later commit adds a leg after the hold: RESUME arms the exit.
+    load(e, _hold_route("HM"), "T", 2)
+    e.handle_command("3 ACT 2", (0.0, -nm_to_deg_lon(20.0), True))
+    e.update(0.0, nm_to_deg_lon(0.05), 120.0, 0.0, True, None, None, 1010.0)
+    ack, msg = e.handle_command("4 RESUME", (0.0, nm_to_deg_lon(0.05), True))
+    assert ack == 4 and msg == "HOLD EXIT ARMED"
+
+    exited = _fly_circuit(e, 1011.0)
+    assert exited["act_leg"] == 3
+    assert exited.get("msg") == "SEQ HOLD -> B"
+
+
 def test_hf_hold_exits_automatically_after_one_circuit():
     e = engine.Engine()
     load(e, _hold_route("HF", turn="L"), "T", 1)

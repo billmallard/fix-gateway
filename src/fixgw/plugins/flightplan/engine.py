@@ -471,6 +471,16 @@ OBS_HOLD_REASON = "OBS N/A HOLD"
 OBS_PROC_TURN_REASON = "OBS N/A PROC TURN"
 OBS_VECTORS_REASON = "OBS N/A VECTORS"
 OBS_NO_FIX_REASON = "OBS N/A NO FIX"
+# AER-6144: the installed database/flightplan.yaml caps FPLSTATE below
+# STATE_OBS (a config dir from before OBS2), so the bus would clamp OBS to
+# SUSP. Refused rather than flown under the wrong annunciation.
+OBS_DATABASE_REASON = "OBS N/A DATABASE"
+# HOLDFIX0 (AER-6165): a commit that does not keep the active leg drops the
+# activation, as every commit did before, and says why on FPLMSG (Bill,
+# 2026-11-20, packet AER-6048).
+ACTIVE_LEG_REMOVED_REASON = "ACTIVE LEG REMOVED"      # the TO fix is gone
+ACTIVE_LEG_CHANGED_REASON = "ACTIVE LEG CHANGED"      # TO fix kept, its FROM or its path is not
+ACTIVE_LEG_AMBIGUOUS_REASON = "ACTIVE LEG AMBIGUOUS"  # the leg is in the plan more than once
 
 
 class Waypoint:
@@ -625,6 +635,42 @@ def _course_change_deg(course_a, course_b):
     return abs(diff)
 
 
+def _same_fix(a, b):
+    """Two slots at one fix: the ident, and the position to within the
+    tolerance a staged direct-to is matched to its slot with (Appendix C)."""
+    return (a.id == b.id and abs(a.lat - b.lat) <= DTO_MATCH_TOLERANCE_DEG
+            and abs(a.lon - b.lon) <= DTO_MATCH_TOLERANCE_DEG)
+
+
+def _leg_path_key(w):
+    """What the engine flies into the slot's fix, beyond the fix itself:
+    two slots at the same fix with the same key are the same leg
+    (HOLDFIX0). Only the fields the slot's path terminator is flown from
+    count. IF and TF are the same great circle from the slot before, so a
+    plain waypoint the editor merges into a procedure's IF stays the same
+    leg. Fly-over and MAP change how the fix is sequenced and are part of
+    the leg. Altitude, speed, a hold's or a procedure turn's leg length and
+    the other flags are read from the route every cycle, so an edit to
+    them applies to the leg as it is flown."""
+    pt = "TF" if w.pt == "IF" else w.pt
+    flags = w.flags & (FLAG_FLYOVER | FLAG_MAP)
+    if pt == "TF":
+        fields = ()
+    elif pt == "DF":
+        fields = (w.turn,)
+    elif pt in PT_ARC:
+        fields = (w.turn, w.ctrlat, w.ctrlon, w.dst)
+    elif pt in (PT_HOLD | PT_PROC_TURN):
+        fields = (w.crs, w.turn)
+    else:   # CF, CA, FA and the vector legs: a course or heading
+        fields = (w.crs,)
+    return (pt, flags) + fields
+
+
+def _same_leg(a, b):
+    return _same_fix(a, b) and _leg_path_key(a) == _leg_path_key(b)
+
+
 def _check_route(waypoints, segments):
     reason = unsupported_leg_reason(waypoints)
     if reason is None:
@@ -642,6 +688,9 @@ class Engine:
         self.turn_bank_deg = float(config.get("turn_bank_deg", TURN_BANK_DEG_DEFAULT))
         self.alert_s = float(config.get("alert_s", ALERT_S_DEFAULT))
         self.hal_nm = dict(config.get("hal_nm", HAL_NM_DEFAULT))
+        # AER-6144: False when the bus cannot carry FPLSTATE = STATE_OBS. The
+        # plugin decides it from the database's declared range.
+        self.obs_available = bool(config.get("obs_available", True))
 
         self.route = []          # list[Waypoint]
         self.route_name = ""
@@ -720,26 +769,98 @@ class Engine:
     # ------------------------------------------------------------------
     def load_route(self, waypoints, name, seq, segments, aprtype="", dbcyc=""):
         """waypoints: list[Waypoint]; segments: list[Segment], the RS1
-        segment table the waypoints' sgi index into. Any FPLSEQ change is
-        treated as a new plan: the previous activation is dropped (mode ->
-        NONE) and the pilot re-activates it with ACT/DTO. See
-        doc/plugins/flightplan.md for why edit-preserving activation was
-        not attempted in this first cut.
+        segment table the waypoints' sgi index into.
+
+        An edit to the active plan keeps the active leg (HOLDFIX0,
+        AER-6165): a commit that still contains it keeps it active, moved
+        to its new slot, with everything about how far along it the
+        aircraft is -- its phase, a hold's entry and dimensions, a DF's
+        turn, a fly-by turn in progress, SUSP and OBS. The leg is still
+        there when its TO fix is, with the same FROM fix in the slot before
+        it and the same path into it (_leg_path_key). A direct-to a plan
+        fix is flown from where the aircraft was, so only its TO counts. An
+        off-route direct-to is not in the plan and is kept as it is.
+        Anything else drops the activation (mode -> NONE), as every commit
+        did before, and the pilot re-activates with ACT/DTO.
 
         aprtype/dbcyc: block-level provenance (PA3) -- FPLAPRTYPE/FPLDBCYC.
+
+        Returns the FPLMSG reason an activation was dropped for, or None.
 
         Raises RouteRejected (guardrail 1) -- leaving the previously loaded
         route and activation state completely untouched -- if any leg's
         path terminator is not in PT_SUPPORTED (PA4), or the segment table
         does not describe the slots (RS1, segment_integrity_reason)."""
         _check_route(waypoints, segments)
+        old_route = self.route
         self.route = list(waypoints)
         self.segments = list(segments)
         self.route_name = name
         self.seq = seq
         self.aprtype = aprtype
         self.dbcyc = dbcyc
-        self._reset_activation()
+        if self.mode == "NONE":
+            self._reset_activation()
+            return None
+        if not self.act_leg:
+            return None   # an off-route direct-to: the plan is not flown
+        k, reason = self._find_active_leg(old_route)
+        if k is None:
+            self._reset_activation()
+            return reason
+        self._move_active_leg(old_route, k)
+        return None
+
+    def _find_active_leg(self, old_route):
+        """(slot, None): the active leg's slot in the new route; or (None,
+        reason) when the commit does not keep it. A leg found more than
+        once is not guessed at."""
+        old_to = old_route[self.act_leg - 1]
+        old_fr = old_route[self.act_leg - 2] if self.act_leg > 1 else None
+
+        def from_kept(j):
+            # Slot 1 is flown from the aircraft (ACT 1): it has no FROM slot.
+            if old_fr is None:
+                return j == 1
+            return j > 1 and _same_fix(self.route[j - 2], old_fr)
+
+        at_fix = [j for j in range(1, self.count + 1) if _same_fix(self.route[j - 1], old_to)]
+        if not at_fix:
+            return None, ACTIVE_LEG_REMOVED_REASON
+        if self.mode == "LEG":
+            at_fix = [j for j in at_fix if from_kept(j)]
+        legs = [j for j in at_fix if _same_leg(self.route[j - 1], old_to)]
+        if self.mode == "DIRECT" and len(legs) > 1:
+            # The slot before is not part of a direct-to, but it still says
+            # which of two copies of the fix the pilot went direct to.
+            legs = [j for j in legs if from_kept(j)] or legs
+        if len(legs) > 1:
+            return None, ACTIVE_LEG_AMBIGUOUS_REASON
+        if not legs:
+            return None, ACTIVE_LEG_CHANGED_REASON
+        return legs[0], None
+
+    def _move_active_leg(self, old_route, k):
+        """Re-index the activation from its slot in old_route to slot k of
+        the new route. A fly-by turn in progress is toward the next leg, so
+        it goes when the next leg changed, and the turn is judged again
+        against the new one on the next cycle."""
+        old = self.act_leg
+        old_next = old_route[old] if old < len(old_route) else None
+        new_next = self.route[k] if k < self.count else None
+        same_next = (old_next is None and new_next is None) or (
+            old_next is not None and new_next is not None and _same_leg(old_next, new_next))
+        self.act_leg = k
+        if self._turn_arc is not None:
+            self._turn_arc = dict(self._turn_arc, leg=self._turn_arc["leg"] + k - old)
+        if self._reversal_closest is not None:
+            key, dist = self._reversal_closest
+            self._reversal_closest = ((k,) + key[1:], dist)
+        if not same_next:
+            self._reversal_closest = None
+            if self._turning:
+                self._turning = False
+                self._turn_arc = None
 
     def _reset_activation(self):
         self.mode = "NONE"
@@ -813,8 +934,9 @@ class Engine:
         self.dbcyc = d.get("dbcyc", "")
         self.mode = d.get("mode", "NONE")
         self.suspended = d.get("suspended", False)
-        # A file from before OBS2 has no OBS course: not in OBS.
-        self.obs_crs = d.get("obs_crs")
+        # A file from before OBS2 has no OBS course: not in OBS. Nor is a
+        # file restored onto a bus that cannot carry STATE_OBS (AER-6144).
+        self.obs_crs = d.get("obs_crs") if self.obs_available else None
         self.act_leg = d.get("act_leg", 0)
         fp = d.get("from_point")
         tp = d.get("to_point")
@@ -1292,8 +1414,8 @@ class Engine:
         # segment table alone. Slots k..LAST are still that one segment, so
         # FPLACTSEG keeps reporting it and FPLSEGREM counts from the
         # aircraft to k and on to the exit. The table is the editor's to
-        # write (one key, one writer), and an editor re-commit would drop
-        # this activation anyway (load_route).
+        # write (one key, one writer). An editor re-commit that keeps the
+        # fix keeps this direct-to (load_route).
         ac_lat, ac_lon = self._require_position(position)
         faf_idx, map_idx = self._faf_map_idx()
         self._begin_activation()
@@ -1394,8 +1516,15 @@ class Engine:
             # hold is actively flown (live CDI, not blanked like a vector
             # SUSP), so there is nothing to resume into except the plan's
             # normal suspended flag if the pilot had also frozen it.
-            self._hold_exit_requested = True
             self.suspended = False
+            if self.act_leg >= self.count:
+                # A hold coded as the last slot has nothing to exit to:
+                # the pattern goes on (can_exit=False), so say why rather
+                # than ack an exit that will never come (HOLDFIX4). A
+                # later commit that adds a leg after it arms as normal.
+                self._cmd_msg = "NO NEXT LEG"
+                return
+            self._hold_exit_requested = True
             self._cmd_msg = "HOLD EXIT ARMED"
             return
         if self.mode == "NONE":
@@ -1450,6 +1579,8 @@ class Engine:
             self._cmd_obs_off(position)
             return
         crs = self._obs_course_arg(arg)
+        if not self.obs_available:
+            raise _Reject(OBS_DATABASE_REASON)
         if self.mode == "NONE" or self.to_point is None:
             raise _Reject(OBS_NO_WPT_REASON)
         if position is None or not position[2]:

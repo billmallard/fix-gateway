@@ -62,8 +62,9 @@ _GROUPS = [
 _BAND_AUX = ["Min", "Max", "lowWarn", "highWarn", "lowAlarm", "highAlarm"]
 
 # Aux slots that are settings rather than published limits: the label,
-# bounds (in the key's units), shipped default and builder guidance the
-# form shows. The default must match init_data/default.ini.
+# bounds (in the key's units, or in ``units`` where given), shipped default
+# and builder guidance the form shows. The default must match
+# init_data/default.ini.
 _AUX_META = {
     "IAS": {
         "Vgnd": {
@@ -77,6 +78,22 @@ _AUX_META = {
                 "this. Set it below the slowest IAS the aircraft flies at "
                 "(below the stall speed in landing configuration), never "
                 "above it, or the alarms can go quiet in flight."
+            ),
+        },
+    },
+    # Seconds, not the key's RPM: ``units`` overrides the key's units.
+    "TACHe": {
+        "warmup": {
+            "label": "Low CHT/EGT alarms: warm-up after engine start",
+            "units": "s",
+            "min": 0,
+            "max": 600,
+            "default": 30,
+            "help": (
+                "The low cylinder head and exhaust gas temperature alarms "
+                "wait this long after the engine starts (rpm reaching 500 "
+                "on the ground), so a cold engine does not set them off. "
+                "High alarms do not wait. 0 turns the wait off."
             ),
         },
     },
