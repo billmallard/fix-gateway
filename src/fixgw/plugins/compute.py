@@ -196,7 +196,11 @@ def altDensity(inputs, output, require_leader):
     return func
 
 
-# Determines the average of the inputs and writes that to output
+# Determines the average of the inputs and writes that to output.  Like sum,
+# average, max and span leave out an input no source has written: the shipped
+# config names every cylinder up to the database's cylinder count, and a
+# four-cylinder install on c: 6 would otherwise never publish (AER-6244).
+# min still waits for every input: NAV1GSV is a min that must wait for both.
 def averageFunction(inputs, output, require_leader):
     vals = {}
     for each in inputs:
@@ -214,18 +218,22 @@ def averageFunction(inputs, output, require_leader):
                 if o.get_aux_value(x[1]) != value:
                     o.set_aux_value(x[1], value)
             return
+        if vals[key] is None and not parent.db_get_item(key).written:
+            return  # The expiry of a key nobody has written
 
         vals[key] = value
         _refresh_old(vals, parent)
         arrsum = 0
+        count = 0
         flag_old = False
         flag_bad = False
         flag_fail = False
         flag_secfail = False
         for each in vals:
             if vals[each] is None:
-                return  # We don't have one of each yet
+                continue  # Not written yet
             arrsum += vals[each][0]
+            count += 1
             if vals[each][2]:
                 flag_old = True
             if vals[each][3]:
@@ -234,7 +242,7 @@ def averageFunction(inputs, output, require_leader):
                 flag_fail = True
             if vals[each][5]:
                 flag_secfail = True
-        _publish(o, arrsum / len(vals), flag_old, flag_bad, flag_fail, flag_secfail)
+        _publish(o, arrsum / count, flag_old, flag_bad, flag_fail, flag_secfail)
 
     return func
 
@@ -342,6 +350,8 @@ def maxFunction(inputs, output, require_leader):
                 if o.get_aux_value(x[1]) != value:
                     o.set_aux_value(x[1], value)
             return
+        if vals[key] is None and not parent.db_get_item(key).written:
+            return  # The expiry of a key nobody has written
         vals[key] = value
         _refresh_old(vals, parent)
         flag_old = False
@@ -351,7 +361,7 @@ def maxFunction(inputs, output, require_leader):
         vmax = None
         for each in vals:
             if vals[each] is None:
-                return  # We don't have one of each yet
+                continue  # Not written yet
             if vmax is not None:
                 if vals[each][0] > vmax:
                     vmax = vals[each][0]
@@ -428,6 +438,8 @@ def spanFunction(inputs, output, require_leader):
             return  # Only the leader can do calculations
         if type(value) != tuple:
             return  # This might be a meta data update
+        if vals[key] is None and not parent.db_get_item(key).written:
+            return  # The expiry of a key nobody has written
         vals[key] = value
         _refresh_old(vals, parent)
         flag_old = False
@@ -438,7 +450,7 @@ def spanFunction(inputs, output, require_leader):
         vmax = None
         for each in vals:
             if vals[each] is None:
-                return  # We don't have one of each yet
+                continue  # Not written yet
             if vmin is not None:
                 if vals[each][0] < vmin:
                     vmin = vals[each][0]
