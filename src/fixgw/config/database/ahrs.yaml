@@ -567,6 +567,30 @@ items:
   initial: 0.0
   tol: 2000
 
+# Active frequency each NAV radio is tuned to, MHz (108.00-117.95; 0 = none).
+# The bus-side counterpart of CAN-FiX 1220 "VOR/ILS Frequency", index 0
+# (current). Writer: the pilot. Reader: a NAV source that tunes itself from
+# the bus, first the sdr_vor plugin (SDRVOR1, AER-6141), which releases its
+# SDR when the value is 0 or not a VOR/localizer channel. tol 0 (CERT2a): a
+# setting written on change. Design note: docs/sdr_vor.md.
+- key: NAV1FREQ
+  description: NAV1 active frequency (MHz, 0=none)
+  type: float
+  min: 0.0
+  max: 117.95
+  units: MHz
+  initial: 0.0
+  tol: 0
+
+- key: NAV2FREQ
+  description: NAV2 active frequency (MHz, 0=none)
+  type: float
+  min: 0.0
+  max: 117.95
+  units: MHz
+  initial: 0.0
+  tol: 0
+
 # Writer: compute's remap of NAVSRC, on change. tol 0 as NAVSRC (CERT2a).
 - key: XPHSISRC
   description: X-Plane HSI source index (0=NAV1, 1=NAV2, 2=GPS) = NAVSRC (identity map)
