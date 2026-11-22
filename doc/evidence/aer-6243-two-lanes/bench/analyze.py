@@ -50,6 +50,10 @@ def leader_at(lane, t):
     return prev[-1][3] if t - prev[-1][0] < 1.0 else f"silent ({prev[-1][3]} {t - prev[-1][0]:.0f} s ago)"
 
 
+# The recorder flushes as it goes, but a run stopped with SIGTERM before AER-6243's fix
+# lost its last fraction of a second.  Judge only the recorded window, and say what was not.
+data_end = events[-1][0]
+
 rows, ok_all = [], True
 starts = [(t, w.split(":")[0]) for t, w in marks if w.endswith(":before")]
 ends = [t for t, w in marks if w.endswith(":before")][1:] + [t for t, w in marks if w == "done"]
@@ -57,6 +61,9 @@ for (t0, mode), t1 in zip(starts, ends):
     fault = next(t for t, w in marks if w == f"{mode}:fault")
     recover = next(t for t, w in marks if w == f"{mode}:recover")
     verdict, notes = True, []
+    if t1 > data_end:
+        notes.append(f"last {(t1 - data_end) * 1000:.0f} ms of this mode not recorded, not judged")
+        t1 = data_end
     for key, tol in TOL_MS.items():
         ws = window(t0, t1, 2, key)
         writes = [e for e in ws if e[4] == "00000"]

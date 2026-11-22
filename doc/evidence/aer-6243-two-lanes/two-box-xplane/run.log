@@ -1,0 +1,26 @@
+05:29:05.771 pi start
+05:30:55.898 host_drop:before
+05:31:11 grab host_drop_1before
+05:31:16.106 host_drop:fault
+05:31:16.152 pi host_drop
+05:31:26 grab host_drop_2during
+05:31:36.397 host_drop:recover
+05:31:36.618 pi restart
+05:32:01 grab host_drop_3after
+05:32:06.821 gw_kill:before
+05:32:22 grab gw_kill_1before
+05:32:27.027 gw_kill:fault
+05:32:27.069 pi gw_kill
+05:32:37 grab gw_kill_2during
+05:32:47.272 gw_kill:recover
+05:32:47.397 pi restart
+05:33:12 grab gw_kill_3after
+05:33:17.589 link_cut:before
+05:33:32 grab link_cut_1before
+05:33:37.780 link_cut:fault
+05:33:48 grab link_cut_2during
+05:33:58.010 link_cut:recover
+05:34:23 grab link_cut_3after
+05:34:28.210 done
+05:34:28.351 pi stop
+05:50:20.101 pi stop

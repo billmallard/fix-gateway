@@ -6,4 +6,4 @@
 | efis_stop | yes | never | True / False | PITCH max gap 113 ms (tol 300), 709 writes, 0 flagged; ROLL max gap 113 ms (tol 300), 709 writes, 0 flagged; IAS max gap 113 ms (tol 2000), 709 writes, 0 flagged; ALT max gap 113 ms (tol 2000), 709 writes, 0 flagged |
 | can_cut | yes | 1.18 s | True / True | PITCH max gap 117 ms (tol 300), 710 writes, 0 flagged; ROLL max gap 117 ms (tol 300), 710 writes, 0 flagged; IAS max gap 117 ms (tol 2000), 710 writes, 0 flagged; ALT max gap 117 ms (tol 2000), 710 writes, 0 flagged |
 
-Overall: PASS  (events: 32127, 22:00:50 to 22:07:35 UTC)
+Overall: PASS  (events: 32985, 22:00:50 to 22:07:45 UTC)

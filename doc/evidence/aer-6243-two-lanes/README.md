@@ -34,14 +34,23 @@ key's timestamp. `bench/analyze.py` judges the run from `events.csv`.
   window), so a synthetic feeder writes PITCH, ROLL, IAS and ALT into each lane at 10 Hz
   (`lanes.sh feed`). This proves the harness and the gateway side. It does not prove the
   X-Plane feed path. `summary.md` is the verdict.
-- `xplane/`: the same run with each lane fed by X-Plane over RREF, sim bench session
-  `eb3686e0dac3`. Added when it has flown.
+- `xplane/`, 2026-11-22 05:07 to 05:15 UTC: the same run with each lane fed by X-Plane
+  over RREF on its own socket, sim bench session `eb3686e0dac3` (profile
+  `fp8-ksmx-rnav30-missed`). Every mode passes. `summary.at_run.md` is the verdict
+  printed at the end of the night, which failed `can_cut` on a 612 ms "gap". That gap was
+  the last 0.6 s of the run, which the recorder never wrote: it flushed once a second and
+  was stopped with SIGTERM. The last `seconds.csv` row (05:15:30.029, lane 2's keys 20 ms
+  old) is the last recorded instant. `analyze.py` now judges only the recorded window and
+  names any unrecorded tail, and `recorder.py` flushes each line and exits cleanly on
+  SIGTERM. Those two fixes came after these runs, so the X-Plane runs did not exercise
+  the recorder fix.
 
 Each `sheet_<mode>.png` is four 1920x1080 frames at half size: top left lane 2 before
 the fault, top right lane 2 during it (10 s in), bottom left lane 2 after recovery
 (25 s), bottom right lane 1 during it. The SVS is off in both lanes (two GL panes on one
 box load the bench for nothing), so the attitude indicator draws its plain sky. In the
-dry run the sky is grey and the VSI shows a red X because only four keys are fed.
+dry run the sky is grey and the VSI shows a red X because only four keys are fed. No
+run feeds position, so the map pane reads NO POS throughout.
 
 ## Reproduce
 
@@ -85,8 +94,9 @@ stays up, and nothing electrical happens to the bus. A real pull needs a hand on
   recorded on the Pi. It shows lane 1 holding LEADER true through the whole cut while
   lane 2 also led: two leaders across two hosts (Q1). Each `sheet_<mode>.png` is lane 2
   before, during and after, left to right.
-- `two-box-xplane/`: the same with X-Plane on both lanes, sim session `b4bbacbc5ef6`.
-  Added when it has flown.
+- `two-box-xplane/`, 2026-11-22 05:29 to 05:34 UTC: X-Plane on both lanes, lane 1 on the
+  Pi, sim session `b4bbacbc5ef6`. Every mode passes. `lane1_pi_events.csv.gz` is lane 1's
+  own record on the Pi (2190 fresh PITCH writes from X-Plane).
 
 Reproduce: on the Pi, `python3 h/lane1d.py ~/bench-scratch/aer6243 <deadline>`; on the
 Beelink, `sh h/twobox.sh setup <fgw sha> <pyEfis sha>`, then `start`, `feed` (sim off

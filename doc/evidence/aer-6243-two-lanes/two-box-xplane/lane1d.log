@@ -1,0 +1,21 @@
+05:29:05.590 command start
+05:29:05.591 spawned bridge 1411716
+05:29:05.765 spawned gw1 1411718
+05:29:05.766 spawned recorder 1411719
+05:31:16.141 command host_drop
+05:31:16.144 killed gw1 bridge
+05:31:36.438 command restart
+05:31:36.439 spawned bridge 1411739
+05:31:36.613 spawned gw1 1411741
+05:32:27.056 command gw_kill
+05:32:27.059 killed gw1
+05:32:47.305 command restart
+05:32:47.394 spawned gw1 1411755
+05:34:28.337 command stop
+05:34:28.341 killed bridge gw1 recorder
+05:50:20.099 command stop
+05:50:20.099 killed bridge gw1 recorder
+08:02:03.427 command quit
+08:02:03.427 killed bridge gw1 recorder
+08:02:03.427 killed bridge gw1 recorder
+08:02:03.427 exit

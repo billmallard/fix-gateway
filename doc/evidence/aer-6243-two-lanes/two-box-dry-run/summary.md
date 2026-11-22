@@ -4,4 +4,4 @@
 | gw_kill | yes | 1.08 s | ? / True | PITCH max gap 106 ms (tol 300), 705 writes, 0 flagged; ROLL max gap 106 ms (tol 300), 705 writes, 0 flagged; IAS max gap 106 ms (tol 2000), 705 writes, 0 flagged; ALT max gap 106 ms (tol 2000), 705 writes, 0 flagged |
 | link_cut | yes | 1.01 s | ? / True | PITCH max gap 107 ms (tol 300), 704 writes, 0 flagged; ROLL max gap 107 ms (tol 300), 704 writes, 0 flagged; IAS max gap 107 ms (tol 2000), 704 writes, 0 flagged; ALT max gap 107 ms (tol 2000), 704 writes, 0 flagged |
 
-Overall: PASS  (events: 10305, 02:05:18 to 02:09:30 UTC)
+Overall: PASS  (events: 10694, 02:05:18 to 02:09:38 UTC)

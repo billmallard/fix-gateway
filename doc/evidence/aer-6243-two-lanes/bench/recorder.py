@@ -15,6 +15,7 @@ again; one thread per lane, so a stopped lane 1 never holds up lane 2.
     python3 recorder.py RUN_DIR PORT_LANE1 PORT_LANE2
 """
 import os
+import signal
 import socket
 import sys
 import threading
@@ -55,10 +56,13 @@ def follow(lane):
                     with lock:
                         last[(lane, parts[0])] = (now, parts[1], parts[2])
                         events.write(f"{now:.3f},{lane},{parts[0]},{parts[1]},{parts[2]}\n")
+                        events.flush()
         except (OSError, ConnectionError):
             time.sleep(0.5)
 
 
+# Stopped with SIGTERM: exit through Python so every buffered line reaches the file.
+signal.signal(signal.SIGTERM, lambda *a: sys.exit(0))
 for lane in ports:
     threading.Thread(target=follow, args=(lane,), daemon=True).start()
 
