@@ -1,0 +1,40 @@
+{
+ "id": "4f20ad787ee9",
+ "requester": "AVIONICS",
+ "issue": "AER-6268",
+ "profile": "D:/Users/wpballard/Documents/github/xplane-bench/runs\\inline_profiles\\1e26fa3b-aer6268-headbug-walk.yaml",
+ "aircraft": "sr22",
+ "estimate_s": 2280.0,
+ "state": "finished",
+ "submitted": "2026-11-22T06:50:06+00:00",
+ "run_dir": "D:\\Users\\wpballard\\Documents\\github\\xplane-bench\\runs\\20261122T065011Z-aer6268-headbug-walk",
+ "result": {
+  "profile": "aer6268-headbug-walk",
+  "aircraft": "sr22",
+  "requester": "AVIONICS",
+  "issue": "AER-6268",
+  "run_dir": "D:\\Users\\wpballard\\Documents\\github\\xplane-bench\\runs\\20261122T065011Z-aer6268-headbug-walk",
+  "xplane_nav_cycle": "2611",
+  "profile_cifp_cycle": null,
+  "events": {},
+  "sequence": [
+   {
+    "t": 79.9,
+    "plan": "primary",
+    "dest": 5,
+    "fix": "HENER"
+   },
+   {
+    "t": 158.0,
+    "plan": "primary",
+    "dest": 6,
+    "fix": "VTU"
+   }
+  ],
+  "outcome": "aborted",
+  "reason": "autopilot servos dropped",
+  "duration_s": 271.1
+ },
+ "blocked": null,
+ "started": "2026-11-22T06:50:11+00:00"
+}

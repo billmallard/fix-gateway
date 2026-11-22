@@ -1,0 +1,9 @@
+{"t": 0.7, "msg": "route", "fixes": ["GVO", "GOLET", "KWANG", "DEANO", "HENER", "VTU", "EXERT", "DOYLE", "PAROL", "SXC", "AVOLS"], "start_at": "HENER"}
+{"t": 35.7, "msg": "X-Plane flying after 35 s"}
+{"t": 71.3, "msg": "up to speed", "unpause_s": 31.1, "speed_s": 4.5}
+{"t": 76.0, "msg": "fms loaded (en route)", "primary": ["KSBA", "GVO", "GOLET", "KWANG", "DEANO", "HENER", "VTU", "EXERT", "DOYLE", "PAROL", "SXC", "AVOLS", "KSMX"]}
+{"t": 78.8, "msg": "autopilot coupled to GPS", "ias": 108, "alt_ft": 7361}
+{"t": 79.9, "msg": "sequence", "plan": "primary", "dest": 5, "fix": "HENER"}
+{"t": 158.0, "msg": "sequence", "plan": "primary", "dest": 6, "fix": "VTU"}
+{"t": 271.1, "msg": "session end", "outcome": "aborted", "reason": "autopilot servos dropped"}
+{"t": 276.2, "msg": "preferences restored from snapshot"}
