@@ -178,9 +178,11 @@ text-align:center;text-decoration:none;color:#246;font-weight:600}}input{{displa
 </body></html>
 """
 
+# No accept= on the input: iOS has no type for .fpl and greys the file out of
+# the picker (AER-6321 bench). The upload's strict parse does the filtering.
 UPLOAD_FORM = """<form method="post" action="/upload" enctype="multipart/form-data" id="f">
 <label class="b">Send a .fpl file to the panel
-<input type="file" name="fpl" accept=".fpl" onchange="document.getElementById('f').submit()">
+<input type="file" name="fpl" onchange="document.getElementById('f').submit()">
 </label></form>"""
 
 

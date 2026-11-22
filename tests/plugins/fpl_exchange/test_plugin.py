@@ -312,6 +312,14 @@ def test_http_download_serves_the_loaded_plan(database, served):
     assert status == 200 and b"KSBA RZS AVOLS KSMX" in page and b'href="/plan.fpl"' in page
 
 
+def test_http_upload_picker_has_no_type_filter(database, served):
+    # iOS has no type for .fpl, so accept=".fpl" greys out ForeFlight's file in
+    # the picker (Bill's iPad, AER-6321). The server's strict parse is the filter.
+    _, port = served()
+    page = request(port, "GET", "/")[2]
+    assert b'type="file"' in page and b"accept=" not in page
+
+
 def test_http_no_plan_is_404(database, served):
     _, port = served()
     assert request(port, "GET", "/plan.fpl")[0] == 404
