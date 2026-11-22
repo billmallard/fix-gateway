@@ -81,7 +81,7 @@ activates a leg again, and `FPLMSG` says why: `ACTIVE LEG REMOVED`,
 | Path terminators | How they are flown |
 |---|---|
 | `IF`, `TF`, `DF` | great circle from the previous point |
-| `DF` with `TURN` `L`/`R` | a standard-rate turn that way from where the leg begins, then the great circle to the fix; `FPLTURN` shows the direction during the turn |
+| `DF` with `TURN` `L`/`R` | a standard-rate turn that way from where the leg begins, then the great circle to the fix; `FPLTURN` shows the direction during the turn. Flown when the `DF` is sequenced into or started by `ACT` (from the aircraft, on `TRACK`); a `DTO` or a `RESUME` off vectors flies the line, the short way |
 | `CF` | the published `CRS` into the fix |
 | `RF`, `AF` | constant-radius arc about `CTRLAT`/`CTRLON`, radius `DST`, direction `TURN` (`R` is clockwise) |
 | `CA` | the published course until `altitude_key` reaches the constraint |

@@ -159,10 +159,21 @@ direction, and nothing sequences. The fix before such a `DF` gets no fly-by
 turn (`FPLfTA` 0): it sequences abeam, and the `DF`'s turn starts there.
 The turn starts where the engine knows the arrival track: sequencing into the
 `DF` from the leg before it, and `RESUME` at the MAP into a missed approach
-that opens with one. A `DF` started by `ACT`, `DTO` or a `RESUME` off a
-vector leg flies the line, the short way, because the engine has no track
-for it. So does a `DF` whose fix lies inside the turn's circle, where no
-tangent reaches it; 8260.58D C-3.a requires a published DF's fix outside it.
+that opens with one. `ACT` on a `DF` means the leg before it is done, so it
+flies the coded turn too, from the aircraft's position and `TRACK` (the true
+ground track) when the command arrives. `ACT` on any `DF` starts it from the
+aircraft, never from the slot before it: a `DF` has no FROM fix (FAA-H-8083-16B
+p.6-7, "an unspecified track starting from an undefined position"), and after a
+`CA` that slot is only a stand-in for where the climb ends. With `TRACK` old,
+bad or absent, `ACT` flies the line from the aircraft.
+
+A `DTO` to a `DF` and a `RESUME` off a vector leg fly the line, the short way,
+even with `TRACK` known. Each is a fresh "proceed direct": the line from
+present position, as every pilot's guide describes a direct-to, and on vectors
+ATC owns the turn. No public source settles which way an off-sequence `DF`
+turns; this split is Bill's ruling (AER-6294). A `DF` whose fix lies inside
+the turn's circle, where no tangent reaches it, also flies the line; 8260.58D
+C-3.a requires a published DF's fix outside it.
 
 ## Route segment table (RS1)
 
