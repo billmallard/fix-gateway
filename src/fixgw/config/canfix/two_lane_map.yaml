@@ -1,0 +1,173 @@
+# CAN-FIX map for a two-lane panel (two_lane_1.yaml, two_lane_2.yaml).
+#
+# A lane is one display unit with its own computer, gateway, pyEfis and its
+# own attitude and air-data source (MAOS brief briefs/redundant_lanes.md).
+# The lanes share this bus for engine data, the compass puck, buttons and the
+# quorum votes.
+#
+# This is map.yaml without the inputs for the values each lane takes from its
+# own source: PITCH, ROLL, IAS, ALT, TAS, VS, ALAT, ROT and AOA.  The CAN-FIX
+# input map has no filter on the sending node, so with map.yaml a lane that put
+# its own attitude on the bus would become a second writer of the other lane's
+# PITCH, and the other lane would show it as its own (brief gap Q3).
+#
+# The rule for a two-lane panel:
+#   - No lane ingests a primary flight value from the bus.
+#   - No lane transmits one under its CAN-FIX parameter id.  A value a lane
+#     shares for comparison travels only under a lane-tagged key that no lane
+#     displays as its own.  Those keys do not exist yet; they come with the
+#     cross-lane comparator (brief L3).
+#   - HEAD stays: the compass puck is the one sender of Heading (0x185), and
+#     both lanes read it.  A lane with its own heading source must not send it.
+#
+# tests/integration/test_two_lanes.py checks that this file is map.yaml minus
+# exactly those rows, so edit both together.
+
+# This file contains all of the mappings that tell the canfix plugin how
+# to talk to the FIX Gateway database.  This is a YAML file.
+
+# This mapping is mostly complete and it includes data for two engines.
+# When configured for a single engine, the fixids for the 2nd engine 
+# will be invalid. The following setting will ignore such errors.
+# Setting this to false will result in an exception at startup
+# if an invalid fixid is used. 
+ignore_fixid_missing: true
+
+# This is a list of replacement strings to map meta data from the CAN-FIX
+# protocol to the actual meta/auxiliary data described in the FGW database
+# definition.  The first is what would be called out in the CAN-FIX protocol
+# and the second is what it will be replaced with when being written to
+# the database.
+
+meta replacements:
+  Low Warn: lowWarn
+  Low Alarm: lowAlarm
+  High Warn: highWarn
+  High Alarm: highAlarm
+
+
+# Input mappings are for data that is read from the CAN-FIX bus and written into
+# the FixGW database.  This list contains the following information...
+
+# canid  - The CAN-FIX ID of the parameter represented by the received message
+# index - The CAN-FIX index of the parameter
+# fixid - The FIX Database ID (This should match an individual point
+#         in the database configuration)
+# priority - The redundancy priority of this point 0 = primary, 1 secondary, etc.
+# nodespecific - If True nodespecific messages will be accepted the same as 
+#                messages send as owner
+# scale - Optional.  Multiplies the decoded value before it is written, for a
+#         FIX key whose units differ from the parameter's.  Negative flips sense.
+
+inputs:
+  - { canid: 0x185, index: 0, fixid: "HEAD", priority: 0 }
+  - { canid: 0x190, index: 0, fixid: "BARO", priority: 0 }
+  - { canid: 0x200, index: 0, fixid: "TACH1", priority: 0 }
+  - { canid: 0x201, index: 0, fixid: "TACH2", priority: 0 }
+  - { canid: 0x202, index: 0, fixid: "PROP1", priority: 0 }
+  - { canid: 0x203, index: 0, fixid: "PROP2", priority: 0 }
+  - { canid: 0x21E, index: 0, fixid: "MAP1", priority: 0 }
+  - { canid: 0x21F, index: 0, fixid: "MAP2", priority: 0 }
+  - { canid: 0x220, index: 0, fixid: "OILP1", priority: 0 }
+  - { canid: 0x221, index: 0, fixid: "OILP2", priority: 0 }
+  - { canid: 0x222, index: 0, fixid: "OILT1", priority: 0 }
+  - { canid: 0x223, index: 0, fixid: "OILT2", priority: 0 }
+  - { canid: 0x500, index: 0, fixid: "CHT11", priority: 0 }
+  - { canid: 0x500, index: 1, fixid: "CHT12", priority: 0 }
+  - { canid: 0x500, index: 2, fixid: "CHT13", priority: 0 }
+  - { canid: 0x500, index: 3, fixid: "CHT14", priority: 0 }
+  - { canid: 0x501, index: 0, fixid: "CHT21", priority: 0 }
+  - { canid: 0x501, index: 1, fixid: "CHT22", priority: 0 }
+  - { canid: 0x501, index: 2, fixid: "CHT23", priority: 0 }
+  - { canid: 0x501, index: 3, fixid: "CHT24", priority: 0 }
+  - { canid: 0x502, index: 0, fixid: "EGT11", priority: 0 }
+  - { canid: 0x502, index: 1, fixid: "EGT12", priority: 0 }
+  - { canid: 0x502, index: 2, fixid: "EGT13", priority: 0 }
+  - { canid: 0x502, index: 3, fixid: "EGT14", priority: 0 }
+  - { canid: 0x503, index: 0, fixid: "EGT21", priority: 0 }
+  - { canid: 0x503, index: 1, fixid: "EGT22", priority: 0 }
+  - { canid: 0x503, index: 2, fixid: "EGT23", priority: 0 }
+  - { canid: 0x503, index: 3, fixid: "EGT24", priority: 0 }
+  # Fuel Quantity (550-553). Tank n is id 550 + (n-1) mod 4, index
+  # floor((n-1)/4) (canfix-spec #7), so tanks 1-4 are index 0 and tanks
+  # 5-8 are index 1 on the same four ids. FUELQ4 exists only when the
+  # database has t: 4 or more; ignore_fixid_missing skips the row otherwise.
+  - { canid: 0x226, index: 0, fixid: "FUELQ1", priority: 0 }
+  - { canid: 0x227, index: 0, fixid: "FUELQ2", priority: 0 }
+  - { canid: 0x228, index: 0, fixid: "FUELQ3", priority: 0 }
+  - { canid: 0x229, index: 0, fixid: "FUELQ4", priority: 0 }
+  # Tank 5 rides tank 1's id at index 1. Set t: 5 in database/variables.yaml
+  # and uncomment. Two nodes may not send one id, so tanks 1 and 5 must come
+  # from the same fuel node.
+  # - { canid: 0x226, index: 1, fixid: "FUELQ5", priority: 0 }
+  - { canid: 0x21A, index: 0, fixid: "FUELF1", priority: 0 }
+  - { canid: 0x21B, index: 0, fixid: "FUELF2", priority: 0 }
+  - { canid: 0x21C, index: 0, fixid: "FUELP1", priority: 0 }
+  - { canid: 0x21D, index: 0, fixid: "FUELP2", priority: 0 }
+  # Glideslope Deviation (449) is a VHF nav receiver's needle, so it lands on
+  # the NAV1 source key. The canonical GSI belongs to compute's NAVSRC select
+  # alone. A receiver wired as NAV2 remaps this row to NAV2GSI.
+  #
+  # 449 is degrees and NAV1GSI is +/-1 full scale. The scale assumes the
+  # standard 0.7 degree full-scale glideslope (a 3 degree glidepath) and that
+  # positive means fly up; the CAN-FIX spec states neither. Use a negative
+  # scale for a receiver with the opposite sense.
+  #
+  # VOR/LOC Deviation (448) is not mapped. It is UINT degrees, so it cannot
+  # carry a deviation left of course, and no scale turns it into NAV1CDI.
+  - { canid: 0x1C1, index: 0, fixid: "NAV1GSI", priority: 0, scale: 1.428571 }
+  - { canid: 0x545, index: 0, fixid: "FTIME", priority: 0 }
+  - { canid: 0x520, index: 0, fixid: "HOBBS1", priority: 0 }
+  - { canid: 0x50E, index: 0, fixid: "VOLT", priority: 0 }
+  - { canid: 0x512, index: 0, fixid: "CURRNT", priority: 0 }
+  - { canid: 0x406, index: 0, fixid: "OAT", priority: 0 }
+  - { canid: 0x188, index: 0, fixid: "AGL", priority: 0 }
+
+
+  # Output mappings are for data that is read from the FixGW database and
+  # written to the CAN-FIX bus.  This list contains the following information...
+
+  # canid  - The CAN-FIX ID of the parameter represented by the received message
+  # index - The CAN-FIX index of the parameter
+  # fixid - The FIX Database ID (This should match an individual point
+  #         in the database configuration)
+  # owner - If true the message will be sent as a normal data update
+  #         otherwise a node specific parameter set message will be sent
+  # on_change - Default is True, when True data is only sent if it is different
+  #             from from previous value sent. Setting this to False will send every
+  #             message.
+  # Switches - Like the inputs switches can be output in the same manner by
+  #            specifying a comma seperated list of fixids, up to 40 ids are supported.
+
+outputs:
+    - { fixid: "BARO", canid: 0x190, index: 0, owner: False }
+    # Selected Altitude (461). Sent as owner so an autopilot on the bus sees the
+    # pilot's target, with ALTSEL's annunciate flag (altitude deviation).
+    - { fixid: "ALTSEL", canid: 0x1CD, index: 0, owner: True }
+    - { fixid: "BTN11,BTN12,BTN13,BTN14,BTN15,BTN16", canid: 0x308, index: 0 }
+
+# Special Input Functions
+# Each canid for encoders can support two encoders and 0 or up to 8 buttons.
+# defines the fixid as a comma seperated list with the first two being the encoders
+encoders:
+    - { fixid: "ENC1, ENC2, BTN11", canid: 0x300, index: 0 }
+    - { fixid: "ENC3,ENC4,BTN12", canid: 0x301, index: 0 }
+
+# Generic Switch Inputs
+# Switches can be input by specifying the fixids as a comma seperated list.
+# switches are identified as canids 0x308 to 0x30F, each canid can handle up to 
+# a total of 40 switches
+# Any dbkey that is used with a pyEFIS touchscreen toggle button ( NOT simple or repeating )
+# Should be listed in the optional key 'toggle' as a comma seperated list same as fixid.
+# CAN devices sending toggle or simple button data should send one true message 
+# followed by one false message every one time the button is pressed.
+# see one shot mode: https://github.com/e100/mp-canfix-devices/blob/main/switches/code.py
+# CAN devices sending repeating button data should sent one true when pressed and 
+# one false when released.
+#
+# The above rules are needed because multiple buttons are sent with a single can message.
+# Without these rules and features a user pressing one button and while holding it presses another
+# button could result in the first button looking as if it was pressed twice.
+
+switches:
+    - { fixid: "BTN1,BTN2,BTN3,BTN4,BTN5,BTN6", canid: 0x308, index: 0, toggle: "" }

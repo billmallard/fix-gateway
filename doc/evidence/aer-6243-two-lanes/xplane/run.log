@@ -1,0 +1,31 @@
+05:09:32.460 gw_kill:before
+05:09:47 grab gw_kill_1before
+05:09:52.998 gw_kill:fault
+05:10:03 grab gw_kill_2during
+05:10:13.388 gw_kill:recover
+05:10:39 grab gw_kill_3after
+05:10:44.242 gw_stop:before
+05:10:59 grab gw_stop_1before
+05:11:04.773 gw_stop:fault
+05:11:15 grab gw_stop_2during
+05:11:25.181 gw_stop:recover
+05:11:50 grab gw_stop_3after
+05:11:55.682 efis_kill:before
+05:12:11 grab efis_kill_1before
+05:12:16.185 efis_kill:fault
+05:12:26 grab efis_kill_2during
+05:12:36.578 efis_kill:recover
+05:13:02 grab efis_kill_3after
+05:13:07.465 efis_stop:before
+05:13:22 grab efis_stop_1before
+05:13:27.943 efis_stop:fault
+05:13:38 grab efis_stop_2during
+05:13:48.317 efis_stop:recover
+05:14:13 grab efis_stop_3after
+05:14:18.897 can_cut:before
+05:14:34 grab can_cut_1before
+05:14:39.465 can_cut:fault
+05:14:49 grab can_cut_2during
+05:14:59.983 can_cut:recover
+05:15:25 grab can_cut_3after
+05:15:30.621 done
