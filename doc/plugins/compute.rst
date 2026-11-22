@@ -30,7 +30,7 @@ with ``t: 3`` in ``database/variables.yaml``, ``FUELQt`` is ``FUELQ1``,
     module: fixgw.plugins.compute
     functions:
       - function: max
-        inputs: ["CHT11", "CHT12", "CHT13", "CHT14"]
+        inputs: ["CHT1c"]       # CHT11 .. CHT1<c>, c from variables.yaml
         output: CHTMAX1
 
       - function: altd
