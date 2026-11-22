@@ -1,7 +1,8 @@
 # Software VOR and localizer receiver on an RTL-SDR dongle (SDRVOR1).
 #
 # SUPPLEMENTAL, NOT A CERTIFIED NAV RECEIVER: day VFR situational awareness
-# only. Never an approach or IFR source. No glideslope.
+# only. Never presented as a certified, approach or IFR source; marked
+# supplemental wherever it is shown (NAV<n>SUPP). No glideslope.
 #
 # Tune it by writing the slot's frequency key in MHz (NAV2FREQ for the default
 # slot), e.g. `fixgwc` then `w NAV2FREQ 113.9`. 0 releases the dongle. Needs

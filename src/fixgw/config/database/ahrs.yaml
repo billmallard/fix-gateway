@@ -567,6 +567,39 @@ items:
   initial: 0.0
   tol: 2000
 
+# Supplemental nav source per slot (1 = the receiver writing this slot is
+# supplemental, not a certified nav radio). The source plugin knows what it
+# is and says so; the display never infers it from a frequency or a plugin
+# config. Writer: the sdr_vor plugin, on its own slot only (SDRVOR3,
+# AER-6245). No other source writes it, so a real radio's slot reads the
+# initial 0. The compute NAVSRC select routes the selected slot into NAVSUPP
+# (GPS slot constant 0), which the HSI reads to mark the source. tol 0: a
+# property of the receiver, not a measurement, so it never goes old. Design
+# record: MAOS-DESIGN roadmap section 9.1 "Supplemental nav source".
+- key: NAV1SUPP
+  description: NAV1 source is supplemental, not certified (1=supplemental)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 0
+
+- key: NAV2SUPP
+  description: NAV2 source is supplemental, not certified (1=supplemental)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 0
+
+- key: NAVSUPP
+  description: Selected nav source is supplemental, not certified (1=supplemental)
+  type: float
+  min: 0.0
+  max: 1.0
+  initial: 0.0
+  tol: 0
+
 # Active frequency each NAV radio is tuned to, MHz (108.00-117.95; 0 = none).
 # The bus-side counterpart of CAN-FiX 1220 "VOR/ILS Frequency", index 0
 # (current). Writer: the pilot. Reader: a NAV source that tunes itself from

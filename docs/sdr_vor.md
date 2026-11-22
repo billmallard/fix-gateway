@@ -3,9 +3,12 @@
 SDRVOR1 (AER-6141), capability CAP-215.
 
 **Supplemental, not a certified nav receiver, day VFR situational awareness.**
-It is never an approach or IFR source, and it has no glideslope. Every surface
-that names it says so: the plugin and connection file headers, its status
-page, and the log line each time it tunes.
+It is never presented as a certified, approach or IFR source, and it has no
+glideslope. Every surface that names it says so: the plugin and connection
+file headers, its status page, the log line each time it tunes, and the HSI,
+which marks the source supplemental from `NAVSUPP`. Marked is not locked out:
+nothing in the stack refuses to use it (Bill, AER-6245; see "Autopilot
+coupling" below). Whether to use it is the pilot's call.
 
 ## What it does
 
@@ -13,7 +16,7 @@ The plugin is one NAV radio slot, NAV2 by default (`nav_slot`), so it never
 shares keys with a real NAV1 radio. It tunes an RTL-SDR dongle to the
 frequency the pilot sets on the bus, decodes the VOR or localizer, and writes
 the slot's existing keys. The HSI shows it through `NAVSRC`, as it shows any
-NAV radio. Nothing is added on the display side.
+NAV radio, and marks it as supplemental from `NAVSUPP` (below).
 
 | Key | Written | Meaning here |
 |---|---|---|
@@ -22,6 +25,7 @@ NAV radio. Nothing is added on the display side.
 | `NAV2TF` | yes | 1 TO, 2 FROM. 0 on a localizer, while not valid, or with a failed course |
 | `NAV2TYPE` | yes | 1 VOR, 2 LOC, from the channel plan. 0 when not tuned |
 | `NAV2GSF` | yes | always 1: no glideslope, so compute keeps `NAV2GSV` 0 |
+| `NAV2SUPP` | yes | always 1, tuned or not: the slot's source is supplemental. New key, see below |
 | `VOR2BRG` | yes | bearing TO the station, magnetic (radial + 180). Failed unless a valid VOR |
 | `NAV2FREQ` | read | the active frequency, MHz. New key, see below |
 | `NAV2CRS` | read | the OBS course, pilot-set as before |
@@ -43,6 +47,40 @@ tol 0 because it is a setting written on change. The pilot is the writer.
 pyEfis has no tuning page yet, so for now the frequency is set with `fixgwc`
 (`w NAV2FREQ 113.9`). A tuning control is a separate item. The roadmap 9.1
 design-record block is on AER-6141 for a session to land.
+
+### Marking the source supplemental
+
+Without a mark, the HSI labels the SDR slot VOR2 or LOC2, exactly as it
+labels a certified radio. SDRVOR3 (AER-6245) adds `NAV1SUPP` and `NAV2SUPP`
+(`database/ahrs.yaml`): float, 1 = the receiver writing this slot is
+supplemental, initial 0, tol 0, because it is a property of the receiver and
+not a measurement. The plugin writes 1 on its own slot with every write of
+the slot, and nothing else writes either key. Compute selects the slot into
+`NAVSUPP` over `NAVSRC`, with the GPS slot the constant 0, the `NAVTYPE`
+shape. The select sets `unwritten: initial`, so a slot nothing claims (a real
+radio) reads 0, not failed, after the SDR slot's 1 was showing. The HSI reads
+`NAVSUPP`. With the key absent (an older gateway) or 0, the HSI is unchanged.
+The display never infers "supplemental" from a frequency or a plugin config.
+
+### Autopilot coupling: never refuse, annunciate
+
+Bill's ruling, AER-6245, 2026-11-21: **no adapter, now or later, refuses to
+arm NAV, LOC or APR coupling because `NAVSUPP` = 1.** When coupling is armed
+or active on a supplemental source, the panel shows a caution (working words
+"UNRELIABLE NAV RADIO"; the wording and look are Bill's). In his words: "I
+don't want to restrict a behavior that in an emergency would be helpful. [...]
+Using a cheap SDR could be an informal back-up in an emergency. It wouldn't be
+legal to use as primary source, but in an emergency the rules can't prevent
+the pilot from using all available resources to land safely."
+
+So the rule for any adapter that couples to a bus NAV source is: allow the
+coupling on `NAVSUPP` = 1, publish the state the caution needs, and never
+refuse on it. Today no adapter couples to a bus NAV source: the X-Plane
+adapter's NAV and APR fly the simulator's own radios, and the MAVLink adapter
+offers only AP, NAV (a GPS waypoint) and DISC. So there is no refusal code to
+remove, and nothing yet for the caution to watch. The caution is BACKLOG
+`SDRVOR4`: a `cas` catalog row on `NAVSUPP` and the coupled lateral mode,
+built with the first adapter that couples to a bus NAV source.
 
 ## Signal model
 
@@ -150,4 +188,6 @@ fix-gateway is GPL-2.0-or-later.
   TO/FROM on both sides of the station, flagging on noise and below the floor,
   slot 1, and refused configs. It runs a stand-in `rtl_sdr` to check tuning,
   retuning and release. It runs the real gateway with compute to check
-  `NAV2CDIV`/`CDIV` and one writer per key.
+  `NAV2CDIV`/`CDIV` and one writer per key, and `NAVSUPP` following `NAVSRC`
+  with sdr_vor on and staying 0 with it off. A scan checks that no other
+  plugin or config names a `NAV<n>SUPP` key.

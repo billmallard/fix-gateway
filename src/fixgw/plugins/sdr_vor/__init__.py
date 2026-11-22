@@ -1,7 +1,8 @@
 """Software VOR and localizer receiver on an RTL-SDR dongle (SDRVOR1, AER-6141).
 
 SUPPLEMENTAL, NOT A CERTIFIED NAV RECEIVER: day VFR situational awareness
-only. Never an approach or IFR source. No glideslope.
+only. Never presented as a certified, approach or IFR source; marked
+supplemental wherever it is shown (NAV<n>SUPP). No glideslope.
 
 The plugin is one NAV radio slot (``nav_slot``, NAV2 by default so it never
 shares keys with a real NAV1 radio). It tunes to the frequency the pilot sets
@@ -14,6 +15,8 @@ in ``NAV<n>FREQ``, decodes the station, and writes the slot's existing keys:
     NAV<n>TF    1 TO, 2 FROM; 0 on a localizer or while not valid.
     NAV<n>TYPE  1 VOR, 2 LOC (from the channel plan); 0 when not tuned.
     NAV<n>GSF   always 1: this receiver has no glideslope.
+    NAV<n>SUPP  always 1: the slot's source is supplemental (SDRVOR3). Compute
+                selects it into NAVSUPP, and the HSI marks the source.
     VOR<n>BRG   bearing TO the station, magnetic; failed unless a valid VOR.
 
 It reads NAV<n>FREQ and NAV<n>CRS, and writes neither.
@@ -171,6 +174,7 @@ class Plugin(plugin.PluginBase):
             "tf": f"NAV{n}TF",
             "type": f"NAV{n}TYPE",
             "gsf": f"NAV{n}GSF",
+            "supp": f"NAV{n}SUPP",
             "brg": f"VOR{n}BRG",
         }
         self.decoder = dsp.Decoder(
@@ -297,6 +301,7 @@ class Plugin(plugin.PluginBase):
             self._set("tf", 0 if crs_bad else tf)
             self._set("type", dsp.VOR)
             self._set("gsf", 1.0)
+            self._set("supp", 1.0)
             self._set("dh", 0.0 if crs_bad else 1.0)
         elif valid and k == dsp.LOC:
             self._set("brg", 0.0, fail=True)
@@ -304,6 +309,7 @@ class Plugin(plugin.PluginBase):
             self._set("tf", 0)
             self._set("type", dsp.LOC)
             self._set("gsf", 1.0)
+            self._set("supp", 1.0)
             self._set("dh", 1.0)
         else:
             self.publish_invalid()
@@ -318,6 +324,7 @@ class Plugin(plugin.PluginBase):
         self._set("tf", 0)
         self._set("type", self.kind or 0)
         self._set("gsf", 1.0)
+        self._set("supp", 1.0)
         self.last_publish = time.monotonic()
 
     def publish_none(self):

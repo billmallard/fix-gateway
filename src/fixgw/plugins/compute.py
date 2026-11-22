@@ -840,7 +840,7 @@ def bearingFunction(inputs, output, require_leader):
     return func
 
 
-def selectFunction(inputs, output, require_leader):
+def selectFunction(inputs, output, require_leader, unwritten=None):
     # inputs[0] is the selector key; inputs[1:] are the source options. The
     # selector's (rounded, clamped) value picks which source is copied to the
     # output, so ONE canonical key (e.g. CDI / COURSE) always carries the
@@ -849,6 +849,13 @@ def selectFunction(inputs, output, require_leader):
     # A source option may be a number instead of a key: a constant that is
     # always fresh and valid (e.g. CDIV's GPS slot is 1.0 because no GPS
     # lateral-validity signal exists to route there).
+    # unwritten="initial": a source key no plugin has written reads as its
+    # database value and flags (its initial value) instead of failing the
+    # output. For a flag whose initial value is the honest answer when no
+    # source claims it: NAVSUPP, where only a supplemental receiver writes
+    # its slot and a real radio's slot stays 0 (SDRVOR3, AER-6245).
+    if unwritten not in (None, "initial"):
+        raise ValueError(f"select: unwritten must be 'initial', not {unwritten!r}")
     vals = {}
     for each in inputs:
         vals[each] = None
@@ -870,6 +877,8 @@ def selectFunction(inputs, output, require_leader):
             src = vals[option]
         else:
             src = (float(option), False, False, False, False, False)
+        if src is None and unwritten == "initial":
+            src = parent.db_read(option)
         if src is None:
             # The selected source has never published a value. Do NOT leave the
             # previously selected source's value showing as if it were valid --
@@ -1138,6 +1147,13 @@ class Plugin(plugin.PluginBase):
                         function["output"],
                         function["value"],
                         req_lead,
+                    )
+                elif fname == "select":
+                    f = aggregate_functions[fname](
+                        function["inputs"],
+                        function["output"],
+                        req_lead,
+                        function.get("unwritten"),
                     )
                 elif fname == "remap":
                     f = aggregate_functions[fname](
