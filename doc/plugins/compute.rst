@@ -30,7 +30,7 @@ with ``t: 3`` in ``database/variables.yaml``, ``FUELQt`` is ``FUELQ1``,
     module: fixgw.plugins.compute
     functions:
       - function: max
-        inputs: ["CHT11", "CHT12", "CHT13", "CHT14"]
+        inputs: ["CHT1c"]       # CHT11 .. CHT1<c>, c from variables.yaml
         output: CHTMAX1
 
       - function: altd
@@ -53,7 +53,13 @@ Function catalog
 ================
 
 ``average``
-    Arithmetic mean of all ``inputs`` written to ``output``.
+    Arithmetic mean of the ``inputs`` that have been written.  Like ``sum``,
+    ``average``, ``max`` and ``span`` leave out an input no source has
+    written yet, and once written an input's ``old`` / ``bad`` / ``fail``
+    flags carry to the output.  The shipped ``EGTAVG1``, ``EGTSPAN1``,
+    ``EGTMAX1`` and ``CHTMAX1`` take ``EGT1c`` / ``CHT1c``, engine 1's
+    cylinders up to ``c``, so a four-cylinder install on ``c: 6`` still
+    publishes.
 
 ``sum``
     Sum of the ``inputs`` that have been written.  An input no source has
@@ -62,13 +68,16 @@ Function catalog
     output.  The shipped ``FUELQT`` is ``sum`` over ``FUELQt``.
 
 ``max``
-    Largest of the ``inputs`` (e.g. hottest CHT).
+    Largest of the ``inputs`` that have been written (e.g. hottest CHT).
 
 ``min``
-    Smallest of the ``inputs``.
+    Smallest of the ``inputs``.  Unlike ``max``, it waits until every input
+    has been written: the shipped ``NAV1GSV`` is ``min`` over ``NAV1DH`` and
+    ``NAV1GSNF``, and must not publish from one of them alone.
 
 ``span``
-    Difference between the largest and smallest input (e.g. EGT spread).
+    Difference between the largest and smallest input written (e.g. EGT
+    spread).
 
 ``altp``
     Pressure altitude from ``inputs: [BARO, ALT_MSL]``::
