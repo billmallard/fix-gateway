@@ -3,17 +3,24 @@ compute:
   load: COMPUTE
   module: fixgw.plugins.compute
   functions:
+    # The engine aggregates take engine 1's cylinders up to c, the cylinder
+    # count in database/variables.yaml: EGT1c is EGT11..EGT1<c>. Not EGTec,
+    # which with e: 2 would fold engine 2's cylinders in too. A cylinder no
+    # source writes is left out, as FUELQT leaves out a tank, so a
+    # four-cylinder install on c: 6 still publishes. The shipped screens have
+    # no gauge for cylinders 5 and 6, so CHTMAX1 is their only path to the
+    # glass (AER-6244).
     - function: average
-      inputs: ["EGT11", "EGT12", "EGT13", "EGT14"]
+      inputs: ["EGT1c"]
       output: EGTAVG1
     - function: span
-      inputs: ["EGT11", "EGT12", "EGT13", "EGT14"]
+      inputs: ["EGT1c"]
       output: EGTSPAN1
     - function: max
-      inputs: ["EGT11", "EGT12", "EGT13", "EGT14"]
+      inputs: ["EGT1c"]
       output: EGTMAX1
     - function: max
-      inputs: ["CHT11", "CHT12", "CHT13", "CHT14"]
+      inputs: ["CHT1c"]
       output: CHTMAX1
     # FUELQT, total fuel: the sum of FUELQ1..FUELQ<t>, t being the tank
     # count in database/variables.yaml. It publishes from the tanks written so

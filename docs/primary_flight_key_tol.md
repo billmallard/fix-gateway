@@ -64,13 +64,13 @@ rule on.
 | `CHT12` | EMS | CHT cylinder 2 | 2000 | no change |  |
 | `CHT13` | EMS | CHT cylinder 3 | 2000 | no change |  |
 | `CHT14` | EMS | CHT cylinder 4 | 2000 | no change |  |
-| `CHTMAX1` | EMS | hottest-CHT highlight | 0 | 2000 | compute `max` of CHT11-14, refreshed on every input write; inputs are 2000 |
+| `CHTMAX1` | EMS | hottest-CHT highlight | 0 | 2000 | compute `max` of CHT11..CHT1<c> (`CHT1c`; a cylinder no source writes is left out), refreshed on every input write; inputs are 2000 |
 | `CURRNT` | EMS | amps | 2000 | no change |  |
 | `EGT11` | EMS | EGT cylinder 1 | 2000 | no change |  |
 | `EGT12` | EMS | EGT cylinder 2 | 2000 | no change |  |
 | `EGT13` | EMS | EGT cylinder 3 | 2000 | no change |  |
 | `EGT14` | EMS | EGT cylinder 4 | 2000 | no change |  |
-| `EGTMAX1` | EMS | hottest-EGT highlight | 0 | 2000 | compute `max` of EGT11-14, refreshed on every input write; inputs are 2000 |
+| `EGTMAX1` | EMS | hottest-EGT highlight | 0 | 2000 | compute `max` of EGT11..EGT1<c> (`EGT1c`; a cylinder no source writes is left out), refreshed on every input write; inputs are 2000 |
 | `FUELF1` | EMS | fuel flow | 2000 | no change |  |
 | `FUELP1` | EMS | fuel pressure | 2000 | no change |  |
 | `FUELQ1` | EMS | fuel tank 1 | 2000 | no change |  |
