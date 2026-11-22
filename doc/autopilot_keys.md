@@ -253,9 +253,11 @@ take settles to the sim's.
 The heading bug is never written. A write to its dial can make X-Plane's HDG
 mode turn the long way round (`XPB-018`: +40 was flown as 320 deg to the
 left). The adapter turns the sim's own knob instead, with
-`sim/autopilot/heading_up` and `heading_down`: up to 10 one-degree steps at a
-time, the short way round, each batch sent once the dial shows the last. The
-bus keeps the pilot's value for the whole walk. The walk ends within half a
+`sim/autopilot/heading_up` and `heading_down`: one degree at a time, the
+short way round, the next step once a reply shows the dial took the last.
+X-Plane takes a burst of the same command as one step (`XPB-024`), so the
+walk runs at about one step per reply. The bus keeps the pilot's value for
+the whole walk. The walk ends within half a
 degree, and the bus then takes the dial's value, so a bug set to 113.2 from a
 dial on whole degrees ends at 113. If the dial does not come closer for 2 s,
 the walk stops and the sim's value wins. The courses are still written: only

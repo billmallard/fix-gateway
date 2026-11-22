@@ -80,6 +80,7 @@ Unless an entry says otherwise:
 | [XPB-021](#xpb-021) | X-Plane's nav data provider changed on 2026-10-31 | `interface` |
 | [XPB-022](#xpb-022) | On V27 GVO-GOLET, course reads 1.4 deg below ours: when the plan turns 154 deg at GVO, X-Plane's next leg is not the published one, whether or not the turn is flown | `sim-quirk` |
 | [XPB-023](#xpb-023) | Fly-by turn: CDI from an arc until the bisector, then from the next leg's straight line | `sim-quirk` |
+| [XPB-024](#xpb-024) | A burst of one command over UDP (CMND) is one press | `interface` |
 
 ---
 
@@ -388,7 +389,8 @@ Unless an entry says otherwise:
   - The servos dropped twice mid-run in SIM0. The cause is open, and the driver guards against it by pausing the sim.
   - Seen again through the autopilot adapter (AER-6268, sim-bench session f7d6b79e7fb9, C172 G1000): with HDG engaged at 073, one DREF of the bug to 113.2 banked the aircraft left (FDROLL -19) and it flew 320 deg round to 113.
 - **Reference:** none found for real-autopilot behavior on a large heading-bug change.
-- **Relied on by:** the X-Plane autopilot adapter (`plugins/xplane/autopilot.py`, AER-6268). It walks `HEADBUG` onto `heading_dial_deg_mag_pilot` with `sim/autopilot/heading_up` and `heading_down`, at most 10 one-degree steps per batch the short way round, the next batch once the dial shows the last, and never writes that dial. It stops within half a degree, where the dial's value is the bus's, so a bug a fraction of a degree off the knob's steps lands on the nearest step. The xplane-bench driver (`plugin/xpbench.c`) does the same, 10 steps per sim frame.
+- **Relied on by:** the X-Plane autopilot adapter (`plugins/xplane/autopilot.py`, AER-6268). It walks `HEADBUG` onto `heading_dial_deg_mag_pilot` with `sim/autopilot/heading_up` and `heading_down`, one degree at a time the short way round, the next step once a reply shows the dial took the last (one per reply, because of XPB-024), and never writes that dial. It stops within half a degree, where the dial's value is the bus's, so a bug a fraction of a degree off the knob's steps lands on the nearest step. The xplane-bench driver (`plugin/xpbench.c`) steps the same way from inside the sim, up to 10 per frame.
+  - Shown on the bench in session `2786fb6ef13a` (C172 G1000, the AFC2 route, HDG engaged): bug changes of +40.2, -40 and +150 each turned the short way, with the first flight director roll command in the direction of the change and the heading never moving against it (`doc/evidence/aer-6268-headbug-walk/`).
 
 ### XPB-019
 
@@ -486,6 +488,16 @@ Unless an entry says otherwise:
 - **Seen again, PA14** (AER-1613, sessions `1242bb63442d` and `11d33a5b4857`, 2026-11-15, XPNavData 2611). Three more legs after a large planned turn read a constant offset from ours, where every other leg of the same flights agrees to 0.07 deg: VTU-HENER after the 135 deg turn at VTU (slice A, ours 1.00 deg above X-Plane's), VTU-HENER again in slice B, where the plan turns 149 deg at VTU (KSBA-VTU-HENER) but the aircraft starts on the leg (1.90 deg), and OHIGH-CANYN after the 136 deg turn at OHIGH (1.61 deg below). That is the same shape as test (a): the planned turn, not the flown one.
 - **Relied on by:** `tests/sim/test_pa14_xplane_replay.py`, which skips those three legs in its course comparison (`XPB022`). Before PA14, nothing: no committed recording included the GVO-GOLET leg. The V27 recording is HENER-DOYLE. A course check at the FP8 tolerance (2 deg) would pass it anyway. The engine flies the published leg from GVO, so nothing in the engine or in a test allowance changes.
 - **For a future comparison.** Any recording whose plan turns more than 90 deg at a fix should have the next leg checked against the published line before X-Plane's course or CDI is compared there. The over-120 deg row of the guidance table (`flight_plan_plan.md`, TURN2) flies such a turn as a fly-over and measures from the published leg. X-Plane here anticipates, and measures from a moved line.
+
+### XPB-024
+
+**A burst of one command over UDP (CMND) is one press.**
+
+- **Class:** `interface` (plugin).
+- **Setup:** X-Plane 12, C172 G1000, sim-bench session `2786fb6ef13a` (2026-11-22), the autopilot adapter on a private fixgw at commit 4daf49e. Its RREF replies came about every 38 ms.
+- **Observed** (AER-6268): the adapter sent 10 `sim/autopilot/heading_up` CMND packets back to back, and waited up to 0.5 s for the dial to show them before sending the next 10. `heading_dial_deg_mag_pilot` went up exactly 1.0 deg for each burst, about every 0.53 s (73.39, 74.39, 75.39 ... in the adapter's raw log), so a +40 bug change took 25 s and +150 took 83 s. The xplane-bench driver's 10 `XPLMCommandOnce` calls per frame, made inside the sim, do not show this.
+- **Reference:** not applicable (an interface fact).
+- **Relied on by:** the X-Plane autopilot adapter's heading-bug walk (XPB-018), which sends one step per reply, once the dial shows the last; `tests/plugins/xplane/test_xplane_autopilot.py`, whose stand-in knob applies a burst between two replies as one step.
 
 ---
 
