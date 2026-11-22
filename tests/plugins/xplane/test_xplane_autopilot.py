@@ -53,10 +53,18 @@ class Sim:
         self.db = database
         self.clock = Clock()
         self.sent = []
+        self.knob = None            # replies of lag, once the knob is turned on
+        self.knob_seen = 0
+        self.knob_queue = []
+        self.sent_at = []           # the clock time of each packet in sent
         self.parent = plugin_base.PluginBase("xplane", {}, {})
-        self.ap = ap.Autopilot(self.parent, self.sent.append, config,
+        self.ap = ap.Autopilot(self.parent, self._send, config,
                                clock=self.clock)
         self.state = dict(CRUISE if state is None else state)
+
+    def _send(self, packet):
+        self.sent.append(packet)
+        self.sent_at.append(self.clock.t)
 
     def step(self, dt=0.05, **changes):
         """Advance the clock, apply changes to the sim, deliver one reply."""
@@ -68,9 +76,30 @@ class Sim:
         its next loop pass."""
         self.clock.t += dt
         self.state.update(changes)
+        self._turn_knob()
         for name, value in self.state.items():
             assert self.ap.feed(INDEX[name], value)
         self.ap.publish()
+
+    def turn_knob(self, lag=0):
+        """From now on, X-Plane's heading_up / heading_down turn the dial one
+        degree each, ``lag`` replies after they were sent."""
+        self.knob = lag
+        self.knob_seen = len(self.sent)
+
+    def _turn_knob(self):
+        if self.knob is None:
+            return
+        new = [p[5:].decode() for p in self.sent[self.knob_seen:]
+               if p[:5] == b"CMND\x00"]
+        self.knob_seen = len(self.sent)
+        self.knob_queue.append(new)
+        if len(self.knob_queue) <= self.knob:
+            return
+        for command in self.knob_queue.pop(0):
+            step = {ap.WALK_UP: 1.0, ap.WALK_DOWN: -1.0}.get(command)
+            if step is not None:
+                self.state["hdg_dial"] = (self.state["hdg_dial"] + step) % 360.0
 
     def read(self, key):
         return self.db.read(key)[0]
@@ -551,6 +580,9 @@ SETTINGS = [
      "sim/cockpit2/gauges/actuators/barometer_setting_in_hg_pilot", 0.01),
 ]
 ANGLES = [s for s in SETTINGS if s[0] != "BARO"]
+# The settings written to their dial. The heading bug is walked instead.
+WRITTEN = [s for s in SETTINGS if s[0] != "HEADBUG"]
+WRITTEN_ANGLES = [s for s in ANGLES if s[0] != "HEADBUG"]
 
 
 def test_every_setting_is_a_target_on_one_sync():
@@ -570,7 +602,7 @@ def test_a_change_in_the_sims_cockpit_shows_on_the_bus(sim, key, name, _dref,
     assert sim.drefs() == []                # nothing echoed back to the sim
 
 
-@pytest.mark.parametrize("key, name, dref, step", SETTINGS)
+@pytest.mark.parametrize("key, name, dref, step", WRITTEN)
 def test_a_pilot_change_moves_the_dial_and_stays(sim, key, name, dref, step):
     want = CRUISE[name] + 3 * step
     sim.db.write(key, want)
@@ -586,7 +618,7 @@ def test_a_pilot_change_moves_the_dial_and_stays(sim, key, name, dref, step):
     assert len(sim.drefs()) == 1
 
 
-@pytest.mark.parametrize("key, name, dref, step", SETTINGS)
+@pytest.mark.parametrize("key, name, dref, step", WRITTEN)
 def test_a_reply_in_flight_does_not_revert_a_pilot_change(sim, key, name,
                                                           dref, step):
     """The pilot's change lands, then a reply sent before X-Plane saw it
@@ -602,7 +634,7 @@ def test_a_reply_in_flight_does_not_revert_a_pilot_change(sim, key, name,
     assert sim.drefs() == [(dref, pytest.approx(want))]
 
 
-@pytest.mark.parametrize("key, name, dref, step", SETTINGS)
+@pytest.mark.parametrize("key, name, dref, step", WRITTEN)
 def test_a_fast_knob_spin_never_steps_back(sim, key, name, dref, step):
     """Twelve clicks, one per reply, with the sim's dial two replies behind:
     the bus only ever moves forward and ends on the last click."""
@@ -631,7 +663,7 @@ def test_a_setting_the_sim_will_not_take_settles_to_the_sims(sim):
     assert len(sim.drefs()) == 1
 
 
-@pytest.mark.parametrize("key, name, dref, _step", ANGLES)
+@pytest.mark.parametrize("key, name, dref, _step", WRITTEN_ANGLES)
 def test_a_pilot_wrap_from_359_to_0_is_one_degree(sim, key, name, dref, _step):
     sim.step(**{name: 359.0})
     assert sim.read(key) == 359.0
@@ -667,6 +699,159 @@ def test_a_sim_wrap_from_359_to_0_is_one_degree(sim, key, name, _dref, _step):
         for _ in range(3):
             sim.step(dt=0.2)
     assert key not in writes                # not rewritten on every reply
+    assert sim.drefs() == []
+
+
+# ---------------------------------------------------------------------------
+# The heading bug is walked, never written (XPB-018, AER-6268)
+# ---------------------------------------------------------------------------
+
+HDG_DREF = "sim/cockpit2/autopilot/heading_dial_deg_mag_pilot"
+
+
+def _walk(sim, replies=60, dt=0.05):
+    """Replies until the walk is over; the dial after each one."""
+    dials = []
+    for _ in range(replies):
+        sim.step(dt=dt)
+        dials.append(sim.state["hdg_dial"])
+        if sim.ap.walk is None:
+            break
+    return dials
+
+
+def _batches(sim, since):
+    """The heading commands sent from ``since`` on, one list per batch."""
+    out = {}
+    for p, t in zip(sim.sent[since:], sim.sent_at[since:]):
+        c = p[5:].decode() if p[:5] == b"CMND\x00" else None
+        if c in (ap.WALK_UP, ap.WALK_DOWN):
+            out.setdefault(t, []).append(c)
+    return list(out.values())
+
+
+@pytest.mark.parametrize("start, want, command, steps", [
+    (73.0, 113.2, ap.WALK_UP, 40),          # AER-6268, the bench's change
+    (73.0, 33.0, ap.WALK_DOWN, 40),
+    (350.0, 30.0, ap.WALK_UP, 40),          # across north, still the short way
+    (10.0, 330.0, ap.WALK_DOWN, 40),
+    (90.0, 269.0, ap.WALK_UP, 179),
+    (90.0, 271.0, ap.WALK_DOWN, 179),
+])
+def test_a_large_bug_change_is_walked_the_short_way(sim, start, want,
+                                                    command, steps):
+    """A large heading bug change goes to X-Plane as batches of one-degree
+    knob steps, every one the short way, and never as a write to the dial:
+    a write turned the C172 320 deg the long way on the bench."""
+    sim.step(hdg_dial=start)
+    sim.turn_knob()
+    sent = len(sim.sent)
+    sim.db.write("HEADBUG", want)
+    _walk(sim)
+    assert sim.ap.walk is None
+    assert sim.drefs() == []
+    batches = _batches(sim, sent)
+    assert len(batches) > 1
+    assert all(len(b) <= ap.WALK_STEPS for b in batches)
+    assert sum(batches, []) == [command] * steps
+    assert sim.state["hdg_dial"] == pytest.approx(round(want) % 360)
+
+
+def test_a_walk_waits_for_the_dial_and_never_overshoots(sim):
+    """Replies two behind the knob: a batch the dial has not shown yet is not
+    sent again, so the dial goes 73 to 113 one way and stops there."""
+    sim.step(hdg_dial=73.0)
+    sim.turn_knob(lag=2)
+    sim.db.write("HEADBUG", 113.0)
+    dials = _walk(sim, replies=200)
+    for _ in range(5):
+        sim.step()
+        dials.append(sim.state["hdg_dial"])
+    assert dials == sorted(dials)
+    assert dials[-1] == 113.0
+    assert sim.commands().count(ap.WALK_UP) == 40
+    assert ap.WALK_DOWN not in sim.commands()
+
+
+def test_the_bus_keeps_the_pilots_bug_through_the_walk(sim):
+    """The bug on the bus does not flicker back through the dial's steps,
+    however long the walk takes, then takes the dial's value."""
+    sim.step(hdg_dial=90.0)
+    sim.turn_knob(lag=1)
+    sim.db.write("HEADBUG", 270.4)
+    t0 = sim.clock.t
+    seen = []
+    for _ in range(400):
+        sim.step(dt=0.1)
+        seen.append(sim.read("HEADBUG"))
+        if sim.ap.walk is None:
+            break
+    assert sim.ap.walk is None
+    assert sim.clock.t - t0 > ap.TARGET_SETTLE_S        # longer than a write
+    assert seen[:-1] == [pytest.approx(270.4)] * (len(seen) - 1)
+    sim.step()
+    assert sim.read("HEADBUG") == pytest.approx(270.0)
+    assert sim.drefs() == []
+
+
+def test_a_bug_moved_again_mid_walk_walks_to_the_new_value(sim):
+    sim.step(hdg_dial=73.0)
+    sim.turn_knob(lag=1)
+    sim.db.write("HEADBUG", 113.0)
+    for _ in range(3):
+        sim.step()
+    assert 73.0 < sim.state["hdg_dial"] < 113.0
+    sim.db.write("HEADBUG", 150.0)
+    _walk(sim, replies=200)
+    assert sim.state["hdg_dial"] == 150.0
+    assert sim.read("HEADBUG") == 150.0
+    assert ap.WALK_DOWN not in sim.commands()
+
+
+def test_a_fast_knob_spin_on_the_glass_never_steps_the_bug_back(sim):
+    """Twelve clicks, one per reply, with X-Plane two replies behind."""
+    sim.step(hdg_dial=90.0)
+    sim.turn_knob(lag=2)
+    seen = []
+    for i in range(12):
+        sim.db.write("HEADBUG", 91.0 + i)
+        sim.step()
+        seen.append(sim.read("HEADBUG"))
+    for _ in range(10):
+        sim.step()
+        seen.append(sim.read("HEADBUG"))
+    assert seen == sorted(seen)
+    assert seen[-1] == 102.0 and sim.state["hdg_dial"] == 102.0
+    assert ap.WALK_DOWN not in sim.commands()
+
+
+@pytest.mark.parametrize("start, want, command", [
+    (90.0, 91.0, ap.WALK_UP), (359.0, 0.0, ap.WALK_UP),
+    (0.0, 359.0, ap.WALK_DOWN),
+])
+def test_one_click_is_one_step(sim, start, want, command):
+    sim.step(hdg_dial=start)
+    sim.turn_knob()
+    sent = len(sim.sent)
+    sim.db.write("HEADBUG", want)
+    _walk(sim)
+    assert _batches(sim, sent) == [[command]]
+    assert sim.read("HEADBUG") == want
+
+
+def test_a_bug_the_knob_cannot_move_settles_to_the_sim(sim):
+    """No knob (the sim ignores the commands): the walk gives up, the bus
+    takes the dial's value, and no more steps go out."""
+    sim.step(hdg_dial=73.0)
+    sim.db.write("HEADBUG", 113.0)
+    for _ in range(int(ap.TARGET_SETTLE_S / 0.05) + 5):
+        sim.step()
+    assert sim.ap.walk is None
+    assert sim.read("HEADBUG") == 73.0
+    sent = len(sim.sent)
+    for _ in range(20):
+        sim.step()
+    assert sim.sent[sent:] == []
     assert sim.drefs() == []
 
 

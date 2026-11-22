@@ -19,7 +19,8 @@ back into the autopilot keys: engaged flags, active and armed modes, the
 flight director, the supported requests and a message for the pilot. It also
 keeps the pilot's targets and settings (``TARGETS``: the autopilot dials, the
 heading bug, both OBS courses and the altimeter setting) in step with the sim,
-both ways.
+both ways. The heading bug is moved with the knob's own commands, a step at
+a time, never written (XPB-018).
 
 Every dataref and command name below is in X-Plane 12's own ``DataRefs.txt``
 and ``Commands.txt`` (version stamp 1210). The adapter also logs, once, any of
@@ -122,6 +123,18 @@ TARGETS = (
      0.005, False),
 )
 TARGET_KEYS = tuple(t[0] for t in TARGETS)
+
+# The heading bug is walked to the pilot's value with the cockpit's own knob
+# commands, never written: a direct write can make X-Plane's HDG mode turn the
+# long way round (XPB-018; AER-6268 saw +40 flown as 320 left), while a step
+# turns the way it moves. This is what the xplane-bench driver does.
+WALK_KEY = "HEADBUG"
+WALK_UP = "sim/autopilot/heading_up"        # one degree each
+WALK_DOWN = "sim/autopilot/heading_down"
+WALK_STEPS = 10     # most steps in one batch: the driver's cap per sim frame
+WALK_DONE = 0.5     # within half a step the knob can get no closer
+WALK_WAIT_S = 0.5   # a batch not shown on the dial by now is given up on, and
+                    # the next is sized from where the dial is
 
 REQUESTS = ("AP", "FD", "YD", "LVL", "HDG", "TRK", "NAV", "APR", "IAS",
             "VNAV", "VS", "ALT", "DISC")
@@ -308,6 +321,7 @@ class Autopilot:
         self.deferred = []          # (due, dref, value)
         self.targets = {key: {"fix": None, "pending": None}
                         for key in TARGET_KEYS}
+        self.walk = None            # the heading bug's walk, while one runs
         self.raw_log = None
         self.raw_logged = {}
         self.enabled = self._keys_present()
@@ -412,6 +426,7 @@ class Autopilot:
         # A pilot change not yet sent wins over a dial that moved at the same
         # time: send it first, so it is pending before the dial is read.
         self._sync_to_sim(now)
+        self._walk_bug(now)
         self._sync_from_sim(now)
 
     def _check_unanswered(self, now):
@@ -472,7 +487,50 @@ class Autopilot:
                 continue
             t["fix"] = value
             t["pending"] = (value, now)
-            self._dref(dref, value)
+            if key == WALK_KEY:
+                self._start_walk(value % 360.0)
+            else:
+                self._dref(dref, value)
+
+    def _start_walk(self, goal):
+        """Walk the heading bug to ``goal``. A walk already running keeps its
+        last batch, so a new goal does not send steps the dial has not shown."""
+        batch = self.walk["batch"] if self.walk else None
+        self.walk = {"goal": goal, "best": None, "moved": None,
+                     "batch": batch}
+
+    def _walk_bug(self, now):
+        """One reply's worth of the heading bug's walk: up to WALK_STEPS knob
+        steps the short way, once the dial shows the last batch. Ends within
+        half a step of the goal, where the dial's value is the bus's, or when
+        the dial has not come closer for TARGET_SETTLE_S."""
+        w = self.walk
+        if w is None:
+            return
+        t = self.targets[WALK_KEY]
+        dial = self.raw["hdg_dial"] % 360.0
+        diff = (w["goal"] - dial + 540.0) % 360.0 - 180.0
+        if abs(diff) < WALK_DONE:
+            self.walk, t["pending"] = None, None
+            return
+        if w["best"] is None or abs(diff) <= w["best"] - WALK_DONE:
+            w["best"], w["moved"] = abs(diff), now
+        elif now - w["moved"] >= TARGET_SETTLE_S:
+            self.walk, t["pending"] = None, None
+            self.log.info("xplane: autopilot: %s %r not reached, the sim holds"
+                          " %r", WALK_KEY, w["goal"], dial)
+            return
+        if w["batch"] is not None:
+            expect, sent = w["batch"]
+            if (target_diff(dial, expect, True) >= WALK_DONE
+                    and now - sent < WALK_WAIT_S):
+                return              # the dial has not shown the last batch
+        n = min(WALK_STEPS, max(1, int(round(abs(diff)))))
+        command = cmnd_packet(WALK_UP if diff > 0 else WALK_DOWN)
+        for _ in range(n):
+            self.send(command)
+        w["batch"] = ((dial + (n if diff > 0 else -n)) % 360.0, now)
+        t["pending"] = (w["goal"], now)
 
     def _dref(self, dref, value):
         self.send(struct.pack("<4sxf500s", b"DREF", float(value),
