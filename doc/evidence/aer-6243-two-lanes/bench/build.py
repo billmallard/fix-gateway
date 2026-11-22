@@ -12,7 +12,9 @@ and a pyEfis config copied from the bench's live one, pointed at that port,
 with SVS off (two GL panes on one box would load the bench for nothing; the
 attitude indicator draws without it).
 
-    python3 build.py SCRATCH_DIR
+    python3 build.py SCRATCH_DIR              both lanes, on the one-box hub
+    python3 build.py SCRATCH_DIR 1 --no-efis  one lane, on this host's bridge
+                                              (two-box run, bridge.py)
 """
 import json
 import os
@@ -22,8 +24,15 @@ import sys
 import yaml
 
 S = sys.argv[1]
+LANES = [int(a) for a in sys.argv[2:] if a.isdigit()] or [1, 2]
+EFIS = "--no-efis" not in sys.argv
 SRC = os.path.join(S, "fgw", "src", "fixgw", "config")
-hub = json.load(open(os.path.join(S, "run", "hub.json")))
+if len(LANES) == 1 and os.path.exists(os.path.join(S, "run", "bridge.json")):
+    with open(os.path.join(S, "run", "bridge.json")) as f:
+        PTY = {LANES[0]: json.load(f)["path"]}
+else:
+    with open(os.path.join(S, "run", "hub.json")) as f:
+        PTY = dict(enumerate(json.load(f)["paths"], start=1))
 LIVE_EFIS = os.path.expanduser("~/makerplane/pyefis/config")
 
 XPLANE = {
@@ -48,6 +57,8 @@ XPLANE = {
 }
 
 for n, port, udp in ((1, 3497, 49021), (2, 3498, 49022)):
+    if n not in LANES:
+        continue
     d = os.path.join(S, f"lane{n}")
     shutil.rmtree(d, ignore_errors=True)
     shutil.copytree(SRC, d)
@@ -57,11 +68,14 @@ for n, port, udp in ((1, 3497, 49021), (2, 3498, 49022)):
     c["netfix"]["host"] = "127.0.0.1"
     c["netfix"]["port"] = port
     c["canfix"]["interface"] = "serial"
-    c["canfix"]["channel"] = hub["paths"][n - 1]
+    c["canfix"]["channel"] = PTY[n]
     c["xplane"] = dict(XPLANE, udp_in=udp)
     with open(os.path.join(d, "lane.yaml"), "w") as f:
         yaml.safe_dump(cfg, f, sort_keys=False)
 
+    if not EFIS:
+        print("built lane", n, "port", port, "pty", PTY[n])
+        continue
     e = os.path.join(S, f"efis{n}")
     shutil.rmtree(e, ignore_errors=True)
     shutil.copytree(LIVE_EFIS, e)
@@ -74,4 +88,4 @@ for n, port, udp in ((1, 3497, 49021), (2, 3498, 49022)):
         if os.path.exists(p):
             s = open(p).read()
             open(p, "w").write(s.replace("svs_enabled: true", "svs_enabled: false"))
-    print("built lane", n, "port", port, "pty", hub["paths"][n - 1])
+    print("built lane", n, "port", port, "pty", PTY[n])

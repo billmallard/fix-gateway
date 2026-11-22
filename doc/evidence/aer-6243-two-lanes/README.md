@@ -61,3 +61,34 @@ For the X-Plane run, `sim_follow.py` (maos-workspace) calls `night.sh start` whe
 session flies: it waits for 10 s of fresh PITCH on lane 2, lets the flight settle 60 s,
 then runs, judges and stops. The sheets come from
 `ffmpeg -i before -i during -i after -i lane1_during -filter_complex "xstack=inputs=4:layout=0_0|w0_0|0_h0|w0_h0,scale=1920:-1"`.
+
+## Two-box run (Bill's one-night exception, 2026-11-22)
+
+Lane 1 on the Pi 5, lane 2 on the Beelink, the CAN-FIX bus carried over Ethernet by
+`bench/bridge.py` on each host (one UDP datagram per frame, 47650 and 47651). Lane 1 on
+the Pi is a private gateway fed by X-Plane on its own socket; the Pi's own gateway,
+pyEfis and sensor rig are not touched, and lane 1 runs no pyEfis there. `bench/lane1d.py`
+on the Pi takes one-word commands from the Beelink only, so `bench/twobox.sh` on the
+Beelink drives both boxes. Three faults, each held 20 s:
+
+| Mode | Fault | Recovery |
+|---|---|---|
+| `host_drop` | SIGKILL lane 1's gateway and its bridge at the same instant: everything lane 1 runs on the Pi, and its end of the bus | start both again |
+| `gw_kill` | SIGKILL lane 1's gateway only | start it again |
+| `link_cut` | the Beelink's bridge drops every frame both ways: a network partition | forward again |
+
+`host_drop` is what a power pull does to the software. It is not a power pull: the Pi
+stays up, and nothing electrical happens to the bus. A real pull needs a hand on the plug.
+
+- `two-box-dry-run/`, 2026-11-22 02:05 to 02:09 UTC, synthetic feed on both hosts
+  (`lane1d.py feed_on`, `twobox.sh feed`). `lane1_pi_events.csv.gz` is lane 1's view,
+  recorded on the Pi. It shows lane 1 holding LEADER true through the whole cut while
+  lane 2 also led: two leaders across two hosts (Q1). Each `sheet_<mode>.png` is lane 2
+  before, during and after, left to right.
+- `two-box-xplane/`: the same with X-Plane on both lanes, sim session `b4bbacbc5ef6`.
+  Added when it has flown.
+
+Reproduce: on the Pi, `python3 h/lane1d.py ~/bench-scratch/aer6243 <deadline>`; on the
+Beelink, `sh h/twobox.sh setup <fgw sha> <pyEfis sha>`, then `start`, `feed` (sim off
+only), `run`, `analyze.py`, `stop`. For the X-Plane run, `sim_follow.py` calls
+`twobox.sh night`.

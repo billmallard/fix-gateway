@@ -16,7 +16,7 @@ import sys
 run = sys.argv[1]
 TOL_MS = {"PITCH": 300, "ROLL": 300, "IAS": 2000, "ALT": 2000}
 TAKEOVER_S = 1.5
-GATEWAY_DEATHS = {"gw_kill", "gw_stop"}
+GATEWAY_DEATHS = {"gw_kill", "gw_stop", "host_drop"}
 
 events = []
 with open(os.path.join(run, "events.csv")) as f:
