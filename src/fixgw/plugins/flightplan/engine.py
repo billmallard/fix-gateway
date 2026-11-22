@@ -481,6 +481,15 @@ OBS_DATABASE_REASON = "OBS N/A DATABASE"
 ACTIVE_LEG_REMOVED_REASON = "ACTIVE LEG REMOVED"      # the TO fix is gone
 ACTIVE_LEG_CHANGED_REASON = "ACTIVE LEG CHANGED"      # TO fix kept, its FROM or its path is not
 ACTIVE_LEG_AMBIGUOUS_REASON = "ACTIVE LEG AMBIGUOUS"  # the leg is in the plan more than once
+# ACT on a DF with a coded turn (Bill, AER-6294): refused, pointing the pilot
+# to Direct-To, where the coded turn cannot be flown as ruled. The aircraft
+# has already turned toward the fix (it is within ACT_DF_TURNED_DEG of the
+# nose, on the side away from the coded turn), there is no good TRACK to
+# turn from, or the fix is inside the turn's circle.
+ACT_DF_TURNED_DEG = 90.0
+ACT_DF_TURNED_REASON = "ACT N/A TURNED"
+ACT_DF_NO_TRACK_REASON = "ACT N/A NO TRACK"
+ACT_DF_TOO_CLOSE_REASON = "ACT N/A TOO CLOSE"
 
 
 class Waypoint:
@@ -734,6 +743,10 @@ class Engine:
         # true desired track of the leg flown this cycle, the track a DF's
         # coded turn starts from.
         self._cycle_gs_kt = 0.0
+        # GS at the last update, whatever was active (AER-6294): ACT on a
+        # coded DF sizes its turn from it, also from NONE or vectors, where
+        # no guidance cycle records _cycle_gs_kt.
+        self._last_gs_kt = 0.0
         self._cycle_magvar_deg = 0.0
         self._cycle_dtk_true = None
 
@@ -1061,25 +1074,33 @@ class Engine:
 
         No turn is set up -- the leg is the line from `start`, the short
         way -- with no arrival track (a DTO or a RESUME off vectors, which
-        fly the line by rule, or an ACT with no good TRACK), or with the
+        fly the line by rule; ACT refuses instead, _act_df_refusal), or with the
         fix inside the turn's circle, where no tangent reaches it. 8260.58D
         C-3.a requires a DF's fix outside every such path, so a published
         DF does not do that."""
+        turn = self._df_turn_path(wp, start, arrival_true, gs_kt)
+        if turn is not None:
+            self._df_turn = turn
+            self._leg_phase = LEGPHASE_DF_TURN
+
+    def _df_turn_path(self, wp, start, arrival_true, gs_kt):
+        """The coded turn _df_turn_start would fly, or None where it flies
+        none. Sets nothing, so ACT can check it before it activates."""
         if arrival_true is None or not self._df_coded_turn(wp):
-            return
+            return None
         cw = wp.turn == "R"
         r = hold_turn_radius_nm(gs_kt, self.turn_rate_deg_s)
         c_lat, c_lon = geo.destination_point(start.lat, start.lon,
                                              geo.wrap360(arrival_true + (90.0 if cw else -90.0)), r)
         d = geo.distance_nm(c_lat, c_lon, wp.lat, wp.lon)
         if d <= r:
-            return
+            return None
         theta = math.degrees(math.acos(r / d))
         to_fix = geo.bearing_deg(c_lat, c_lon, wp.lat, wp.lon)
         start_radial = geo.bearing_deg(c_lat, c_lon, start.lat, start.lon)
         exit_radial = geo.wrap360(to_fix - theta if cw else to_fix + theta)
         x_lat, x_lon = geo.destination_point(c_lat, c_lon, exit_radial, r)
-        self._df_turn = {
+        return {
             "lat": c_lat,
             "lon": c_lon,
             "r_nm": r,
@@ -1088,7 +1109,6 @@ class Engine:
             "exit_lat": x_lat,
             "exit_lon": x_lon,
         }
-        self._leg_phase = LEGPHASE_DF_TURN
 
     def _df_turn_geometry(self, ac_lat, ac_lon):
         """Anchor, atd (arc length left to the tangent point), xtk and true
@@ -1375,7 +1395,11 @@ class Engine:
         for where the climb ends. ACT on a DF means the leg before it is
         done, so a coded turn is flown from the aircraft's track, as if the
         leg had sequenced (Bill, AER-6294). DTO and a RESUME off vectors are
-        a fresh "proceed direct" and fly the line, the short way."""
+        a fresh "proceed direct" and fly the line, the short way.
+
+        Where the coded turn cannot be flown as ruled, ACT is refused
+        (_act_df_refusal) before anything changes, so the leg already active
+        keeps its guidance: never a line in its place."""
         k = self._slot_arg(arg)
         wp = self.route[k - 1]
         if k == 1 or wp.pt == "DF":
@@ -1383,13 +1407,37 @@ class Engine:
             from_pt = Point(lat, lon)
         else:
             from_pt = Point.from_waypoint(self.route[k - 2])
+        if self._df_coded_turn(wp):
+            reason = self._act_df_refusal(wp, from_pt, _position_track(position))
+            if reason is not None:
+                raise _Reject(reason)
         self._begin_activation()
         self.mode = "LEG"
         self.act_leg = k
         self.from_point = from_pt
         self.to_point = Point.from_waypoint(wp)
         if wp.pt == "DF":
-            self._df_turn_start(wp, from_pt, _position_track(position), self._cycle_gs_kt)
+            self._df_turn_start(wp, from_pt, _position_track(position), self._last_gs_kt)
+
+    def _act_df_refusal(self, wp, start, track_true):
+        """The FPLMSG reason ACT cannot fly this coded DF's turn from
+        `start` on track_true, or None (Bill, AER-6294). The coded turn is
+        flown when the fix is more than ACT_DF_TURNED_DEG off the nose on
+        the side away from it; inside that the aircraft has already turned
+        toward the fix, and the coded turn would be most of a circle. A fix
+        on the coded side is the short way, and is flown. With no good
+        TRACK, or the fix inside the turn's circle, there is no coded turn
+        to fly either; each points the pilot to Direct-To."""
+        if track_true is None:
+            return ACT_DF_NO_TRACK_REASON
+        # + is right of the nose
+        off = (geo.bearing_deg(start.lat, start.lon, wp.lat, wp.lon) - track_true + 180.0) % 360.0 - 180.0
+        away = off < 0.0 if wp.turn == "R" else off > 0.0
+        if away and abs(off) <= ACT_DF_TURNED_DEG:
+            return ACT_DF_TURNED_REASON
+        if self._df_turn_path(wp, start, track_true, self._last_gs_kt) is None:
+            return ACT_DF_TOO_CLOSE_REASON
+        return None
 
     def _cmd_dto(self, arg, position, dto_staged):
         if arg is not None:
@@ -1707,6 +1755,8 @@ class Engine:
         optional "msg" key (only present when there is a new FPLMSG to post).
         """
         self._pending_msg = None
+        if gs_kt is not None:
+            self._last_gs_kt = gs_kt
 
         if position_ok:
             self._last_good_time = now if position_time is None else position_time

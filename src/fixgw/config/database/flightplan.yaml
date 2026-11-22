@@ -169,7 +169,7 @@ items:
   tol: 0
 
 - key: FPLfTURN
-  description: 'Flight plan slot %f turn direction, "L" or "R" ("" = none). Required for RF/AF (which way around the center) and HM/HF/HA/PI (which side of the inbound course the pattern is flown) -- never defaulted (guardrail 1). Optional on a DF (AER-4541): "L"/"R" is the way the turn onto it is flown when sequenced into or ACTed (not after a DTO or a RESUME off vectors, AER-6294), "" or "E" (ARINC either) the short way, anything else rejects the route (BADTURN)'
+  description: 'Flight plan slot %f turn direction, "L" or "R" ("" = none). Required for RF/AF (which way around the center) and HM/HF/HA/PI (which side of the inbound course the pattern is flown) -- never defaulted (guardrail 1). Optional on a DF (AER-4541): "L"/"R" is the way the turn onto it is flown when sequenced into or ACTed (ACT is refused with the fix within 90 deg of the nose away from the turn, and the turn is not flown after a DTO or a RESUME off vectors, AER-6294), "" or "E" (ARINC either) the short way, anything else rejects the route (BADTURN)'
   type: str
   initial: ""
   tol: 0

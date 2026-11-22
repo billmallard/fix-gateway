@@ -337,8 +337,8 @@ class MainThread(threading.Thread):
     def _read_track(self):
         """TRACK, the true ground track every position source writes, or
         None when it is old, bad, failed or not in the database. ACT on a DF
-        flies its coded turn from it (AER-6294); without it the DF is the
-        line from the aircraft."""
+        flies its coded turn from it (AER-6294); without it ACT onto a coded
+        DF is refused (ACT N/A NO TRACK)."""
         try:
             trk_t = self._read_tuple("TRACK")
         except KeyError:

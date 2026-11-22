@@ -79,15 +79,19 @@ def fly_missed(df_turn="R", seconds=900.0):
     return e, wps, rows
 
 
-def climb_then(command, track_given=True, climb_s=30.0, seconds=600.0):
+def climb_then(command, track_given=True, climb_s=30.0, seconds=600.0, df_turn="R", fix_left_of_nose=None):
     """Climb out on the CA as fly_missed does, but at climb_s -- short of
     1,100 ft, so the CA has not ended -- send `command` (formatted with the
     DF's slot) with the aircraft's position, and its track if track_given.
+    fix_left_of_nose stands in for a pilot who has hand-flown toward GANLE:
+    the command's track then puts GANLE that many degrees left of the nose.
     Then fly the guidance as before. Returns the engine, the route, the
-    command's (ack, msg), and one (t, out, track_true) per cycle after it."""
+    command's (ack, msg), and one (t, out, track_true) per cycle from the
+    cycle before it."""
     wps, segments = kssf_route()
     ca = slot_of(wps, "CA")
     df = slot_of(wps, "DF")
+    wps[df - 1].turn = df_turn
     e = engine.Engine()
     e.load_route(wps, "KSSF R28", 1, segments)
     rw = wps[ca - 2]
@@ -99,7 +103,12 @@ def climb_then(command, track_given=True, climb_s=30.0, seconds=600.0):
     while t < climb_s + seconds:
         if ack is None and t >= climb_s:
             assert e.act_leg == ca and alt < 1100.0
-            position = (lat, lon, True, track) if track_given else (lat, lon, True)
+            rows.append((t, out, track))
+            trk = track
+            if fix_left_of_nose is not None:
+                g = wps[df - 1]
+                trk = geo.wrap360(geo.bearing_deg(lat, lon, g.lat, g.lon) + fix_left_of_nose)
+            position = (lat, lon, True, trk) if track_given else (lat, lon, True)
             ack = e.handle_command("2 " + command.format(df=df), position)
         out = e.update(lat, lon, TAS_KT, MAGVAR, True, True, 0.01, 1000.0 + t, alt_ft=alt)
         if ack is not None:
@@ -115,6 +124,7 @@ def climb_then(command, track_given=True, climb_s=30.0, seconds=600.0):
 
 
 def _sweep(rows, within_s):
+    rows = rows[1:]     # rows[0] is the cycle before the command
     first = rows[0][2]
     return [_wrap180(trk - first) for t, _, trk in rows if t - rows[0][0] <= within_s]
 
@@ -128,22 +138,98 @@ def test_act_on_a_coded_df_flies_the_coded_turn_from_the_aircrafts_track():
     assert ack == (2, "")
     early = _sweep(rows, 40.0)
     assert min(early) > -1.0 and max(early) > 100.0
-    assert rows[0][1]["turn"] == "R"
-    assert max(abs(out["xtk"]) for _, out, _ in rows) < 0.05
+    assert rows[1][1]["turn"] == "R"
+    assert max(abs(out["xtk"]) for _, out, _ in rows[1:]) < 0.05
     assert e.act_leg == slot_of(wps, "HM")
 
 
 def test_act_on_a_df_starts_it_from_the_aircraft_not_the_slot_before():
     # A DF has no FROM fix (IPH FAA-H-8083-16B p.6-7: "an unspecified track
-    # starting from an undefined position"). With no good track there is no
-    # turn to fly, so it is the line from the aircraft: the needle centred.
+    # starting from an undefined position"). One with no turn coded is the
+    # line from the aircraft: the needle centred at the press.
     # Red on dev: FROM was the CA slot, a point 2 nm out on the climb.
-    e, wps, ack, rows = climb_then("ACT {df}", track_given=False, seconds=1.0)
+    e, wps, ack, rows = climb_then("ACT {df}", track_given=False, seconds=1.0, df_turn="")
     assert ack == (2, "")
-    out = rows[0][1]
+    out = rows[1][1]
     assert out["turn"] == ""
     assert out["xtk"] == pytest.approx(0.0, abs=1e-3)
     assert out["wp_name"] == "GANLE"
+
+
+@pytest.mark.parametrize("left", [0.5, 5.0, 45.0, 89.9])
+def test_act_is_refused_once_the_aircraft_has_turned_toward_the_fix(left):
+    # Bill, AER-6294: the pilot has hand-flown left toward GANLE, so it is
+    # within 90 deg of the nose on the side away from the coded right turn.
+    # The coded turn would be most of a circle (355 deg with GANLE 5 deg
+    # left), so ACT is refused, pointing to Direct-To. Nothing changes: the
+    # CA stays active with its guidance, never a line in its place.
+    # Red on 5f85633: ACT was accepted and commanded the right orbit.
+    e, wps, ack, rows = climb_then("ACT {df}", seconds=1.0, fix_left_of_nose=left)
+    assert ack == (-2, engine.ACT_DF_TURNED_REASON)
+    before, after = rows[0][1], rows[1][1]
+    assert e.act_leg == slot_of(wps, "CA") and not e.suspended
+    assert after["state"] == engine.STATE_LEG and after["turn"] == ""
+    assert after["crs"] == pytest.approx(before["crs"], abs=0.01)
+
+
+def test_act_flies_the_coded_turn_with_the_fix_just_past_90_deg_away():
+    e, wps, ack, rows = climb_then("ACT {df}", seconds=1.0, fix_left_of_nose=91.0)
+    assert ack == (2, "")
+    assert e.act_leg == slot_of(wps, "DF") and rows[1][1]["turn"] == "R"
+    assert e._df_turn["sweep_deg"] == pytest.approx(271.0, abs=3.0)
+
+
+@pytest.mark.parametrize("turn", ["R", "L"])
+def test_act_refusal_by_where_the_fix_is_off_the_nose(turn):
+    # The fix 10 nm out, at `off` deg off the nose (+ right). Refused only
+    # within 90 deg on the side away from the coded turn; on the coded side
+    # the coded turn is the short way and is flown.
+    a = (34.0, -118.0)
+    away = -1.0 if turn == "R" else 1.0
+    for off, refused in ((0.0, False), (0.5 * away, True), (30.0 * away, True), (89.9 * away, True),
+                         (91.0 * away, False), (179.0 * away, False), (-30.0 * away, False),
+                         (-120.0 * away, False)):
+        f = geo.destination_point(*a, geo.wrap360(off), 10.0)
+        route = [engine.Waypoint("A", *a), engine.Waypoint("F", *f, pt="DF", turn=turn)]
+        e = engine.Engine()
+        e.load_route(route, "T", 1, engine.waypoint_segments(route))
+        e.update(a[0], a[1], 120.0, 0.0, True, True, 0.01, 1000.0)
+        ack, msg = e.handle_command("1 ACT 2", (a[0], a[1], True, 0.0))
+        assert (ack < 0, msg) == ((True, engine.ACT_DF_TURNED_REASON) if refused else (False, "")), off
+
+
+def test_act_on_a_coded_df_with_no_good_track_is_refused():
+    # No track to turn from: refused, not flown as a line (AER-6294).
+    _, wps, ack, rows = climb_then("ACT {df}", track_given=False, seconds=1.0)
+    assert ack == (-2, engine.ACT_DF_NO_TRACK_REASON)
+    assert rows[1][1]["wp_name"] == wps[slot_of(wps, "CA") - 1].id
+
+
+def test_act_on_a_coded_df_inside_its_turn_circle_is_refused():
+    # The fix 0.5 nm off the right wing, coded R: the circle (0.64 nm at
+    # 120 kt) contains it, so no tangent reaches it.
+    a = (34.0, -118.0)
+    f = geo.destination_point(*a, 90.0, 0.5)
+    route = [engine.Waypoint("A", *a), engine.Waypoint("F", *f, pt="DF", turn="R")]
+    e = engine.Engine()
+    e.load_route(route, "T", 1, engine.waypoint_segments(route))
+    e.update(a[0], a[1], 120.0, 0.0, True, True, 0.01, 1000.0)
+    assert e.handle_command("1 ACT 2", (a[0], a[1], True, 0.0)) == (-1, engine.ACT_DF_TOO_CLOSE_REASON)
+
+
+def test_act_from_no_active_leg_sizes_the_turn_from_the_last_gs():
+    # Nothing active, so no guidance cycle has recorded a GS. The turn is
+    # still a hold turn's at the GS the last update carried, not the 0.1 nm
+    # floor of a GS of 0. Red on 5f85633.
+    a = (34.0, -118.0)
+    f = geo.destination_point(*a, 180.0, 10.0)
+    route = [engine.Waypoint("A", *a), engine.Waypoint("F", *f, pt="DF", turn="R")]
+    e = engine.Engine()
+    e.load_route(route, "T", 1, engine.waypoint_segments(route))
+    e.update(a[0], a[1], 120.0, 0.0, True, True, 0.01, 1000.0)
+    assert e.mode == "NONE"
+    assert e.handle_command("1 ACT 2", (a[0], a[1], True, 0.0)) == (1, "")
+    assert e._df_turn["r_nm"] == pytest.approx(engine.hold_turn_radius_nm(120.0))
 
 
 def test_act_on_a_df_needs_a_position():
