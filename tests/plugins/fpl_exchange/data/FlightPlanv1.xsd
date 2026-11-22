@@ -1,0 +1,300 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns="http://www8.garmin.com/xmlschemas/FlightPlan/v1" xmlns:fp="http://www8.garmin.com/xmlschemas/FlightPlan/v1" targetNamespace="http://www8.garmin.com/xmlschemas/FlightPlan/v1" elementFormDefault="qualified">
+  <xsd:annotation>
+    <xsd:documentation>
+      To transform a FlightPlan v1 XML document to GPX format a stylesheet will exist
+      on the Garmin website.
+    </xsd:documentation>
+  </xsd:annotation>
+  <xsd:element name="flight-plan" type="FlightPlan_t">
+    <xsd:key name="WaypointIdKey">
+      <xsd:annotation>
+        <xsd:documentation>
+          This key requires that the identifier, type, and country-codes values 
+          be unique in the waypoint table.
+        </xsd:documentation>
+      </xsd:annotation>
+      <xsd:selector xpath="fp:waypoint-table/fp:waypoint" />
+      <xsd:field xpath="fp:identifier" />
+      <xsd:field xpath="fp:type" />
+      <xsd:field xpath="fp:country-code" />
+    </xsd:key>
+    <xsd:keyref name="WaypointIdKeyRef" refer="WaypointIdKey">
+      <xsd:annotation>
+        <xsd:documentation>
+          This key requires the route-point values be in the waypoint table.
+        </xsd:documentation>
+      </xsd:annotation>
+      <xsd:selector xpath="fp:route/fp:route-point" />
+      <xsd:field xpath="fp:waypoint-identifier" />
+      <xsd:field xpath="fp:waypoint-type" />
+      <xsd:field xpath="fp:waypoint-country-code" />
+    </xsd:keyref>
+  </xsd:element>
+  <xsd:complexType name="FlightPlan_t">
+    <xsd:sequence>
+      <xsd:element name="file-description" type="xsd:string" minOccurs="0">
+        <xsd:annotation>
+          <xsd:documentation>
+            This element is for reference only and is ignored by the device.
+          </xsd:documentation>
+        </xsd:annotation>
+      </xsd:element>
+      <xsd:element name="author" type="Person_t" minOccurs="0">
+        <xsd:annotation>
+          <xsd:documentation>
+            The person or organization who created this flight plan.
+          </xsd:documentation>
+        </xsd:annotation>
+      </xsd:element>
+      <xsd:element name="link" type="xsd:anyURI" minOccurs="0" />
+      <xsd:element name="created" type="UtcTime_t" minOccurs="0">
+        <xsd:annotation>
+          <xsd:documentation>
+            The creation date and time of this flight plan.
+          </xsd:documentation>
+        </xsd:annotation>
+      </xsd:element>
+      <xsd:element name="waypoint-table" type="WaypointTable_t" />
+      <xsd:element name="route" type="Route_t" minOccurs="0" />
+      <xsd:element name="extensions" type="Extensions_t" minOccurs="0" />
+    </xsd:sequence>
+  </xsd:complexType>
+  <xsd:complexType name="WaypointTable_t">
+    <xsd:annotation>
+      <xsd:documentation>
+        An unordered list of unique waypoints referenced by a flight plan.
+        This table may also contain waypoints not referenced by the route
+        of a flight plan.
+      </xsd:documentation>
+    </xsd:annotation>
+    <xsd:sequence>
+      <xsd:element name="waypoint" type="Waypoint_t" maxOccurs="3000">
+        <xsd:annotation>
+          <xsd:documentation>
+            Different Garmin devices have differnt limits on the number of
+            user waypoints allowed.  If the number of waypoints in the XML
+            file exceeds the limits of the device then only the allowable number
+            will be transfered to the device's user waypoint list.
+          </xsd:documentation>
+        </xsd:annotation>
+      </xsd:element>
+    </xsd:sequence>
+  </xsd:complexType>
+  <xsd:complexType name="Waypoint_t">
+    <xsd:sequence>
+      <xsd:element name="identifier" type="Identifier_t" />
+      <xsd:element name="type" type="WaypointType_t" />
+      <xsd:element name="country-code" type="CountryCode_t">
+        <xsd:annotation>
+          <xsd:documentation>
+            The country code should be the empty string for user waypoints.
+          </xsd:documentation>
+        </xsd:annotation>
+      </xsd:element>
+      <xsd:element name="lat" type="Latitude_t" />
+      <xsd:element name="lon" type="Longitude_t" />
+      <xsd:element name="comment" type="Comment_t">
+        <xsd:annotation>
+          <xsd:documentation>
+            User waypoint comments.  This will be transferable to the 
+            device with this field.  Not all Garmin devices allow the 
+            same number of characters, if the limit of the device is 
+            less than the length of the comment then the value will be truncated.
+          </xsd:documentation>
+        </xsd:annotation>
+      </xsd:element>
+      <xsd:element name="elevation" type="xsd:decimal" minOccurs="0">
+        <xsd:annotation>
+          <xsd:documentation>
+            Elevation (in meters) of the waypoint. This value is ignored by
+            panel mount devices.
+          </xsd:documentation>
+        </xsd:annotation>
+      </xsd:element>
+      <xsd:element name="waypoint-description" type="xsd:string" minOccurs="0">
+        <xsd:annotation>
+          <xsd:documentation>
+            This field is for reference only and is ignored by the device.
+          </xsd:documentation>
+        </xsd:annotation>
+      </xsd:element>
+      <xsd:element name="symbol" type="xsd:string" minOccurs="0">
+        <xsd:annotation>
+          <xsd:documentation>
+            This field contains the text name of the waypoint symbol.  
+            For interchange with other programs, use the exact spelling
+            of the symbol as displayed on the device.  If the device
+            abbreviates words, spell them out. This element will be 
+            ignored by Garmin devices which do not accept the symbol
+            element.
+          </xsd:documentation>
+        </xsd:annotation>
+      </xsd:element>
+      <xsd:element name="extensions" type="Extensions_t" minOccurs="0" />
+    </xsd:sequence>
+  </xsd:complexType>
+  <xsd:simpleType name="WaypointType_t">
+    <xsd:restriction base="xsd:string">
+      <xsd:enumeration value="USER WAYPOINT" />
+      <xsd:enumeration value="AIRPORT" />
+      <xsd:enumeration value="NDB" />
+      <xsd:enumeration value="VOR" />
+      <xsd:enumeration value="INT" />
+      <xsd:enumeration value="INT-VRP" />
+    </xsd:restriction>
+  </xsd:simpleType>
+  <xsd:complexType name="Route_t">
+    <xsd:sequence>
+      <xsd:element name="route-name" type="RouteName_t" />
+      <xsd:element name="route-description" type="xsd:string" minOccurs="0">
+        <xsd:annotation>
+          <xsd:documentation>
+            This element is for reference only and is ignored by the device.
+          </xsd:documentation>
+        </xsd:annotation>
+      </xsd:element>
+      <xsd:element name="flight-plan-index" type="FlightPlanIndex_t">
+        <xsd:annotation>
+          <xsd:documentation>
+            This element will be ignored by handheld devices.
+          </xsd:documentation>
+        </xsd:annotation>
+      </xsd:element>
+      <xsd:element name="route-point" type="RoutePoint_t" maxOccurs="300">
+        <xsd:annotation>
+          <xsd:documentation>
+            The list of waypoints in the route in order of traversal. 
+            Different Garmin devices have different limits on the number of
+            waypoints allowed in a route.  If the number of route-points in
+            the XML document exceeds the limits of the device then only the 
+            allowable number will be transfered to the device's flight plan.
+          </xsd:documentation>
+        </xsd:annotation>
+      </xsd:element>
+      <xsd:element name="extensions" type="Extensions_t" minOccurs="0" />
+    </xsd:sequence>
+  </xsd:complexType>
+  <xsd:complexType name="RoutePoint_t">
+    <xsd:sequence>
+      <xsd:element name="waypoint-identifier" type="Identifier_t" />
+      <xsd:element name="waypoint-type" type="WaypointType_t" />
+      <xsd:element name="waypoint-country-code" type="CountryCode_t" />
+      <xsd:element name="extensions" type="Extensions_t" minOccurs="0" />
+    </xsd:sequence>
+  </xsd:complexType>
+  <xsd:complexType name="Person_t">
+    <xsd:annotation>
+      <xsd:documentation>
+        A person or organization.
+      </xsd:documentation>
+    </xsd:annotation>
+    <xsd:sequence>
+      <xsd:element name="author-name" type="xsd:string" minOccurs="0" />
+      <xsd:element name="email" type="Email_t" minOccurs="0" />
+      <xsd:element name="link" type="xsd:anyURI" minOccurs="0" />
+    </xsd:sequence>
+  </xsd:complexType>
+  <xsd:complexType name="Email_t">
+    <xsd:annotation>
+      <xsd:documentation>
+        An email address.  Broken into two parts (id and domain) to help prevent 
+        email harvesting.
+      </xsd:documentation>
+    </xsd:annotation>
+    <xsd:attribute name="id" type="xsd:string" use="required">
+      <xsd:annotation>
+        <xsd:documentation>
+		     id part of email address (billgates2004)
+	      </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="domain" type="xsd:string" use="required">
+      <xsd:annotation>
+        <xsd:documentation>
+		      domain part of email address (hotmail.com)
+	      </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+  </xsd:complexType>
+  <xsd:simpleType name="Identifier_t">
+    <xsd:restriction base="xsd:string">
+      <xsd:pattern value="[A-Z0-9]{1,12}" />
+    </xsd:restriction>
+  </xsd:simpleType>
+  <xsd:simpleType name="CountryCode_t">
+    <xsd:restriction base="xsd:string">
+      <xsd:pattern value="([A-Z0-9]{2})|" />
+    </xsd:restriction>
+  </xsd:simpleType>
+  <xsd:simpleType name="Comment_t">
+    <xsd:restriction base="xsd:string">
+      <xsd:pattern value="([A-Z0-9 /]{1,25})|" />
+    </xsd:restriction>
+  </xsd:simpleType>
+  <xsd:simpleType name="RouteName_t">
+    <xsd:restriction base="xsd:string">
+      <xsd:pattern value="([A-Z0-9 /]{1,25})|" />
+    </xsd:restriction>
+  </xsd:simpleType>
+  <xsd:simpleType name="Latitude_t">
+    <xsd:annotation>
+      <xsd:documentation>
+        Units are decimal degrees relative to the equator, WGS84 datum,
+        north positive.
+      </xsd:documentation>
+    </xsd:annotation>
+    <xsd:restriction base="xsd:decimal">
+      <xsd:minInclusive value="-90.0" />
+      <xsd:maxInclusive value="90.0" />
+      <xsd:whiteSpace value="collapse" />
+    </xsd:restriction>
+  </xsd:simpleType>
+  <xsd:simpleType name="Longitude_t">
+    <xsd:annotation>
+      <xsd:documentation>
+        Units are decimal degrees relative to the prime meridian, WGS84 datum,
+        east positive.
+      </xsd:documentation>
+    </xsd:annotation>
+    <xsd:restriction base="xsd:decimal">
+      <xsd:minInclusive value="-180.0" />
+      <xsd:maxInclusive value="180.0" />
+      <xsd:whiteSpace value="collapse" />
+    </xsd:restriction>
+  </xsd:simpleType>
+  <xsd:simpleType name="FlightPlanIndex_t">
+    <xsd:annotation>
+      <xsd:documentation>
+        The default value is 1.  This number identifies the location in the 
+        flight plan index within the device for which the flight plan route
+        will be stored.  
+      </xsd:documentation>
+    </xsd:annotation>
+    <xsd:restriction base="xsd:nonNegativeInteger">
+      <xsd:minInclusive value="1" />
+      <xsd:maxExclusive value="99" />
+      <xsd:whiteSpace value="collapse" />
+    </xsd:restriction>
+  </xsd:simpleType>
+  <xsd:simpleType name="UtcTime_t"> 
+    <xsd:annotation>
+      <xsd:documentation>
+        A UTC date and time value.
+      </xsd:documentation>
+    </xsd:annotation>
+    <xsd:restriction base="xsd:dateTime">
+      <xsd:pattern value=".+Z" />
+    </xsd:restriction>
+  </xsd:simpleType>
+  <xsd:complexType name="Extensions_t">
+    <xsd:annotation>
+      <xsd:documentation>
+        This type provides the ability to extend any data type that includes it.
+      </xsd:documentation>
+    </xsd:annotation>
+    <xsd:sequence>
+      <xsd:any namespace="##other" processContents="lax" minOccurs="0" maxOccurs="unbounded" />
+    </xsd:sequence>
+  </xsd:complexType>
+</xsd:schema>
