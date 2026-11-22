@@ -110,8 +110,11 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   flies the tangent to its fix, annunciated on `FPLTURN` (AER-4541,
   `doc/flightplan_keys.md`). `ACT` on a `DF` starts it from the aircraft
   and flies its coded turn from `TRACK`, the true ground track, read when
-  the command arrives; `DTO` and a `RESUME` off vectors fly the line, the
-  short way (AER-6294). `CF` and (PA13)
+  the command arrives, when the fix is more than 90 deg off the nose away
+  from the coded side. Within that, or with no good `TRACK`, `ACT` is
+  refused (`ACT N/A TURNED` / `ACT N/A NO TRACK` / `ACT N/A TOO CLOSE`)
+  and the active leg is kept. `DTO` and a `RESUME` off vectors fly the
+  line, the short way (AER-6294). `CF` and (PA13)
   `CA` fly the leg's published `FPLfCRS` (magnetic, converted with the
   current `MAGVAR`) instead of a bearing derived from the previous slot: a
   synthetic FROM point 50 nm behind the fix, on the reciprocal of that
