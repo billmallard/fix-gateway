@@ -127,14 +127,15 @@ TARGET_KEYS = tuple(t[0] for t in TARGETS)
 # The heading bug is walked to the pilot's value with the cockpit's own knob
 # commands, never written: a direct write can make X-Plane's HDG mode turn the
 # long way round (XPB-018; AER-6268 saw +40 flown as 320 left), while a step
-# turns the way it moves. This is what the xplane-bench driver does.
+# turns the way it moves. This is what the xplane-bench driver does. One step
+# goes out at a time, the next once a reply shows the dial took it: X-Plane
+# applies a burst of the same CMND as one step (session 2786fb6ef13a).
 WALK_KEY = "HEADBUG"
 WALK_UP = "sim/autopilot/heading_up"        # one degree each
 WALK_DOWN = "sim/autopilot/heading_down"
-WALK_STEPS = 10     # most steps in one batch: the driver's cap per sim frame
 WALK_DONE = 0.5     # within half a step the knob can get no closer
-WALK_WAIT_S = 0.5   # a batch not shown on the dial by now is given up on, and
-                    # the next is sized from where the dial is
+WALK_WAIT_S = 0.5   # a step not shown on the dial by now is sent again, from
+                    # where the dial is
 
 REQUESTS = ("AP", "FD", "YD", "LVL", "HDG", "TRK", "NAV", "APR", "IAS",
             "VNAV", "VS", "ALT", "DISC")
@@ -494,16 +495,15 @@ class Autopilot:
 
     def _start_walk(self, goal):
         """Walk the heading bug to ``goal``. A walk already running keeps its
-        last batch, so a new goal does not send steps the dial has not shown."""
-        batch = self.walk["batch"] if self.walk else None
-        self.walk = {"goal": goal, "best": None, "moved": None,
-                     "batch": batch}
+        last step, so a new goal does not send one the dial has not shown."""
+        last = self.walk["step"] if self.walk else None
+        self.walk = {"goal": goal, "best": None, "moved": None, "step": last}
 
     def _walk_bug(self, now):
-        """One reply's worth of the heading bug's walk: up to WALK_STEPS knob
-        steps the short way, once the dial shows the last batch. Ends within
-        half a step of the goal, where the dial's value is the bus's, or when
-        the dial has not come closer for TARGET_SETTLE_S."""
+        """One reply's worth of the heading bug's walk: one knob step the
+        short way, once the dial shows the last. Ends within half a step of
+        the goal, where the dial's value is the bus's, or when the dial has
+        not come closer for TARGET_SETTLE_S."""
         w = self.walk
         if w is None:
             return
@@ -520,16 +520,13 @@ class Autopilot:
             self.log.info("xplane: autopilot: %s %r not reached, the sim holds"
                           " %r", WALK_KEY, w["goal"], dial)
             return
-        if w["batch"] is not None:
-            expect, sent = w["batch"]
+        if w["step"] is not None:
+            expect, sent = w["step"]
             if (target_diff(dial, expect, True) >= WALK_DONE
                     and now - sent < WALK_WAIT_S):
-                return              # the dial has not shown the last batch
-        n = min(WALK_STEPS, max(1, int(round(abs(diff)))))
-        command = cmnd_packet(WALK_UP if diff > 0 else WALK_DOWN)
-        for _ in range(n):
-            self.send(command)
-        w["batch"] = ((dial + (n if diff > 0 else -n)) % 360.0, now)
+                return              # the dial has not shown the last step
+        self.send(cmnd_packet(WALK_UP if diff > 0 else WALK_DOWN))
+        w["step"] = ((dial + (1.0 if diff > 0 else -1.0)) % 360.0, now)
         t["pending"] = (w["goal"], now)
 
     def _dref(self, dref, value):

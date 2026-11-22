@@ -83,7 +83,8 @@ class Sim:
 
     def turn_knob(self, lag=0):
         """From now on, X-Plane's heading_up / heading_down turn the dial one
-        degree each, ``lag`` replies after they were sent."""
+        degree, ``lag`` replies after they were sent. As in the sim, several
+        of the same command between two replies are one step."""
         self.knob = lag
         self.knob_seen = len(self.sent)
 
@@ -96,7 +97,7 @@ class Sim:
         self.knob_queue.append(new)
         if len(self.knob_queue) <= self.knob:
             return
-        for command in self.knob_queue.pop(0):
+        for command in dict.fromkeys(self.knob_queue.pop(0)):
             step = {ap.WALK_UP: 1.0, ap.WALK_DOWN: -1.0}.get(command)
             if step is not None:
                 self.state["hdg_dial"] = (self.state["hdg_dial"] + step) % 360.0
@@ -720,8 +721,8 @@ def _walk(sim, replies=60, dt=0.05):
     return dials
 
 
-def _batches(sim, since):
-    """The heading commands sent from ``since`` on, one list per batch."""
+def _steps(sim, since):
+    """The heading commands sent from ``since`` on, one list per reply."""
     out = {}
     for p, t in zip(sim.sent[since:], sim.sent_at[since:]):
         c = p[5:].decode() if p[:5] == b"CMND\x00" else None
@@ -740,25 +741,22 @@ def _batches(sim, since):
 ])
 def test_a_large_bug_change_is_walked_the_short_way(sim, start, want,
                                                     command, steps):
-    """A large heading bug change goes to X-Plane as batches of one-degree
-    knob steps, every one the short way, and never as a write to the dial:
-    a write turned the C172 320 deg the long way on the bench."""
+    """A large heading bug change goes to X-Plane as one-degree knob steps,
+    one per reply, every one the short way, and never as a write to the
+    dial: a write turned the C172 320 deg the long way on the bench."""
     sim.step(hdg_dial=start)
     sim.turn_knob()
     sent = len(sim.sent)
     sim.db.write("HEADBUG", want)
-    _walk(sim)
+    _walk(sim, replies=steps + 5)
     assert sim.ap.walk is None
     assert sim.drefs() == []
-    batches = _batches(sim, sent)
-    assert len(batches) > 1
-    assert all(len(b) <= ap.WALK_STEPS for b in batches)
-    assert sum(batches, []) == [command] * steps
+    assert _steps(sim, sent) == [[command]] * steps
     assert sim.state["hdg_dial"] == pytest.approx(round(want) % 360)
 
 
 def test_a_walk_waits_for_the_dial_and_never_overshoots(sim):
-    """Replies two behind the knob: a batch the dial has not shown yet is not
+    """Replies two behind the knob: a step the dial has not shown yet is not
     sent again, so the dial goes 73 to 113 one way and stops there."""
     sim.step(hdg_dial=73.0)
     sim.turn_knob(lag=2)
@@ -817,12 +815,29 @@ def test_a_fast_knob_spin_on_the_glass_never_steps_the_bug_back(sim):
         sim.db.write("HEADBUG", 91.0 + i)
         sim.step()
         seen.append(sim.read("HEADBUG"))
-    for _ in range(10):
+    for _ in range(100):
         sim.step()
         seen.append(sim.read("HEADBUG"))
+        if sim.ap.walk is None:
+            break
+    assert sim.ap.walk is None
     assert seen == sorted(seen)
     assert seen[-1] == 102.0 and sim.state["hdg_dial"] == 102.0
     assert ap.WALK_DOWN not in sim.commands()
+
+
+def test_a_walk_steps_once_per_reply_the_sim_shows(sim):
+    """X-Plane took one step from a burst of ten (session 2786fb6ef13a), so
+    the walk sends one per reply: 40 degrees at 20 replies a second is about
+    2 s, not the 20 s a burst every WALK_WAIT_S gave on the bench."""
+    sim.step(hdg_dial=73.0)
+    sim.turn_knob()
+    t0 = sim.clock.t
+    sim.db.write("HEADBUG", 113.0)
+    _walk(sim, replies=1000)
+    assert sim.state["hdg_dial"] == 113.0
+    assert sim.clock.t - t0 < 2.5
+    assert sim.commands().count(ap.WALK_UP) == 40
 
 
 @pytest.mark.parametrize("start, want, command", [
@@ -835,7 +850,7 @@ def test_one_click_is_one_step(sim, start, want, command):
     sent = len(sim.sent)
     sim.db.write("HEADBUG", want)
     _walk(sim)
-    assert _batches(sim, sent) == [[command]]
+    assert _steps(sim, sent) == [[command]]
     assert sim.read("HEADBUG") == want
 
 
