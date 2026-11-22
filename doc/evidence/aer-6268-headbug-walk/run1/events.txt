@@ -1,0 +1,7 @@
+2026-11-22T06:39:47Z waiting for 2786fb6ef13a
+2026-11-22T06:39:48Z health {"flying": null, "queue": [{"id": "2786fb6ef13a", "requester": "AVIONICS", "issue": "AER-6268", "profile": "D:/Users/wpballard/Documents/github/xplane-bench/runs\\inline_profiles\\a738a8da-aer6268-headbug-walk.yaml", "estimate_s": 2280.0, "blocked": null}], "in_window_now": true, "hands_off": false, "error": null}
+2026-11-22T06:40:03Z health {"flying": {"id": "2786fb6ef13a", "requester": "AVIONICS", "issue": "AER-6268", "profile": "D:/Users/wpballard/Documents/github/xplane-bench/runs\\inline_profiles\\a738a8da-aer6268-headbug-walk.yaml", "started": "2026-11-22T06:39:48+00:00"}, "queue": [], "in_window_now": true, "hands_off": false, "error": null}
+2026-11-22T06:40:03Z flying -> on-start
+2026-11-22T06:40:09Z hook: sh session.sh start rc=0 2026-11-22T06:40:03Z start: fgw 4daf49e doc: XPB-018 is relied on by the autopilot adapter's heading bug walk (AER-6268) | 2026-11-22T06:40:09Z fixgw 1127181, seq 1127256
+2026-11-22T06:45:15Z session over -> on-end
+2026-11-22T06:45:22Z hook: sh session.sh stop rc=0 2026-11-22T06:45:19Z seq stopped: yes | 2026-11-22T06:45:22Z fixgw stopped: yes

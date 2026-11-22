@@ -1,0 +1,6 @@
+WARNING:20261122-06:40:03:fixgw.xplane - xplane: datarefs: NAV1CRS (sim/cockpit/radios/nav1_obs_degm) ignored: the autopilot adapter keeps NAV1CRS in step with the sim
+WARNING:20261122-06:40:03:fixgw.xplane - xplane: datarefs: NAV2CRS (sim/cockpit/radios/nav2_obs_degm) ignored: the autopilot adapter keeps NAV2CRS in step with the sim
+WARNING:20261122-06:40:03:fixgw.xplane - xplane: datarefs: HEADBUG (sim/cockpit/autopilot/heading_mag) ignored: the autopilot adapter keeps HEADBUG in step with the sim
+WARNING:20261122-06:41:38:database - FIX key HEADBUG has a second writer: netfix now writes it, xplane already did
+WARNING:20261122-06:45:19:fixgw.xplane - xplane: recv error ([Errno 9] Bad file descriptor)
+None
