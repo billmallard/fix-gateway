@@ -1,0 +1,7 @@
+2026-11-22T06:50:09Z waiting for 4f20ad787ee9
+2026-11-22T06:50:09Z health {"flying": null, "queue": [{"id": "4f20ad787ee9", "requester": "AVIONICS", "issue": "AER-6268", "profile": "D:/Users/wpballard/Documents/github/xplane-bench/runs\\inline_profiles\\1e26fa3b-aer6268-headbug-walk.yaml", "estimate_s": 2280.0, "blocked": null}], "in_window_now": true, "hands_off": false, "error": null}
+2026-11-22T06:50:24Z health {"flying": {"id": "4f20ad787ee9", "requester": "AVIONICS", "issue": "AER-6268", "profile": "D:/Users/wpballard/Documents/github/xplane-bench/runs\\inline_profiles\\1e26fa3b-aer6268-headbug-walk.yaml", "started": "2026-11-22T06:50:11+00:00"}, "queue": [], "in_window_now": true, "hands_off": false, "error": null}
+2026-11-22T06:50:24Z flying -> on-start
+2026-11-22T06:50:30Z hook: sh session.sh start rc=0 2026-11-22T06:50:24Z start: fgw ecce3fd doc: XPB-024, a burst of one CMND is one press; the walk is per reply (AER-6268) | 2026-11-22T06:50:30Z fixgw 1129521, seq 1129533
+2026-11-22T06:54:54Z session over -> on-end
+2026-11-22T06:55:01Z hook: sh session.sh stop rc=0 2026-11-22T06:54:58Z seq stopped: yes | 2026-11-22T06:55:01Z fixgw stopped: yes
