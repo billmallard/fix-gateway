@@ -98,7 +98,7 @@ def climb_then(command, track_given=True, climb_s=30.0, seconds=600.0, df_turn="
     lat, lon, alt = rw.lat, rw.lon, 600.0
     assert e.handle_command(f"1 ACT {ca}", (lat, lon, True))[0] == 1
     track = geo.wrap360(wps[ca - 1].crs - MAGVAR)
-    rows, ack = [], None
+    rows, ack, out = [], None, None   # out: the last cycle's, recorded as the command goes
     t = 0.0
     while t < climb_s + seconds:
         if ack is None and t >= climb_s:
