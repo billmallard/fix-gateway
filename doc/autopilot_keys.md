@@ -232,7 +232,7 @@ seen on the GFC-700 in sim-bench session bf3a33402db4,
   captured, so `APALTCAP` is always false from this source.
 
 **Targets.** Each of these keys follows its sim dial, and a pilot change on
-the bus is written to the dial (DREF):
+the bus is written to the dial (DREF). The heading bug is the exception, below:
 
 | Key | X-Plane dataref (all writable in `DataRefs.txt` 1210) |
 |---|---|
@@ -248,7 +248,20 @@ Until the dial follows, for up to 2 s, the dial is not copied back, so the
 pilot's value does not flicker, and a reply already in flight cannot put the
 old value back. A pilot change that lands at the same moment as a dial
 movement wins: it is sent before the dial is read. A value the sim will not
-take settles to the sim's. The heading bug and the courses are compared
+take settles to the sim's.
+
+The heading bug is never written. A write to its dial can make X-Plane's HDG
+mode turn the long way round (`XPB-018`: +40 was flown as 320 deg to the
+left). The adapter turns the sim's own knob instead, with
+`sim/autopilot/heading_up` and `heading_down`: up to 10 one-degree steps at a
+time, the short way round, each batch sent once the dial shows the last. The
+bus keeps the pilot's value for the whole walk. The walk ends within half a
+degree, and the bus then takes the dial's value, so a bug set to 113.2 from a
+dial on whole degrees ends at 113. If the dial does not come closer for 2 s,
+the walk stops and the sim's value wins. The courses are still written: only
+the heading bug has shown the long turn.
+
+The heading bug and the courses are compared
 around the circle, so 359 to 0 is a 1 degree change, and a dial at 360 reads
 0. `BARO` is the pilot-side altimeter, so X-Plane's altitude capture and the
 glass use one setting. The GPS course is not a target: it is the active leg

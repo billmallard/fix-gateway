@@ -386,8 +386,9 @@ Unless an entry says otherwise:
   - Writing the heading bug directly made the autopilot turn the long way round. The driver steps the bug instead.
   - `alt_vs` takes the current vertical speed, so the rate must be set after the command.
   - The servos dropped twice mid-run in SIM0. The cause is open, and the driver guards against it by pausing the sim.
+  - Seen again through the autopilot adapter (AER-6268, sim-bench session f7d6b79e7fb9, C172 G1000): with HDG engaged at 073, one DREF of the bug to 113.2 banked the aircraft left (FDROLL -19) and it flew 320 deg round to 113.
 - **Reference:** none found for real-autopilot behavior on a large heading-bug change.
-- **Relied on by:** nothing in fix-gateway.
+- **Relied on by:** the X-Plane autopilot adapter (`plugins/xplane/autopilot.py`, AER-6268). It walks `HEADBUG` onto `heading_dial_deg_mag_pilot` with `sim/autopilot/heading_up` and `heading_down`, at most 10 one-degree steps per batch the short way round, the next batch once the dial shows the last, and never writes that dial. It stops within half a degree, where the dial's value is the bus's, so a bug a fraction of a degree off the knob's steps lands on the nearest step. The xplane-bench driver (`plugin/xpbench.c`) does the same, 10 steps per sim frame.
 
 ### XPB-019
 
