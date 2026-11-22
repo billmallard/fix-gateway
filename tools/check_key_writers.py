@@ -538,6 +538,10 @@ def check_register(catalog, writes, selectors, register):
     return fails
 
 
+def upper_first(s):
+    return s[:1].upper() + s[1:]
+
+
 def check_baseline(register, baseline):
     """Failures: a new multi-writer key, a baseline key that gained or lost a
     writer, and an entry for a key no longer multi-written."""
@@ -554,7 +558,7 @@ def check_baseline(register, baseline):
         if live - allowed:
             fails.append("%s: gained live writer(s) %s; the baseline allows only %s.  %s"
                          % (key, ", ".join(sorted(live - allowed)), ", ".join(sorted(allowed)),
-                            FIX_SELECTOR.format(key=key)))
+                            upper_first(FIX_SELECTOR.format(key=key))))
     for key in sorted(baseline):
         live = live_writers(register.get(key) or {})
         allowed = set(baseline[key] or [])
