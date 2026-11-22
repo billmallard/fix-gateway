@@ -156,6 +156,39 @@ def test_legs_without_a_fix_and_repeats_are_dropped(database):
     assert [p.ident for p in plan.points] == ["KSBA", "GVO", "KSMX"]
 
 
+#: The KSBA-KSMO route loaded on the Beelink bench on 2026-11-22 (FPL1..24
+#: read over netfix): VTU ends the VTU departure and starts the airway, and
+#: the two copies differ in the 6th decimal, about 0.1 m apart. SADDE is
+#: repeated by its hold. Slots 2 and 20 are a VA and a CA with no fix.
+BENCH_ROUTE = [
+    ("KSBA", 1, 34.42619166, -119.84149277), ("", 4, 34.39386987674653, -119.83172679451036),
+    ("FLOUT", 4, 34.25758889, -119.95320278), ("VTU", 2, 34.11506389, -119.0495),
+    ("VTU", 2, 34.11506461, -119.04949866), ("HENER", 4, 34.33106389, -119.22768889),
+    ("OHIGH", 4, 34.43135278, -119.31081944), ("TTE", 2, 35.91305, -119.02080833),
+    ("WRING", 4, 35.51315556, -118.87496111), ("AMONT", 4, 35.18381111, -118.75538056),
+    ("LOPES", 4, 35.03181389, -118.70140278), ("PAIDD", 4, 34.84332222, -118.63423333),
+    ("JEFFY", 4, 34.74813889, -118.60010556), ("LHS", 2, 34.68297222, -118.57693889),
+    ("WAYVE", 4, 34.572875, -118.51235278), ("DARTS", 4, 34.15604722, -118.26959444),
+    ("MOVVE", 4, 34.10806667, -118.34198333), ("MIPTE", 4, 34.05848611, -118.40078889),
+    ("RW21", 4, 34.01924722, -118.44725278), ("", 4, 33.996356288156676, -118.47644542098271),
+    ("CAPOB", 4, 33.97319167, -118.59114722), ("SADDE", 4, 34.03899444, -118.76463333),
+    ("SADDE", 4, 34.03899444, -118.76463333), ("KSMO", 1, 34.01582194, -118.45130611),
+]
+
+
+def test_the_bench_route_goes_out(database):
+    """Found on the bench: one fix from two sources, a hair apart, refused
+    the whole download as two places under one name."""
+    load_route(database, BENCH_ROUTE, name="KSBA-KSMO", seq=70)
+    name, data = exchange(database).export()
+    assert name == "KSBAKSMO.fpl", data
+    plan = fpl.parse(data)
+    assert [p.ident for p in plan.points] == [
+        "KSBA", "FLOUT", "VTU", "HENER", "OHIGH", "TTE", "WRING", "AMONT", "LOPES", "PAIDD", "JEFFY",
+        "LHS", "WAYVE", "DARTS", "MOVVE", "MIPTE", "RW21", "CAPOB", "SADDE", "KSMO"]
+    assert plan.points[2].lat == 34.115064
+
+
 def test_an_upload_does_not_change_what_is_offered(database):
     load_route(database, ROUTE)
     ex = exchange(database)

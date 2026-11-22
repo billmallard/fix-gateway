@@ -109,8 +109,8 @@ class Exchange:
                 lon=float(self._value("FPL%dLON" % i)),
             )
             last = points[-1] if points else None
-            if last and (last.ident, last.type, last.lat, last.lon) == (p.ident, p.type, p.lat, p.lon):
-                continue   # a hold or a procedure leg back at the same fix
+            if last and fpl.same_place(last, p):
+                continue   # a hold at the fix, or one fix from two sources
             points.append(p)
         if not points:
             return None, "The loaded flight plan has no fixes."

@@ -137,8 +137,10 @@ loaded: the route block when `FPLLDSEQ` equals `FPLSEQ`. A route the engine
 refused is not offered. ForeFlight gets each slot's ident, position and type:
 
 - A slot with no ident (a `CA` or vector leg with no fix of its own) is left
-  out. A slot that repeats the fix before it (a hold at that fix) is written
-  once.
+  out. A slot that repeats the fix before it is written once. That covers a
+  hold at that fix, and one fix from two sources: on the bench, VTU ended
+  the departure and began the airway, 0.1 m apart. The same ident and type
+  within 0.1 nm count as one fix.
 - Path terminators, holds, arcs, altitude and speed constraints, segments and
   procedure names are lost. The format has no place for them.
 - Types map back one to one (airport, VOR, NDB, fix to `INT`, user). An
@@ -149,9 +151,9 @@ refused is not offered. ForeFlight gets each slot's ident, position and type:
   waypoint of it, is **checked on the bench**.
 - Idents are upper-cased and stripped to letters and digits (the schema's
   `[A-Z0-9]{1,12}`). The route name is cleaned to `[A-Z0-9 /]`, 25 characters.
-- Two different places under one ident, type and country code cannot both be
-  written, because the schema keys the waypoint table on those three. The
-  download is then refused with the ident named.
+- Two places more than 0.1 nm apart under one ident, type and country code
+  cannot both be written, because the schema keys the waypoint table on those
+  three. The download is then refused with the ident named.
 
 ## The endpoints
 

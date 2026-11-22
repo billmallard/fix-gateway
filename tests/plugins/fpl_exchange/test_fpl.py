@@ -98,6 +98,21 @@ def test_two_places_under_one_name_cannot_be_written():
         fpl.write(p)
 
 
+def test_one_fix_a_hair_apart_is_one_waypoint():
+    # The same VOR from two sources (bench, 2026-11-22), and a revisit.
+    p = plan(("VTU", "VOR", 34.11506389, -119.0495, "K2"), ("HENER", "INT", 34.331, -119.228, "K2"),
+             ("VTU", "VOR", 34.11506461, -119.04949866, "K2"))
+    data = fpl.write(p)
+    assert schema_ok(data) and data.count(b"<waypoint>") == 2 and data.count(b"<route-point>") == 3
+    assert fpl.parse(data).points[2].lat == 34.115064
+
+
+def test_two_places_a_little_apart_are_still_two():
+    p = plan(("USR1", "USER WAYPOINT", 34.0, -120.0), ("USR1", "USER WAYPOINT", 34.002, -120.0))  # 0.12 nm
+    with pytest.raises(fpl.FplError, match="TWO PLACES NAMED USR1"):
+        fpl.write(p)
+
+
 def test_names_and_idents_are_cleaned_to_the_schema():
     assert fpl.clean_ident("usr-1") == "USR1"
     assert fpl.clean_ident("ABCDEFGHIJKLMNOP") == "ABCDEFGHIJKL"

@@ -15,6 +15,7 @@ short reason. ``write(plan)`` returns the document as UTF-8 bytes, valid
 against the schema.
 """
 
+import math
 import re
 import xml.parsers.expat
 from dataclasses import dataclass, field
@@ -415,6 +416,21 @@ def clean_name(text):
     return re.sub(r" +", " ", name).strip()[:25].strip()
 
 
+#: Two points under one ident and type this close are one fix: the same VOR
+#: from two sources differs in the 6th decimal (the bench's VTU, 0.1 m).
+SAME_PLACE_NM = 0.1
+
+
+def same_place(a, b):
+    """True when two points name one fix: the same identifier and type, and
+    within SAME_PLACE_NM of each other."""
+    if (a.ident, a.type) != (b.ident, b.type):
+        return False
+    dlat = (a.lat - b.lat) * 60.0
+    dlon = (a.lon - b.lon) * 60.0 * math.cos(math.radians((a.lat + b.lat) / 2.0))
+    return math.hypot(dlat, dlon) < SAME_PLACE_NM
+
+
 def _coord(value):
     text = "%.6f" % value
     return "0.000000" if text == "-0.000000" else text
@@ -424,8 +440,9 @@ def write(plan, created=None):
     """``plan`` as a FlightPlan v1 document, UTF-8 bytes.
 
     A route point that repeats an earlier waypoint's identifier, type and
-    country code must be the same place: the schema keys the table on those
-    three, so two places under one key cannot both be written (``FplError``).
+    country code must be the same place (``same_place``), and is written at
+    the first one's position: the schema keys the table on those three, so
+    two places under one key cannot both be written (``FplError``).
     """
     if not plan.points:
         raise FplError("NO ROUTE")
@@ -438,8 +455,7 @@ def write(plan, created=None):
             raise FplError("BAD WAYPOINT %s" % p.ident)
         key = (p.ident, p.type, p.country)
         if key in table:
-            q = table[key]
-            if _coord(q.lat) != _coord(p.lat) or _coord(q.lon) != _coord(p.lon):
+            if not same_place(table[key], p):
                 raise FplError("TWO PLACES NAMED %s" % p.ident)
         else:
             table[key] = p
@@ -462,6 +478,7 @@ def write(plan, created=None):
             '    <route-name>%s</route-name>' % escape(name),
             '    <flight-plan-index>1</flight-plan-index>']
     for p in plan.points:
+        p = table[(p.ident, p.type, p.country)]
         out += ['    <route-point>',
                 '      <waypoint-identifier>%s</waypoint-identifier>' % escape(p.ident),
                 '      <waypoint-type>%s</waypoint-type>' % escape(p.type),
