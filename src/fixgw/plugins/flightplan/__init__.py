@@ -332,7 +332,18 @@ class MainThread(threading.Thread):
         lat_t = self._read_tuple("LAT")
         lon_t = self._read_tuple("LONG")
         ok = self._position_seen and _quality_ok(lat_t) and _quality_ok(lon_t)
-        return (lat_t[0], lon_t[0], ok)
+        return (lat_t[0], lon_t[0], ok, self._read_track())
+
+    def _read_track(self):
+        """TRACK, the true ground track every position source writes, or
+        None when it is old, bad, failed or not in the database. ACT on a DF
+        flies its coded turn from it (AER-6294); without it the DF is the
+        line from the aircraft."""
+        try:
+            trk_t = self._read_tuple("TRACK")
+        except KeyError:
+            return None
+        return trk_t[0] if _quality_ok(trk_t) else None
 
     # ------------------------------------------------------------------
     # Guidance cycle

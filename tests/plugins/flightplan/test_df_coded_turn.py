@@ -79,6 +79,92 @@ def fly_missed(df_turn="R", seconds=900.0):
     return e, wps, rows
 
 
+def climb_then(command, track_given=True, climb_s=30.0, seconds=600.0):
+    """Climb out on the CA as fly_missed does, but at climb_s -- short of
+    1,100 ft, so the CA has not ended -- send `command` (formatted with the
+    DF's slot) with the aircraft's position, and its track if track_given.
+    Then fly the guidance as before. Returns the engine, the route, the
+    command's (ack, msg), and one (t, out, track_true) per cycle after it."""
+    wps, segments = kssf_route()
+    ca = slot_of(wps, "CA")
+    df = slot_of(wps, "DF")
+    e = engine.Engine()
+    e.load_route(wps, "KSSF R28", 1, segments)
+    rw = wps[ca - 2]
+    lat, lon, alt = rw.lat, rw.lon, 600.0
+    assert e.handle_command(f"1 ACT {ca}", (lat, lon, True))[0] == 1
+    track = geo.wrap360(wps[ca - 1].crs - MAGVAR)
+    rows, ack = [], None
+    t = 0.0
+    while t < climb_s + seconds:
+        if ack is None and t >= climb_s:
+            assert e.act_leg == ca and alt < 1100.0
+            position = (lat, lon, True, track) if track_given else (lat, lon, True)
+            ack = e.handle_command("2 " + command.format(df=df), position)
+        out = e.update(lat, lon, TAS_KT, MAGVAR, True, True, 0.01, 1000.0 + t, alt_ft=alt)
+        if ack is not None:
+            rows.append((t, out, track))
+            if e.act_leg > df:
+                break
+        cmd = geo.wrap360(out["crs"] - MAGVAR + max(-30.0, min(30.0, -out["xtk"] * 100.0)))
+        track = geo.wrap360(track + max(-4.0 * DT, min(4.0 * DT, _wrap180(cmd - track))))
+        lat, lon = geo.destination_point(lat, lon, track, TAS_KT * DT / 3600.0)
+        alt = min(3100.0, alt + CLIMB_FPM * DT / 60.0)
+        t += DT
+    return e, wps, ack, rows
+
+
+def _sweep(rows, within_s):
+    first = rows[0][2]
+    return [_wrap180(trk - first) for t, _, trk in rows if t - rows[0][0] <= within_s]
+
+
+def test_act_on_a_coded_df_flies_the_coded_turn_from_the_aircrafts_track():
+    # AER-6294, Bill's ruling: ACT on the DF means the climb is done, so the
+    # coded right turn is flown, from where the aircraft is, on its track.
+    # Red on dev: ACT flew the line from the CA slot's stand-in point, and
+    # the autopilot turned left, the short way.
+    e, wps, ack, rows = climb_then("ACT {df}")
+    assert ack == (2, "")
+    early = _sweep(rows, 40.0)
+    assert min(early) > -1.0 and max(early) > 100.0
+    assert rows[0][1]["turn"] == "R"
+    assert max(abs(out["xtk"]) for _, out, _ in rows) < 0.05
+    assert e.act_leg == slot_of(wps, "HM")
+
+
+def test_act_on_a_df_starts_it_from_the_aircraft_not_the_slot_before():
+    # A DF has no FROM fix (IPH FAA-H-8083-16B p.6-7: "an unspecified track
+    # starting from an undefined position"). With no good track there is no
+    # turn to fly, so it is the line from the aircraft: the needle centred.
+    # Red on dev: FROM was the CA slot, a point 2 nm out on the climb.
+    e, wps, ack, rows = climb_then("ACT {df}", track_given=False, seconds=1.0)
+    assert ack == (2, "")
+    out = rows[0][1]
+    assert out["turn"] == ""
+    assert out["xtk"] == pytest.approx(0.0, abs=1e-3)
+    assert out["wp_name"] == "GANLE"
+
+
+def test_act_on_a_df_needs_a_position():
+    wps, segments = kssf_route()
+    e = engine.Engine()
+    e.load_route(wps, "KSSF R28", 1, segments)
+    ack, msg = e.handle_command(f"1 ACT {slot_of(wps, 'DF')}", (0.0, 0.0, False, 280.0))
+    assert ack == -1 and msg == engine.DIRECT_TO_NEEDS_POSITION_REASON
+
+
+def test_direct_to_a_coded_df_flies_the_short_way_even_with_a_track():
+    # AER-6294, Bill's ruling: a Direct-To is a fresh "proceed direct", the
+    # line from present position (GTN Xi Pilot's Guide p.3-132), so the
+    # coded turn is not flown even though the track is known.
+    _, _, ack, rows = climb_then("DTO {df}")
+    assert ack == (2, "")
+    early = _sweep(rows, 30.0)
+    assert max(early) < 1.0 and min(early) < -60.0
+    assert all(out["turn"] == "" for _, out, _ in rows)
+
+
 def test_the_kssf_missed_approach_is_coded_to_turn_right_the_long_way_round():
     # The premise, from the CIFP: CA on 279.6, then DF GANLE coded R, with
     # GANLE to the left of the climb-out.

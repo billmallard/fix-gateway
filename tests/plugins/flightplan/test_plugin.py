@@ -941,3 +941,30 @@ def test_state_file_config_placeholder_resolves_under_the_config_directory(datab
     assert pl.thread.state_file == str(config_dir / "x.json")
     pl.thread._restore()
     assert pl.thread.engine.route_name == "INFLIGHT"
+
+
+def test_act_on_a_coded_df_turns_from_the_track_on_the_bus(database, tmp_path):
+    # AER-6294: the plugin hands TRACK, the true ground track, to ACT, and a
+    # coded DF turns from it. C is 90 deg right of the track into B and
+    # coded L: the long way, so only a turn flown from TRACK reads L. An
+    # old TRACK is no track: the line from the aircraft, no FPLTURN.
+    pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
+    database.write("GPS_FIX_TYPE", 3)
+    a = (34.0, -118.0)
+    b = geo.destination_point(*a, 90.0, 10.0)
+    c = geo.destination_point(*b, 0.0, 10.0)
+    write_route(database, [engine.Waypoint("A", *a), engine.Waypoint("B", *b),
+                           engine.Waypoint("C", *c, pt="DF", turn="L")], seq=1)
+    database.write("LAT", b[0])
+    database.write("LONG", b[1])
+    database.write("GS", 120.0)
+    database.write("MAGVAR", 0.0)
+    database.write("FPLCMD", "1 ACT 2")
+    pl.thread._run_update_cycle()
+
+    for seq, old, turn in ((2, False, "L"), (3, True, "")):
+        database.write("TRACK", 90.0)
+        database.get_raw_item("TRACK").old = old
+        database.write("FPLCMD", f"{seq} ACT 3")
+        assert database.read("FPLCMDACK")[0] == seq, database.read("FPLMSG")[0]
+        assert database.read("FPLTURN")[0] == turn

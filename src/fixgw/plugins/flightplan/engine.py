@@ -1060,8 +1060,8 @@ class Engine:
         also when the coded side is the short way.
 
         No turn is set up -- the leg is the line from `start`, the short
-        way -- with no arrival track (the leg was started by ACT, DTO or a
-        RESUME off vectors, where the engine knows no track), or with the
+        way -- with no arrival track (a DTO or a RESUME off vectors, which
+        fly the line by rule, or an ACT with no good TRACK), or with the
         fix inside the turn's circle, where no tangent reaches it. 8260.58D
         C-3.a requires a DF's fix outside every such path, so a published
         DF does not do that."""
@@ -1283,7 +1283,8 @@ class Engine:
     # ------------------------------------------------------------------
     def handle_command(self, cmd_str, position, dto_staged=None):
         """position: (lat, lon, ok) -- current aircraft position and whether
-        it is fresh/good. dto_staged: (id, lat, lon, type) for a bare "DTO"
+        it is fresh/good -- or (lat, lon, ok, track_true), with the true
+        ground track or None if it is not good (AER-6294). dto_staged: (id, lat, lon, type) for a bare "DTO"
         (the editor's staged direct-to keys), or None.
 
         Returns (ack_value, msg) to write to FPLCMDACK/FPLMSG. ack_value is
@@ -1367,8 +1368,17 @@ class Engine:
         self._clear_leg_phase()
 
     def _cmd_act(self, arg, position):
+        """ACT <slot>: fly that slot's leg. A DF has no FROM fix (IPH
+        FAA-H-8083-16B p.6-7: "an unspecified track starting from an
+        undefined position"), so ACT on one starts it from the aircraft, not
+        from the slot before it -- after a CA that slot is only a stand-in
+        for where the climb ends. ACT on a DF means the leg before it is
+        done, so a coded turn is flown from the aircraft's track, as if the
+        leg had sequenced (Bill, AER-6294). DTO and a RESUME off vectors are
+        a fresh "proceed direct" and fly the line, the short way."""
         k = self._slot_arg(arg)
-        if k == 1:
+        wp = self.route[k - 1]
+        if k == 1 or wp.pt == "DF":
             lat, lon = self._require_position(position)
             from_pt = Point(lat, lon)
         else:
@@ -1377,7 +1387,9 @@ class Engine:
         self.mode = "LEG"
         self.act_leg = k
         self.from_point = from_pt
-        self.to_point = Point.from_waypoint(self.route[k - 1])
+        self.to_point = Point.from_waypoint(wp)
+        if wp.pt == "DF":
+            self._df_turn_start(wp, from_pt, _position_track(position), self._cycle_gs_kt)
 
     def _cmd_dto(self, arg, position, dto_staged):
         if arg is not None:
@@ -2541,3 +2553,11 @@ class _Reject(Exception):
     def __init__(self, reason):
         super().__init__(reason)
         self.reason = reason
+
+
+def _position_track(position):
+    """The true ground track a command's position carries (AER-6294), or
+    None: a 3-tuple (no track), a track that is not good, or no position."""
+    if position is None or len(position) < 4 or not position[2]:
+        return None
+    return position[3]
