@@ -23,3 +23,7 @@
   - `ksba_kphx.fpl`: KSBA to KPHX, 17 points, built and edited in ForeFlight
     on Bill's iPad and uploaded at the bench, 2026-11-22 (AER-6321); taken
     from the bench packet log.
+  - `ksba_kpmd.fpl`: KSBA to KPMD, 13 points, the second upload at the same
+    session, the one that reached `FPLIMP*` on the bench bus; taken from the
+    bench packet log (`efb4.sh pcap`, TCP 8080 on the hotspot) and the form
+    part extracted with `fpl_exchange._form_file`.

@@ -132,9 +132,12 @@ each with an ident, a position and a type: airport, VOR, NDB, intersection
   ForeFlight's own support article says so as well.
 - **Airways and procedures as such.** At most they arrive as their fixes.
   `V27` becomes `GVO ... AVOLS`, with no airway segment, and a SID, STAR or
-  approach becomes plain fixes with no path terminators. Which of these
-  ForeFlight puts in an export is **unverified** until Bill's export fixtures
-  are in (`tests/plugins/fpl_exchange/data/foreflight/`). An accepted import
+  approach becomes plain fixes with no path terminators. Bill's two exports
+  (`tests/plugins/fpl_exchange/data/foreflight/`) list every fix of the
+  departure and the airways, each by its own type (`INT`, `VOR`), and name no
+  airway or procedure. Both began as the panel's own KSBA-KSMO export, so
+  whether ForeFlight also expands an airway typed into its route editor is
+  **not yet shown**. An accepted import
   is a route of TF legs to fixes. A procedure is loaded on the panel from the
   panel's own database.
 - **Country codes.** They are read and checked, but the route block has no
@@ -235,7 +238,9 @@ downloads. Its status shows `Upload: off: database predates EFB4`.
 
 ## Bench check (BACKLOG EFB4, definition of done 2)
 
-On the Pi 5 hardware bench, with Bill's iPad on the bench Wi-Fi:
+On a bench that can host a Wi-Fi access point, with Bill's iPad on it. The
+2026-11-22 session used the Beelink, whose radio hosts `MkrPlane-Bench`; the
+Pi 5's NetworkManager cannot host one without interactive authentication.
 
 1. Turn the plugin on (`FPL_EXCHANGE: true` and the `FPL_EXCHANGE_CONFIG`
    include in `preferences.yaml.custom`), set `allow:` to the bench Wi-Fi
