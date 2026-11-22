@@ -21,7 +21,7 @@ AGL: {units: ft, datum: {canfix: 'radar altitude, CAN-FIX parameter 0x188', mavl
 AIRPRESS: {units: Pa, writers: [mavlink]}
 ALAT: {units: g, writers: [canfix, dynon, mavlink, rpi_bno055, stratux]}
 ALONG: {units: g, writers: [mavlink, rpi_bno055]}
-ALT: {units: ft, datum: {canfix: 'indicated, as the CAN-FIX node sends parameter 0x184', dynon: Dynon serial altitude field when status bit 0 is 0 (the same value goes to TALT); field not checked against Dynon's spec, grand_rapids_eis: 'unrecorded: a raw frame field, protocol not read', mavlink: 'MSL: GLOBAL_POSITION_INT.alt, the autopilot''s estimate (the same value goes to TALT); not corrected to BARO', rpi_bmp085: sensor altitude at 29.92 plus (BARO - 29.92) * 1000 ft, stratux: Stratux AHRS altitude field less 5000.5 (Stratux documents pressure altitude); not corrected to BARO}, writers: [canfix, dynon, grand_rapids_eis, mavlink, rpi_bmp085, stratux]}
+ALT: {units: ft, datum: {canfix: 'indicated, as the CAN-FIX node sends parameter 0x184', dynon: Dynon serial altitude field when status bit 0 is 0 (the same value goes to TALT); field not checked against Dynon's spec, grand_rapids_eis: 'unrecorded: a raw frame field, protocol not read', mavlink: 'MSL: GLOBAL_POSITION_INT.alt, the autopilot''s estimate (the same value goes to TALT); not corrected to BARO', rpi_bmp085: sensor altitude at 29.92 plus (BARO - 29.92) * 1000 ft, stratux: Stratux AHRS altitude field less 5000.5 (Stratux documents pressure altitude); not corrected to BARO}, writers: [canfix, dynon, grand_rapids_eis, mavlink, onspeed, rpi_bmp085, stratux]}
 ANORM: {units: g, writers: [mavlink, rpi_bno055]}
 AOA: {units: deg, writers: [canfix, onspeed]}
 APALTCAP: {units: '', sim: [xplane]}

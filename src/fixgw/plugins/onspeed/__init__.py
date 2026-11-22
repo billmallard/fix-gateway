@@ -370,3 +370,9 @@ class Plugin(plugin.PluginBase):
             None if t.last_frame is None else dataclasses.asdict(t.last_frame)
         )
         return status
+
+
+def _throwaway_alt(parent, alt):
+    # THROWAWAY (AER-6350): a new ALT writer, declared in writers.yaml, to show
+    # the ratchet refuse it. Never merged.
+    parent.db_write("ALT", alt)
