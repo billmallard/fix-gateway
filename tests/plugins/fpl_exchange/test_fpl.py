@@ -217,6 +217,23 @@ def test_the_first_foreflight_export_reads_as_bill_built_it():
     assert p.points[0].country == "" and p.points[0].lat == 34.426192
 
 
+def test_foreflight_ksba_kpmd_is_what_reached_the_bench_bus():
+    """Bill's second upload at the bench (2026-11-22), rebuilt from the
+    hotspot's packet log: FPLIMP* read KSBA TO KPMD, 13 points."""
+    with open(os.path.join(DATA, "foreflight", "ksba_kpmd.fpl"), "rb") as f:
+        p = fpl.parse(f.read())
+    assert p.name == "KSBA TO KPMD"
+    assert [x.ident for x in p.points] == ["KSBA", "FLOUT", "VTU", "HENER", "OHIGH", "TTE", "WRING", "AMONT",
+                                           "LOPES", "PAIDD", "JEFFY", "LHS", "KPMD"]
+    assert [x.fix_type for x in p.points][:3] == [1, 4, 2] and p.points[-1].fix_type == 1
+
+
+@pytest.mark.parametrize("path", FOREFLIGHT, ids=os.path.basename)
+def test_no_fixture_carries_a_tail_number(path):
+    with open(path, "rb") as f:
+        text = f.read().decode("utf-16")
+    assert all(v == "" for v in re.findall(r"<aircraft-tailnumber>([^<]*)<", text))
+
 
 def ff_variant(old, new):
     s = H.replace(old, new, 1)
