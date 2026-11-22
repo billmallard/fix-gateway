@@ -60,7 +60,10 @@ jobs:
     # PR red (fix-gateway #213, then #219/#223). Run it here, from pyEfis dev,
     # against this tree's engine: the pyEfis words merge first, then the code.
     # After the main pytest run, so a bare `pytest` never collects _pyefis.
-    - name: Check out pyEfis's FPLMSG words
+    # AER-6293: the same for the engine's FPLSTATE, FPLAPR and FPLHOLDENT
+    # values, which pyEfis renders through tables in its widget modules
+    # (test_engine_enums.py reads both sides as source, no Qt).
+    - name: Check out pyEfis's FPLMSG words and engine-value tables
       uses: actions/checkout@v6
       with:
         repository: billmallard/pyEfis
@@ -69,9 +72,13 @@ jobs:
         sparse-checkout: |
           src/pyefis/__init__.py
           src/pyefis/flightplan/
+          src/pyefis/instruments/flight_plan/__init__.py
+          src/pyefis/instruments/nav_status/__init__.py
+          src/pyefis/instruments/map/layers/flight_plan.py
           tests/flightplan/test_refusal.py
+          tests/flightplan/test_engine_enums.py
         sparse-checkout-cone-mode: false
-    - name: Every FPLMSG code the engine can write has pyEfis words
+    - name: Every FPLMSG code and enum value the engine can write has its pyEfis entry
       env:
         FIXGW_FLIGHTPLAN_ENGINE: ${{ github.workspace }}/src/fixgw/plugins/flightplan/engine.py
         PYTHONPATH: _pyefis/src
@@ -79,6 +86,7 @@ jobs:
       run: >-
         pytest -p no:cacheprovider -c /dev/null --noconftest --rootdir=_pyefis
         _pyefis/tests/flightplan/test_refusal.py
+        _pyefis/tests/flightplan/test_engine_enums.py
 
     - name: Test evidence record and job summary
       if: always() && steps.pytest.outcome != 'skipped'
