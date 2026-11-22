@@ -1,4 +1,4 @@
-# Flight plan FIX keys (FP1, PA3, PA4, PA13, RS1, TURN3, HOLDENT1, OBS2)
+# Flight plan FIX keys (FP1, PA3, PA4, PA13, RS1, TURN3, HOLDENT1, OBS2, EFB4)
 
 Spec: [fix-gateway#22](https://github.com/billmallard/fix-gateway/issues/22)
 (FP1), [fix-gateway#27](https://github.com/billmallard/fix-gateway/issues/27)
@@ -275,6 +275,30 @@ table in RS1, where each one sits on the segment it names.
 | `FPLAPRTYPE` | str | editor | Loaded approach type (ILS/LOC/RNAV/VOR/NDB/GPS...) |
 | `FPLDBCYC` | str | editor | Nav database AIRAC cycle the loaded procedure(s) came from, e.g. `"2609"` -- PA9 annunciates when it has expired (guardrail 3: annunciate, never refuse the load) |
 
+## Pending import (EFB4)
+
+A plan received from an EFB as a Garmin `.fpl` (`fpl_exchange`,
+`doc/plugins/fpl_exchange.md`), waiting for the pilot. It is never flown and
+is never a route slot: the editor shows it, and Accept commits it through
+the route block above, as any edit. `tol: 0`, not persisted.
+
+| Key | Type | Range | Writer | Meaning |
+|---|---|---|---|---|
+| `FPLIMP1..100 ID` | str | `[A-Z0-9]`, 1..12 chars | fpl_exchange | Point ident (a Garmin identifier, which may be longer than `FPLfID`'s 6) |
+| `FPLIMP1..100 LAT` / `LON` | float | +-90 / +-180 deg | fpl_exchange | Point position |
+| `FPLIMP1..100 TYPE` | int | 1 airport, 2 VOR, 3 NDB, 4 fix, 5 user (as `FPLfTYPE`) | fpl_exchange | Point type |
+| `FPLIMPCOUNT` | int | 0..100 | fpl_exchange | Points in use |
+| `FPLIMPNAME` | str | `[A-Z0-9 /]`, <=25 chars | fpl_exchange | Route name from the file |
+| `FPLIMPSEQ` | int | >=0, 0 = nothing received since start | fpl_exchange | Counter, written last after every point, `FPLIMPCOUNT` and `FPLIMPNAME` |
+| `FPLIMPDONE` | int | >=0 | editor | The `FPLIMPSEQ` the pilot has accepted or rejected |
+
+A plan is pending while `FPLIMPSEQ > 0` and `FPLIMPDONE` differs from it. The
+editor acts on `FPLIMPSEQ` changing; on Accept it writes the points into the
+route block (TF legs, one segment) and commits with `FPLSEQ`, and either way
+it then writes `FPLIMPDONE = FPLIMPSEQ`. A newer upload replaces an older
+pending plan. Altitudes, speeds, airways and procedures do not cross: the
+format carries none of them (`doc/plugins/fpl_exchange.md`, "What crosses").
+
 ## Direct-To staging
 
 | Key | Type | Writer | Meaning |
@@ -516,6 +540,8 @@ The specific points a merge with upstream would have to reconcile:
   for something else.
 - The route block and segment table: `FPLf*` (15 fields, `FPLfTA` the
   engine's), `FPLS1..100` (6 fields), `FPLSEGCNT`, `FPLCOUNT`, `FPLNAME`, `FPLSEQ`, `FPLLDSEQ`.
+- The pending-import block (EFB4): `FPLIMPf*` (4 fields), `FPLIMPCOUNT`,
+  `FPLIMPNAME`, `FPLIMPSEQ`, `FPLIMPDONE`.
 - PA3 and RS1 were both breaking changes inside the fork (Bill lifted the
   compatibility constraint, procedures brief section 3.2 and route
   segments brief section 3). There is no upstream version to stay
