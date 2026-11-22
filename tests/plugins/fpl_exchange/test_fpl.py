@@ -4,7 +4,8 @@ The schema is Garmin's published FlightPlanv1.xsd, kept in data/ (see the
 README there). What the writer produces is validated against it with lxml,
 and the reader is checked against it both ways: every mutation the schema
 refuses, the reader refuses, and every document the reader accepts, the
-schema accepts.
+schema accepts, once the ForeFlight departures Bill ruled in (AER-6321,
+2026-11-22) are undone by ``foreflight_to_schema``.
 """
 
 import glob
@@ -37,6 +38,47 @@ def schema_ok(data):
     except etree.XMLSyntaxError:
         return False
     return SCHEMA.validate(doc)
+
+
+G = "{%s}" % fpl.NS
+
+
+def foreflight_to_schema(data):
+    """The ForeFlight departures (Bill, 2026-11-22, AER-6321), undone with
+    lxml, independently of the reader, so the schema stays the oracle."""
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        try:
+            data = data.decode("utf-16").encode("utf-8")
+        except UnicodeError:
+            return data
+    try:
+        root = etree.fromstring(data, etree.XMLParser(resolve_entities=False, no_network=True))
+    except etree.XMLSyntaxError:
+        return data
+    for name in fpl.FOREFLIGHT_TOP:
+        for e in root.findall(G + name):
+            root.remove(e)
+
+    def ensure(parent, before, name):
+        if parent.find(G + name) is None and parent.find(G + before) is not None:
+            parent.find(G + before).addnext(etree.Element(G + name))
+
+    created = root.find(G + "created")
+    if created is not None and created.text:
+        created.text = re.sub(r"\A(\d{4})(\d{2})(\d{2})T", r"\1-\2-\3T", created.text.strip())
+    for wp in root.findall("%swaypoint-table/%swaypoint" % (G, G)):
+        for e in wp.findall(G + "altitude-ft"):
+            wp.remove(e)
+        ensure(wp, "type", "country-code")
+        ensure(wp, "lon", "comment")
+    for rp in root.findall("%sroute/%sroute-point" % (G, G)):
+        ensure(rp, "waypoint-type", "waypoint-country-code")
+    return etree.tostring(root, xml_declaration=True, encoding="utf-8")
+
+
+def accepted_ok(data):
+    """What the reader may accept: schema-valid once ForeFlight's departures are undone."""
+    return schema_ok(data) or schema_ok(foreflight_to_schema(data))
 
 
 def reader(data):
@@ -156,11 +198,60 @@ def test_foreflight_export_reads_and_round_trips(path):
         pytest.skip("no ForeFlight export in data/foreflight yet (AER-6321: Bill exports them)")
     with open(path, "rb") as f:
         data = f.read()
-    assert schema_ok(data), SCHEMA.error_log
+    assert schema_ok(foreflight_to_schema(data)), SCHEMA.error_log
     p = fpl.parse(data)
     out = fpl.write(p)
     assert schema_ok(out)
     assert fpl.parse(out).points == p.points
+
+
+def test_the_first_foreflight_export_reads_as_bill_built_it():
+    # Bill's iPad, 2026-11-22: KSBA to KPHX, edited in ForeFlight and shared.
+    with open(os.path.join(DATA, "foreflight", "ksba_kphx.fpl"), "rb") as f:
+        data = f.read()
+    assert data[:2] == b"\xff\xfe" and not schema_ok(data)   # what ForeFlight really sends
+    p = fpl.parse(data)
+    assert p.name == "KSBA TO KPHX" and len(p.points) == 17
+    assert [x.ident for x in p.points[:3]] == ["KSBA", "FLOUT", "VTU"] and p.points[-1].ident == "KPHX"
+    assert [x.fix_type for x in p.points[:3]] == [1, 4, 2]
+    assert p.points[0].country == "" and p.points[0].lat == 34.426192
+
+
+
+def ff_variant(old, new):
+    s = H.replace(old, new, 1)
+    assert s != H, old
+    return s.encode()
+
+
+def test_foreflight_departures_each_read_alone():
+    for data in (
+        H.encode("utf-16"),                                                    # UTF-16 under a utf-8 declaration
+        ff_variant("<created>", "<aircraft><aircraft-tailnumber>N1</aircraft-tailnumber></aircraft>"
+                                "<flight-data><altitude-ft>6000</altitude-ft></flight-data><created>"),
+        ff_variant("      <comment />\n", ""),                                 # no comment
+        # No country codes, in the table or the route (ForeFlight omits both;
+        # dropping one side only is a keyref mismatch, refused by both).
+        re.sub(r"<(waypoint-)?country-code>[A-Z0-9]*</(waypoint-)?country-code>|<(waypoint-)?country-code ?/>",
+               "", H).encode(),
+        ff_variant("2026-11-22T15:00:00Z", "20261122T15:00:00Z"),              # compact created
+        ff_variant("<comment />", "<comment /><altitude-ft></altitude-ft>"),
+        ff_variant("<comment />", "<comment /><altitude-ft>1200.5</altitude-ft>"),
+    ):
+        assert accepted_ok(data), data[:200]
+        assert isinstance(fpl.parse(data), fpl.Plan)
+
+
+def test_foreflight_leniency_is_only_what_it_sends():
+    for data, why in (
+        (ff_variant("<comment />", "<comment /><altitude-ft>high</altitude-ft>"), "BAD ALTITUDE"),
+        (ff_variant("<created>", "<aircraft><x/></aircraft><speed>1</speed><created>"), None),
+        (ff_variant("2026-11-22T15:00:00Z", "20261322T15:00:00Z"), "BAD CREATED"),  # month 13
+        (b"\xff\xfe<\x00", None),                                              # truncated UTF-16
+        (b"\xff\xfe" + b"\x00\xd8<\x00", None),                                # lone surrogate
+    ):
+        got = reader(data)
+        assert isinstance(got, str) and (why is None or got == why), got
 
 
 H = handmade().decode()
@@ -187,7 +278,6 @@ INVALID = {
     "index 99": sub("<flight-plan-index>1<", "<flight-plan-index>99<"),
     "created without Z": sub("2026-11-22T15:00:00Z", "2026-11-22T15:00:00"),
     "no waypoint table": re.sub(r"(?s)<waypoint-table>.*</waypoint-table>", "", H).encode(),
-    "missing comment": sub("      <comment />\n", "", 1),
     "lon before lat": sub("<lat>34.509500</lat>\n      <lon>-119.770833</lon>",
                           "<lon>-119.770833</lon>\n      <lat>34.509500</lat>"),
     "unknown element": sub("<comment />", "<comment /><speed>120</speed>"),
@@ -218,7 +308,7 @@ INVALID = {
 @pytest.mark.parametrize("name", sorted(INVALID))
 def test_reader_refuses_what_the_schema_refuses(name):
     data = INVALID[name]
-    assert not schema_ok(data), "the mutation is schema-valid; fix the test"
+    assert not accepted_ok(data), "the mutation is acceptable; fix the test"
     assert isinstance(reader(data), str)
 
 
@@ -259,7 +349,7 @@ def test_reader_never_accepts_what_the_schema_refuses():
             b.insert(i, alphabet[rng.randrange(len(alphabet))])
         b = bytes(b)
         got = reader(b)
-        valid = schema_ok(b)
+        valid = accepted_ok(b)
         if isinstance(got, fpl.Plan):
             assert valid, b.decode(errors="replace")
         elif valid and got not in EXTRA_REFUSALS:

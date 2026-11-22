@@ -17,4 +17,9 @@
 - `foreflight/`: `.fpl` files exported from ForeFlight (*Send To > Share FPL
   file > Save to Files*), one per route, named for the route, for example
   `ksba_v27_ksmx.fpl`. Only Bill can make these. `test_fpl.py` reads, schema-checks
-  and round-trips every file here. With none, that test is skipped by name.
+  (after undoing ForeFlight's departures) and round-trips every file here.
+  Keep the bytes as ForeFlight sent them (UTF-16 with a BOM; `.gitattributes`
+  marks them binary), except that the tail number is blanked.
+  - `ksba_kphx.fpl`: KSBA to KPHX, 17 points, built and edited in ForeFlight
+    on Bill's iPad and uploaded at the bench, 2026-11-22 (AER-6321); taken
+    from the bench packet log.

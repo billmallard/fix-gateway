@@ -2,10 +2,17 @@
 #
 # Garmin FlightPlan v1 (.fpl) reader and writer (AER-6321, BACKLOG EFB4).
 #
-# Built from Garmin's published schema only,
-# https://www8.garmin.com/xmlschemas/FlightPlanv1.xsd (fetched 2026-11-22).
-# Every restriction the schema states is checked on read; nothing beyond it is
-# assumed. The reader is for an unauthenticated network input, so it refuses a
+# Built from Garmin's published schema,
+# https://www8.garmin.com/xmlschemas/FlightPlanv1.xsd (fetched 2026-11-22),
+# and from the files ForeFlight really exports, which depart from it (Bill,
+# 2026-11-22, AER-6321: read what ForeFlight produces, not only the schema).
+# ``_foreflight`` brings such a file to schema form first, and then every
+# restriction the schema states is checked. The departures, all seen in a
+# ForeFlight 2026-11 export: UTF-16 with a BOM under a utf-8 declaration;
+# <created> as 20261122T16:50:15Z; <aircraft> and <flight-data> before the
+# table; <altitude-ft> in a waypoint; no <country-code>, <comment> or
+# <waypoint-country-code>.
+# The reader is for an unauthenticated network input, so it refuses a
 # document type declaration, entities and processing instructions outright,
 # and is bounded in size, depth and element count before the schema checks.
 """Parse and write Garmin FlightPlan v1 documents.
@@ -158,6 +165,13 @@ def _tree(data):
         if uri is None or not _NS_URI.match(uri) or not _uri_ok(uri):
             raise FplError("BAD NAMESPACE")
 
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        # ForeFlight writes UTF-16 with a BOM and declares utf-8; read it as
+        # the BOM says. The size bound has already been applied to the raw bytes.
+        try:
+            data = data.decode("utf-16").encode("utf-8")
+        except UnicodeError:
+            raise FplError("NOT XML (line 1)") from None
     body = data[3:] if data.startswith(b"\xef\xbb\xbf") else data
     if re.match(rb"<\?xml[ \t\r\n?]", body) and not _XML_DECL.match(body):
         raise FplError("BAD XML DECLARATION")
@@ -341,6 +355,49 @@ def _route_point(node):
     return (ident, wtype, country)
 
 
+#: ForeFlight's top-level additions, read past and not used.
+FOREFLIGHT_TOP = ("aircraft", "flight-data")
+
+
+def _insert_after(node, before, name):
+    """Add an empty ``name`` child after the first ``before`` child if
+    ``name`` is absent; the schema then checks it like any other."""
+    kids = node.children
+    if any(c.ns == NS and c.name == name for c in kids):
+        return
+    for i, c in enumerate(kids):
+        if c.ns == NS and c.name == before:
+            kids.insert(i + 1, _Node(NS, name, {}))
+            return
+
+
+def _foreflight(root):
+    """Bring a ForeFlight export to schema form, in place. A document that
+    is already schema form is unchanged."""
+    root.children = [c for c in root.children if not (c.ns == NS and c.name in FOREFLIGHT_TOP)]
+    for top in root.children:
+        if top.ns != NS:
+            continue
+        if top.name == "created" and not top.children:
+            # ISO 8601 basic date, 20261122T16:50:15Z; _utc then checks it.
+            top.text = [re.sub(r"\A(\d{4})(\d{2})(\d{2})T", r"\1-\2-\3T", "".join(top.text).strip())]
+        elif top.name == "waypoint-table":
+            for wp in top.children:
+                if wp.ns != NS or wp.name != "waypoint":
+                    continue
+                for c in [c for c in wp.children if c.ns == NS and c.name == "altitude-ft"]:
+                    value = _text(c).strip()
+                    if value and not _DECIMAL.match(value):
+                        raise FplError("BAD ALTITUDE")
+                    wp.children.remove(c)
+                _insert_after(wp, "type", "country-code")
+                _insert_after(wp, "lon", "comment")
+        elif top.name == "route":
+            for rp in top.children:
+                if rp.ns == NS and rp.name == "route-point":
+                    _insert_after(rp, "waypoint-type", "waypoint-country-code")
+
+
 def parse(data, max_bytes=MAX_BYTES, max_points=MAX_POINTS):
     """The plan in a FlightPlan v1 document, or FplError.
 
@@ -356,6 +413,7 @@ def parse(data, max_bytes=MAX_BYTES, max_points=MAX_POINTS):
     root = _tree(bytes(data))
     if root.ns != NS or root.name != "flight-plan":
         raise FplError("NOT A FLIGHT PLAN")
+    _foreflight(root)
     top = _sequence(root, [
         ("file-description", 0, 1), ("author", 0, 1), ("link", 0, 1),
         ("created", 0, 1), ("waypoint-table", 1, 1), ("route", 0, 1),

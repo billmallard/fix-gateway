@@ -11,11 +11,24 @@ It is **supplemental only.** A plan from the tablet is never flown until the
 pilot accepts it on the FPL page, and the plugin ships off
 (`FPL_EXCHANGE: false`).
 
-The file format is Garmin's published FlightPlan v1 schema,
-`https://www8.garmin.com/xmlschemas/FlightPlanv1.xsd`, and nothing else. No
-ForeFlight or Garmin protocol is used beyond it. ForeFlight imports and
-exports this format with no partnership; the brief, section 2.2, has the
-sources.
+The file format is Garmin's FlightPlan v1,
+`https://www8.garmin.com/xmlschemas/FlightPlanv1.xsd`, as ForeFlight really
+writes it. ForeFlight imports and exports this format with no partnership; the
+brief, section 2.2, has the sources. Its exports depart from the schema, and
+the reader takes them (Bill, 2026-11-22, AER-6321: read what ForeFlight
+produces; do not refuse a real export for not matching the schema). The
+departures, from the first export off Bill's iPad:
+
+- UTF-16 with a byte-order mark, under a declaration that says `utf-8`.
+- `<created>` in the compact ISO form, `20261122T16:50:15Z`.
+- `<aircraft>` (tail number) and `<flight-data>` (ETD, cruise altitude)
+  before the waypoint table. They are read past and not used.
+- An `<altitude-ft>` in each waypoint, usually empty. It must be empty or a
+  number, and is dropped.
+- No `<country-code>` or `<comment>` in a waypoint and no
+  `<waypoint-country-code>` in a route point. Each reads as empty.
+
+What the panel writes stays schema-valid, and ForeFlight imports it.
 
 ## What the pilot does
 
@@ -182,16 +195,17 @@ An upload is an unauthenticated network input, so:
   refused before it is read. A multipart form gets 4 KiB of framing on top.
   At most 4 connections are served at once, and the next is closed; a
   connection idle for 10 s on one read is dropped.
-- **Strict parse.** The reader (`fpl.py`) is written from the schema. It
+- **Strict parse.** The reader (`fpl.py`) is written from the schema, with
+  ForeFlight's departures (above) brought to schema form first. It
   refuses a document type declaration, any entity and any processing
   instruction before anything else, and bounds depth, element count and text
   length. It then checks every element, order, count, pattern and range the
   schema states, plus the schema's key and keyref: a route point must name a
   waypoint in the table, and the table may not repeat one. It is tested
-  against the schema itself, with lxml: each of 36 hand-made mutations is
+  against the schema itself, with lxml: each hand-made mutation is
   refused by both, and over random edits to a valid file, nothing the reader
-  accepts fails the schema (3,000 edits in the suite; 192,000 in one
-  offline run, with none). Beyond the schema, it refuses a file with no
+  accepts fails the schema once the test's own copy of the ForeFlight
+  normalisation is applied (3,000 edits in the suite). Beyond the schema, it refuses a file with no
   route, a route over 100 points, processing instructions, and an XML
   declaration other than version 1.0 in UTF-8.
 
