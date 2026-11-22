@@ -1,0 +1,25 @@
+built lane 2 port 3498 pty /dev/pts/0
+ok start {"bridge": true, "gw1": true, "recorder": true}
+bridge 1119748 up
+gw2 1119756 up
+xvfb9 1119759 up
+efis2 1119770 up
+recorder 1119795 up
+X-Plane live on lane 2: @rPITCH;-7.789600849151611;00000
+ok host_drop {"bridge": false, "gw1": false, "recorder": true}
+ok restart {"bridge": true, "gw1": true, "recorder": true}
+ok gw_kill {"bridge": true, "gw1": false, "recorder": true}
+ok restart {"bridge": true, "gw1": true, "recorder": true}
+| Mode | Pass | Lane 2 leads after | LEADER lane 1 / lane 2, just before recovery | Lane 2's keys |
+|---|---|---|---|---|
+| host_drop | yes | 1.13 s | ? / True | PITCH max gap 125 ms (tol 300), 649 writes, 0 flagged; ROLL max gap 126 ms (tol 300), 649 writes, 0 flagged; IAS max gap 126 ms (tol 2000), 649 writes, 0 flagged; ALT max gap 126 ms (tol 2000), 649 writes, 0 flagged |
+| gw_kill | yes | 1.26 s | ? / True | PITCH max gap 145 ms (tol 300), 652 writes, 0 flagged; ROLL max gap 145 ms (tol 300), 652 writes, 0 flagged; IAS max gap 145 ms (tol 2000), 652 writes, 0 flagged; ALT max gap 145 ms (tol 2000), 652 writes, 0 flagged |
+| link_cut | yes | 1.26 s | ? / True | PITCH max gap 136 ms (tol 300), 658 writes, 0 flagged; ROLL max gap 136 ms (tol 300), 658 writes, 0 flagged; IAS max gap 136 ms (tol 2000), 658 writes, 0 flagged; ALT max gap 136 ms (tol 2000), 658 writes, 0 flagged |
+
+Overall: PASS  (events: 11384, 05:29:05 to 05:34:28 UTC)
+ok stop {"bridge": false, "gw1": false, "recorder": false}
+stopped recorder
+stopped efis2
+stopped xvfb9
+stopped gw2
+stopped bridge

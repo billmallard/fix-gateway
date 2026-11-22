@@ -1,0 +1,4 @@
+2026-11-22T06:50:24Z start: fgw ecce3fd doc: XPB-024, a burst of one CMND is one press; the walk is per reply (AER-6268)
+2026-11-22T06:50:30Z fixgw 1129521, seq 1129533
+2026-11-22T06:54:58Z seq stopped: yes
+2026-11-22T06:55:01Z fixgw stopped: yes

@@ -1,0 +1,17 @@
+02:05:10.415 listening; deadline 1795352400.0
+02:05:18.314 command start
+02:05:18.315 spawned bridge 1406210
+02:05:18.487 spawned gw1 1406212
+02:05:18.488 spawned recorder 1406213
+02:05:32.554 command feed_on
+02:06:04.761 command host_drop
+02:06:04.765 killed gw1 bridge
+02:06:25.004 command restart
+02:06:25.005 spawned bridge 1406245
+02:06:25.186 spawned gw1 1406247
+02:07:15.663 command gw_kill
+02:07:15.666 killed gw1
+02:07:35.901 command restart
+02:07:35.989 spawned gw1 1406262
+02:09:39.178 command stop
+02:09:39.182 killed bridge gw1 recorder

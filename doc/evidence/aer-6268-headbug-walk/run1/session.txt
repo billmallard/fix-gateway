@@ -1,0 +1,4 @@
+2026-11-22T06:40:03Z start: fgw 4daf49e doc: XPB-018 is relied on by the autopilot adapter's heading bug walk (AER-6268)
+2026-11-22T06:40:09Z fixgw 1127181, seq 1127256
+2026-11-22T06:45:19Z seq stopped: yes
+2026-11-22T06:45:22Z fixgw stopped: yes

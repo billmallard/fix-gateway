@@ -1,0 +1,13 @@
+# AER-6268: heading bug walk check. The AFC2/AFC5 route (aer5806, aer6052),
+# en route only, so the driver flies NAV and leaves the heading bug alone.
+# The bench sequencer (seq.py) presses HDG, then sets the bug +40.2, -40 and
+# +150 through a private fixgw on the branch, and watches which way X-Plane
+# turns. The last step is DISC: the servo guard pauses the sim and ends it.
+name: aer6268-headbug-walk
+destination: KSMX
+departure: KSBA
+start: {fix: HENER, before_nm: 3, alt_ft: 7500}
+route:
+  - waypoint: GVO
+  - airway: {id: V27, exit: AVOLS}
+end: {after_fix: DOYLE, max_s: 2100}
