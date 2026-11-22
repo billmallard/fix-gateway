@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<flight-plan xmlns="http://www8.garmin.com/xmlschemas/FlightPlan/v1"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:x="urn:example:extension"
+    xsi:schemaLocation="http://www8.garmin.com/xmlschemas/FlightPlan/v1 http://www8.garmin.com/xmlschemas/FlightPlanv1.xsd">
+  <file-description>Written by hand from FlightPlanv1.xsd; not a ForeFlight export</file-description>
+  <author>
+    <author-name>fix-gateway tests</author-name>
+    <email id="nobody" domain="example.org" />
+    <link>https://github.com/billmallard/fix-gateway</link>
+  </author>
+  <link>https://www8.garmin.com/xmlschemas/FlightPlanv1.xsd</link>
+  <created>2026-11-22T15:00:00Z</created>
+  <waypoint-table>
+    <waypoint>
+      <identifier>KSBA</identifier>
+      <type>AIRPORT</type>
+      <country-code>K2</country-code>
+      <lat>34.426211</lat>
+      <lon>-119.840372</lon>
+      <comment>SANTA BARBARA</comment>
+      <elevation>3.0</elevation>
+      <waypoint-description>Santa Barbara Muni</waypoint-description>
+      <symbol>Airport</symbol>
+    </waypoint>
+    <waypoint>
+      <identifier>RZS</identifier>
+      <type>VOR</type>
+      <country-code>K2</country-code>
+      <lat>34.509500</lat>
+      <lon>-119.770833</lon>
+      <comment />
+    </waypoint>
+    <waypoint>
+      <identifier>GVO</identifier>
+      <type>VOR</type>
+      <country-code>K2</country-code>
+      <lat>34.531111</lat>
+      <lon>-120.091111</lon>
+      <comment />
+      <extensions><x:note>ignored</x:note></extensions>
+    </waypoint>
+    <waypoint>
+      <identifier>AVOLS</identifier>
+      <type>INT</type>
+      <country-code>K2</country-code>
+      <lat>34.700000</lat>
+      <lon>-120.300000</lon>
+      <comment />
+    </waypoint>
+    <waypoint>
+      <identifier>LAKE</identifier>
+      <type>INT-VRP</type>
+      <country-code>K2</country-code>
+      <lat>34.780000</lat>
+      <lon>-120.380000</lon>
+      <comment />
+    </waypoint>
+    <waypoint>
+      <identifier>USR001</identifier>
+      <type>USER WAYPOINT</type>
+      <country-code></country-code>
+      <lat>34.850000</lat>
+      <lon>-120.420000</lon>
+      <comment>MY FIELD</comment>
+    </waypoint>
+    <waypoint>
+      <identifier>KSMX</identifier>
+      <type>AIRPORT</type>
+      <country-code>K2</country-code>
+      <lat>34.898917</lat>
+      <lon>-120.457583</lon>
+      <comment />
+    </waypoint>
+    <waypoint>
+      <identifier>KLPC</identifier>
+      <type>AIRPORT</type>
+      <country-code>K2</country-code>
+      <lat>34.665000</lat>
+      <lon>-120.467000</lon>
+      <comment>NOT ON THE ROUTE</comment>
+    </waypoint>
+  </waypoint-table>
+  <route>
+    <route-name>KSBA TO KSMX</route-name>
+    <route-description>GVO V27 AVOLS</route-description>
+    <flight-plan-index>1</flight-plan-index>
+    <route-point>
+      <waypoint-identifier>KSBA</waypoint-identifier>
+      <waypoint-type>AIRPORT</waypoint-type>
+      <waypoint-country-code>K2</waypoint-country-code>
+    </route-point>
+    <route-point>
+      <waypoint-identifier>RZS</waypoint-identifier>
+      <waypoint-type>VOR</waypoint-type>
+      <waypoint-country-code>K2</waypoint-country-code>
+    </route-point>
+    <route-point>
+      <waypoint-identifier>GVO</waypoint-identifier>
+      <waypoint-type>VOR</waypoint-type>
+      <waypoint-country-code>K2</waypoint-country-code>
+    </route-point>
+    <route-point>
+      <waypoint-identifier>AVOLS</waypoint-identifier>
+      <waypoint-type>INT</waypoint-type>
+      <waypoint-country-code>K2</waypoint-country-code>
+    </route-point>
+    <route-point>
+      <waypoint-identifier>LAKE</waypoint-identifier>
+      <waypoint-type>INT-VRP</waypoint-type>
+      <waypoint-country-code>K2</waypoint-country-code>
+    </route-point>
+    <route-point>
+      <waypoint-identifier>USR001</waypoint-identifier>
+      <waypoint-type>USER WAYPOINT</waypoint-type>
+      <waypoint-country-code></waypoint-country-code>
+      <extensions><x:note>ignored</x:note></extensions>
+    </route-point>
+    <route-point>
+      <waypoint-identifier>KSMX</waypoint-identifier>
+      <waypoint-type>AIRPORT</waypoint-type>
+      <waypoint-country-code>K2</waypoint-country-code>
+    </route-point>
+  </route>
+</flight-plan>

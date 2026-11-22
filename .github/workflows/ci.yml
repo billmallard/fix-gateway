@@ -37,6 +37,8 @@ jobs:
         sudo apt install -y libegl1
         python -m pip install --upgrade pip
         pip install flake8 pytest pytest-qt pytest-env pytest-cov
+        # Test only: validates .fpl documents against Garmin's schema (EFB4).
+        pip install lxml
         pip install -e .[qt,sim]
         # CERT7: the environment the tests ran in, so a promotion's lock file can be
         # checked against it.

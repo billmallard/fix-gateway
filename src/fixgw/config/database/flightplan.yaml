@@ -215,6 +215,73 @@ items:
   initial: 0
   tol: 0
 
+# --- Pending import (EFB4; fpl_exchange writes; tol: 0) ---------------------
+# A plan received from an EFB as a Garmin .fpl, waiting for the pilot. Never
+# flown and never a route slot: the editor shows it, and Accept commits it
+# through the route block above, as any edit. fpl_exchange writes every
+# slot, then FPLIMPCOUNT and FPLIMPNAME, and bumps FPLIMPSEQ last. A plan is
+# pending while FPLIMPSEQ > 0 and FPLIMPDONE (the editor's) differs from it.
+# Not persisted: a gateway restart drops it. See doc/plugins/fpl_exchange.md.
+- key: FPLIMPfID
+  description: "Pending imported plan, point %f ident (Garmin identifier, up to 12 letters and digits)"
+  type: str
+  initial: ""
+  tol: 0
+
+- key: FPLIMPfLAT
+  description: Pending imported plan, point %f latitude
+  type: float
+  min: -90.0
+  max: 90.0
+  initial: 0.0
+  tol: 0
+
+- key: FPLIMPfLON
+  description: Pending imported plan, point %f longitude
+  type: float
+  min: -180.0
+  max: 180.0
+  initial: 0.0
+  tol: 0
+
+- key: FPLIMPfTYPE
+  description: "Pending imported plan, point %f type (as FPLfTYPE: 1 airport, 2 VOR, 3 NDB, 4 fix, 5 user)"
+  type: int
+  min: 0
+  max: 6
+  initial: 0
+  tol: 0
+
+- key: FPLIMPCOUNT
+  description: Pending imported plan, points in use
+  type: int
+  min: 0
+  max: 100
+  initial: 0
+  tol: 0
+
+- key: FPLIMPNAME
+  description: "Pending imported plan, route name from the file (<=25 chars)"
+  type: str
+  initial: ""
+  tol: 0
+
+- key: FPLIMPSEQ
+  description: Pending import counter, written last after every point, FPLIMPCOUNT and FPLIMPNAME (0 = nothing received since start)
+  type: int
+  min: 0
+  max: 2147483647
+  initial: 0
+  tol: 0
+
+- key: FPLIMPDONE
+  description: The FPLIMPSEQ the editor has finished with, accepted or rejected (editor-written)
+  type: int
+  min: 0
+  max: 2147483647
+  initial: 0
+  tol: 0
+
 # --- Route segment table (RS1; editor writes, engine on restore; tol: 0) ---
 # Written with the slots, before FPLSEQ. Segment k owns slots
 # FPLSkFIRST..FPLSkLAST, and every one of those slots has FPLfSGI = k.
