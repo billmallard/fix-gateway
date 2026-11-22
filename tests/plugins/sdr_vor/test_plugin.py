@@ -78,6 +78,7 @@ def test_good_vor_writes_the_slot(database, tmp_path):
     assert abs(dsp.wrap180(brg[0] - 303.0)) < 2.0
     assert not brg[4]  # not failed
     assert read(database, "NAV2TF")[0] == 1.0  # TO
+    assert read(database, "NAV2SUPP")[0] == 1.0  # supplemental (SDRVOR3)
     cdi = read(database, "NAV2CDI")
     assert abs(cdi[0]) < 0.2 and not cdi[4]
     assert read(database, "NAV2TYPE")[0] == 1.0  # VOR
@@ -113,6 +114,7 @@ def test_good_localizer_writes_the_slot(database, tmp_path):
     assert read(database, "NAV2TF")[0] == 0.0
     assert read(database, "VOR2BRG")[4]  # no bearing on a localizer
     assert read(database, "NAV2GSF")[0] == 1.0
+    assert read(database, "NAV2SUPP")[0] == 1.0
 
 
 def assert_flagged(database, kind):
@@ -121,6 +123,10 @@ def assert_flagged(database, kind):
     assert read(database, "VOR2BRG")[4]
     assert read(database, "NAV2TF")[0] == 0.0
     assert read(database, "NAV2TYPE")[0] == kind
+    # Supplemental in every state, tuned or not: the mark is about the
+    # receiver, not the signal (SDRVOR3).
+    supp = read(database, "NAV2SUPP")
+    assert supp[0] == 1.0 and not any(supp[2:5])
 
 
 @pytest.mark.parametrize("mhz,kind", [(VOR_MHZ, 1.0), (LOC_MHZ, 2.0)])
@@ -184,8 +190,11 @@ def test_slot_1(database, tmp_path):
     assert read(database, "NAV1DH")[0] == 1.0
     assert abs(dsp.wrap180(read(database, "VOR1BRG")[0] - 190.0)) < 2.0
     assert read(database, "NAV1TYPE")[0] == 1.0
+    assert read(database, "NAV1SUPP")[0] == 1.0
     assert read(database, "NAV2DH")[0] == 0.0  # untouched: its initial value
     assert not database.get_raw_item("NAV2DH").written
+    assert read(database, "NAV2SUPP")[0] == 0.0  # the other slot is not claimed
+    assert not database.get_raw_item("NAV2SUPP").written
 
 
 @pytest.mark.parametrize(
@@ -318,8 +327,16 @@ def drive():
     time.sleep(6)
     out = {k: list(database.read(k)) for k in
            ["NAV2DH", "NAV2CDIV", "CDIV", "VOR2BRG", "NAV2TF", "TOFROM",
-            "NAV2TYPE", "NAVTYPE", "NAV2GSV", "GSV"]}
+            "NAV2TYPE", "NAVTYPE", "NAV2GSV", "GSV", "NAV1SUPP", "NAV2SUPP",
+            "NAVSUPP"]}
     print("STATE " + json.dumps(out), flush=True)
+    # NAVSUPP follows NAVSRC (SDRVOR3): NAV1, GPS, back to NAV2.
+    sweep = []
+    for src in (0, 2, 1):
+        database.write("NAVSRC", src)
+        time.sleep(0.3)
+        sweep.append([src, list(database.read("NAVSUPP"))])
+    print("SWEEP " + json.dumps(sweep), flush=True)
     print("WRITERS " + json.dumps(database.writers()), flush=True)
     plugin.jobQueue.put("QUIT")
 threading.Thread(target=drive, daemon=True).start()
@@ -327,12 +344,12 @@ server.run(args)
 """
 
 
-def run_gateway(tmp_path, iq):
+def run_gateway(tmp_path, iq, sdr=True):
     config = tmp_path / "config"
     shutil.copytree("src/fixgw/config", config)
     replay = capture(tmp_path, "replay.cu8", iq)
     (config / "preferences.yaml.custom").write_text(
-        "enabled:\n  SDR_VOR: true\n  DEMO: false\n"
+        f"enabled:\n  SDR_VOR: {'true' if sdr else 'false'}\n  DEMO: false\n"
     )
     conn = config / "connections" / "sdr_vor.yaml"
     conn.write_text(conn.read_text() + f"  replay: {replay}\n")
@@ -350,14 +367,14 @@ def run_gateway(tmp_path, iq):
     lines = {
         line.split(" ", 1)[0]: json.loads(line.split(" ", 1)[1])
         for line in r.stdout.splitlines()
-        if line.startswith(("STATE ", "WRITERS "))
+        if line.startswith(("STATE ", "WRITERS ", "SWEEP "))
     }
-    assert "STATE" in lines, r.stdout + r.stderr
-    return lines["STATE"], lines["WRITERS"]
+    assert "SWEEP" in lines, r.stdout + r.stderr
+    return lines["STATE"], lines["WRITERS"], lines["SWEEP"]
 
 
 def test_gateway_valid_vor_reaches_the_hsi_keys(tmp_path):
-    state, writers = run_gateway(tmp_path, siggen.vor(123.0, 30.0, seconds=4.0))
+    state, writers, _ = run_gateway(tmp_path, siggen.vor(123.0, 30.0, seconds=4.0))
     assert state["NAV2DH"][0] == 1.0
     assert state["NAV2CDIV"][0] == 1.0 and state["CDIV"][0] == 1.0
     assert abs(dsp.wrap180(state["VOR2BRG"][0] - 303.0)) < 2.0
@@ -370,8 +387,61 @@ def test_gateway_valid_vor_reaches_the_hsi_keys(tmp_path):
 
 
 def test_gateway_noise_leaves_cdiv_false(tmp_path):
-    state, _ = run_gateway(tmp_path, siggen.noise(seconds=4.0))
+    state, _, _ = run_gateway(tmp_path, siggen.noise(seconds=4.0))
     assert state["NAV2DH"][0] == 0.0
     assert state["NAV2CDIV"][0] == 0.0 and state["CDIV"][0] == 0.0
     assert state["VOR2BRG"][4]  # failed
     assert state["TOFROM"][0] == 0.0
+
+
+def fresh(item, value):
+    return item[0] == value and not any(item[2:5])
+
+
+def test_gateway_navsupp_follows_navsrc_with_one_writer(tmp_path):
+    # SDRVOR3 (AER-6245): sdr_vor on NAV2 marks NAV2 supplemental; NAVSUPP
+    # carries it only while NAV2 is selected. NAV1, which nothing claims,
+    # reads 0 and not failed, after NAV2's 1 was showing.
+    state, writers, sweep = run_gateway(tmp_path, siggen.vor(123.0, 30.0, seconds=4.0))
+    assert fresh(state["NAV2SUPP"], 1.0)
+    assert fresh(state["NAVSUPP"], 1.0)  # NAVSRC = 1 (NAV2) in the driver
+    assert fresh(state["NAV1SUPP"], 0.0)
+    assert [src for src, _ in sweep] == [0, 2, 1]
+    assert [fresh(v, want) for (_, v), want in zip(sweep, (0.0, 0.0, 1.0))] == [True] * 3
+    assert writers["NAV2SUPP"] == ["sdr_vor"]
+    assert writers["NAVSUPP"] == ["compute"]
+    assert "NAV1SUPP" not in writers
+
+
+def test_gateway_without_sdr_vor_navsupp_stays_0(tmp_path):
+    # Every other source: with sdr_vor off, nothing writes NAV1SUPP/NAV2SUPP,
+    # and NAVSUPP reads 0, not failed, on every NAVSRC.
+    state, writers, sweep = run_gateway(tmp_path, siggen.noise(seconds=1.0), sdr=False)
+    for key in ("NAV1SUPP", "NAV2SUPP", "NAVSUPP"):
+        assert fresh(state[key], 0.0), (key, state[key])
+    assert all(fresh(v, 0.0) for _, v in sweep), sweep
+    assert "NAV1SUPP" not in writers and "NAV2SUPP" not in writers
+
+
+def test_only_sdr_vor_names_a_supplemental_slot_key():
+    # Every other source leaves NAV1SUPP/NAV2SUPP alone: no plugin or
+    # connection config but sdr_vor's names them. The database definition and
+    # compute's select are the only other mentions.
+    import pathlib
+    import re
+
+    pattern = re.compile(r"NAV\S{0,6}SUPP|\"supp\"")
+    allowed = {
+        "src/fixgw/plugins/sdr_vor/__init__.py",
+        "src/fixgw/config/connections/sdr_vor.yaml",
+        "src/fixgw/plugins/compute.py",
+        "src/fixgw/config/connections/compute.yaml",
+        "src/fixgw/config/database/ahrs.yaml",
+    }
+    found = set()
+    for path in pathlib.Path("src/fixgw").rglob("*"):
+        if path.suffix in (".py", ".yaml", ".yml", ".ini", ".json") and path.is_file():
+            if pattern.search(path.read_text(errors="replace")):
+                found.add(path.as_posix())
+    assert found <= allowed, sorted(found - allowed)
+    assert "src/fixgw/plugins/sdr_vor/__init__.py" in found

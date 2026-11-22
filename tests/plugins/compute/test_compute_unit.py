@@ -400,6 +400,47 @@ def test_select_invalidates_output_when_selected_source_absent():
     assert course.value == 123.0 and course.fail is False
 
 
+def test_select_unwritten_initial_reads_the_unclaimed_slot_as_its_initial():
+    # SDRVOR3 (AER-6245): only a supplemental receiver writes its NAV<n>SUPP,
+    # so a real radio's slot is never written. Switching from the SDR slot
+    # (NAVSUPP 1) to that slot must read the slot's initial 0, not fail
+    # NAVSUPP with the SDR's 1 still in it.
+    parent = FakeParent()
+    func = compute.selectFunction(
+        ["NAVSRC", "NAV1SUPP", "NAV2SUPP", 0.0], "NAVSUPP",
+        require_leader=False, unwritten="initial")
+
+    func("NAV2SUPP", value_tuple(1.0), parent)
+    func("NAVSRC", value_tuple(1.0), parent)          # NAV2, the SDR
+    supp = parent.db_get_item("NAVSUPP")
+    assert supp.value == 1.0 and supp.fail is False
+
+    func("NAVSRC", value_tuple(0.0), parent)          # NAV1, never written
+    assert supp.value == 0.0 and supp.fail is False
+
+    func("NAVSRC", value_tuple(2.0), parent)          # GPS, the constant
+    assert supp.value == 0.0 and supp.fail is False
+
+
+def test_select_without_unwritten_still_fails_on_the_unclaimed_slot():
+    # The default is unchanged: the same sequence fails the output and leaves
+    # the previous value, which is why NAVSUPP opts in.
+    parent = FakeParent()
+    func = compute.selectFunction(
+        ["NAVSRC", "NAV1SUPP", "NAV2SUPP", 0.0], "NAVSUPP", require_leader=False)
+
+    func("NAV2SUPP", value_tuple(1.0), parent)
+    func("NAVSRC", value_tuple(1.0), parent)
+    func("NAVSRC", value_tuple(0.0), parent)
+    supp = parent.db_get_item("NAVSUPP")
+    assert supp.fail is True and supp.value == 1.0
+
+
+def test_select_refuses_an_unknown_unwritten_mode():
+    with pytest.raises(ValueError):
+        compute.selectFunction(["NAVSRC", "A"], "B", False, unwritten="zero")
+
+
 def test_select_propagates_quality_flags():
     parent = FakeParent()
     func = compute.selectFunction(

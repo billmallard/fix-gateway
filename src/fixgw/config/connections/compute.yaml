@@ -205,6 +205,18 @@ compute:
       inputs: ["NAVSRC", "NAV1TYPE", "NAV2TYPE", 0.0]
       output: NAVTYPE
       require_leader: false
+    # Selected-source supplemental flag, routed to the canonical NAVSUPP the
+    # HSI reads (1 = mark the source as supplemental, not certified; SDRVOR3,
+    # AER-6245). Only the sdr_vor plugin writes NAV1SUPP/NAV2SUPP, on its own
+    # slot; the GPS slot is the constant 0.0, the same shape as NAVTYPE.
+    # NAVSUPP is written only by this select. unwritten: initial makes a slot
+    # nothing claims (a real radio) read its initial 0, rather than failing
+    # NAVSUPP with the last slot's 1 still in it.
+    - function: select
+      inputs: ["NAVSRC", "NAV1SUPP", "NAV2SUPP", 0.0]
+      output: NAVSUPP
+      unwritten: initial
+      require_leader: false
     # NAVSRC already matches X-Plane's HSI_source_select numbering
     # (0=NAV1, 1=NAV2, 2=GPS), so XPHSISRC is an identity map; the table is kept
     # as the seam that collapses an optional GPS2 (3) onto X-Plane's GPS (2).
