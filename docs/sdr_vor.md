@@ -3,9 +3,12 @@
 SDRVOR1 (AER-6141), capability CAP-215.
 
 **Supplemental, not a certified nav receiver, day VFR situational awareness.**
-It is never an approach or IFR source, and it has no glideslope. Every surface
-that names it says so: the plugin and connection file headers, its status
-page, and the log line each time it tunes.
+It is never presented as a certified, approach or IFR source, and it has no
+glideslope. Every surface that names it says so: the plugin and connection
+file headers, its status page, the log line each time it tunes, and the HSI,
+which marks the source supplemental from `NAVSUPP`. Marked is not locked out:
+nothing in the stack refuses to use it (Bill, AER-6245; see "Autopilot
+coupling" below). Whether to use it is the pilot's call.
 
 ## What it does
 
@@ -59,11 +62,25 @@ radio) reads 0, not failed, after the SDR slot's 1 was showing. The HSI reads
 `NAVSUPP`. With the key absent (an older gateway) or 0, the HSI is unchanged.
 The display never infers "supplemental" from a frequency or a plugin config.
 
-No autopilot adapter couples to a bus NAV source yet: the X-Plane adapter's
-NAV and APR fly the simulator's own radios, and the MAVLink adapter offers
-only AP, NAV (GPS waypoint) and DISC. So nothing arms LOC or APR on the SDR
-slot today. What a future adapter does with `NAVSUPP` = 1 is recorded on
-AER-6245.
+### Autopilot coupling: never refuse, annunciate
+
+Bill's ruling, AER-6245, 2026-11-21: **no adapter, now or later, refuses to
+arm NAV, LOC or APR coupling because `NAVSUPP` = 1.** When coupling is armed
+or active on a supplemental source, the panel shows a caution (working words
+"UNRELIABLE NAV RADIO"; the wording and look are Bill's). In his words: "I
+don't want to restrict a behavior that in an emergency would be helpful. [...]
+Using a cheap SDR could be an informal back-up in an emergency. It wouldn't be
+legal to use as primary source, but in an emergency the rules can't prevent
+the pilot from using all available resources to land safely."
+
+So the rule for any adapter that couples to a bus NAV source is: allow the
+coupling on `NAVSUPP` = 1, publish the state the caution needs, and never
+refuse on it. Today no adapter couples to a bus NAV source: the X-Plane
+adapter's NAV and APR fly the simulator's own radios, and the MAVLink adapter
+offers only AP, NAV (a GPS waypoint) and DISC. So there is no refusal code to
+remove, and nothing yet for the caution to watch. The caution is BACKLOG
+`SDRVOR4`: a `cas` catalog row on `NAVSUPP` and the coupled lateral mode,
+built with the first adapter that couples to a bus NAV source.
 
 ## Signal model
 

@@ -433,6 +433,7 @@ def test_only_sdr_vor_names_a_supplemental_slot_key():
     pattern = re.compile(r"NAV\S{0,6}SUPP|\"supp\"")
     allowed = {
         "src/fixgw/plugins/sdr_vor/__init__.py",
+        "src/fixgw/config/connections/sdr_vor.yaml",
         "src/fixgw/plugins/compute.py",
         "src/fixgw/config/connections/compute.yaml",
         "src/fixgw/config/database/ahrs.yaml",

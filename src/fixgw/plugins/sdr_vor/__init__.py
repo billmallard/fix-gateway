@@ -1,7 +1,8 @@
 """Software VOR and localizer receiver on an RTL-SDR dongle (SDRVOR1, AER-6141).
 
 SUPPLEMENTAL, NOT A CERTIFIED NAV RECEIVER: day VFR situational awareness
-only. Never an approach or IFR source. No glideslope.
+only. Never presented as a certified, approach or IFR source; marked
+supplemental wherever it is shown (NAV<n>SUPP). No glideslope.
 
 The plugin is one NAV radio slot (``nav_slot``, NAV2 by default so it never
 shares keys with a real NAV1 radio). It tunes to the frequency the pilot sets
