@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 import importlib
+import math
 
 import pytest
 
@@ -334,7 +335,7 @@ def test_process_sensor_attitude_gps_position_pressure_and_servo_messages(monkey
     assert_write(parent, "ALONG", 1.111)
     assert_write(parent, "ANORM", 3.333)
     assert_write(parent, "ROLL", 28.65)
-    assert_write(parent, "ROT", ("rot", 20.0, 0.5))
+    assert_write(parent, "ROT", ("rot", 20.0, 28.65))
     assert_write(parent, "PITCH", -14.32)
     assert_write(parent, "YAW", 57.3)
     assert_write(parent, "TRACK", 123.45)
@@ -358,6 +359,29 @@ def test_process_sensor_attitude_gps_position_pressure_and_servo_messages(monkey
     assert mav._outputRoll == 250
     assert mav._outputPitch == -250
     assert mav._outputYaw == 10
+
+
+def test_rot_is_the_turn_rate_for_the_bank_in_degrees():
+    # pymavlink 2.4.42 rate_of_turn(speed, bank) takes m/s and degrees. Fed
+    # the roll in radians it read about 57x low (SRC1, AER-6405). At 30 deg
+    # and 100 kt the coordinated rate is g tan(bank) / V, about 6.3 deg/s.
+    parent = FakeParent()
+    tas_ms = 100 / 1.9438445
+    bank = math.radians(30)
+    mav = make_mav(
+        parent=parent,
+        messages=[Msg("VFR_HUD", airspeed=tas_ms, groundspeed=tas_ms, climb=0.0)]
+        + [Msg("ATTITUDE", roll=bank, pitch=0.0, yaw=0.0)] * 5,
+    )
+
+    for _ in range(6):
+        mav.process()
+
+    expected = math.degrees(9.80665 * math.tan(bank) / tas_ms)
+    rots = [v for k, v in parent.writes if k == "ROT"]
+    assert len(rots) == 5
+    for value in rots:
+        assert value == pytest.approx(expected, rel=0.01)
 
 
 def _gps_raw(cog):

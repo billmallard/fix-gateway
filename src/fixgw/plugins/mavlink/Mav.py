@@ -242,7 +242,8 @@ class Mav:
         elif msg_type == "ATTITUDE":
             if self._ahrs:
                 self.parent.db_write("ROLL", round(math.degrees(msg.roll), 2))
-                roll = self.avg("ROLL", msg.roll, 2)
+                # rate_of_turn takes m/s and degrees; msg.roll is radians.
+                roll = self.avg("ROLL", math.degrees(msg.roll), 2)
                 rtas = self.get_avg("RTAS", 2)
                 self.parent.db_write("ROT", rot(rtas, roll))
                 self.parent.db_write("PITCH", round(math.degrees(msg.pitch), 2))
