@@ -166,6 +166,46 @@ def test_main_thread_sleeps_between_polls(monkeypatch):
     assert all(events[i][1] > 0 for i in sleeps)
 
 
+@pytest.mark.parametrize(
+    "missing, key",
+    [
+        ("epx", "GPS_ACCURACY_HORIZ"),
+        ("alt", "GPS_ELLIPSOID_ALT"),
+        ("epv", "GPS_ACCURACY_VERTICAL"),
+        ("eps", "GPS_ACCURACY_SPEED"),
+        ("lat", "LAT"),
+        ("lon", "LONG"),
+        ("track", "TRACK"),
+        ("speed", "GS"),
+    ],
+)
+def test_absent_tpv_field_writes_nothing(monkeypatch, missing, key):
+    # AER-6406: py-gpsd2 0.1.0 turns an absent TPV field into 0, and 0 ft of
+    # GPS_ACCURACY_HORIZ is a perfect fix to the flight plan engine and the
+    # best NACp to gdl90_out. An absent field writes nothing, so the key goes
+    # old by its tol, the same silence every other source gives.
+    tpv = {k: v for k, v in FULL_3D.items() if k != missing}
+
+    parent = run_thread(monkeypatch, [poll(tpv)])
+
+    written = dict(parent.writes)
+    assert key not in written
+    # the rest of the report is still published
+    assert written["GPS_FIX_TYPE"] == 3
+    assert len(written) == 9
+
+
+def test_present_zero_is_still_written(monkeypatch):
+    # A real 0 (stationary, on the ellipsoid) is a value, not an absence.
+    tpv = dict(FULL_3D, speed=0.0, alt=0.0, track=0.0)
+
+    parent = run_thread(monkeypatch, [poll(tpv)])
+
+    assert ("GS", 0.0) in parent.writes
+    assert ("GPS_ELLIPSOID_ALT", 0.0) in parent.writes
+    assert ("TRACK", 0.0) in parent.writes
+
+
 def test_plugin_lifecycle_status_and_failure(monkeypatch):
     class DummyThread:
         def __init__(self, _parent):
