@@ -291,7 +291,7 @@ class Mav:
 
         elif msg_type == "GLOBAL_POSITION_INT":
             if self._ahrs:
-                head = self.avg("HEAD", msg.hdg / 100, 2)
+                head = self.avg_angle("HEAD", msg.hdg / 100, 2)
                 self.parent.db_write("HEAD", head)  # uint16_t cdeg
                 self.parent.db_write(
                     "AGL", round(msg.relative_alt / 304.8, 2)
@@ -739,6 +739,16 @@ class Mav:
         if len(self._data[item]) > self._max_average:
             self._data[item].pop(0)
         return round(statistics.mean(self._data[item]), decimals)
+
+    def avg_angle(self, item, value, decimals):
+        # The mean on the circle, so 359 and 1 average to 0, not 180.
+        self._data[item].append(value)
+        if len(self._data[item]) > self._max_average:
+            self._data[item].pop(0)
+        s = sum(math.sin(math.radians(a)) for a in self._data[item])
+        c = sum(math.cos(math.radians(a)) for a in self._data[item])
+        # Modulo after rounding too: 359.999 rounds to 360.0, which is 0.
+        return round(math.degrees(math.atan2(s, c)) % 360, decimals) % 360
 
     def get_avg(self, item, decimals):
         if len(self._data[item]) > 0:
