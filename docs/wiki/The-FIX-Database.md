@@ -105,8 +105,8 @@ updates. Instead:
 - **Add or override items** → `database/custom.yaml`, under a top-level
   `items:` key. A definition there replaces the whole item from any earlier
   include. It is read after everything except `flightplan.yaml`,
-  `traffic.yaml`, `stratux.yaml`, `sim.yaml`, `demo.yaml` and `last.yaml`, so
-  it cannot override those.
+  `traffic.yaml`, `stratux.yaml`, `sim.yaml`, `demo.yaml`, `cas.yaml` and
+  `last.yaml`, so it cannot override those.
 - **Set initial / aircraft-specific values** → the `init_data/*.ini`
   files (e.g. `IAS.Vne = 160`, `OILP1.lowAlarm = 25`). Later files override
   earlier ones, so a per-airplane overlay layers cleanly over the defaults.
