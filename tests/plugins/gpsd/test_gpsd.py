@@ -135,6 +135,37 @@ def test_main_thread_writes_satellite_status_without_position_for_no_fix(monkeyp
     assert parent.writes == [("GPS_SATS_VISIBLE", 4), ("GPS_FIX_TYPE", 1)]
 
 
+def test_main_thread_sleeps_between_polls(monkeypatch):
+    # AER-6406: the sleep sat after the loop, so the thread polled gpsd as
+    # fast as gpsd answered. Every poll must be followed by a pause.
+    events = []
+    parent = FakeParent()
+    parent.db_write = lambda key, value: events.append("write")
+
+    class CountingStream(FakeStream):
+        def readline(self):
+            events.append("poll")
+            return super().readline()
+
+    thread = gpsd_plugin.MainThread(parent)
+    stream = CountingStream(thread, [poll(FULL_3D)] * 3)
+    monkeypatch.setattr(gpsd_plugin.gpsd2, "connect", lambda: None)
+    monkeypatch.setattr(gpsd_plugin.gpsd2, "gpsd_stream", stream, raising=False)
+    monkeypatch.setattr(
+        gpsd_plugin.time, "sleep", lambda seconds: events.append(("sleep", seconds))
+    )
+
+    thread.run()
+
+    polls = [i for i, e in enumerate(events) if e == "poll"]
+    sleeps = [i for i, e in enumerate(events) if isinstance(e, tuple)]
+    assert len(polls) == 3
+    assert len(sleeps) == 3
+    # a pause between each pair of polls, not only after the last one
+    assert all(polls[n] < sleeps[n] < polls[n + 1] for n in range(2))
+    assert all(events[i][1] > 0 for i in sleeps)
+
+
 def test_plugin_lifecycle_status_and_failure(monkeypatch):
     class DummyThread:
         def __init__(self, _parent):

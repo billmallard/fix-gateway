@@ -25,6 +25,10 @@ import gpsd2
 import time
 import fixgw.plugin as plugin
 
+# Poll period. gpsd answers a ?POLL at once, so without a pause the thread
+# spins on the socket (AER-6406).
+POLL_INTERVAL = 0.2
+
 
 class MainThread(threading.Thread):
     def __init__(self, parent):
@@ -62,7 +66,7 @@ class MainThread(threading.Thread):
                 self.parent.db_write("GPS_ELLIPSOID_ALT", p.alt * 3.28084)  # m to ft
                 self.parent.db_write("GPS_ACCURACY_VERTICAL", p.error["v"] * 3.28084)
                 self.parent.db_write("GPS_ACCURACY_SPEED", p.error["s"] * 1.94384)
-        time.sleep(0.2)
+            time.sleep(POLL_INTERVAL)
 
     def stop(self):
         self.getout = True
