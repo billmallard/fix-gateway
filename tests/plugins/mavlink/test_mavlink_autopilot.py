@@ -99,6 +99,8 @@ def make(database, leader=True, apstat="ARMED"):
     database.write("WPLAT", 34.44)
     database.write("WPLON", -119.92)
     database.write("WPNAME", "WPT1")
+    # The MSL altitude a reposition holds (AER-6351).
+    database.write("TALT", 1500.0)
     return adapter, mav, parent, clock
 
 
@@ -583,6 +585,7 @@ def test_recorded_transmitter_takeover_is_never_undone(database, monkeypatch):
         database.write("WPLAT", lat)
         database.write("WPLON", -119.92)
         database.write("WPNAME", "WPT1")
+        database.write("TALT", 1500.0)  # fresh on the replay clock
 
     reported = None         # the last replayed heartbeat's mode
     pressed_for = -1        # the record index a press was made for

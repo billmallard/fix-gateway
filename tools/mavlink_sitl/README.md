@@ -20,6 +20,7 @@ No X-Plane and no hardware are involved.
 | `reengage_4.7.2.log` | `reengage.py` on the fixed plugin, then `trace.py`: A, B and C stay MANUAL and the plugin sends nothing after each switch; D's new waypoint goes without the mode-change flag; E is refused (`MAV_RESULT_FAILED`). |
 | `reengage_4.7.2_dev.log` | The same on the plugin before AFC7a: A and B went back to GUIDED, C to CRUISE. |
 | `disarm_probe_4.7.2.txt` | The probe's output. |
+| `baro_session.py` | MAVALT1 (AER-6351): turns `BARO` over netfix at four settings on the ground and three in cruise and logs `ALT`, `TALT`, `PALT`, `AIRPRESS`, then engages GUIDED and reads the `DO_REPOSITION` altitude back from the plugin's tlog. Environment hooks point a display at it and grab the screen; the runs are in `doc/evidence/aer-6351-mavlink-alt`. |
 
 ## Regenerate
 
@@ -34,6 +35,7 @@ PYTHONPATH=deps python3 cut_fixture.py out/fc.tlog ../../tests/plugins/mavlink/d
 PYTHONPATH=deps python3 disarm_probe.py probe
 PYTHONPATH=deps python3 reengage.py ../.. re
 PYTHONPATH=deps python3 trace.py re
+PYTHONPATH=deps python3 baro_session.py ../.. baro
 # <from>: 1 s before "A start" in re/session.log; <to>: the "case A:" line
 PYTHONPATH=deps python3 cut_fixture.py re/fc.tlog ../../tests/plugins/mavlink/data/arduplane_4.7.2_reengage.tlog <from> <to>
 ```

@@ -1,0 +1,14 @@
+# Where a class named for a route concept may be defined (ARCHG1, AER-6350).
+# ARCH0 found seven shapes of a waypoint across fix-gateway and pyEfis; this list
+# freezes fix-gateway's.  tests/arch/test_key_writers.py fails on a class (or a
+# namedtuple/TypedDict) with one of these names in any other file under src/ or
+# tools/, and on a file listed here that no longer defines it.
+#
+# Adding a file, or a name, is a one-line edit, and it is an architecture change:
+# ORG-018 has INTEGRATOR hold a PR that extends this list for review.
+Waypoint: [src/fixgw/plugins/flightplan/engine.py, src/fixgw/plugins/navigator_adapter/base.py]
+Point: [src/fixgw/plugins/flightplan/engine.py, src/fixgw/plugins/fpl_exchange/fpl.py]
+Position: [src/fixgw/plugins/navigator_adapter/base.py]
+Leg: []
+Plan: [src/fixgw/plugins/fpl_exchange/fpl.py]
+Route: []

@@ -1,0 +1,2307 @@
+# FIX key writer register (ARCHG1, AER-6350).  A design record: the gateway
+# never loads this file, and the database format does not change with it.
+#
+# One entry per key that some module writes:
+#   units     the catalog's units (database.yaml)
+#   datum     altitude and position keys: the datum each writer puts on the
+#             bus.  A mapping is per writer, and where they differ the key is
+#             wrong today; `unrecorded` means nobody has read the code yet.
+#   writers   live writers in fix-gateway: plugins and compute modules
+#   pyefis    live writers in pyEfis (ARCHG2 checks these from pyEfis's side)
+#   sim       simulators and replays, which stand in for a live writer
+#   relay     modules that pass a client's write on (netfix, command, ...)
+#   selector  a compute `select`: `by` picks one of `sources`, and the
+#             selector is the key's only live writer
+#
+# tools/check_key_writers.py checks this file against the code; see
+# doc/key_writers.md for how to declare a writer.
+
+ACCELW: {units: warninglevel, writers: [rpi_bno055]}
+AGL: {units: ft, datum: {canfix: 'radar altitude, CAN-FIX parameter 0x188', mavlink: 'GLOBAL_POSITION_INT.relative_alt: height above the autopilot''s home, not above ground'}, writers: [canfix, mavlink]}
+AIRPRESS: {units: Pa, writers: [mavlink]}
+ALAT: {units: g, writers: [canfix, dynon, mavlink, rpi_bno055, stratux]}
+ALONG: {units: g, writers: [mavlink, rpi_bno055]}
+ALT: {units: ft, datum: {canfix: 'indicated, as the CAN-FIX node sends parameter 0x184', dynon: Dynon serial altitude field when status bit 0 is 0 (the same value goes to TALT); field not checked against Dynon's spec, grand_rapids_eis: 'unrecorded: a raw frame field, protocol not read', mavlink: 'indicated: SCALED_PRESSURE static pressure (plus pascal_offset), ISA pressure altitude less baro_offset_ft(BARO); not written without pressure', rpi_bmp085: sensor altitude at 29.92 plus (BARO - 29.92) * 1000 ft, stratux: Stratux AHRS altitude field less 5000.5 (Stratux documents pressure altitude); not corrected to BARO}, writers: [canfix, dynon, grand_rapids_eis, mavlink, rpi_bmp085, stratux]}
+ANORM: {units: g, writers: [mavlink, rpi_bno055]}
+AOA: {units: deg, writers: [canfix, onspeed]}
+APALTCAP: {units: '', sim: [xplane]}
+APALTREF: {units: ft, datum: 'X-Plane''s alt_hold, the altitude the sim''s autopilot holds', sim: [xplane]}
+APCAPS: {units: '', sim: [xplane]}
+APCMD: {units: '', pyefis: [pyefis/instruments/autopilot]}
+APCMDSEQ: {units: '', pyefis: [pyefis/instruments/autopilot]}
+APDISC: {units: '', sim: [xplane]}
+APENG: {units: '', sim: [xplane]}
+APLAT: {units: '', sim: [xplane]}
+APLATARM: {units: '', sim: [xplane]}
+APMSG: {units: '', sim: [xplane]}
+APVERT: {units: '', sim: [xplane]}
+APVERTARM: {units: '', sim: [xplane]}
+BARO: {units: inHg, writers: [canfix, grand_rapids_eis], pyefis: [pyefis/instruments/altimeter]}
+BAT_CHARGING: {units: '', writers: [strom_pi]}
+BAT_REMAINING: {units: '', writers: [X728, strom_pi]}
+BAT_VOLTAGE: {units: '', writers: [X728]}
+BRG1: {units: deg, writers: [compute], selector: {module: compute, by: BRG1SRC, sources: [VOR1BRG, VOR2BRG, GPSBRG]}}
+BRG2: {units: deg, writers: [compute], selector: {module: compute, by: BRG2SRC, sources: [VOR1BRG, VOR2BRG, GPSBRG]}}
+CASCNT: {units: '', writers: [cas]}
+CASSEQ: {units: '', writers: [cas]}
+CASTOP: {units: '', writers: [cas]}
+CDI: {units: '', writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1CDI, NAV2CDI, GPSCDI]}}
+CDISCALE: {units: nM, writers: [flightplan]}
+CDIV: {units: '', writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1CDIV, NAV2CDIV, 1.0]}}
+CHT11: {units: degC, writers: [canfix, grand_rapids_eis]}
+CHT12: {units: degC, writers: [canfix, grand_rapids_eis]}
+CHT13: {units: degC, writers: [canfix, grand_rapids_eis]}
+CHT14: {units: degC, writers: [canfix, grand_rapids_eis]}
+CHT15: {units: degC, writers: [grand_rapids_eis]}
+CHT16: {units: degC, writers: [grand_rapids_eis]}
+CHTMAX1: {units: degC, writers: [compute]}
+COURSE: {units: deg, writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1CRS, NAV2CRS, GPSCRS]}}
+CURRNT: {units: amps, writers: [canfix]}
+DALT: {units: ft, datum: 'density altitude: altd from PALT, TALT and OAT', writers: [compute]}
+DIFFAIRPRESS: {units: Pa, writers: [mavlink]}
+EGT11: {units: degC, writers: [canfix, grand_rapids_eis]}
+EGT12: {units: degC, writers: [canfix, grand_rapids_eis]}
+EGT13: {units: degC, writers: [canfix, grand_rapids_eis]}
+EGT14: {units: degC, writers: [canfix, grand_rapids_eis]}
+EGT15: {units: degC, writers: [grand_rapids_eis]}
+EGT16: {units: degC, writers: [grand_rapids_eis]}
+EGTAVG1: {units: degC, writers: [compute]}
+EGTMAX1: {units: degC, writers: [compute]}
+EGTSPAN1: {units: degC, writers: [compute]}
+EXTCDI: {units: '', writers: [garmin_gnx375, navigator_adapter]}
+EXTCRS: {units: deg, writers: [garmin_gnx375, navigator_adapter]}
+EXTGSV: {units: '', writers: [compute]}
+EXTTF: {units: '', writers: [garmin_gnx375, navigator_adapter]}
+EXTXTK: {units: nM, writers: [garmin_gnx375, navigator_adapter]}
+FDENG: {units: '', sim: [xplane]}
+FDPITCH: {units: deg, sim: [xplane]}
+FDROLL: {units: deg, sim: [xplane]}
+FPL100ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL100CRS: {units: deg, writers: [flightplan]}
+FPL100CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL100CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL100DST: {units: '', writers: [flightplan]}
+FPL100FLAGS: {units: '', writers: [flightplan]}
+FPL100ID: {units: '', writers: [flightplan]}
+FPL100LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL100LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL100PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL100SGI: {units: '', writers: [flightplan]}
+FPL100SPD: {units: '', writers: [flightplan]}
+FPL100TA: {units: nm, writers: [flightplan]}
+FPL100TURN: {units: '', writers: [flightplan]}
+FPL100TYPE: {units: '', writers: [flightplan]}
+FPL10ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL10CRS: {units: deg, writers: [flightplan]}
+FPL10CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL10CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL10DST: {units: '', writers: [flightplan]}
+FPL10FLAGS: {units: '', writers: [flightplan]}
+FPL10ID: {units: '', writers: [flightplan]}
+FPL10LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL10LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL10PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL10SGI: {units: '', writers: [flightplan]}
+FPL10SPD: {units: '', writers: [flightplan]}
+FPL10TA: {units: nm, writers: [flightplan]}
+FPL10TURN: {units: '', writers: [flightplan]}
+FPL10TYPE: {units: '', writers: [flightplan]}
+FPL11ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL11CRS: {units: deg, writers: [flightplan]}
+FPL11CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL11CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL11DST: {units: '', writers: [flightplan]}
+FPL11FLAGS: {units: '', writers: [flightplan]}
+FPL11ID: {units: '', writers: [flightplan]}
+FPL11LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL11LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL11PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL11SGI: {units: '', writers: [flightplan]}
+FPL11SPD: {units: '', writers: [flightplan]}
+FPL11TA: {units: nm, writers: [flightplan]}
+FPL11TURN: {units: '', writers: [flightplan]}
+FPL11TYPE: {units: '', writers: [flightplan]}
+FPL12ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL12CRS: {units: deg, writers: [flightplan]}
+FPL12CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL12CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL12DST: {units: '', writers: [flightplan]}
+FPL12FLAGS: {units: '', writers: [flightplan]}
+FPL12ID: {units: '', writers: [flightplan]}
+FPL12LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL12LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL12PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL12SGI: {units: '', writers: [flightplan]}
+FPL12SPD: {units: '', writers: [flightplan]}
+FPL12TA: {units: nm, writers: [flightplan]}
+FPL12TURN: {units: '', writers: [flightplan]}
+FPL12TYPE: {units: '', writers: [flightplan]}
+FPL13ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL13CRS: {units: deg, writers: [flightplan]}
+FPL13CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL13CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL13DST: {units: '', writers: [flightplan]}
+FPL13FLAGS: {units: '', writers: [flightplan]}
+FPL13ID: {units: '', writers: [flightplan]}
+FPL13LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL13LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL13PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL13SGI: {units: '', writers: [flightplan]}
+FPL13SPD: {units: '', writers: [flightplan]}
+FPL13TA: {units: nm, writers: [flightplan]}
+FPL13TURN: {units: '', writers: [flightplan]}
+FPL13TYPE: {units: '', writers: [flightplan]}
+FPL14ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL14CRS: {units: deg, writers: [flightplan]}
+FPL14CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL14CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL14DST: {units: '', writers: [flightplan]}
+FPL14FLAGS: {units: '', writers: [flightplan]}
+FPL14ID: {units: '', writers: [flightplan]}
+FPL14LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL14LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL14PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL14SGI: {units: '', writers: [flightplan]}
+FPL14SPD: {units: '', writers: [flightplan]}
+FPL14TA: {units: nm, writers: [flightplan]}
+FPL14TURN: {units: '', writers: [flightplan]}
+FPL14TYPE: {units: '', writers: [flightplan]}
+FPL15ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL15CRS: {units: deg, writers: [flightplan]}
+FPL15CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL15CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL15DST: {units: '', writers: [flightplan]}
+FPL15FLAGS: {units: '', writers: [flightplan]}
+FPL15ID: {units: '', writers: [flightplan]}
+FPL15LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL15LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL15PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL15SGI: {units: '', writers: [flightplan]}
+FPL15SPD: {units: '', writers: [flightplan]}
+FPL15TA: {units: nm, writers: [flightplan]}
+FPL15TURN: {units: '', writers: [flightplan]}
+FPL15TYPE: {units: '', writers: [flightplan]}
+FPL16ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL16CRS: {units: deg, writers: [flightplan]}
+FPL16CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL16CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL16DST: {units: '', writers: [flightplan]}
+FPL16FLAGS: {units: '', writers: [flightplan]}
+FPL16ID: {units: '', writers: [flightplan]}
+FPL16LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL16LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL16PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL16SGI: {units: '', writers: [flightplan]}
+FPL16SPD: {units: '', writers: [flightplan]}
+FPL16TA: {units: nm, writers: [flightplan]}
+FPL16TURN: {units: '', writers: [flightplan]}
+FPL16TYPE: {units: '', writers: [flightplan]}
+FPL17ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL17CRS: {units: deg, writers: [flightplan]}
+FPL17CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL17CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL17DST: {units: '', writers: [flightplan]}
+FPL17FLAGS: {units: '', writers: [flightplan]}
+FPL17ID: {units: '', writers: [flightplan]}
+FPL17LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL17LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL17PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL17SGI: {units: '', writers: [flightplan]}
+FPL17SPD: {units: '', writers: [flightplan]}
+FPL17TA: {units: nm, writers: [flightplan]}
+FPL17TURN: {units: '', writers: [flightplan]}
+FPL17TYPE: {units: '', writers: [flightplan]}
+FPL18ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL18CRS: {units: deg, writers: [flightplan]}
+FPL18CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL18CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL18DST: {units: '', writers: [flightplan]}
+FPL18FLAGS: {units: '', writers: [flightplan]}
+FPL18ID: {units: '', writers: [flightplan]}
+FPL18LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL18LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL18PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL18SGI: {units: '', writers: [flightplan]}
+FPL18SPD: {units: '', writers: [flightplan]}
+FPL18TA: {units: nm, writers: [flightplan]}
+FPL18TURN: {units: '', writers: [flightplan]}
+FPL18TYPE: {units: '', writers: [flightplan]}
+FPL19ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL19CRS: {units: deg, writers: [flightplan]}
+FPL19CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL19CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL19DST: {units: '', writers: [flightplan]}
+FPL19FLAGS: {units: '', writers: [flightplan]}
+FPL19ID: {units: '', writers: [flightplan]}
+FPL19LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL19LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL19PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL19SGI: {units: '', writers: [flightplan]}
+FPL19SPD: {units: '', writers: [flightplan]}
+FPL19TA: {units: nm, writers: [flightplan]}
+FPL19TURN: {units: '', writers: [flightplan]}
+FPL19TYPE: {units: '', writers: [flightplan]}
+FPL1ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL1CRS: {units: deg, writers: [flightplan]}
+FPL1CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL1CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL1DST: {units: '', writers: [flightplan]}
+FPL1FLAGS: {units: '', writers: [flightplan]}
+FPL1ID: {units: '', writers: [flightplan]}
+FPL1LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL1LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL1PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL1SGI: {units: '', writers: [flightplan]}
+FPL1SPD: {units: '', writers: [flightplan]}
+FPL1TA: {units: nm, writers: [flightplan]}
+FPL1TURN: {units: '', writers: [flightplan]}
+FPL1TYPE: {units: '', writers: [flightplan]}
+FPL20ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL20CRS: {units: deg, writers: [flightplan]}
+FPL20CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL20CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL20DST: {units: '', writers: [flightplan]}
+FPL20FLAGS: {units: '', writers: [flightplan]}
+FPL20ID: {units: '', writers: [flightplan]}
+FPL20LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL20LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL20PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL20SGI: {units: '', writers: [flightplan]}
+FPL20SPD: {units: '', writers: [flightplan]}
+FPL20TA: {units: nm, writers: [flightplan]}
+FPL20TURN: {units: '', writers: [flightplan]}
+FPL20TYPE: {units: '', writers: [flightplan]}
+FPL21ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL21CRS: {units: deg, writers: [flightplan]}
+FPL21CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL21CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL21DST: {units: '', writers: [flightplan]}
+FPL21FLAGS: {units: '', writers: [flightplan]}
+FPL21ID: {units: '', writers: [flightplan]}
+FPL21LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL21LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL21PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL21SGI: {units: '', writers: [flightplan]}
+FPL21SPD: {units: '', writers: [flightplan]}
+FPL21TA: {units: nm, writers: [flightplan]}
+FPL21TURN: {units: '', writers: [flightplan]}
+FPL21TYPE: {units: '', writers: [flightplan]}
+FPL22ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL22CRS: {units: deg, writers: [flightplan]}
+FPL22CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL22CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL22DST: {units: '', writers: [flightplan]}
+FPL22FLAGS: {units: '', writers: [flightplan]}
+FPL22ID: {units: '', writers: [flightplan]}
+FPL22LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL22LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL22PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL22SGI: {units: '', writers: [flightplan]}
+FPL22SPD: {units: '', writers: [flightplan]}
+FPL22TA: {units: nm, writers: [flightplan]}
+FPL22TURN: {units: '', writers: [flightplan]}
+FPL22TYPE: {units: '', writers: [flightplan]}
+FPL23ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL23CRS: {units: deg, writers: [flightplan]}
+FPL23CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL23CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL23DST: {units: '', writers: [flightplan]}
+FPL23FLAGS: {units: '', writers: [flightplan]}
+FPL23ID: {units: '', writers: [flightplan]}
+FPL23LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL23LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL23PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL23SGI: {units: '', writers: [flightplan]}
+FPL23SPD: {units: '', writers: [flightplan]}
+FPL23TA: {units: nm, writers: [flightplan]}
+FPL23TURN: {units: '', writers: [flightplan]}
+FPL23TYPE: {units: '', writers: [flightplan]}
+FPL24ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL24CRS: {units: deg, writers: [flightplan]}
+FPL24CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL24CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL24DST: {units: '', writers: [flightplan]}
+FPL24FLAGS: {units: '', writers: [flightplan]}
+FPL24ID: {units: '', writers: [flightplan]}
+FPL24LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL24LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL24PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL24SGI: {units: '', writers: [flightplan]}
+FPL24SPD: {units: '', writers: [flightplan]}
+FPL24TA: {units: nm, writers: [flightplan]}
+FPL24TURN: {units: '', writers: [flightplan]}
+FPL24TYPE: {units: '', writers: [flightplan]}
+FPL25ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL25CRS: {units: deg, writers: [flightplan]}
+FPL25CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL25CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL25DST: {units: '', writers: [flightplan]}
+FPL25FLAGS: {units: '', writers: [flightplan]}
+FPL25ID: {units: '', writers: [flightplan]}
+FPL25LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL25LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL25PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL25SGI: {units: '', writers: [flightplan]}
+FPL25SPD: {units: '', writers: [flightplan]}
+FPL25TA: {units: nm, writers: [flightplan]}
+FPL25TURN: {units: '', writers: [flightplan]}
+FPL25TYPE: {units: '', writers: [flightplan]}
+FPL26ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL26CRS: {units: deg, writers: [flightplan]}
+FPL26CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL26CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL26DST: {units: '', writers: [flightplan]}
+FPL26FLAGS: {units: '', writers: [flightplan]}
+FPL26ID: {units: '', writers: [flightplan]}
+FPL26LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL26LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL26PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL26SGI: {units: '', writers: [flightplan]}
+FPL26SPD: {units: '', writers: [flightplan]}
+FPL26TA: {units: nm, writers: [flightplan]}
+FPL26TURN: {units: '', writers: [flightplan]}
+FPL26TYPE: {units: '', writers: [flightplan]}
+FPL27ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL27CRS: {units: deg, writers: [flightplan]}
+FPL27CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL27CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL27DST: {units: '', writers: [flightplan]}
+FPL27FLAGS: {units: '', writers: [flightplan]}
+FPL27ID: {units: '', writers: [flightplan]}
+FPL27LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL27LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL27PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL27SGI: {units: '', writers: [flightplan]}
+FPL27SPD: {units: '', writers: [flightplan]}
+FPL27TA: {units: nm, writers: [flightplan]}
+FPL27TURN: {units: '', writers: [flightplan]}
+FPL27TYPE: {units: '', writers: [flightplan]}
+FPL28ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL28CRS: {units: deg, writers: [flightplan]}
+FPL28CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL28CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL28DST: {units: '', writers: [flightplan]}
+FPL28FLAGS: {units: '', writers: [flightplan]}
+FPL28ID: {units: '', writers: [flightplan]}
+FPL28LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL28LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL28PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL28SGI: {units: '', writers: [flightplan]}
+FPL28SPD: {units: '', writers: [flightplan]}
+FPL28TA: {units: nm, writers: [flightplan]}
+FPL28TURN: {units: '', writers: [flightplan]}
+FPL28TYPE: {units: '', writers: [flightplan]}
+FPL29ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL29CRS: {units: deg, writers: [flightplan]}
+FPL29CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL29CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL29DST: {units: '', writers: [flightplan]}
+FPL29FLAGS: {units: '', writers: [flightplan]}
+FPL29ID: {units: '', writers: [flightplan]}
+FPL29LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL29LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL29PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL29SGI: {units: '', writers: [flightplan]}
+FPL29SPD: {units: '', writers: [flightplan]}
+FPL29TA: {units: nm, writers: [flightplan]}
+FPL29TURN: {units: '', writers: [flightplan]}
+FPL29TYPE: {units: '', writers: [flightplan]}
+FPL2ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL2CRS: {units: deg, writers: [flightplan]}
+FPL2CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL2CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL2DST: {units: '', writers: [flightplan]}
+FPL2FLAGS: {units: '', writers: [flightplan]}
+FPL2ID: {units: '', writers: [flightplan]}
+FPL2LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL2LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL2PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL2SGI: {units: '', writers: [flightplan]}
+FPL2SPD: {units: '', writers: [flightplan]}
+FPL2TA: {units: nm, writers: [flightplan]}
+FPL2TURN: {units: '', writers: [flightplan]}
+FPL2TYPE: {units: '', writers: [flightplan]}
+FPL30ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL30CRS: {units: deg, writers: [flightplan]}
+FPL30CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL30CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL30DST: {units: '', writers: [flightplan]}
+FPL30FLAGS: {units: '', writers: [flightplan]}
+FPL30ID: {units: '', writers: [flightplan]}
+FPL30LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL30LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL30PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL30SGI: {units: '', writers: [flightplan]}
+FPL30SPD: {units: '', writers: [flightplan]}
+FPL30TA: {units: nm, writers: [flightplan]}
+FPL30TURN: {units: '', writers: [flightplan]}
+FPL30TYPE: {units: '', writers: [flightplan]}
+FPL31ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL31CRS: {units: deg, writers: [flightplan]}
+FPL31CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL31CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL31DST: {units: '', writers: [flightplan]}
+FPL31FLAGS: {units: '', writers: [flightplan]}
+FPL31ID: {units: '', writers: [flightplan]}
+FPL31LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL31LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL31PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL31SGI: {units: '', writers: [flightplan]}
+FPL31SPD: {units: '', writers: [flightplan]}
+FPL31TA: {units: nm, writers: [flightplan]}
+FPL31TURN: {units: '', writers: [flightplan]}
+FPL31TYPE: {units: '', writers: [flightplan]}
+FPL32ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL32CRS: {units: deg, writers: [flightplan]}
+FPL32CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL32CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL32DST: {units: '', writers: [flightplan]}
+FPL32FLAGS: {units: '', writers: [flightplan]}
+FPL32ID: {units: '', writers: [flightplan]}
+FPL32LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL32LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL32PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL32SGI: {units: '', writers: [flightplan]}
+FPL32SPD: {units: '', writers: [flightplan]}
+FPL32TA: {units: nm, writers: [flightplan]}
+FPL32TURN: {units: '', writers: [flightplan]}
+FPL32TYPE: {units: '', writers: [flightplan]}
+FPL33ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL33CRS: {units: deg, writers: [flightplan]}
+FPL33CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL33CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL33DST: {units: '', writers: [flightplan]}
+FPL33FLAGS: {units: '', writers: [flightplan]}
+FPL33ID: {units: '', writers: [flightplan]}
+FPL33LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL33LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL33PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL33SGI: {units: '', writers: [flightplan]}
+FPL33SPD: {units: '', writers: [flightplan]}
+FPL33TA: {units: nm, writers: [flightplan]}
+FPL33TURN: {units: '', writers: [flightplan]}
+FPL33TYPE: {units: '', writers: [flightplan]}
+FPL34ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL34CRS: {units: deg, writers: [flightplan]}
+FPL34CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL34CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL34DST: {units: '', writers: [flightplan]}
+FPL34FLAGS: {units: '', writers: [flightplan]}
+FPL34ID: {units: '', writers: [flightplan]}
+FPL34LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL34LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL34PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL34SGI: {units: '', writers: [flightplan]}
+FPL34SPD: {units: '', writers: [flightplan]}
+FPL34TA: {units: nm, writers: [flightplan]}
+FPL34TURN: {units: '', writers: [flightplan]}
+FPL34TYPE: {units: '', writers: [flightplan]}
+FPL35ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL35CRS: {units: deg, writers: [flightplan]}
+FPL35CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL35CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL35DST: {units: '', writers: [flightplan]}
+FPL35FLAGS: {units: '', writers: [flightplan]}
+FPL35ID: {units: '', writers: [flightplan]}
+FPL35LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL35LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL35PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL35SGI: {units: '', writers: [flightplan]}
+FPL35SPD: {units: '', writers: [flightplan]}
+FPL35TA: {units: nm, writers: [flightplan]}
+FPL35TURN: {units: '', writers: [flightplan]}
+FPL35TYPE: {units: '', writers: [flightplan]}
+FPL36ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL36CRS: {units: deg, writers: [flightplan]}
+FPL36CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL36CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL36DST: {units: '', writers: [flightplan]}
+FPL36FLAGS: {units: '', writers: [flightplan]}
+FPL36ID: {units: '', writers: [flightplan]}
+FPL36LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL36LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL36PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL36SGI: {units: '', writers: [flightplan]}
+FPL36SPD: {units: '', writers: [flightplan]}
+FPL36TA: {units: nm, writers: [flightplan]}
+FPL36TURN: {units: '', writers: [flightplan]}
+FPL36TYPE: {units: '', writers: [flightplan]}
+FPL37ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL37CRS: {units: deg, writers: [flightplan]}
+FPL37CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL37CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL37DST: {units: '', writers: [flightplan]}
+FPL37FLAGS: {units: '', writers: [flightplan]}
+FPL37ID: {units: '', writers: [flightplan]}
+FPL37LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL37LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL37PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL37SGI: {units: '', writers: [flightplan]}
+FPL37SPD: {units: '', writers: [flightplan]}
+FPL37TA: {units: nm, writers: [flightplan]}
+FPL37TURN: {units: '', writers: [flightplan]}
+FPL37TYPE: {units: '', writers: [flightplan]}
+FPL38ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL38CRS: {units: deg, writers: [flightplan]}
+FPL38CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL38CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL38DST: {units: '', writers: [flightplan]}
+FPL38FLAGS: {units: '', writers: [flightplan]}
+FPL38ID: {units: '', writers: [flightplan]}
+FPL38LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL38LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL38PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL38SGI: {units: '', writers: [flightplan]}
+FPL38SPD: {units: '', writers: [flightplan]}
+FPL38TA: {units: nm, writers: [flightplan]}
+FPL38TURN: {units: '', writers: [flightplan]}
+FPL38TYPE: {units: '', writers: [flightplan]}
+FPL39ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL39CRS: {units: deg, writers: [flightplan]}
+FPL39CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL39CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL39DST: {units: '', writers: [flightplan]}
+FPL39FLAGS: {units: '', writers: [flightplan]}
+FPL39ID: {units: '', writers: [flightplan]}
+FPL39LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL39LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL39PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL39SGI: {units: '', writers: [flightplan]}
+FPL39SPD: {units: '', writers: [flightplan]}
+FPL39TA: {units: nm, writers: [flightplan]}
+FPL39TURN: {units: '', writers: [flightplan]}
+FPL39TYPE: {units: '', writers: [flightplan]}
+FPL3ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL3CRS: {units: deg, writers: [flightplan]}
+FPL3CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL3CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL3DST: {units: '', writers: [flightplan]}
+FPL3FLAGS: {units: '', writers: [flightplan]}
+FPL3ID: {units: '', writers: [flightplan]}
+FPL3LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL3LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL3PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL3SGI: {units: '', writers: [flightplan]}
+FPL3SPD: {units: '', writers: [flightplan]}
+FPL3TA: {units: nm, writers: [flightplan]}
+FPL3TURN: {units: '', writers: [flightplan]}
+FPL3TYPE: {units: '', writers: [flightplan]}
+FPL40ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL40CRS: {units: deg, writers: [flightplan]}
+FPL40CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL40CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL40DST: {units: '', writers: [flightplan]}
+FPL40FLAGS: {units: '', writers: [flightplan]}
+FPL40ID: {units: '', writers: [flightplan]}
+FPL40LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL40LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL40PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL40SGI: {units: '', writers: [flightplan]}
+FPL40SPD: {units: '', writers: [flightplan]}
+FPL40TA: {units: nm, writers: [flightplan]}
+FPL40TURN: {units: '', writers: [flightplan]}
+FPL40TYPE: {units: '', writers: [flightplan]}
+FPL41ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL41CRS: {units: deg, writers: [flightplan]}
+FPL41CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL41CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL41DST: {units: '', writers: [flightplan]}
+FPL41FLAGS: {units: '', writers: [flightplan]}
+FPL41ID: {units: '', writers: [flightplan]}
+FPL41LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL41LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL41PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL41SGI: {units: '', writers: [flightplan]}
+FPL41SPD: {units: '', writers: [flightplan]}
+FPL41TA: {units: nm, writers: [flightplan]}
+FPL41TURN: {units: '', writers: [flightplan]}
+FPL41TYPE: {units: '', writers: [flightplan]}
+FPL42ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL42CRS: {units: deg, writers: [flightplan]}
+FPL42CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL42CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL42DST: {units: '', writers: [flightplan]}
+FPL42FLAGS: {units: '', writers: [flightplan]}
+FPL42ID: {units: '', writers: [flightplan]}
+FPL42LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL42LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL42PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL42SGI: {units: '', writers: [flightplan]}
+FPL42SPD: {units: '', writers: [flightplan]}
+FPL42TA: {units: nm, writers: [flightplan]}
+FPL42TURN: {units: '', writers: [flightplan]}
+FPL42TYPE: {units: '', writers: [flightplan]}
+FPL43ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL43CRS: {units: deg, writers: [flightplan]}
+FPL43CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL43CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL43DST: {units: '', writers: [flightplan]}
+FPL43FLAGS: {units: '', writers: [flightplan]}
+FPL43ID: {units: '', writers: [flightplan]}
+FPL43LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL43LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL43PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL43SGI: {units: '', writers: [flightplan]}
+FPL43SPD: {units: '', writers: [flightplan]}
+FPL43TA: {units: nm, writers: [flightplan]}
+FPL43TURN: {units: '', writers: [flightplan]}
+FPL43TYPE: {units: '', writers: [flightplan]}
+FPL44ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL44CRS: {units: deg, writers: [flightplan]}
+FPL44CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL44CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL44DST: {units: '', writers: [flightplan]}
+FPL44FLAGS: {units: '', writers: [flightplan]}
+FPL44ID: {units: '', writers: [flightplan]}
+FPL44LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL44LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL44PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL44SGI: {units: '', writers: [flightplan]}
+FPL44SPD: {units: '', writers: [flightplan]}
+FPL44TA: {units: nm, writers: [flightplan]}
+FPL44TURN: {units: '', writers: [flightplan]}
+FPL44TYPE: {units: '', writers: [flightplan]}
+FPL45ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL45CRS: {units: deg, writers: [flightplan]}
+FPL45CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL45CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL45DST: {units: '', writers: [flightplan]}
+FPL45FLAGS: {units: '', writers: [flightplan]}
+FPL45ID: {units: '', writers: [flightplan]}
+FPL45LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL45LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL45PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL45SGI: {units: '', writers: [flightplan]}
+FPL45SPD: {units: '', writers: [flightplan]}
+FPL45TA: {units: nm, writers: [flightplan]}
+FPL45TURN: {units: '', writers: [flightplan]}
+FPL45TYPE: {units: '', writers: [flightplan]}
+FPL46ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL46CRS: {units: deg, writers: [flightplan]}
+FPL46CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL46CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL46DST: {units: '', writers: [flightplan]}
+FPL46FLAGS: {units: '', writers: [flightplan]}
+FPL46ID: {units: '', writers: [flightplan]}
+FPL46LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL46LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL46PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL46SGI: {units: '', writers: [flightplan]}
+FPL46SPD: {units: '', writers: [flightplan]}
+FPL46TA: {units: nm, writers: [flightplan]}
+FPL46TURN: {units: '', writers: [flightplan]}
+FPL46TYPE: {units: '', writers: [flightplan]}
+FPL47ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL47CRS: {units: deg, writers: [flightplan]}
+FPL47CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL47CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL47DST: {units: '', writers: [flightplan]}
+FPL47FLAGS: {units: '', writers: [flightplan]}
+FPL47ID: {units: '', writers: [flightplan]}
+FPL47LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL47LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL47PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL47SGI: {units: '', writers: [flightplan]}
+FPL47SPD: {units: '', writers: [flightplan]}
+FPL47TA: {units: nm, writers: [flightplan]}
+FPL47TURN: {units: '', writers: [flightplan]}
+FPL47TYPE: {units: '', writers: [flightplan]}
+FPL48ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL48CRS: {units: deg, writers: [flightplan]}
+FPL48CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL48CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL48DST: {units: '', writers: [flightplan]}
+FPL48FLAGS: {units: '', writers: [flightplan]}
+FPL48ID: {units: '', writers: [flightplan]}
+FPL48LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL48LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL48PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL48SGI: {units: '', writers: [flightplan]}
+FPL48SPD: {units: '', writers: [flightplan]}
+FPL48TA: {units: nm, writers: [flightplan]}
+FPL48TURN: {units: '', writers: [flightplan]}
+FPL48TYPE: {units: '', writers: [flightplan]}
+FPL49ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL49CRS: {units: deg, writers: [flightplan]}
+FPL49CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL49CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL49DST: {units: '', writers: [flightplan]}
+FPL49FLAGS: {units: '', writers: [flightplan]}
+FPL49ID: {units: '', writers: [flightplan]}
+FPL49LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL49LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL49PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL49SGI: {units: '', writers: [flightplan]}
+FPL49SPD: {units: '', writers: [flightplan]}
+FPL49TA: {units: nm, writers: [flightplan]}
+FPL49TURN: {units: '', writers: [flightplan]}
+FPL49TYPE: {units: '', writers: [flightplan]}
+FPL4ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL4CRS: {units: deg, writers: [flightplan]}
+FPL4CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL4CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL4DST: {units: '', writers: [flightplan]}
+FPL4FLAGS: {units: '', writers: [flightplan]}
+FPL4ID: {units: '', writers: [flightplan]}
+FPL4LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL4LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL4PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL4SGI: {units: '', writers: [flightplan]}
+FPL4SPD: {units: '', writers: [flightplan]}
+FPL4TA: {units: nm, writers: [flightplan]}
+FPL4TURN: {units: '', writers: [flightplan]}
+FPL4TYPE: {units: '', writers: [flightplan]}
+FPL50ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL50CRS: {units: deg, writers: [flightplan]}
+FPL50CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL50CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL50DST: {units: '', writers: [flightplan]}
+FPL50FLAGS: {units: '', writers: [flightplan]}
+FPL50ID: {units: '', writers: [flightplan]}
+FPL50LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL50LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL50PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL50SGI: {units: '', writers: [flightplan]}
+FPL50SPD: {units: '', writers: [flightplan]}
+FPL50TA: {units: nm, writers: [flightplan]}
+FPL50TURN: {units: '', writers: [flightplan]}
+FPL50TYPE: {units: '', writers: [flightplan]}
+FPL51ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL51CRS: {units: deg, writers: [flightplan]}
+FPL51CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL51CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL51DST: {units: '', writers: [flightplan]}
+FPL51FLAGS: {units: '', writers: [flightplan]}
+FPL51ID: {units: '', writers: [flightplan]}
+FPL51LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL51LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL51PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL51SGI: {units: '', writers: [flightplan]}
+FPL51SPD: {units: '', writers: [flightplan]}
+FPL51TA: {units: nm, writers: [flightplan]}
+FPL51TURN: {units: '', writers: [flightplan]}
+FPL51TYPE: {units: '', writers: [flightplan]}
+FPL52ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL52CRS: {units: deg, writers: [flightplan]}
+FPL52CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL52CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL52DST: {units: '', writers: [flightplan]}
+FPL52FLAGS: {units: '', writers: [flightplan]}
+FPL52ID: {units: '', writers: [flightplan]}
+FPL52LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL52LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL52PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL52SGI: {units: '', writers: [flightplan]}
+FPL52SPD: {units: '', writers: [flightplan]}
+FPL52TA: {units: nm, writers: [flightplan]}
+FPL52TURN: {units: '', writers: [flightplan]}
+FPL52TYPE: {units: '', writers: [flightplan]}
+FPL53ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL53CRS: {units: deg, writers: [flightplan]}
+FPL53CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL53CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL53DST: {units: '', writers: [flightplan]}
+FPL53FLAGS: {units: '', writers: [flightplan]}
+FPL53ID: {units: '', writers: [flightplan]}
+FPL53LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL53LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL53PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL53SGI: {units: '', writers: [flightplan]}
+FPL53SPD: {units: '', writers: [flightplan]}
+FPL53TA: {units: nm, writers: [flightplan]}
+FPL53TURN: {units: '', writers: [flightplan]}
+FPL53TYPE: {units: '', writers: [flightplan]}
+FPL54ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL54CRS: {units: deg, writers: [flightplan]}
+FPL54CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL54CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL54DST: {units: '', writers: [flightplan]}
+FPL54FLAGS: {units: '', writers: [flightplan]}
+FPL54ID: {units: '', writers: [flightplan]}
+FPL54LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL54LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL54PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL54SGI: {units: '', writers: [flightplan]}
+FPL54SPD: {units: '', writers: [flightplan]}
+FPL54TA: {units: nm, writers: [flightplan]}
+FPL54TURN: {units: '', writers: [flightplan]}
+FPL54TYPE: {units: '', writers: [flightplan]}
+FPL55ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL55CRS: {units: deg, writers: [flightplan]}
+FPL55CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL55CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL55DST: {units: '', writers: [flightplan]}
+FPL55FLAGS: {units: '', writers: [flightplan]}
+FPL55ID: {units: '', writers: [flightplan]}
+FPL55LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL55LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL55PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL55SGI: {units: '', writers: [flightplan]}
+FPL55SPD: {units: '', writers: [flightplan]}
+FPL55TA: {units: nm, writers: [flightplan]}
+FPL55TURN: {units: '', writers: [flightplan]}
+FPL55TYPE: {units: '', writers: [flightplan]}
+FPL56ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL56CRS: {units: deg, writers: [flightplan]}
+FPL56CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL56CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL56DST: {units: '', writers: [flightplan]}
+FPL56FLAGS: {units: '', writers: [flightplan]}
+FPL56ID: {units: '', writers: [flightplan]}
+FPL56LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL56LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL56PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL56SGI: {units: '', writers: [flightplan]}
+FPL56SPD: {units: '', writers: [flightplan]}
+FPL56TA: {units: nm, writers: [flightplan]}
+FPL56TURN: {units: '', writers: [flightplan]}
+FPL56TYPE: {units: '', writers: [flightplan]}
+FPL57ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL57CRS: {units: deg, writers: [flightplan]}
+FPL57CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL57CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL57DST: {units: '', writers: [flightplan]}
+FPL57FLAGS: {units: '', writers: [flightplan]}
+FPL57ID: {units: '', writers: [flightplan]}
+FPL57LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL57LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL57PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL57SGI: {units: '', writers: [flightplan]}
+FPL57SPD: {units: '', writers: [flightplan]}
+FPL57TA: {units: nm, writers: [flightplan]}
+FPL57TURN: {units: '', writers: [flightplan]}
+FPL57TYPE: {units: '', writers: [flightplan]}
+FPL58ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL58CRS: {units: deg, writers: [flightplan]}
+FPL58CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL58CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL58DST: {units: '', writers: [flightplan]}
+FPL58FLAGS: {units: '', writers: [flightplan]}
+FPL58ID: {units: '', writers: [flightplan]}
+FPL58LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL58LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL58PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL58SGI: {units: '', writers: [flightplan]}
+FPL58SPD: {units: '', writers: [flightplan]}
+FPL58TA: {units: nm, writers: [flightplan]}
+FPL58TURN: {units: '', writers: [flightplan]}
+FPL58TYPE: {units: '', writers: [flightplan]}
+FPL59ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL59CRS: {units: deg, writers: [flightplan]}
+FPL59CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL59CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL59DST: {units: '', writers: [flightplan]}
+FPL59FLAGS: {units: '', writers: [flightplan]}
+FPL59ID: {units: '', writers: [flightplan]}
+FPL59LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL59LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL59PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL59SGI: {units: '', writers: [flightplan]}
+FPL59SPD: {units: '', writers: [flightplan]}
+FPL59TA: {units: nm, writers: [flightplan]}
+FPL59TURN: {units: '', writers: [flightplan]}
+FPL59TYPE: {units: '', writers: [flightplan]}
+FPL5ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL5CRS: {units: deg, writers: [flightplan]}
+FPL5CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL5CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL5DST: {units: '', writers: [flightplan]}
+FPL5FLAGS: {units: '', writers: [flightplan]}
+FPL5ID: {units: '', writers: [flightplan]}
+FPL5LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL5LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL5PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL5SGI: {units: '', writers: [flightplan]}
+FPL5SPD: {units: '', writers: [flightplan]}
+FPL5TA: {units: nm, writers: [flightplan]}
+FPL5TURN: {units: '', writers: [flightplan]}
+FPL5TYPE: {units: '', writers: [flightplan]}
+FPL60ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL60CRS: {units: deg, writers: [flightplan]}
+FPL60CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL60CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL60DST: {units: '', writers: [flightplan]}
+FPL60FLAGS: {units: '', writers: [flightplan]}
+FPL60ID: {units: '', writers: [flightplan]}
+FPL60LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL60LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL60PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL60SGI: {units: '', writers: [flightplan]}
+FPL60SPD: {units: '', writers: [flightplan]}
+FPL60TA: {units: nm, writers: [flightplan]}
+FPL60TURN: {units: '', writers: [flightplan]}
+FPL60TYPE: {units: '', writers: [flightplan]}
+FPL61ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL61CRS: {units: deg, writers: [flightplan]}
+FPL61CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL61CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL61DST: {units: '', writers: [flightplan]}
+FPL61FLAGS: {units: '', writers: [flightplan]}
+FPL61ID: {units: '', writers: [flightplan]}
+FPL61LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL61LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL61PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL61SGI: {units: '', writers: [flightplan]}
+FPL61SPD: {units: '', writers: [flightplan]}
+FPL61TA: {units: nm, writers: [flightplan]}
+FPL61TURN: {units: '', writers: [flightplan]}
+FPL61TYPE: {units: '', writers: [flightplan]}
+FPL62ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL62CRS: {units: deg, writers: [flightplan]}
+FPL62CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL62CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL62DST: {units: '', writers: [flightplan]}
+FPL62FLAGS: {units: '', writers: [flightplan]}
+FPL62ID: {units: '', writers: [flightplan]}
+FPL62LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL62LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL62PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL62SGI: {units: '', writers: [flightplan]}
+FPL62SPD: {units: '', writers: [flightplan]}
+FPL62TA: {units: nm, writers: [flightplan]}
+FPL62TURN: {units: '', writers: [flightplan]}
+FPL62TYPE: {units: '', writers: [flightplan]}
+FPL63ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL63CRS: {units: deg, writers: [flightplan]}
+FPL63CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL63CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL63DST: {units: '', writers: [flightplan]}
+FPL63FLAGS: {units: '', writers: [flightplan]}
+FPL63ID: {units: '', writers: [flightplan]}
+FPL63LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL63LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL63PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL63SGI: {units: '', writers: [flightplan]}
+FPL63SPD: {units: '', writers: [flightplan]}
+FPL63TA: {units: nm, writers: [flightplan]}
+FPL63TURN: {units: '', writers: [flightplan]}
+FPL63TYPE: {units: '', writers: [flightplan]}
+FPL64ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL64CRS: {units: deg, writers: [flightplan]}
+FPL64CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL64CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL64DST: {units: '', writers: [flightplan]}
+FPL64FLAGS: {units: '', writers: [flightplan]}
+FPL64ID: {units: '', writers: [flightplan]}
+FPL64LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL64LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL64PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL64SGI: {units: '', writers: [flightplan]}
+FPL64SPD: {units: '', writers: [flightplan]}
+FPL64TA: {units: nm, writers: [flightplan]}
+FPL64TURN: {units: '', writers: [flightplan]}
+FPL64TYPE: {units: '', writers: [flightplan]}
+FPL65ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL65CRS: {units: deg, writers: [flightplan]}
+FPL65CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL65CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL65DST: {units: '', writers: [flightplan]}
+FPL65FLAGS: {units: '', writers: [flightplan]}
+FPL65ID: {units: '', writers: [flightplan]}
+FPL65LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL65LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL65PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL65SGI: {units: '', writers: [flightplan]}
+FPL65SPD: {units: '', writers: [flightplan]}
+FPL65TA: {units: nm, writers: [flightplan]}
+FPL65TURN: {units: '', writers: [flightplan]}
+FPL65TYPE: {units: '', writers: [flightplan]}
+FPL66ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL66CRS: {units: deg, writers: [flightplan]}
+FPL66CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL66CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL66DST: {units: '', writers: [flightplan]}
+FPL66FLAGS: {units: '', writers: [flightplan]}
+FPL66ID: {units: '', writers: [flightplan]}
+FPL66LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL66LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL66PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL66SGI: {units: '', writers: [flightplan]}
+FPL66SPD: {units: '', writers: [flightplan]}
+FPL66TA: {units: nm, writers: [flightplan]}
+FPL66TURN: {units: '', writers: [flightplan]}
+FPL66TYPE: {units: '', writers: [flightplan]}
+FPL67ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL67CRS: {units: deg, writers: [flightplan]}
+FPL67CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL67CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL67DST: {units: '', writers: [flightplan]}
+FPL67FLAGS: {units: '', writers: [flightplan]}
+FPL67ID: {units: '', writers: [flightplan]}
+FPL67LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL67LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL67PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL67SGI: {units: '', writers: [flightplan]}
+FPL67SPD: {units: '', writers: [flightplan]}
+FPL67TA: {units: nm, writers: [flightplan]}
+FPL67TURN: {units: '', writers: [flightplan]}
+FPL67TYPE: {units: '', writers: [flightplan]}
+FPL68ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL68CRS: {units: deg, writers: [flightplan]}
+FPL68CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL68CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL68DST: {units: '', writers: [flightplan]}
+FPL68FLAGS: {units: '', writers: [flightplan]}
+FPL68ID: {units: '', writers: [flightplan]}
+FPL68LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL68LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL68PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL68SGI: {units: '', writers: [flightplan]}
+FPL68SPD: {units: '', writers: [flightplan]}
+FPL68TA: {units: nm, writers: [flightplan]}
+FPL68TURN: {units: '', writers: [flightplan]}
+FPL68TYPE: {units: '', writers: [flightplan]}
+FPL69ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL69CRS: {units: deg, writers: [flightplan]}
+FPL69CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL69CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL69DST: {units: '', writers: [flightplan]}
+FPL69FLAGS: {units: '', writers: [flightplan]}
+FPL69ID: {units: '', writers: [flightplan]}
+FPL69LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL69LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL69PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL69SGI: {units: '', writers: [flightplan]}
+FPL69SPD: {units: '', writers: [flightplan]}
+FPL69TA: {units: nm, writers: [flightplan]}
+FPL69TURN: {units: '', writers: [flightplan]}
+FPL69TYPE: {units: '', writers: [flightplan]}
+FPL6ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL6CRS: {units: deg, writers: [flightplan]}
+FPL6CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL6CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL6DST: {units: '', writers: [flightplan]}
+FPL6FLAGS: {units: '', writers: [flightplan]}
+FPL6ID: {units: '', writers: [flightplan]}
+FPL6LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL6LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL6PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL6SGI: {units: '', writers: [flightplan]}
+FPL6SPD: {units: '', writers: [flightplan]}
+FPL6TA: {units: nm, writers: [flightplan]}
+FPL6TURN: {units: '', writers: [flightplan]}
+FPL6TYPE: {units: '', writers: [flightplan]}
+FPL70ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL70CRS: {units: deg, writers: [flightplan]}
+FPL70CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL70CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL70DST: {units: '', writers: [flightplan]}
+FPL70FLAGS: {units: '', writers: [flightplan]}
+FPL70ID: {units: '', writers: [flightplan]}
+FPL70LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL70LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL70PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL70SGI: {units: '', writers: [flightplan]}
+FPL70SPD: {units: '', writers: [flightplan]}
+FPL70TA: {units: nm, writers: [flightplan]}
+FPL70TURN: {units: '', writers: [flightplan]}
+FPL70TYPE: {units: '', writers: [flightplan]}
+FPL71ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL71CRS: {units: deg, writers: [flightplan]}
+FPL71CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL71CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL71DST: {units: '', writers: [flightplan]}
+FPL71FLAGS: {units: '', writers: [flightplan]}
+FPL71ID: {units: '', writers: [flightplan]}
+FPL71LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL71LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL71PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL71SGI: {units: '', writers: [flightplan]}
+FPL71SPD: {units: '', writers: [flightplan]}
+FPL71TA: {units: nm, writers: [flightplan]}
+FPL71TURN: {units: '', writers: [flightplan]}
+FPL71TYPE: {units: '', writers: [flightplan]}
+FPL72ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL72CRS: {units: deg, writers: [flightplan]}
+FPL72CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL72CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL72DST: {units: '', writers: [flightplan]}
+FPL72FLAGS: {units: '', writers: [flightplan]}
+FPL72ID: {units: '', writers: [flightplan]}
+FPL72LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL72LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL72PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL72SGI: {units: '', writers: [flightplan]}
+FPL72SPD: {units: '', writers: [flightplan]}
+FPL72TA: {units: nm, writers: [flightplan]}
+FPL72TURN: {units: '', writers: [flightplan]}
+FPL72TYPE: {units: '', writers: [flightplan]}
+FPL73ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL73CRS: {units: deg, writers: [flightplan]}
+FPL73CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL73CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL73DST: {units: '', writers: [flightplan]}
+FPL73FLAGS: {units: '', writers: [flightplan]}
+FPL73ID: {units: '', writers: [flightplan]}
+FPL73LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL73LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL73PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL73SGI: {units: '', writers: [flightplan]}
+FPL73SPD: {units: '', writers: [flightplan]}
+FPL73TA: {units: nm, writers: [flightplan]}
+FPL73TURN: {units: '', writers: [flightplan]}
+FPL73TYPE: {units: '', writers: [flightplan]}
+FPL74ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL74CRS: {units: deg, writers: [flightplan]}
+FPL74CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL74CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL74DST: {units: '', writers: [flightplan]}
+FPL74FLAGS: {units: '', writers: [flightplan]}
+FPL74ID: {units: '', writers: [flightplan]}
+FPL74LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL74LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL74PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL74SGI: {units: '', writers: [flightplan]}
+FPL74SPD: {units: '', writers: [flightplan]}
+FPL74TA: {units: nm, writers: [flightplan]}
+FPL74TURN: {units: '', writers: [flightplan]}
+FPL74TYPE: {units: '', writers: [flightplan]}
+FPL75ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL75CRS: {units: deg, writers: [flightplan]}
+FPL75CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL75CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL75DST: {units: '', writers: [flightplan]}
+FPL75FLAGS: {units: '', writers: [flightplan]}
+FPL75ID: {units: '', writers: [flightplan]}
+FPL75LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL75LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL75PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL75SGI: {units: '', writers: [flightplan]}
+FPL75SPD: {units: '', writers: [flightplan]}
+FPL75TA: {units: nm, writers: [flightplan]}
+FPL75TURN: {units: '', writers: [flightplan]}
+FPL75TYPE: {units: '', writers: [flightplan]}
+FPL76ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL76CRS: {units: deg, writers: [flightplan]}
+FPL76CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL76CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL76DST: {units: '', writers: [flightplan]}
+FPL76FLAGS: {units: '', writers: [flightplan]}
+FPL76ID: {units: '', writers: [flightplan]}
+FPL76LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL76LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL76PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL76SGI: {units: '', writers: [flightplan]}
+FPL76SPD: {units: '', writers: [flightplan]}
+FPL76TA: {units: nm, writers: [flightplan]}
+FPL76TURN: {units: '', writers: [flightplan]}
+FPL76TYPE: {units: '', writers: [flightplan]}
+FPL77ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL77CRS: {units: deg, writers: [flightplan]}
+FPL77CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL77CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL77DST: {units: '', writers: [flightplan]}
+FPL77FLAGS: {units: '', writers: [flightplan]}
+FPL77ID: {units: '', writers: [flightplan]}
+FPL77LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL77LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL77PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL77SGI: {units: '', writers: [flightplan]}
+FPL77SPD: {units: '', writers: [flightplan]}
+FPL77TA: {units: nm, writers: [flightplan]}
+FPL77TURN: {units: '', writers: [flightplan]}
+FPL77TYPE: {units: '', writers: [flightplan]}
+FPL78ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL78CRS: {units: deg, writers: [flightplan]}
+FPL78CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL78CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL78DST: {units: '', writers: [flightplan]}
+FPL78FLAGS: {units: '', writers: [flightplan]}
+FPL78ID: {units: '', writers: [flightplan]}
+FPL78LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL78LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL78PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL78SGI: {units: '', writers: [flightplan]}
+FPL78SPD: {units: '', writers: [flightplan]}
+FPL78TA: {units: nm, writers: [flightplan]}
+FPL78TURN: {units: '', writers: [flightplan]}
+FPL78TYPE: {units: '', writers: [flightplan]}
+FPL79ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL79CRS: {units: deg, writers: [flightplan]}
+FPL79CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL79CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL79DST: {units: '', writers: [flightplan]}
+FPL79FLAGS: {units: '', writers: [flightplan]}
+FPL79ID: {units: '', writers: [flightplan]}
+FPL79LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL79LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL79PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL79SGI: {units: '', writers: [flightplan]}
+FPL79SPD: {units: '', writers: [flightplan]}
+FPL79TA: {units: nm, writers: [flightplan]}
+FPL79TURN: {units: '', writers: [flightplan]}
+FPL79TYPE: {units: '', writers: [flightplan]}
+FPL7ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL7CRS: {units: deg, writers: [flightplan]}
+FPL7CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL7CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL7DST: {units: '', writers: [flightplan]}
+FPL7FLAGS: {units: '', writers: [flightplan]}
+FPL7ID: {units: '', writers: [flightplan]}
+FPL7LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL7LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL7PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL7SGI: {units: '', writers: [flightplan]}
+FPL7SPD: {units: '', writers: [flightplan]}
+FPL7TA: {units: nm, writers: [flightplan]}
+FPL7TURN: {units: '', writers: [flightplan]}
+FPL7TYPE: {units: '', writers: [flightplan]}
+FPL80ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL80CRS: {units: deg, writers: [flightplan]}
+FPL80CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL80CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL80DST: {units: '', writers: [flightplan]}
+FPL80FLAGS: {units: '', writers: [flightplan]}
+FPL80ID: {units: '', writers: [flightplan]}
+FPL80LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL80LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL80PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL80SGI: {units: '', writers: [flightplan]}
+FPL80SPD: {units: '', writers: [flightplan]}
+FPL80TA: {units: nm, writers: [flightplan]}
+FPL80TURN: {units: '', writers: [flightplan]}
+FPL80TYPE: {units: '', writers: [flightplan]}
+FPL81ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL81CRS: {units: deg, writers: [flightplan]}
+FPL81CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL81CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL81DST: {units: '', writers: [flightplan]}
+FPL81FLAGS: {units: '', writers: [flightplan]}
+FPL81ID: {units: '', writers: [flightplan]}
+FPL81LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL81LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL81PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL81SGI: {units: '', writers: [flightplan]}
+FPL81SPD: {units: '', writers: [flightplan]}
+FPL81TA: {units: nm, writers: [flightplan]}
+FPL81TURN: {units: '', writers: [flightplan]}
+FPL81TYPE: {units: '', writers: [flightplan]}
+FPL82ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL82CRS: {units: deg, writers: [flightplan]}
+FPL82CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL82CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL82DST: {units: '', writers: [flightplan]}
+FPL82FLAGS: {units: '', writers: [flightplan]}
+FPL82ID: {units: '', writers: [flightplan]}
+FPL82LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL82LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL82PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL82SGI: {units: '', writers: [flightplan]}
+FPL82SPD: {units: '', writers: [flightplan]}
+FPL82TA: {units: nm, writers: [flightplan]}
+FPL82TURN: {units: '', writers: [flightplan]}
+FPL82TYPE: {units: '', writers: [flightplan]}
+FPL83ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL83CRS: {units: deg, writers: [flightplan]}
+FPL83CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL83CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL83DST: {units: '', writers: [flightplan]}
+FPL83FLAGS: {units: '', writers: [flightplan]}
+FPL83ID: {units: '', writers: [flightplan]}
+FPL83LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL83LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL83PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL83SGI: {units: '', writers: [flightplan]}
+FPL83SPD: {units: '', writers: [flightplan]}
+FPL83TA: {units: nm, writers: [flightplan]}
+FPL83TURN: {units: '', writers: [flightplan]}
+FPL83TYPE: {units: '', writers: [flightplan]}
+FPL84ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL84CRS: {units: deg, writers: [flightplan]}
+FPL84CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL84CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL84DST: {units: '', writers: [flightplan]}
+FPL84FLAGS: {units: '', writers: [flightplan]}
+FPL84ID: {units: '', writers: [flightplan]}
+FPL84LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL84LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL84PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL84SGI: {units: '', writers: [flightplan]}
+FPL84SPD: {units: '', writers: [flightplan]}
+FPL84TA: {units: nm, writers: [flightplan]}
+FPL84TURN: {units: '', writers: [flightplan]}
+FPL84TYPE: {units: '', writers: [flightplan]}
+FPL85ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL85CRS: {units: deg, writers: [flightplan]}
+FPL85CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL85CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL85DST: {units: '', writers: [flightplan]}
+FPL85FLAGS: {units: '', writers: [flightplan]}
+FPL85ID: {units: '', writers: [flightplan]}
+FPL85LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL85LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL85PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL85SGI: {units: '', writers: [flightplan]}
+FPL85SPD: {units: '', writers: [flightplan]}
+FPL85TA: {units: nm, writers: [flightplan]}
+FPL85TURN: {units: '', writers: [flightplan]}
+FPL85TYPE: {units: '', writers: [flightplan]}
+FPL86ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL86CRS: {units: deg, writers: [flightplan]}
+FPL86CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL86CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL86DST: {units: '', writers: [flightplan]}
+FPL86FLAGS: {units: '', writers: [flightplan]}
+FPL86ID: {units: '', writers: [flightplan]}
+FPL86LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL86LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL86PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL86SGI: {units: '', writers: [flightplan]}
+FPL86SPD: {units: '', writers: [flightplan]}
+FPL86TA: {units: nm, writers: [flightplan]}
+FPL86TURN: {units: '', writers: [flightplan]}
+FPL86TYPE: {units: '', writers: [flightplan]}
+FPL87ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL87CRS: {units: deg, writers: [flightplan]}
+FPL87CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL87CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL87DST: {units: '', writers: [flightplan]}
+FPL87FLAGS: {units: '', writers: [flightplan]}
+FPL87ID: {units: '', writers: [flightplan]}
+FPL87LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL87LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL87PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL87SGI: {units: '', writers: [flightplan]}
+FPL87SPD: {units: '', writers: [flightplan]}
+FPL87TA: {units: nm, writers: [flightplan]}
+FPL87TURN: {units: '', writers: [flightplan]}
+FPL87TYPE: {units: '', writers: [flightplan]}
+FPL88ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL88CRS: {units: deg, writers: [flightplan]}
+FPL88CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL88CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL88DST: {units: '', writers: [flightplan]}
+FPL88FLAGS: {units: '', writers: [flightplan]}
+FPL88ID: {units: '', writers: [flightplan]}
+FPL88LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL88LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL88PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL88SGI: {units: '', writers: [flightplan]}
+FPL88SPD: {units: '', writers: [flightplan]}
+FPL88TA: {units: nm, writers: [flightplan]}
+FPL88TURN: {units: '', writers: [flightplan]}
+FPL88TYPE: {units: '', writers: [flightplan]}
+FPL89ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL89CRS: {units: deg, writers: [flightplan]}
+FPL89CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL89CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL89DST: {units: '', writers: [flightplan]}
+FPL89FLAGS: {units: '', writers: [flightplan]}
+FPL89ID: {units: '', writers: [flightplan]}
+FPL89LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL89LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL89PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL89SGI: {units: '', writers: [flightplan]}
+FPL89SPD: {units: '', writers: [flightplan]}
+FPL89TA: {units: nm, writers: [flightplan]}
+FPL89TURN: {units: '', writers: [flightplan]}
+FPL89TYPE: {units: '', writers: [flightplan]}
+FPL8ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL8CRS: {units: deg, writers: [flightplan]}
+FPL8CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL8CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL8DST: {units: '', writers: [flightplan]}
+FPL8FLAGS: {units: '', writers: [flightplan]}
+FPL8ID: {units: '', writers: [flightplan]}
+FPL8LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL8LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL8PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL8SGI: {units: '', writers: [flightplan]}
+FPL8SPD: {units: '', writers: [flightplan]}
+FPL8TA: {units: nm, writers: [flightplan]}
+FPL8TURN: {units: '', writers: [flightplan]}
+FPL8TYPE: {units: '', writers: [flightplan]}
+FPL90ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL90CRS: {units: deg, writers: [flightplan]}
+FPL90CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL90CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL90DST: {units: '', writers: [flightplan]}
+FPL90FLAGS: {units: '', writers: [flightplan]}
+FPL90ID: {units: '', writers: [flightplan]}
+FPL90LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL90LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL90PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL90SGI: {units: '', writers: [flightplan]}
+FPL90SPD: {units: '', writers: [flightplan]}
+FPL90TA: {units: nm, writers: [flightplan]}
+FPL90TURN: {units: '', writers: [flightplan]}
+FPL90TYPE: {units: '', writers: [flightplan]}
+FPL91ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL91CRS: {units: deg, writers: [flightplan]}
+FPL91CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL91CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL91DST: {units: '', writers: [flightplan]}
+FPL91FLAGS: {units: '', writers: [flightplan]}
+FPL91ID: {units: '', writers: [flightplan]}
+FPL91LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL91LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL91PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL91SGI: {units: '', writers: [flightplan]}
+FPL91SPD: {units: '', writers: [flightplan]}
+FPL91TA: {units: nm, writers: [flightplan]}
+FPL91TURN: {units: '', writers: [flightplan]}
+FPL91TYPE: {units: '', writers: [flightplan]}
+FPL92ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL92CRS: {units: deg, writers: [flightplan]}
+FPL92CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL92CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL92DST: {units: '', writers: [flightplan]}
+FPL92FLAGS: {units: '', writers: [flightplan]}
+FPL92ID: {units: '', writers: [flightplan]}
+FPL92LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL92LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL92PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL92SGI: {units: '', writers: [flightplan]}
+FPL92SPD: {units: '', writers: [flightplan]}
+FPL92TA: {units: nm, writers: [flightplan]}
+FPL92TURN: {units: '', writers: [flightplan]}
+FPL92TYPE: {units: '', writers: [flightplan]}
+FPL93ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL93CRS: {units: deg, writers: [flightplan]}
+FPL93CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL93CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL93DST: {units: '', writers: [flightplan]}
+FPL93FLAGS: {units: '', writers: [flightplan]}
+FPL93ID: {units: '', writers: [flightplan]}
+FPL93LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL93LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL93PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL93SGI: {units: '', writers: [flightplan]}
+FPL93SPD: {units: '', writers: [flightplan]}
+FPL93TA: {units: nm, writers: [flightplan]}
+FPL93TURN: {units: '', writers: [flightplan]}
+FPL93TYPE: {units: '', writers: [flightplan]}
+FPL94ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL94CRS: {units: deg, writers: [flightplan]}
+FPL94CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL94CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL94DST: {units: '', writers: [flightplan]}
+FPL94FLAGS: {units: '', writers: [flightplan]}
+FPL94ID: {units: '', writers: [flightplan]}
+FPL94LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL94LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL94PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL94SGI: {units: '', writers: [flightplan]}
+FPL94SPD: {units: '', writers: [flightplan]}
+FPL94TA: {units: nm, writers: [flightplan]}
+FPL94TURN: {units: '', writers: [flightplan]}
+FPL94TYPE: {units: '', writers: [flightplan]}
+FPL95ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL95CRS: {units: deg, writers: [flightplan]}
+FPL95CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL95CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL95DST: {units: '', writers: [flightplan]}
+FPL95FLAGS: {units: '', writers: [flightplan]}
+FPL95ID: {units: '', writers: [flightplan]}
+FPL95LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL95LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL95PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL95SGI: {units: '', writers: [flightplan]}
+FPL95SPD: {units: '', writers: [flightplan]}
+FPL95TA: {units: nm, writers: [flightplan]}
+FPL95TURN: {units: '', writers: [flightplan]}
+FPL95TYPE: {units: '', writers: [flightplan]}
+FPL96ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL96CRS: {units: deg, writers: [flightplan]}
+FPL96CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL96CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL96DST: {units: '', writers: [flightplan]}
+FPL96FLAGS: {units: '', writers: [flightplan]}
+FPL96ID: {units: '', writers: [flightplan]}
+FPL96LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL96LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL96PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL96SGI: {units: '', writers: [flightplan]}
+FPL96SPD: {units: '', writers: [flightplan]}
+FPL96TA: {units: nm, writers: [flightplan]}
+FPL96TURN: {units: '', writers: [flightplan]}
+FPL96TYPE: {units: '', writers: [flightplan]}
+FPL97ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL97CRS: {units: deg, writers: [flightplan]}
+FPL97CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL97CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL97DST: {units: '', writers: [flightplan]}
+FPL97FLAGS: {units: '', writers: [flightplan]}
+FPL97ID: {units: '', writers: [flightplan]}
+FPL97LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL97LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL97PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL97SGI: {units: '', writers: [flightplan]}
+FPL97SPD: {units: '', writers: [flightplan]}
+FPL97TA: {units: nm, writers: [flightplan]}
+FPL97TURN: {units: '', writers: [flightplan]}
+FPL97TYPE: {units: '', writers: [flightplan]}
+FPL98ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL98CRS: {units: deg, writers: [flightplan]}
+FPL98CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL98CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL98DST: {units: '', writers: [flightplan]}
+FPL98FLAGS: {units: '', writers: [flightplan]}
+FPL98ID: {units: '', writers: [flightplan]}
+FPL98LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL98LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL98PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL98SGI: {units: '', writers: [flightplan]}
+FPL98SPD: {units: '', writers: [flightplan]}
+FPL98TA: {units: nm, writers: [flightplan]}
+FPL98TURN: {units: '', writers: [flightplan]}
+FPL98TYPE: {units: '', writers: [flightplan]}
+FPL99ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL99CRS: {units: deg, writers: [flightplan]}
+FPL99CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL99CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL99DST: {units: '', writers: [flightplan]}
+FPL99FLAGS: {units: '', writers: [flightplan]}
+FPL99ID: {units: '', writers: [flightplan]}
+FPL99LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL99LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL99PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL99SGI: {units: '', writers: [flightplan]}
+FPL99SPD: {units: '', writers: [flightplan]}
+FPL99TA: {units: nm, writers: [flightplan]}
+FPL99TURN: {units: '', writers: [flightplan]}
+FPL99TYPE: {units: '', writers: [flightplan]}
+FPL9ALT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL9CRS: {units: deg, writers: [flightplan]}
+FPL9CTRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL9CTRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL9DST: {units: '', writers: [flightplan]}
+FPL9FLAGS: {units: '', writers: [flightplan]}
+FPL9ID: {units: '', writers: [flightplan]}
+FPL9LAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL9LON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL9PT: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPL9SGI: {units: '', writers: [flightplan]}
+FPL9SPD: {units: '', writers: [flightplan]}
+FPL9TA: {units: nm, writers: [flightplan]}
+FPL9TURN: {units: '', writers: [flightplan]}
+FPL9TYPE: {units: '', writers: [flightplan]}
+FPLACTLEG: {units: '', writers: [flightplan]}
+FPLACTSEG: {units: '', writers: [flightplan]}
+FPLALERT: {units: '', writers: [flightplan]}
+FPLAPR: {units: '', writers: [flightplan]}
+FPLAPRTYPE: {units: '', writers: [flightplan]}
+FPLCDI: {units: '', writers: [flightplan]}
+FPLCMDACK: {units: '', writers: [flightplan]}
+FPLCOUNT: {units: '', writers: [flightplan]}
+FPLCRS: {units: deg, writers: [flightplan]}
+FPLDBCYC: {units: '', writers: [flightplan]}
+FPLFRLAT: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPLFRLON: {units: deg, datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPLHOLDCOMMIT: {units: '', writers: [flightplan]}
+FPLHOLDENT: {units: '', writers: [flightplan]}
+FPLHOLDSLOT: {units: '', writers: [flightplan]}
+FPLIMPCOUNT: {units: '', writers: [fpl_exchange]}
+FPLIMPNAME: {units: '', writers: [fpl_exchange]}
+FPLIMPSEQ: {units: '', writers: [fpl_exchange]}
+FPLINTEG: {units: '', writers: [flightplan]}
+FPLLDSEQ: {units: '', writers: [flightplan]}
+FPLMSG: {units: '', datum: geodetic degrees from the engine's nav data, writers: [flightplan]}
+FPLNAME: {units: '', writers: [flightplan]}
+FPLPHASE: {units: '', writers: [flightplan]}
+FPLREMDIS: {units: nM, writers: [flightplan]}
+FPLREMETE: {units: s, writers: [flightplan]}
+FPLS100ENT: {units: '', writers: [flightplan]}
+FPLS100EXT: {units: '', writers: [flightplan]}
+FPLS100FIRST: {units: '', writers: [flightplan]}
+FPLS100ID: {units: '', writers: [flightplan]}
+FPLS100KIND: {units: '', writers: [flightplan]}
+FPLS100LAST: {units: '', writers: [flightplan]}
+FPLS10ENT: {units: '', writers: [flightplan]}
+FPLS10EXT: {units: '', writers: [flightplan]}
+FPLS10FIRST: {units: '', writers: [flightplan]}
+FPLS10ID: {units: '', writers: [flightplan]}
+FPLS10KIND: {units: '', writers: [flightplan]}
+FPLS10LAST: {units: '', writers: [flightplan]}
+FPLS11ENT: {units: '', writers: [flightplan]}
+FPLS11EXT: {units: '', writers: [flightplan]}
+FPLS11FIRST: {units: '', writers: [flightplan]}
+FPLS11ID: {units: '', writers: [flightplan]}
+FPLS11KIND: {units: '', writers: [flightplan]}
+FPLS11LAST: {units: '', writers: [flightplan]}
+FPLS12ENT: {units: '', writers: [flightplan]}
+FPLS12EXT: {units: '', writers: [flightplan]}
+FPLS12FIRST: {units: '', writers: [flightplan]}
+FPLS12ID: {units: '', writers: [flightplan]}
+FPLS12KIND: {units: '', writers: [flightplan]}
+FPLS12LAST: {units: '', writers: [flightplan]}
+FPLS13ENT: {units: '', writers: [flightplan]}
+FPLS13EXT: {units: '', writers: [flightplan]}
+FPLS13FIRST: {units: '', writers: [flightplan]}
+FPLS13ID: {units: '', writers: [flightplan]}
+FPLS13KIND: {units: '', writers: [flightplan]}
+FPLS13LAST: {units: '', writers: [flightplan]}
+FPLS14ENT: {units: '', writers: [flightplan]}
+FPLS14EXT: {units: '', writers: [flightplan]}
+FPLS14FIRST: {units: '', writers: [flightplan]}
+FPLS14ID: {units: '', writers: [flightplan]}
+FPLS14KIND: {units: '', writers: [flightplan]}
+FPLS14LAST: {units: '', writers: [flightplan]}
+FPLS15ENT: {units: '', writers: [flightplan]}
+FPLS15EXT: {units: '', writers: [flightplan]}
+FPLS15FIRST: {units: '', writers: [flightplan]}
+FPLS15ID: {units: '', writers: [flightplan]}
+FPLS15KIND: {units: '', writers: [flightplan]}
+FPLS15LAST: {units: '', writers: [flightplan]}
+FPLS16ENT: {units: '', writers: [flightplan]}
+FPLS16EXT: {units: '', writers: [flightplan]}
+FPLS16FIRST: {units: '', writers: [flightplan]}
+FPLS16ID: {units: '', writers: [flightplan]}
+FPLS16KIND: {units: '', writers: [flightplan]}
+FPLS16LAST: {units: '', writers: [flightplan]}
+FPLS17ENT: {units: '', writers: [flightplan]}
+FPLS17EXT: {units: '', writers: [flightplan]}
+FPLS17FIRST: {units: '', writers: [flightplan]}
+FPLS17ID: {units: '', writers: [flightplan]}
+FPLS17KIND: {units: '', writers: [flightplan]}
+FPLS17LAST: {units: '', writers: [flightplan]}
+FPLS18ENT: {units: '', writers: [flightplan]}
+FPLS18EXT: {units: '', writers: [flightplan]}
+FPLS18FIRST: {units: '', writers: [flightplan]}
+FPLS18ID: {units: '', writers: [flightplan]}
+FPLS18KIND: {units: '', writers: [flightplan]}
+FPLS18LAST: {units: '', writers: [flightplan]}
+FPLS19ENT: {units: '', writers: [flightplan]}
+FPLS19EXT: {units: '', writers: [flightplan]}
+FPLS19FIRST: {units: '', writers: [flightplan]}
+FPLS19ID: {units: '', writers: [flightplan]}
+FPLS19KIND: {units: '', writers: [flightplan]}
+FPLS19LAST: {units: '', writers: [flightplan]}
+FPLS1ENT: {units: '', writers: [flightplan]}
+FPLS1EXT: {units: '', writers: [flightplan]}
+FPLS1FIRST: {units: '', writers: [flightplan]}
+FPLS1ID: {units: '', writers: [flightplan]}
+FPLS1KIND: {units: '', writers: [flightplan]}
+FPLS1LAST: {units: '', writers: [flightplan]}
+FPLS20ENT: {units: '', writers: [flightplan]}
+FPLS20EXT: {units: '', writers: [flightplan]}
+FPLS20FIRST: {units: '', writers: [flightplan]}
+FPLS20ID: {units: '', writers: [flightplan]}
+FPLS20KIND: {units: '', writers: [flightplan]}
+FPLS20LAST: {units: '', writers: [flightplan]}
+FPLS21ENT: {units: '', writers: [flightplan]}
+FPLS21EXT: {units: '', writers: [flightplan]}
+FPLS21FIRST: {units: '', writers: [flightplan]}
+FPLS21ID: {units: '', writers: [flightplan]}
+FPLS21KIND: {units: '', writers: [flightplan]}
+FPLS21LAST: {units: '', writers: [flightplan]}
+FPLS22ENT: {units: '', writers: [flightplan]}
+FPLS22EXT: {units: '', writers: [flightplan]}
+FPLS22FIRST: {units: '', writers: [flightplan]}
+FPLS22ID: {units: '', writers: [flightplan]}
+FPLS22KIND: {units: '', writers: [flightplan]}
+FPLS22LAST: {units: '', writers: [flightplan]}
+FPLS23ENT: {units: '', writers: [flightplan]}
+FPLS23EXT: {units: '', writers: [flightplan]}
+FPLS23FIRST: {units: '', writers: [flightplan]}
+FPLS23ID: {units: '', writers: [flightplan]}
+FPLS23KIND: {units: '', writers: [flightplan]}
+FPLS23LAST: {units: '', writers: [flightplan]}
+FPLS24ENT: {units: '', writers: [flightplan]}
+FPLS24EXT: {units: '', writers: [flightplan]}
+FPLS24FIRST: {units: '', writers: [flightplan]}
+FPLS24ID: {units: '', writers: [flightplan]}
+FPLS24KIND: {units: '', writers: [flightplan]}
+FPLS24LAST: {units: '', writers: [flightplan]}
+FPLS25ENT: {units: '', writers: [flightplan]}
+FPLS25EXT: {units: '', writers: [flightplan]}
+FPLS25FIRST: {units: '', writers: [flightplan]}
+FPLS25ID: {units: '', writers: [flightplan]}
+FPLS25KIND: {units: '', writers: [flightplan]}
+FPLS25LAST: {units: '', writers: [flightplan]}
+FPLS26ENT: {units: '', writers: [flightplan]}
+FPLS26EXT: {units: '', writers: [flightplan]}
+FPLS26FIRST: {units: '', writers: [flightplan]}
+FPLS26ID: {units: '', writers: [flightplan]}
+FPLS26KIND: {units: '', writers: [flightplan]}
+FPLS26LAST: {units: '', writers: [flightplan]}
+FPLS27ENT: {units: '', writers: [flightplan]}
+FPLS27EXT: {units: '', writers: [flightplan]}
+FPLS27FIRST: {units: '', writers: [flightplan]}
+FPLS27ID: {units: '', writers: [flightplan]}
+FPLS27KIND: {units: '', writers: [flightplan]}
+FPLS27LAST: {units: '', writers: [flightplan]}
+FPLS28ENT: {units: '', writers: [flightplan]}
+FPLS28EXT: {units: '', writers: [flightplan]}
+FPLS28FIRST: {units: '', writers: [flightplan]}
+FPLS28ID: {units: '', writers: [flightplan]}
+FPLS28KIND: {units: '', writers: [flightplan]}
+FPLS28LAST: {units: '', writers: [flightplan]}
+FPLS29ENT: {units: '', writers: [flightplan]}
+FPLS29EXT: {units: '', writers: [flightplan]}
+FPLS29FIRST: {units: '', writers: [flightplan]}
+FPLS29ID: {units: '', writers: [flightplan]}
+FPLS29KIND: {units: '', writers: [flightplan]}
+FPLS29LAST: {units: '', writers: [flightplan]}
+FPLS2ENT: {units: '', writers: [flightplan]}
+FPLS2EXT: {units: '', writers: [flightplan]}
+FPLS2FIRST: {units: '', writers: [flightplan]}
+FPLS2ID: {units: '', writers: [flightplan]}
+FPLS2KIND: {units: '', writers: [flightplan]}
+FPLS2LAST: {units: '', writers: [flightplan]}
+FPLS30ENT: {units: '', writers: [flightplan]}
+FPLS30EXT: {units: '', writers: [flightplan]}
+FPLS30FIRST: {units: '', writers: [flightplan]}
+FPLS30ID: {units: '', writers: [flightplan]}
+FPLS30KIND: {units: '', writers: [flightplan]}
+FPLS30LAST: {units: '', writers: [flightplan]}
+FPLS31ENT: {units: '', writers: [flightplan]}
+FPLS31EXT: {units: '', writers: [flightplan]}
+FPLS31FIRST: {units: '', writers: [flightplan]}
+FPLS31ID: {units: '', writers: [flightplan]}
+FPLS31KIND: {units: '', writers: [flightplan]}
+FPLS31LAST: {units: '', writers: [flightplan]}
+FPLS32ENT: {units: '', writers: [flightplan]}
+FPLS32EXT: {units: '', writers: [flightplan]}
+FPLS32FIRST: {units: '', writers: [flightplan]}
+FPLS32ID: {units: '', writers: [flightplan]}
+FPLS32KIND: {units: '', writers: [flightplan]}
+FPLS32LAST: {units: '', writers: [flightplan]}
+FPLS33ENT: {units: '', writers: [flightplan]}
+FPLS33EXT: {units: '', writers: [flightplan]}
+FPLS33FIRST: {units: '', writers: [flightplan]}
+FPLS33ID: {units: '', writers: [flightplan]}
+FPLS33KIND: {units: '', writers: [flightplan]}
+FPLS33LAST: {units: '', writers: [flightplan]}
+FPLS34ENT: {units: '', writers: [flightplan]}
+FPLS34EXT: {units: '', writers: [flightplan]}
+FPLS34FIRST: {units: '', writers: [flightplan]}
+FPLS34ID: {units: '', writers: [flightplan]}
+FPLS34KIND: {units: '', writers: [flightplan]}
+FPLS34LAST: {units: '', writers: [flightplan]}
+FPLS35ENT: {units: '', writers: [flightplan]}
+FPLS35EXT: {units: '', writers: [flightplan]}
+FPLS35FIRST: {units: '', writers: [flightplan]}
+FPLS35ID: {units: '', writers: [flightplan]}
+FPLS35KIND: {units: '', writers: [flightplan]}
+FPLS35LAST: {units: '', writers: [flightplan]}
+FPLS36ENT: {units: '', writers: [flightplan]}
+FPLS36EXT: {units: '', writers: [flightplan]}
+FPLS36FIRST: {units: '', writers: [flightplan]}
+FPLS36ID: {units: '', writers: [flightplan]}
+FPLS36KIND: {units: '', writers: [flightplan]}
+FPLS36LAST: {units: '', writers: [flightplan]}
+FPLS37ENT: {units: '', writers: [flightplan]}
+FPLS37EXT: {units: '', writers: [flightplan]}
+FPLS37FIRST: {units: '', writers: [flightplan]}
+FPLS37ID: {units: '', writers: [flightplan]}
+FPLS37KIND: {units: '', writers: [flightplan]}
+FPLS37LAST: {units: '', writers: [flightplan]}
+FPLS38ENT: {units: '', writers: [flightplan]}
+FPLS38EXT: {units: '', writers: [flightplan]}
+FPLS38FIRST: {units: '', writers: [flightplan]}
+FPLS38ID: {units: '', writers: [flightplan]}
+FPLS38KIND: {units: '', writers: [flightplan]}
+FPLS38LAST: {units: '', writers: [flightplan]}
+FPLS39ENT: {units: '', writers: [flightplan]}
+FPLS39EXT: {units: '', writers: [flightplan]}
+FPLS39FIRST: {units: '', writers: [flightplan]}
+FPLS39ID: {units: '', writers: [flightplan]}
+FPLS39KIND: {units: '', writers: [flightplan]}
+FPLS39LAST: {units: '', writers: [flightplan]}
+FPLS3ENT: {units: '', writers: [flightplan]}
+FPLS3EXT: {units: '', writers: [flightplan]}
+FPLS3FIRST: {units: '', writers: [flightplan]}
+FPLS3ID: {units: '', writers: [flightplan]}
+FPLS3KIND: {units: '', writers: [flightplan]}
+FPLS3LAST: {units: '', writers: [flightplan]}
+FPLS40ENT: {units: '', writers: [flightplan]}
+FPLS40EXT: {units: '', writers: [flightplan]}
+FPLS40FIRST: {units: '', writers: [flightplan]}
+FPLS40ID: {units: '', writers: [flightplan]}
+FPLS40KIND: {units: '', writers: [flightplan]}
+FPLS40LAST: {units: '', writers: [flightplan]}
+FPLS41ENT: {units: '', writers: [flightplan]}
+FPLS41EXT: {units: '', writers: [flightplan]}
+FPLS41FIRST: {units: '', writers: [flightplan]}
+FPLS41ID: {units: '', writers: [flightplan]}
+FPLS41KIND: {units: '', writers: [flightplan]}
+FPLS41LAST: {units: '', writers: [flightplan]}
+FPLS42ENT: {units: '', writers: [flightplan]}
+FPLS42EXT: {units: '', writers: [flightplan]}
+FPLS42FIRST: {units: '', writers: [flightplan]}
+FPLS42ID: {units: '', writers: [flightplan]}
+FPLS42KIND: {units: '', writers: [flightplan]}
+FPLS42LAST: {units: '', writers: [flightplan]}
+FPLS43ENT: {units: '', writers: [flightplan]}
+FPLS43EXT: {units: '', writers: [flightplan]}
+FPLS43FIRST: {units: '', writers: [flightplan]}
+FPLS43ID: {units: '', writers: [flightplan]}
+FPLS43KIND: {units: '', writers: [flightplan]}
+FPLS43LAST: {units: '', writers: [flightplan]}
+FPLS44ENT: {units: '', writers: [flightplan]}
+FPLS44EXT: {units: '', writers: [flightplan]}
+FPLS44FIRST: {units: '', writers: [flightplan]}
+FPLS44ID: {units: '', writers: [flightplan]}
+FPLS44KIND: {units: '', writers: [flightplan]}
+FPLS44LAST: {units: '', writers: [flightplan]}
+FPLS45ENT: {units: '', writers: [flightplan]}
+FPLS45EXT: {units: '', writers: [flightplan]}
+FPLS45FIRST: {units: '', writers: [flightplan]}
+FPLS45ID: {units: '', writers: [flightplan]}
+FPLS45KIND: {units: '', writers: [flightplan]}
+FPLS45LAST: {units: '', writers: [flightplan]}
+FPLS46ENT: {units: '', writers: [flightplan]}
+FPLS46EXT: {units: '', writers: [flightplan]}
+FPLS46FIRST: {units: '', writers: [flightplan]}
+FPLS46ID: {units: '', writers: [flightplan]}
+FPLS46KIND: {units: '', writers: [flightplan]}
+FPLS46LAST: {units: '', writers: [flightplan]}
+FPLS47ENT: {units: '', writers: [flightplan]}
+FPLS47EXT: {units: '', writers: [flightplan]}
+FPLS47FIRST: {units: '', writers: [flightplan]}
+FPLS47ID: {units: '', writers: [flightplan]}
+FPLS47KIND: {units: '', writers: [flightplan]}
+FPLS47LAST: {units: '', writers: [flightplan]}
+FPLS48ENT: {units: '', writers: [flightplan]}
+FPLS48EXT: {units: '', writers: [flightplan]}
+FPLS48FIRST: {units: '', writers: [flightplan]}
+FPLS48ID: {units: '', writers: [flightplan]}
+FPLS48KIND: {units: '', writers: [flightplan]}
+FPLS48LAST: {units: '', writers: [flightplan]}
+FPLS49ENT: {units: '', writers: [flightplan]}
+FPLS49EXT: {units: '', writers: [flightplan]}
+FPLS49FIRST: {units: '', writers: [flightplan]}
+FPLS49ID: {units: '', writers: [flightplan]}
+FPLS49KIND: {units: '', writers: [flightplan]}
+FPLS49LAST: {units: '', writers: [flightplan]}
+FPLS4ENT: {units: '', writers: [flightplan]}
+FPLS4EXT: {units: '', writers: [flightplan]}
+FPLS4FIRST: {units: '', writers: [flightplan]}
+FPLS4ID: {units: '', writers: [flightplan]}
+FPLS4KIND: {units: '', writers: [flightplan]}
+FPLS4LAST: {units: '', writers: [flightplan]}
+FPLS50ENT: {units: '', writers: [flightplan]}
+FPLS50EXT: {units: '', writers: [flightplan]}
+FPLS50FIRST: {units: '', writers: [flightplan]}
+FPLS50ID: {units: '', writers: [flightplan]}
+FPLS50KIND: {units: '', writers: [flightplan]}
+FPLS50LAST: {units: '', writers: [flightplan]}
+FPLS51ENT: {units: '', writers: [flightplan]}
+FPLS51EXT: {units: '', writers: [flightplan]}
+FPLS51FIRST: {units: '', writers: [flightplan]}
+FPLS51ID: {units: '', writers: [flightplan]}
+FPLS51KIND: {units: '', writers: [flightplan]}
+FPLS51LAST: {units: '', writers: [flightplan]}
+FPLS52ENT: {units: '', writers: [flightplan]}
+FPLS52EXT: {units: '', writers: [flightplan]}
+FPLS52FIRST: {units: '', writers: [flightplan]}
+FPLS52ID: {units: '', writers: [flightplan]}
+FPLS52KIND: {units: '', writers: [flightplan]}
+FPLS52LAST: {units: '', writers: [flightplan]}
+FPLS53ENT: {units: '', writers: [flightplan]}
+FPLS53EXT: {units: '', writers: [flightplan]}
+FPLS53FIRST: {units: '', writers: [flightplan]}
+FPLS53ID: {units: '', writers: [flightplan]}
+FPLS53KIND: {units: '', writers: [flightplan]}
+FPLS53LAST: {units: '', writers: [flightplan]}
+FPLS54ENT: {units: '', writers: [flightplan]}
+FPLS54EXT: {units: '', writers: [flightplan]}
+FPLS54FIRST: {units: '', writers: [flightplan]}
+FPLS54ID: {units: '', writers: [flightplan]}
+FPLS54KIND: {units: '', writers: [flightplan]}
+FPLS54LAST: {units: '', writers: [flightplan]}
+FPLS55ENT: {units: '', writers: [flightplan]}
+FPLS55EXT: {units: '', writers: [flightplan]}
+FPLS55FIRST: {units: '', writers: [flightplan]}
+FPLS55ID: {units: '', writers: [flightplan]}
+FPLS55KIND: {units: '', writers: [flightplan]}
+FPLS55LAST: {units: '', writers: [flightplan]}
+FPLS56ENT: {units: '', writers: [flightplan]}
+FPLS56EXT: {units: '', writers: [flightplan]}
+FPLS56FIRST: {units: '', writers: [flightplan]}
+FPLS56ID: {units: '', writers: [flightplan]}
+FPLS56KIND: {units: '', writers: [flightplan]}
+FPLS56LAST: {units: '', writers: [flightplan]}
+FPLS57ENT: {units: '', writers: [flightplan]}
+FPLS57EXT: {units: '', writers: [flightplan]}
+FPLS57FIRST: {units: '', writers: [flightplan]}
+FPLS57ID: {units: '', writers: [flightplan]}
+FPLS57KIND: {units: '', writers: [flightplan]}
+FPLS57LAST: {units: '', writers: [flightplan]}
+FPLS58ENT: {units: '', writers: [flightplan]}
+FPLS58EXT: {units: '', writers: [flightplan]}
+FPLS58FIRST: {units: '', writers: [flightplan]}
+FPLS58ID: {units: '', writers: [flightplan]}
+FPLS58KIND: {units: '', writers: [flightplan]}
+FPLS58LAST: {units: '', writers: [flightplan]}
+FPLS59ENT: {units: '', writers: [flightplan]}
+FPLS59EXT: {units: '', writers: [flightplan]}
+FPLS59FIRST: {units: '', writers: [flightplan]}
+FPLS59ID: {units: '', writers: [flightplan]}
+FPLS59KIND: {units: '', writers: [flightplan]}
+FPLS59LAST: {units: '', writers: [flightplan]}
+FPLS5ENT: {units: '', writers: [flightplan]}
+FPLS5EXT: {units: '', writers: [flightplan]}
+FPLS5FIRST: {units: '', writers: [flightplan]}
+FPLS5ID: {units: '', writers: [flightplan]}
+FPLS5KIND: {units: '', writers: [flightplan]}
+FPLS5LAST: {units: '', writers: [flightplan]}
+FPLS60ENT: {units: '', writers: [flightplan]}
+FPLS60EXT: {units: '', writers: [flightplan]}
+FPLS60FIRST: {units: '', writers: [flightplan]}
+FPLS60ID: {units: '', writers: [flightplan]}
+FPLS60KIND: {units: '', writers: [flightplan]}
+FPLS60LAST: {units: '', writers: [flightplan]}
+FPLS61ENT: {units: '', writers: [flightplan]}
+FPLS61EXT: {units: '', writers: [flightplan]}
+FPLS61FIRST: {units: '', writers: [flightplan]}
+FPLS61ID: {units: '', writers: [flightplan]}
+FPLS61KIND: {units: '', writers: [flightplan]}
+FPLS61LAST: {units: '', writers: [flightplan]}
+FPLS62ENT: {units: '', writers: [flightplan]}
+FPLS62EXT: {units: '', writers: [flightplan]}
+FPLS62FIRST: {units: '', writers: [flightplan]}
+FPLS62ID: {units: '', writers: [flightplan]}
+FPLS62KIND: {units: '', writers: [flightplan]}
+FPLS62LAST: {units: '', writers: [flightplan]}
+FPLS63ENT: {units: '', writers: [flightplan]}
+FPLS63EXT: {units: '', writers: [flightplan]}
+FPLS63FIRST: {units: '', writers: [flightplan]}
+FPLS63ID: {units: '', writers: [flightplan]}
+FPLS63KIND: {units: '', writers: [flightplan]}
+FPLS63LAST: {units: '', writers: [flightplan]}
+FPLS64ENT: {units: '', writers: [flightplan]}
+FPLS64EXT: {units: '', writers: [flightplan]}
+FPLS64FIRST: {units: '', writers: [flightplan]}
+FPLS64ID: {units: '', writers: [flightplan]}
+FPLS64KIND: {units: '', writers: [flightplan]}
+FPLS64LAST: {units: '', writers: [flightplan]}
+FPLS65ENT: {units: '', writers: [flightplan]}
+FPLS65EXT: {units: '', writers: [flightplan]}
+FPLS65FIRST: {units: '', writers: [flightplan]}
+FPLS65ID: {units: '', writers: [flightplan]}
+FPLS65KIND: {units: '', writers: [flightplan]}
+FPLS65LAST: {units: '', writers: [flightplan]}
+FPLS66ENT: {units: '', writers: [flightplan]}
+FPLS66EXT: {units: '', writers: [flightplan]}
+FPLS66FIRST: {units: '', writers: [flightplan]}
+FPLS66ID: {units: '', writers: [flightplan]}
+FPLS66KIND: {units: '', writers: [flightplan]}
+FPLS66LAST: {units: '', writers: [flightplan]}
+FPLS67ENT: {units: '', writers: [flightplan]}
+FPLS67EXT: {units: '', writers: [flightplan]}
+FPLS67FIRST: {units: '', writers: [flightplan]}
+FPLS67ID: {units: '', writers: [flightplan]}
+FPLS67KIND: {units: '', writers: [flightplan]}
+FPLS67LAST: {units: '', writers: [flightplan]}
+FPLS68ENT: {units: '', writers: [flightplan]}
+FPLS68EXT: {units: '', writers: [flightplan]}
+FPLS68FIRST: {units: '', writers: [flightplan]}
+FPLS68ID: {units: '', writers: [flightplan]}
+FPLS68KIND: {units: '', writers: [flightplan]}
+FPLS68LAST: {units: '', writers: [flightplan]}
+FPLS69ENT: {units: '', writers: [flightplan]}
+FPLS69EXT: {units: '', writers: [flightplan]}
+FPLS69FIRST: {units: '', writers: [flightplan]}
+FPLS69ID: {units: '', writers: [flightplan]}
+FPLS69KIND: {units: '', writers: [flightplan]}
+FPLS69LAST: {units: '', writers: [flightplan]}
+FPLS6ENT: {units: '', writers: [flightplan]}
+FPLS6EXT: {units: '', writers: [flightplan]}
+FPLS6FIRST: {units: '', writers: [flightplan]}
+FPLS6ID: {units: '', writers: [flightplan]}
+FPLS6KIND: {units: '', writers: [flightplan]}
+FPLS6LAST: {units: '', writers: [flightplan]}
+FPLS70ENT: {units: '', writers: [flightplan]}
+FPLS70EXT: {units: '', writers: [flightplan]}
+FPLS70FIRST: {units: '', writers: [flightplan]}
+FPLS70ID: {units: '', writers: [flightplan]}
+FPLS70KIND: {units: '', writers: [flightplan]}
+FPLS70LAST: {units: '', writers: [flightplan]}
+FPLS71ENT: {units: '', writers: [flightplan]}
+FPLS71EXT: {units: '', writers: [flightplan]}
+FPLS71FIRST: {units: '', writers: [flightplan]}
+FPLS71ID: {units: '', writers: [flightplan]}
+FPLS71KIND: {units: '', writers: [flightplan]}
+FPLS71LAST: {units: '', writers: [flightplan]}
+FPLS72ENT: {units: '', writers: [flightplan]}
+FPLS72EXT: {units: '', writers: [flightplan]}
+FPLS72FIRST: {units: '', writers: [flightplan]}
+FPLS72ID: {units: '', writers: [flightplan]}
+FPLS72KIND: {units: '', writers: [flightplan]}
+FPLS72LAST: {units: '', writers: [flightplan]}
+FPLS73ENT: {units: '', writers: [flightplan]}
+FPLS73EXT: {units: '', writers: [flightplan]}
+FPLS73FIRST: {units: '', writers: [flightplan]}
+FPLS73ID: {units: '', writers: [flightplan]}
+FPLS73KIND: {units: '', writers: [flightplan]}
+FPLS73LAST: {units: '', writers: [flightplan]}
+FPLS74ENT: {units: '', writers: [flightplan]}
+FPLS74EXT: {units: '', writers: [flightplan]}
+FPLS74FIRST: {units: '', writers: [flightplan]}
+FPLS74ID: {units: '', writers: [flightplan]}
+FPLS74KIND: {units: '', writers: [flightplan]}
+FPLS74LAST: {units: '', writers: [flightplan]}
+FPLS75ENT: {units: '', writers: [flightplan]}
+FPLS75EXT: {units: '', writers: [flightplan]}
+FPLS75FIRST: {units: '', writers: [flightplan]}
+FPLS75ID: {units: '', writers: [flightplan]}
+FPLS75KIND: {units: '', writers: [flightplan]}
+FPLS75LAST: {units: '', writers: [flightplan]}
+FPLS76ENT: {units: '', writers: [flightplan]}
+FPLS76EXT: {units: '', writers: [flightplan]}
+FPLS76FIRST: {units: '', writers: [flightplan]}
+FPLS76ID: {units: '', writers: [flightplan]}
+FPLS76KIND: {units: '', writers: [flightplan]}
+FPLS76LAST: {units: '', writers: [flightplan]}
+FPLS77ENT: {units: '', writers: [flightplan]}
+FPLS77EXT: {units: '', writers: [flightplan]}
+FPLS77FIRST: {units: '', writers: [flightplan]}
+FPLS77ID: {units: '', writers: [flightplan]}
+FPLS77KIND: {units: '', writers: [flightplan]}
+FPLS77LAST: {units: '', writers: [flightplan]}
+FPLS78ENT: {units: '', writers: [flightplan]}
+FPLS78EXT: {units: '', writers: [flightplan]}
+FPLS78FIRST: {units: '', writers: [flightplan]}
+FPLS78ID: {units: '', writers: [flightplan]}
+FPLS78KIND: {units: '', writers: [flightplan]}
+FPLS78LAST: {units: '', writers: [flightplan]}
+FPLS79ENT: {units: '', writers: [flightplan]}
+FPLS79EXT: {units: '', writers: [flightplan]}
+FPLS79FIRST: {units: '', writers: [flightplan]}
+FPLS79ID: {units: '', writers: [flightplan]}
+FPLS79KIND: {units: '', writers: [flightplan]}
+FPLS79LAST: {units: '', writers: [flightplan]}
+FPLS7ENT: {units: '', writers: [flightplan]}
+FPLS7EXT: {units: '', writers: [flightplan]}
+FPLS7FIRST: {units: '', writers: [flightplan]}
+FPLS7ID: {units: '', writers: [flightplan]}
+FPLS7KIND: {units: '', writers: [flightplan]}
+FPLS7LAST: {units: '', writers: [flightplan]}
+FPLS80ENT: {units: '', writers: [flightplan]}
+FPLS80EXT: {units: '', writers: [flightplan]}
+FPLS80FIRST: {units: '', writers: [flightplan]}
+FPLS80ID: {units: '', writers: [flightplan]}
+FPLS80KIND: {units: '', writers: [flightplan]}
+FPLS80LAST: {units: '', writers: [flightplan]}
+FPLS81ENT: {units: '', writers: [flightplan]}
+FPLS81EXT: {units: '', writers: [flightplan]}
+FPLS81FIRST: {units: '', writers: [flightplan]}
+FPLS81ID: {units: '', writers: [flightplan]}
+FPLS81KIND: {units: '', writers: [flightplan]}
+FPLS81LAST: {units: '', writers: [flightplan]}
+FPLS82ENT: {units: '', writers: [flightplan]}
+FPLS82EXT: {units: '', writers: [flightplan]}
+FPLS82FIRST: {units: '', writers: [flightplan]}
+FPLS82ID: {units: '', writers: [flightplan]}
+FPLS82KIND: {units: '', writers: [flightplan]}
+FPLS82LAST: {units: '', writers: [flightplan]}
+FPLS83ENT: {units: '', writers: [flightplan]}
+FPLS83EXT: {units: '', writers: [flightplan]}
+FPLS83FIRST: {units: '', writers: [flightplan]}
+FPLS83ID: {units: '', writers: [flightplan]}
+FPLS83KIND: {units: '', writers: [flightplan]}
+FPLS83LAST: {units: '', writers: [flightplan]}
+FPLS84ENT: {units: '', writers: [flightplan]}
+FPLS84EXT: {units: '', writers: [flightplan]}
+FPLS84FIRST: {units: '', writers: [flightplan]}
+FPLS84ID: {units: '', writers: [flightplan]}
+FPLS84KIND: {units: '', writers: [flightplan]}
+FPLS84LAST: {units: '', writers: [flightplan]}
+FPLS85ENT: {units: '', writers: [flightplan]}
+FPLS85EXT: {units: '', writers: [flightplan]}
+FPLS85FIRST: {units: '', writers: [flightplan]}
+FPLS85ID: {units: '', writers: [flightplan]}
+FPLS85KIND: {units: '', writers: [flightplan]}
+FPLS85LAST: {units: '', writers: [flightplan]}
+FPLS86ENT: {units: '', writers: [flightplan]}
+FPLS86EXT: {units: '', writers: [flightplan]}
+FPLS86FIRST: {units: '', writers: [flightplan]}
+FPLS86ID: {units: '', writers: [flightplan]}
+FPLS86KIND: {units: '', writers: [flightplan]}
+FPLS86LAST: {units: '', writers: [flightplan]}
+FPLS87ENT: {units: '', writers: [flightplan]}
+FPLS87EXT: {units: '', writers: [flightplan]}
+FPLS87FIRST: {units: '', writers: [flightplan]}
+FPLS87ID: {units: '', writers: [flightplan]}
+FPLS87KIND: {units: '', writers: [flightplan]}
+FPLS87LAST: {units: '', writers: [flightplan]}
+FPLS88ENT: {units: '', writers: [flightplan]}
+FPLS88EXT: {units: '', writers: [flightplan]}
+FPLS88FIRST: {units: '', writers: [flightplan]}
+FPLS88ID: {units: '', writers: [flightplan]}
+FPLS88KIND: {units: '', writers: [flightplan]}
+FPLS88LAST: {units: '', writers: [flightplan]}
+FPLS89ENT: {units: '', writers: [flightplan]}
+FPLS89EXT: {units: '', writers: [flightplan]}
+FPLS89FIRST: {units: '', writers: [flightplan]}
+FPLS89ID: {units: '', writers: [flightplan]}
+FPLS89KIND: {units: '', writers: [flightplan]}
+FPLS89LAST: {units: '', writers: [flightplan]}
+FPLS8ENT: {units: '', writers: [flightplan]}
+FPLS8EXT: {units: '', writers: [flightplan]}
+FPLS8FIRST: {units: '', writers: [flightplan]}
+FPLS8ID: {units: '', writers: [flightplan]}
+FPLS8KIND: {units: '', writers: [flightplan]}
+FPLS8LAST: {units: '', writers: [flightplan]}
+FPLS90ENT: {units: '', writers: [flightplan]}
+FPLS90EXT: {units: '', writers: [flightplan]}
+FPLS90FIRST: {units: '', writers: [flightplan]}
+FPLS90ID: {units: '', writers: [flightplan]}
+FPLS90KIND: {units: '', writers: [flightplan]}
+FPLS90LAST: {units: '', writers: [flightplan]}
+FPLS91ENT: {units: '', writers: [flightplan]}
+FPLS91EXT: {units: '', writers: [flightplan]}
+FPLS91FIRST: {units: '', writers: [flightplan]}
+FPLS91ID: {units: '', writers: [flightplan]}
+FPLS91KIND: {units: '', writers: [flightplan]}
+FPLS91LAST: {units: '', writers: [flightplan]}
+FPLS92ENT: {units: '', writers: [flightplan]}
+FPLS92EXT: {units: '', writers: [flightplan]}
+FPLS92FIRST: {units: '', writers: [flightplan]}
+FPLS92ID: {units: '', writers: [flightplan]}
+FPLS92KIND: {units: '', writers: [flightplan]}
+FPLS92LAST: {units: '', writers: [flightplan]}
+FPLS93ENT: {units: '', writers: [flightplan]}
+FPLS93EXT: {units: '', writers: [flightplan]}
+FPLS93FIRST: {units: '', writers: [flightplan]}
+FPLS93ID: {units: '', writers: [flightplan]}
+FPLS93KIND: {units: '', writers: [flightplan]}
+FPLS93LAST: {units: '', writers: [flightplan]}
+FPLS94ENT: {units: '', writers: [flightplan]}
+FPLS94EXT: {units: '', writers: [flightplan]}
+FPLS94FIRST: {units: '', writers: [flightplan]}
+FPLS94ID: {units: '', writers: [flightplan]}
+FPLS94KIND: {units: '', writers: [flightplan]}
+FPLS94LAST: {units: '', writers: [flightplan]}
+FPLS95ENT: {units: '', writers: [flightplan]}
+FPLS95EXT: {units: '', writers: [flightplan]}
+FPLS95FIRST: {units: '', writers: [flightplan]}
+FPLS95ID: {units: '', writers: [flightplan]}
+FPLS95KIND: {units: '', writers: [flightplan]}
+FPLS95LAST: {units: '', writers: [flightplan]}
+FPLS96ENT: {units: '', writers: [flightplan]}
+FPLS96EXT: {units: '', writers: [flightplan]}
+FPLS96FIRST: {units: '', writers: [flightplan]}
+FPLS96ID: {units: '', writers: [flightplan]}
+FPLS96KIND: {units: '', writers: [flightplan]}
+FPLS96LAST: {units: '', writers: [flightplan]}
+FPLS97ENT: {units: '', writers: [flightplan]}
+FPLS97EXT: {units: '', writers: [flightplan]}
+FPLS97FIRST: {units: '', writers: [flightplan]}
+FPLS97ID: {units: '', writers: [flightplan]}
+FPLS97KIND: {units: '', writers: [flightplan]}
+FPLS97LAST: {units: '', writers: [flightplan]}
+FPLS98ENT: {units: '', writers: [flightplan]}
+FPLS98EXT: {units: '', writers: [flightplan]}
+FPLS98FIRST: {units: '', writers: [flightplan]}
+FPLS98ID: {units: '', writers: [flightplan]}
+FPLS98KIND: {units: '', writers: [flightplan]}
+FPLS98LAST: {units: '', writers: [flightplan]}
+FPLS99ENT: {units: '', writers: [flightplan]}
+FPLS99EXT: {units: '', writers: [flightplan]}
+FPLS99FIRST: {units: '', writers: [flightplan]}
+FPLS99ID: {units: '', writers: [flightplan]}
+FPLS99KIND: {units: '', writers: [flightplan]}
+FPLS99LAST: {units: '', writers: [flightplan]}
+FPLS9ENT: {units: '', writers: [flightplan]}
+FPLS9EXT: {units: '', writers: [flightplan]}
+FPLS9FIRST: {units: '', writers: [flightplan]}
+FPLS9ID: {units: '', writers: [flightplan]}
+FPLS9KIND: {units: '', writers: [flightplan]}
+FPLS9LAST: {units: '', writers: [flightplan]}
+FPLSEGCNT: {units: '', writers: [flightplan]}
+FPLSEGREM: {units: nM, writers: [flightplan]}
+FPLSEQ: {units: '', writers: [flightplan]}
+FPLSTATE: {units: '', writers: [flightplan]}
+FPLSUSPMAP: {units: '', writers: [flightplan]}
+FPLTF: {units: '', writers: [flightplan]}
+FPLTURN: {units: '', writers: [flightplan]}
+FPLXTK: {units: nM, writers: [flightplan]}
+FTIME: {units: '', writers: [canfix]}
+FUELF1: {units: gal/hr, writers: [canfix, shadin]}
+FUELP1: {units: psi, writers: [canfix]}
+FUELQ1: {units: gal, writers: [canfix, grand_rapids_eis]}
+FUELQ2: {units: gal, writers: [canfix]}
+FUELQ3: {units: gal, writers: [canfix]}
+FUELQT: {units: gal, writers: [compute, shadin]}
+GATEWAY_VERSION: {units: '', writers: [fixgw]}
+GPSBRG: {units: deg, writers: [compute]}
+GPSBRGT: {units: deg, writers: [compute]}
+GPSCDI: {units: '', writers: [compute], selector: {module: compute, by: GPSSRC, sources: [FPLCDI, EXTCDI]}}
+GPSCRS: {units: deg, writers: [compute], selector: {module: compute, by: GPSSRC, sources: [FPLCRS, EXTCRS]}}
+GPSGSI: {units: '', writers: [compute], selector: {module: compute, by: GPSSRC, sources: [0.0, EXTGSI]}}
+GPSGSV: {units: '', writers: [compute], selector: {module: compute, by: GPSSRC, sources: [0.0, EXTGSV]}}
+GPSTF: {units: '', writers: [compute], selector: {module: compute, by: GPSSRC, sources: [FPLTF, EXTTF]}}
+GPS_ACCURACY_HORIZ: {units: ft, writers: [gpsd, mavlink]}
+GPS_ACCURACY_SPEED: {units: knots, writers: [gpsd, mavlink]}
+GPS_ACCURACY_VERTICAL: {units: ft, writers: [gpsd, mavlink]}
+GPS_ELLIPSOID_ALT: {units: ft, datum: {garmin_gnx375: 'MSL: NMEA GGA altitude', gpsd: 'gpsd TPV alt: deprecated in current gpsd, historically MSL; the benches'' gpsd version is not checked', mavlink: 'ellipsoid (HAE): GPS_RAW_INT.alt_ellipsoid', navigator_adapter: 'MSL: NormalizedNavMessage position alt_ft_msl'}, writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter]}
+GPS_FIX_TYPE: {units: '', writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter]}
+GPS_SATS_TRACKED: {units: '', writers: [mavlink]}
+GPS_SATS_VISIBLE: {units: '', writers: [gpsd, mavlink]}
+GS: {units: knots, writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter, stratux]}
+GSI: {units: '', writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1GSI, NAV2GSI, GPSGSI]}}
+GSV: {units: '', writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1GSV, NAV2GSV, GPSGSV]}}
+GYROW: {units: warninglevel, writers: [rpi_bno055]}
+H2OT1: {units: degC, writers: [grand_rapids_eis]}
+HEAD: {units: deg, writers: [canfix, mavlink, rpi_bno055, stratux]}
+HIDEBUTTON: {units: '', pyefis: [pyefis/instruments/button]}
+HOBBS1: {units: Hours, writers: [canfix, grand_rapids_eis]}
+IAS: {units: knots, writers: [canfix, mavlink, rpi_virtualwire]}
+IASW: {units: warninglevel, writers: [rpi_virtualwire]}
+LAT: {units: deg, datum: 'WGS-84 geodetic degrees, as each GNSS source reports', writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter]}
+LEADER: {units: '', writers: [quorum]}
+LONG: {units: deg, datum: 'WGS-84 geodetic degrees, as each GNSS source reports', writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter]}
+MAGW: {units: warninglevel, writers: [rpi_bno055]}
+MAP1: {units: inHg, writers: [canfix]}
+MAVADJ: {units: '', writers: [mavlink]}
+MAVMODE: {units: '', writers: [mavlink]}
+MAVMSG: {units: '', writers: [mavlink]}
+MAVREQADJ: {units: '', writers: [mavlink]}
+MAVREQCRUISE: {units: '', writers: [mavlink]}
+MAVREQGUIDED: {units: '', writers: [mavlink]}
+MAVSTATE: {units: '', writers: [mavlink]}
+MAVWPVALID: {units: '', writers: [mavlink]}
+NAV1CDIV: {units: '', writers: [compute]}
+NAV1GSI: {units: '', writers: [canfix]}
+NAV1GSNF: {units: '', writers: [compute]}
+NAV1GSV: {units: '', writers: [compute]}
+NAV2CDIV: {units: '', writers: [compute]}
+NAV2GSNF: {units: '', writers: [compute]}
+NAV2GSV: {units: '', writers: [compute]}
+NAVFAIL: {units: '', writers: [cas]}
+NAVSRC: {units: '', pyefis: [pyefis/instruments/hsi]}
+NAVSUPP: {units: '', writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1SUPP, NAV2SUPP, 0.0]}}
+NAVTYPE: {units: '', writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1TYPE, NAV2TYPE, 0.0]}}
+OAT: {units: degC, writers: [canfix, grand_rapids_eis, rpi_virtualwire]}
+OATW: {units: warninglevel, writers: [rpi_virtualwire]}
+OILP1: {units: psi, writers: [canfix, grand_rapids_eis]}
+OILT1: {units: degC, writers: [canfix, grand_rapids_eis]}
+ORISYSW: {units: warninglevel, writers: [rpi_bno055]}
+PALT: {units: ft, datum: {compute: 'pressure altitude: altp from ALT and BARO', dynon: Dynon serial altitude field when status bit 0 is 1}, writers: [compute, dynon]}
+PITCH: {units: deg, writers: [canfix, dynon, mavlink, rpi_bno055, stratux]}
+POWER_FAIL: {units: '', writers: [X728, strom_pi]}
+PROP1: {units: RPM, writers: [canfix]}
+PYEFIS_VERSION: {units: '', pyefis: [pyefis/pyefis]}
+QVOTE1: {units: '', writers: [canfix]}
+QVOTE2: {units: '', writers: [canfix]}
+QVOTE3: {units: '', writers: [canfix]}
+QVOTE4: {units: '', writers: [canfix]}
+QVOTE5: {units: '', writers: [canfix]}
+ROLL: {units: deg, writers: [canfix, dynon, mavlink, rpi_bno055, stratux]}
+ROT: {units: Deg/sec, writers: [canfix, dynon, mavlink]}
+TACH1: {units: RPM, writers: [canfix, grand_rapids_eis]}
+TALT: {units: ft, datum: {dynon: the same field as its ALT write, mavlink: 'MSL: GLOBAL_POSITION_INT.alt'}, writers: [dynon, mavlink]}
+TAS: {units: knots, writers: [canfix, dynon, mavlink]}
+TOFROM: {units: '', writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1TF, NAV2TF, GPSTF]}}
+TRACK: {units: deg, writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter]}
+TRACKM: {units: deg, writers: [compute]}
+TRIMP: {units: '', writers: [mavlink]}
+TRIMR: {units: '', writers: [mavlink]}
+TRIMY: {units: '', writers: [mavlink]}
+VOLT: {units: volt, writers: [canfix, grand_rapids_eis, mgl_serial]}
+VS: {units: ft/min, writers: [canfix, dynon, mavlink, stratux]}
+WPDIS: {units: nM, writers: [flightplan]}
+WPETE: {units: s, writers: [flightplan]}
+WPFROM: {units: '', writers: [flightplan]}
+WPHEAD: {units: '', writers: [ifly]}
+WPLAT: {units: '', datum: {flightplan: geodetic degrees from the engine's nav data, ifly: geodetic degrees as iFly sends its waypoint, navigator_adapter: geodetic degrees as the external navigator sends its waypoint}, writers: [flightplan, ifly, navigator_adapter]}
+WPLON: {units: '', datum: {flightplan: geodetic degrees from the engine's nav data, ifly: geodetic degrees as iFly sends its waypoint, navigator_adapter: geodetic degrees as the external navigator sends its waypoint}, writers: [flightplan, ifly, navigator_adapter]}
+WPNAME: {units: '', writers: [flightplan, ifly, navigator_adapter]}
+WPNEXT: {units: '', writers: [flightplan]}
+XPHSISRC: {units: '', writers: [compute]}
+XTRACK: {units: nM, writers: [compute], selector: {module: compute, by: GPSSRC, sources: [FPLXTK, EXTXTK]}}
+YAW: {units: deg, writers: [dynon, mavlink]}
+YDENG: {units: '', sim: [xplane]}
