@@ -1,0 +1,11 @@
+# AER-6386: the full AER-5856 (AFC2b) glass check rerun, with every write to
+# the seven dial keys logged on the bus (a netfix subscriber).
+# BARO moves at most about 0.25 inHg and is put back. No disconnect.
+name: aer6386-afc2b-glass-rerun
+destination: KSMX
+departure: KSBA
+start: {fix: HENER, before_nm: 3, alt_ft: 7500}
+route:
+  - waypoint: GVO
+  - airway: {id: V27, exit: AVOLS}
+end: {after_fix: DOYLE, max_s: 1500}
