@@ -32,6 +32,7 @@ both write attitude (see [[Configuration]]). The plugin refuses to start while
 | `rref_resubscribe` | `5.0` s | how often the dataref requests are resent, so they survive an X-Plane restart |
 | `dataref_writes` | `{}` | keys written back to datarefs |
 | `send`, `send_interval` | `{}`, `0.1` s | keys sent as Data rows (commented out in the shipped file) |
+| `autopilot` | off (`enabled: true` in the shipped file) | X-Plane as the autopilot source, below |
 
 ## Data Output rows (`recv`)
 
@@ -66,9 +67,11 @@ The shipped file subscribes the X-Plane GPS as the external navigator
 with `GPSSRC` = 1, see
 [[Flight Plan Engine]]), its OBS state and course (`EXTSEQ`: 0 normal, 1 OBS,
 2 suspended; `EXTOBSCRS`; X-Plane 12.1 or later, read only, for comparing with
-the engine), both NAV radios' course, deviation, glideslope,
+the engine), both NAV radios' deviation, glideslope,
 TO/FROM and tuned navaid type (`NAV1TYPE`/`NAV2TYPE`: 1 VOR, 2 localizer, 0
-anything else), the VOR bearings, and `HEADBUG`.
+anything else), and the VOR bearings. The OBS courses (`NAV1CRS`, `NAV2CRS`)
+and `HEADBUG` are not read here: the autopilot block keeps them in step with
+the sim. With that block off, add them back here as plain reads, one way only.
 
 ## Writing back (`dataref_writes`)
 
@@ -80,6 +83,43 @@ dataref_writes:
 A write is sent only when the key changes. In the shipped entry `XPHSISRC` is
 `NAVSRC` (through `compute`), so X-Plane's pilot HSI source follows the source
 selected on the panel, and the sim's own autopilot tracks it.
+
+## Autopilot (`autopilot`)
+
+```yaml
+autopilot:
+  enabled: true
+```
+
+With this block on, X-Plane is the autopilot source. A control head writes a
+request to `APCMD` and then changes `APCMDSEQ`; the plugin presses the matching
+X-Plane autopilot command. It writes what X-Plane reports into the autopilot
+keys: `APENG`, `FDENG`, `YDENG`, the lateral and vertical modes (`APLAT`,
+`APLATARM`, `APVERT`, `APVERTARM`), `APALTCAP`, `APALTREF`, the flight director
+(`FDPITCH`, `FDROLL`), the requests this aircraft's autopilot supports
+(`APCAPS`), `APMSG` and `APDISC`. A request is never replayed: only a change of
+`APCMDSEQ` after start counts.
+
+- The mode keys change only when X-Plane reports the new mode. A request it
+  cannot honour sends nothing and gives the reason on `APMSG`.
+- State is written only while every dataref the adapter subscribes has been
+  heard within 1 s. When X-Plane goes quiet, nothing is written and the keys go `old`.
+- `ALTSEL`, `VSSEL`, `IASSEL`, `HEADBUG`, `NAV1CRS`, `NAV2CRS` and `BARO` are
+  kept in step with the sim's pilot-side dials, both ways. A change on the bus
+  is written to the dial; a dial that has not followed within 2 s keeps the
+  sim's value.
+- `HEADBUG` is moved with X-Plane's own heading knob commands, one degree at a
+  time the short way round, never written directly. The walk stops within
+  half a degree, and the bus keeps the pilot's value.
+- The adapter subscribes its own datarefs. A row for one of the keys above
+  under `datarefs:` or `dataref_writes:` is ignored, with a warning.
+- It stays off, and logs why, when the database has no autopilot keys
+  (`database/autopilot.yaml`).
+- `raw_log: <path>` appends every change of its datarefs to a file, as JSON
+  lines.
+
+The key contract is in
+[`doc/autopilot_keys.md`](https://github.com/billmallard/fix-gateway/blob/dev/doc/autopilot_keys.md).
 
 ## Staleness
 
