@@ -99,6 +99,11 @@ OILP1.lowAlarm = 25
 NAVSRC   = 2
 ```
 
+A key may be named with a database variable from `database/variables.yaml`,
+so one line sets every key it stands for: with `c: 6`, `CHTec.highAlarm = 230`
+sets `CHT11` to `CHT16`. To give one of them its own value, name it on a later
+line (`CHT13.highAlarm = 220`).
+
 Comments go on their own line, starting with `#`. Anything after the `=` is
 the value, so a trailing comment becomes part of it, and a bad aux value stops
 the gateway at startup.

@@ -258,8 +258,12 @@ short way round, the next step once a reply shows the dial took the last.
 X-Plane takes a burst of the same command as one step (`XPB-024`), so the
 walk runs at about one step per reply. The bus keeps the pilot's value for
 the whole walk. The walk ends within half a
-degree, and the bus then takes the dial's value, so a bug set to 113.2 from a
-dial on whole degrees ends at 113. If the dial does not come closer for 2 s,
+degree, and the bus keeps the pilot's value there: a dial on 81.4 walked to a
+bug of 96 stops at 96.4, and the bus still says 96. Copying the dial's
+fraction back raced pyEfis, which steps the bug from the whole degree it
+shows, and lost clicks of a fast knob spin on the glass (session
+`2a79cb152f26`). A knob turn in the cockpit is a whole step, so it still
+shows on the bus. If the dial does not come closer for 2 s,
 the walk stops and the sim's value wins. The courses are still written: only
 the heading bug has shown the long turn.
 

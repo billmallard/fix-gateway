@@ -94,6 +94,18 @@ Any other path terminator rejects the route. An arc needs a turn direction, a
 radius above zero and a centre; a hold or PI needs a direction and a leg length;
 CA, FA and HA need a readable altitude.
 
+### A plan from an EFB
+
+The `fpl_exchange` plugin (off by default, see [[Plugins]]) takes a Garmin
+`.fpl` uploaded from a tablet and posts it as a **pending plan**. It is never
+flown and never touches the route slots. It writes up to 100 points
+(`FPLIMP<n>ID`, `LAT`, `LON`, `TYPE`), then `FPLIMPCOUNT` and `FPLIMPNAME`,
+and increments `FPLIMPSEQ` last. A plan is pending while `FPLIMPSEQ` is above 0
+and differs from `FPLIMPDONE`. The editor shows it; on Accept it writes the
+points into the route and commits with `FPLSEQ` like any edit, and either way it
+writes `FPLIMPDONE` = `FPLIMPSEQ`. The pending plan is not saved across a
+restart.
+
 ## Commands
 
 The editor drives the engine through `FPLCMD`, a string of the form
@@ -108,7 +120,7 @@ it was rejected, `-1` if it could not be parsed.
 | `DTO` | direct to the target staged in `DTOID`, `DTOLAT`, `DTOLON`, `DTOTYPE`. If it matches a slot (same ident, within 0.001 deg) the plan continues from there; otherwise the engine flies direct off-route and keeps the plan loaded | `NO POSITION` |
 | `DTOX` | cancel Direct-To and rejoin the plan on the leg nearest the aircraft | `NO PLAN`, `NO POSITION` |
 | `SUSP` | stop sequencing and hold the current TO waypoint; cancels a turn in progress | `NO PLAN` |
-| `RESUME` | in order: start the missed approach after the MAP; leave a vector leg direct to the next slot; arm the exit from an `HM` hold; otherwise stop suspending | `NO PLAN` |
+| `RESUME` | in order: start the missed approach after the MAP; leave a vector leg for the next slot, from the present position (a `TF` or `DF` is flown direct to its fix, a `CF` is intercepted on its coded course; with no next slot it stays suspended and says `NO NEXT LEG`); arm the exit from an `HM` hold (an `HM` in the last slot arms nothing, says `NO NEXT LEG` and keeps holding); otherwise stop suspending | `NO PLAN`; `NO POSITION` off a vector leg |
 | `SCALE 0.3`, `1.0`, `2.0`, `AUTO` | set a manual ceiling on the CDI scale, or clear it | `PARSE` |
 | `OBS <deg>` | GPS OBS mode: fly this magnetic course to or from the TO waypoint, with no sequencing; again to change the course | `OBS N/A NO WPT`, `NO POSITION`, `FINAL APPROACH`, `HOLD`, `PROC TURN`, `VECTORS`, `NO FIX`, `DATABASE` (an installed `database/flightplan.yaml` from before OBS2); `PARSE` |
 | `OBS OFF` | leave OBS: past the fix, go on to the next leg; short of it, keep the OBS course into the fix and sequence there | `NOT IN OBS` |
