@@ -18,6 +18,8 @@
 from pymavlink import mavutil
 from pymavlink.mavextra import rate_of_turn as rot
 
+from fixgw import airdata
+
 from os import stat
 import math
 import time
@@ -293,10 +295,9 @@ class Mav:
                 self.parent.db_write(
                     "AGL", round(msg.relative_alt / 304.8, 2)
                 )  # int32_t mm to ft
-                # Seems like MSD is TALT and ALT should be indicated, not sure hoe to get both:
-                self.parent.db_write(
-                    "ALT", round(msg.alt / 304.8, 2)
-                )  # int32_t mm to ft
+                # alt is the autopilot's GPS/EKF height above MSL: TALT.
+                # ALT is indicated altitude, from SCALED_PRESSURE and BARO
+                # below, never this (AER-6351).
                 self.parent.db_write(
                     "TALT", round(msg.alt / 304.8, 2)
                 )  # int32_t mm to ft
@@ -307,9 +308,10 @@ class Mav:
                 )  # int32_t degE7 10**7
         elif msg_type == "SCALED_PRESSURE":
             if self._pressure:
-                self.parent.db_write(
-                    "AIRPRESS", round((msg.press_abs * 100) + self._pascal_offset, 4)
-                )  # float hPa to Pa
+                static = (msg.press_abs * 100) + self._pascal_offset
+                self.parent.db_write("AIRPRESS", round(static, 4))  # float hPa to Pa
+                if self._ahrs:
+                    self.writeIndicated(static)
                 self.parent.db_write(
                     "DIFFAIRPRESS", round(msg.press_diff * 100, 4)
                 )  # float hPa to Pa
@@ -450,8 +452,43 @@ class Mav:
         self.parent.db_write("PITCH", 0)
         self.parent.db_write("HEAD", 0)
         self.parent.db_write("AGL", 0)
-        self.parent.db_write("ALT", 0)
+        # Not ALT: a fresh 0 would read as a good indicated altitude until
+        # the first SCALED_PRESSURE, or for good with pressure off. Unwritten,
+        # it ages out old on its own tol (AER-6351).
         self.parent.db_write("VS", 0)
+
+    def writeIndicated(self, static):
+        """ALT, indicated altitude: the pressure altitude of the static
+        pressure in Pa, read against the altimeter setting, as an altimeter
+        shows it (and compute's PALT gives the pressure altitude back).
+
+        BARO is a setting with no tol; its current value is the schema
+        initial, 29.92, until someone sets it. ALT is bad while BARO is bad,
+        failed or implausible, or when the value is outside ALT's range (the
+        database would clamp it to a plausible-looking limit).
+        """
+        setting, _ann, _old, bad, fail, _sec = self.parent.db_read("BARO")
+        # A negative pressure (a bad calibration offset) would make the
+        # power complex: take it as 0 Pa, out of range and so bad.
+        alt = airdata.pressure_altitude_ft(max(static, 0.0)) - airdata.baro_offset_ft(
+            setting
+        )
+        item = self.parent.db_get_item("ALT")
+        bad = bool(bad or fail or not airdata.baro_plausible(setting))
+        if (item.min is not None and alt < item.min) or (
+            item.max is not None and alt > item.max
+        ):
+            bad = True
+        item.set(round(alt, 2), bad=bad)
+
+    def mslAltitude(self):
+        """TALT in ft, the MSL altitude a DO_REPOSITION holds, or None when it
+        is not a usable reading (never written, old, bad or failed)."""
+        item = self.parent.db_get_item("TALT")
+        value, _ann, old, bad, fail, _sec = item.value
+        if not item.written or old or bad or fail:
+            return None
+        return value
 
     def reportMode(self, mode, msg):
         """The mode a HEARTBEAT reports: the only writer of MAVMODE and
@@ -648,6 +685,13 @@ class Mav:
             if not self.parent.quorum.leader:
                 return
             if mode == "GUIDED":
+                # MAV_FRAME_GLOBAL altitude is MSL, so the reposition holds
+                # TALT. ALT is indicated and differs by the BARO correction.
+                # With no usable TALT, send nothing rather than 0 m MSL.
+                msl = self.mslAltitude()
+                if msl is None:
+                    self.parent.db_write("MAVMSG", "No MSL Altitude")
+                    return
                 # Request is for guided mode so we need to set the mode differently
                 self._waypoint = f"{self.parent.db_read('WPLON')[0]}{self.parent.db_read('WPLAT')[0]}{self.parent.db_read('WPNAME')[0]}"
                 message = self.conn.mav.command_int_encode(
@@ -665,8 +709,7 @@ class Mav:
                     0,  # loiter direction
                     int(self.parent.db_read("WPLAT")[0] * 10**7),  # int32_t degE7
                     int(self.parent.db_read("WPLON")[0] * 10**7),
-                    self.parent.db_read("ALT")[0]
-                    * 0.3048,  # altitude ALT is in ft, mavlink uses meters
+                    msl * 0.3048,  # TALT is in ft, mavlink uses meters
                 )
             else:
                 message = self.conn.mav.command_long_encode(

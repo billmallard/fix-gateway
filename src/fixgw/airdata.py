@@ -26,3 +26,19 @@ def baro_offset_ft(setting):
     altitude), positive below.
     """
     return 145442.2 * (1 - (setting / 29.92126) ** 0.190261)
+
+
+# Pascals in one inch of mercury (3386.39 at 0 C), defined from the ISA
+# sea level so that 29.92126 inHg is exactly 101325 Pa.
+PA_PER_INHG = 101325.0 / 29.92126
+
+
+def pressure_altitude_ft(pascals):
+    """ISA pressure altitude, ft, of a static pressure in Pa.
+
+    The same curve as baro_offset_ft: a setting's offset is the pressure
+    altitude of that pressure.  So the indicated altitude of a static
+    pressure, ``pressure_altitude_ft(p) - baro_offset_ft(BARO)``, reads 0 ft
+    when BARO equals it, and compute's PALT gives this value back.
+    """
+    return baro_offset_ft(pascals / PA_PER_INHG)
