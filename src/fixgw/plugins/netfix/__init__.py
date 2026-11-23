@@ -275,40 +275,40 @@ class Connection(object):
                 # writes with every flag clear (fix-gateway #128).
                 flags = (x[2] if len(x) > 2 else "").ljust(4, "0")
                 item = self.parent.db_get_item(x[0])
-                a = flags[0]
-                b = flags[1]
-                f = flags[2]
-                s = flags[3]
-                if a and a == "1":
-                    # self.output_inhibit = True
-                    item.annunciate = True
-                elif a and a == "0":
-                    # self.output_inhibit = True
-                    item.annunciate = False
-                if b and b == "1":
-                    # self.output_inhibit = True
-                    item.bad = True
-                elif b and b == "0":
-                    # self.output_inhibit = True
-                    item.bad = False
-                if f and f == "1":
-                    # self.output_inhibit = True
-                    item.fail = True
-                elif f and f == "0":
-                    # self.output_inhibit = True
-                    item.fail = False
-                if s and s == "1":
-                    # self.output_inhibit = True
-                    item.secfail = True
-                elif s and s == "0":
-                    # self.output_inhibit = True
-                    item.secfail = False
+                # A flag other than 0 or 1 leaves that flag as it is.
+                sent = tuple(
+                    c == "1" if c in "01" else bool(getattr(item, name))
+                    for c, name in zip(
+                        flags, ("annunciate", "bad", "fail", "secfail")
+                    )
+                )
                 # Track inputs so we do not send back to same client
                 client_block[self.addr[0]].add(x[0])
-                self._write_inhibited(x[0], x[1])
+                # The value and its flags are one update, inside the echo
+                # inhibit (AER-6386). Set one flag at a time, before the
+                # value, and each change fires the callbacks outside the
+                # inhibit: a plugin that reacts to the flag (the altitude
+                # alerter on ALTSEL) gets the key published back to this
+                # client with its PREVIOUS value, and the client takes that
+                # as its copy, so its next step repeats this one.
+                self._write_inhibited(x[0], (x[1],) + sent)
+                self._send_changed_flags(x[0], sent)
             except Exception as e:
                 # We pretty much ignore this stuff for now
                 self.log.debug("Problem with input {0}: {1}".format(d.strip(), e))
+
+    def _send_changed_flags(self, key, sent):
+        """The write left *key*'s flags other than this client sent them: a
+        plugin changed one inside the write (a new ALTSEL disarms the
+        altitude alerter), and the inhibit kept that from this client. Send
+        the key as it now is, once, so the client does not keep a flag the
+        gateway has already changed. A client that is not subscribed to the
+        key gets nothing, as before."""
+        if key not in self.subscriptions:
+            return
+        now = self.parent.db_read(key)
+        if (now[1], now[3], now[4], now[5]) != sent:
+            self.__send_value(key, now)
 
     def _write_inhibited(self, key, value):
         """Write *key* for this client without echoing it back. Database

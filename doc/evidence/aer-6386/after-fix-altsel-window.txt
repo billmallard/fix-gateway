@@ -1,0 +1,78 @@
+# netfix subscriber (@s on the seven dial keys) and xdotool, BARO start to 3 s after the ALT SEL tap.
+# t = seconds from the ALTSEL step start (epoch 1795432877.296)
+ -23.549 XDO mousemove 1060 631 click 1
+ -22.946 XDO click --repeat 5 --delay 150 4
+ -22.926 BARO;29.93;00000
+ -22.788 BARO;29.94;00000
+ -22.628 BARO;29.95;00000
+ -22.476 BARO;29.96;00000
+ -22.324 BARO;29.97;00000
+ -21.887 NOTE BARO PASS pyEfis edit reached the bus
+ -21.887 NOTE BARO PASS pyEfis edit: X-Plane's dial followed
+ -16.881 NOTE BARO PASS pyEfis edit: bus and dial stayed 5 s
+ -16.672 BARO;29.979999542236328;00000
+ -16.404 BARO;29.989999771118164;00000
+ -16.178 BARO;30.0;00000
+ -13.926 NOTE BARO PASS cockpit: the bus follows X-Plane's knob
+ -12.230 XDO mousemove 1060 631 click 1
+ -11.627 XDO click --repeat 15 --delay 40 4
+ -11.584 BARO;30.01;00000
+ -11.540 BARO;30.02;00000
+ -11.506 BARO;30.03;00000
+ -11.477 BARO;30.04;00000
+ -11.443 BARO;30.05;00000
+ -11.419 BARO;30.06;00000
+ -11.378 BARO;30.07;00000
+ -11.335 BARO;30.08;00000
+ -11.294 BARO;30.09;00000
+ -11.258 BARO;30.1;00000
+ -11.209 BARO;30.11;00000
+ -11.153 BARO;30.12;00000
+ -11.107 BARO;30.13;00000
+ -11.070 BARO;30.14;00000
+ -11.041 BARO;30.15;00000
+  -7.995 NOTE BARO PASS spin: bus never off the click path or stepping back
+  -6.992 NOTE BARO PASS spin: X-Plane's dial ends where the bus ends
+  -5.298 XDO mousemove 1060 631 click 1
+  -4.695 XDO click --repeat 23 --delay 60 5
+  -4.675 BARO;30.14;00000
+  -4.605 BARO;30.13;00000
+  -4.558 BARO;30.12;00000
+  -4.483 BARO;30.11;00000
+  -4.442 BARO;30.1;00000
+  -4.355 BARO;30.09;00000
+  -4.305 BARO;30.08;00000
+  -4.268 BARO;30.07;00000
+  -4.188 BARO;30.06;00000
+  -4.134 BARO;30.05;00000
+  -4.056 BARO;30.04;00000
+  -3.997 BARO;30.03;00000
+  -3.938 BARO;30.02;00000
+  -3.892 BARO;30.01;00000
+  -3.823 BARO;30.0;00000
+  -3.773 BARO;29.99;00000
+  -3.686 BARO;29.98;00000
+  -3.641 BARO;29.97;00000
+  -3.571 BARO;29.96;00000
+  -3.531 BARO;29.95;00000
+  -3.475 BARO;29.94;00000
+  -3.423 BARO;29.93;00000
+  -3.307 BARO;29.92;00000
+  -2.001 NOTE BARO PASS restore
+  -1.647 ALTSEL;7500;10000
+  -0.001 NOTE ALTSEL start
+   0.192 XDO mousemove 1823 288 click 1
+   0.797 XDO click --repeat 5 --delay 150 4
+   0.863 ALTSEL;7600;00000
+   0.863 ALTSEL;7600;00000
+   1.046 ALTSEL;7700;00000
+   1.111 ALTSEL;7800;00000
+   1.259 ALTSEL;7900;00000
+   1.443 ALTSEL;8000;00000
+   1.853 NOTE ALTSEL PASS pyEfis edit reached the bus
+   1.853 NOTE ALTSEL PASS pyEfis edit: X-Plane's dial followed
+# X-Plane altitude_dial_ft (truth.jsonl, own RREF subscription)
+   0.895 dial 7600.0
+   1.157 dial 7800.0
+   1.279 dial 7900.0
+   1.535 dial 8000.0

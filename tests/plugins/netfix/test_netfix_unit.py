@@ -227,13 +227,30 @@ def test_value_update_sets_false_flags_and_logs_bad_frames():
     connection.handle_request("ALT;321;000")
     connection.handle_request("bad-frame")
 
-    assert parent.writes == [("ALT", "321")]
-    assert parent.item.annunciate is False
-    assert parent.item.bad is False
-    assert parent.item.fail is False
-    assert parent.item.secfail is False
+    # One write: the value with every flag (annunciate, bad, fail, secfail),
+    # so the callbacks fire once, inside the echo inhibit (AER-6386).
+    assert parent.writes == [("ALT", ("321", False, False, False, False))]
     assert netfix_plugin.client_block["10.0.0.1"] == {"ALT"}
     assert parent.log.debug_messages
+
+
+def test_value_update_flag_other_than_0_or_1_keeps_that_flag():
+    parent = FakeParent()
+    parent.item.bad = True
+    connection = make_connection(parent)
+
+    connection.handle_request("ALT;321;1x00")
+
+    assert parent.writes == [("ALT", ("321", True, True, False, False))]
+
+
+def test_value_update_sends_nothing_back_to_an_unsubscribed_writer():
+    parent = FakeParent()      # db_read reports ALT with every flag clear
+    connection = make_connection(parent)
+
+    connection.handle_request("ALT;123;1000")
+
+    assert drain_queue(connection) == []
 
 
 def test_subscription_handler_suppresses_only_the_key_being_written():

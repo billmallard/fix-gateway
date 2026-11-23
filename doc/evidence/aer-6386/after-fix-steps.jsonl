@@ -1,0 +1,71 @@
+{"t": 1795432727.671, "step": "0-live", "msg": "waiting for the dials and a coupled autopilot"}
+{"t": 1795432770.236, "step": "0-live", "msg": "PASS live", "dials": {"HEADBUG": 73.39604187011719, "NAV1CRS": 241.0, "NAV2CRS": 0.0, "BARO": 29.920000076293945, "ALTSEL": 7500.0, "VSSEL": 0.0, "IASSEL": 105.0}, "aplat": "@rAPLAT;GPS;00000"}
+{"t": 1795432770.415, "step": "HEADBUG", "msg": "PASS HSI source for the edit", "navsrc": 2.0}
+{"t": 1795432770.415, "step": "HEADBUG", "msg": "start", "bus": 73.39604187011719, "sim": 73.39604187011719}
+{"t": 1795432772.245, "step": "HEADBUG", "msg": "PASS pyEfis edit reached the bus", "want": 78.0, "bus": 78.39604187011719}
+{"t": 1795432772.245, "step": "HEADBUG", "msg": "PASS pyEfis edit: X-Plane's dial followed", "want": 78.0, "sim": 78.39604187011719}
+{"t": 1795432777.26, "step": "HEADBUG", "msg": "PASS pyEfis edit: bus and dial stayed 5 s", "first_bad": []}
+{"t": 1795432780.213, "step": "HEADBUG", "msg": "PASS cockpit: the bus follows X-Plane's knob", "before": 78.39604187011719, "bus": 81.39604187011719, "sim": 81.39604187011719}
+{"t": 1795432786.158, "step": "HEADBUG", "msg": "PASS spin: bus never off the click path or stepping back", "samples": 9098, "off": [], "back": [], "reached": 15}
+{"t": 1795432787.161, "step": "HEADBUG", "msg": "PASS spin: X-Plane's dial ends where the bus ends", "last": 96.39604187011719, "bus": 96.39604187011719, "sim": 96.39604187011719}
+{"t": 1795432796.159, "step": "HEADBUG", "msg": "FAIL restore", "want": 73.39604187011719, "bus": 76.39604187011719, "sim": 76.39604187011719}
+{"t": 1795432799.466, "step": "NAV1CRS", "msg": "PASS HSI source for the edit", "navsrc": 0.0}
+{"t": 1795432799.466, "step": "NAV1CRS", "msg": "start", "bus": 241.0, "sim": 241.0}
+{"t": 1795432801.309, "step": "NAV1CRS", "msg": "PASS pyEfis edit reached the bus", "want": 246.0, "bus": 246.0}
+{"t": 1795432801.309, "step": "NAV1CRS", "msg": "PASS pyEfis edit: X-Plane's dial followed", "want": 246.0, "sim": 246.0}
+{"t": 1795432806.314, "step": "NAV1CRS", "msg": "PASS pyEfis edit: bus and dial stayed 5 s", "first_bad": []}
+{"t": 1795432809.282, "step": "NAV1CRS", "msg": "PASS cockpit: the bus follows X-Plane's knob", "before": 246.0, "bus": 249.0, "sim": 249.0}
+{"t": 1795432815.27, "step": "NAV1CRS", "msg": "PASS spin: bus never off the click path or stepping back", "samples": 10769, "off": [], "back": [], "reached": 15}
+{"t": 1795432816.273, "step": "NAV1CRS", "msg": "PASS spin: X-Plane's dial ends where the bus ends", "last": 264.0, "bus": 264.0, "sim": 264.0}
+{"t": 1795432821.256, "step": "NAV1CRS", "msg": "PASS restore", "want": 241.0, "bus": 241.0, "sim": 241.0}
+{"t": 1795432828.475, "step": "NAV2CRS", "msg": "PASS HSI source for the edit", "navsrc": 1.0}
+{"t": 1795432828.476, "step": "NAV2CRS", "msg": "start", "bus": 0.0, "sim": 0.0}
+{"t": 1795432830.335, "step": "NAV2CRS", "msg": "PASS pyEfis edit reached the bus", "want": 5.0, "bus": 5.0}
+{"t": 1795432830.335, "step": "NAV2CRS", "msg": "PASS pyEfis edit: X-Plane's dial followed", "want": 5.0, "sim": 5.0}
+{"t": 1795432835.347, "step": "NAV2CRS", "msg": "PASS pyEfis edit: bus and dial stayed 5 s", "first_bad": []}
+{"t": 1795432838.305, "step": "NAV2CRS", "msg": "PASS cockpit: the bus follows X-Plane's knob", "before": 5.0, "bus": 8.0, "sim": 8.0}
+{"t": 1795432844.257, "step": "NAV2CRS", "msg": "PASS spin: bus never off the click path or stepping back", "samples": 10299, "off": [], "back": [], "reached": 15}
+{"t": 1795432845.26, "step": "NAV2CRS", "msg": "PASS spin: X-Plane's dial ends where the bus ends", "last": 23.0, "bus": 23.0, "sim": 23.0}
+{"t": 1795432850.255, "step": "NAV2CRS", "msg": "PASS restore", "want": 0.0, "bus": 0.0, "sim": 0.0}
+{"t": 1795432853.56, "step": "BARO", "msg": "start", "bus": 29.920000076293945, "sim": 29.920000076293945}
+{"t": 1795432855.409, "step": "BARO", "msg": "PASS pyEfis edit reached the bus", "want": 29.970000000000002, "bus": 29.97}
+{"t": 1795432855.409, "step": "BARO", "msg": "PASS pyEfis edit: X-Plane's dial followed", "want": 29.970000000000002, "sim": 29.969999313354492}
+{"t": 1795432860.415, "step": "BARO", "msg": "PASS pyEfis edit: bus and dial stayed 5 s", "first_bad": []}
+{"t": 1795432863.37, "step": "BARO", "msg": "PASS cockpit: the bus follows X-Plane's knob", "before": 29.969999313354492, "bus": 30.0, "sim": 30.0}
+{"t": 1795432869.301, "step": "BARO", "msg": "PASS spin: bus never off the click path or stepping back", "samples": 9749, "off": [], "back": [], "reached": 15}
+{"t": 1795432870.304, "step": "BARO", "msg": "PASS spin: X-Plane's dial ends where the bus ends", "last": 30.15, "bus": 30.15, "sim": 30.149999618530273}
+{"t": 1795432875.295, "step": "BARO", "msg": "PASS restore", "want": 29.920000076293945, "bus": 29.92, "sim": 29.920000076293945}
+{"t": 1795432877.296, "step": "ALTSEL", "msg": "start", "bus": 7500.0, "sim": 7500.0}
+{"t": 1795432879.149, "step": "ALTSEL", "msg": "PASS pyEfis edit reached the bus", "want": 8000, "bus": 8000.0}
+{"t": 1795432879.149, "step": "ALTSEL", "msg": "PASS pyEfis edit: X-Plane's dial followed", "want": 8000, "sim": 8000.0}
+{"t": 1795432884.155, "step": "ALTSEL", "msg": "PASS pyEfis edit: bus and dial stayed 5 s", "first_bad": []}
+{"t": 1795432887.101, "step": "ALTSEL", "msg": "PASS cockpit: the bus follows X-Plane's knob", "before": 8000.0, "bus": 8300.0, "sim": 8300.0}
+{"t": 1795432893.022, "step": "ALTSEL", "msg": "PASS spin: bus never off the click path or stepping back", "samples": 10006, "off": [], "back": [], "reached": 15}
+{"t": 1795432894.025, "step": "ALTSEL", "msg": "PASS spin: X-Plane's dial ends where the bus ends", "last": 9800.0, "bus": 9800.0, "sim": 9800.0}
+{"t": 1795432899.006, "step": "ALTSEL", "msg": "PASS restore", "want": 7500.0, "bus": 7500.0, "sim": 7500.0}
+{"t": 1795432902.508, "step": "VSSEL", "msg": "PASS ALTSEL 1000 ft up first", "sim": 8500.0}
+{"t": 1795432906.076, "step": "VSSEL", "msg": "PASS vertical mode VS", "apvert": "@rAPVERT;VS;00000"}
+{"t": 1795432906.076, "step": "VSSEL", "msg": "start", "bus": 100.0, "sim": 100.0}
+{"t": 1795432907.919, "step": "VSSEL", "msg": "PASS pyEfis edit reached the bus", "want": 600, "bus": 600.0}
+{"t": 1795432907.919, "step": "VSSEL", "msg": "PASS pyEfis edit: X-Plane's dial followed", "want": 600, "sim": 600.0}
+{"t": 1795432912.92, "step": "VSSEL", "msg": "PASS pyEfis edit: bus and dial stayed 5 s", "first_bad": []}
+{"t": 1795432915.87, "step": "VSSEL", "msg": "PASS cockpit: the bus follows X-Plane's knob", "before": 600.0, "bus": 900.0, "sim": 900.0}
+{"t": 1795432921.78, "step": "VSSEL", "msg": "PASS spin: bus never off the click path or stepping back", "samples": 9234, "off": [], "back": [], "reached": 15}
+{"t": 1795432922.784, "step": "VSSEL", "msg": "PASS spin: X-Plane's dial ends where the bus ends", "last": 2400.0, "bus": 2400.0, "sim": 2400.0}
+{"t": 1795432927.763, "step": "VSSEL", "msg": "PASS restore", "want": 100.0, "bus": 100.0, "sim": 100.0}
+{"t": 1795432931.325, "step": "VSSEL", "msg": "PASS vertical mode ALT", "apvert": "@rAPVERT;ALT;00000"}
+{"t": 1795432932.827, "step": "VSSEL", "msg": "PASS ALTSEL put back", "sim": 7500.0}
+{"t": 1795432936.329, "step": "IASSEL", "msg": "PASS ALTSEL 1000 ft up first", "sim": 8500.0}
+{"t": 1795432939.892, "step": "IASSEL", "msg": "PASS vertical mode IAS", "apvert": "@rAPVERT;IAS;00000"}
+{"t": 1795432939.892, "step": "IASSEL", "msg": "start", "bus": 89.2964859008789, "sim": 89.2964859008789}
+{"t": 1795432941.741, "step": "IASSEL", "msg": "PASS pyEfis edit reached the bus", "want": 94, "bus": 94.2964859008789}
+{"t": 1795432941.741, "step": "IASSEL", "msg": "PASS pyEfis edit: X-Plane's dial followed", "want": 94, "sim": 94.2964859008789}
+{"t": 1795432946.786, "step": "IASSEL", "msg": "PASS pyEfis edit: bus and dial stayed 5 s", "first_bad": []}
+{"t": 1795432949.737, "step": "IASSEL", "msg": "PASS cockpit: the bus follows X-Plane's knob", "before": 94.2964859008789, "bus": 97.0, "sim": 97.0}
+{"t": 1795432955.659, "step": "IASSEL", "msg": "PASS spin: bus never off the click path or stepping back", "samples": 10306, "off": [], "back": [], "reached": 15}
+{"t": 1795432956.662, "step": "IASSEL", "msg": "PASS spin: X-Plane's dial ends where the bus ends", "last": 112.0, "bus": 112.0, "sim": 112.0}
+{"t": 1795432961.645, "step": "IASSEL", "msg": "PASS restore", "want": 89.2964859008789, "bus": 89.0, "sim": 89.0}
+{"t": 1795432965.206, "step": "IASSEL", "msg": "PASS vertical mode ALT", "apvert": "@rAPVERT;ALT;00000"}
+{"t": 1795432966.707, "step": "IASSEL", "msg": "PASS ALTSEL put back", "sim": 7500.0}
+{"t": 1795432972.073, "step": "HEADBUG-AFC3", "msg": "PASS AFC3 HDG box: X-Plane's dial followed and held", "want": 79.0, "bus": 79.39604187011719, "sim": 79.39604187011719}
+{"t": 1795432973.627, "step": "end", "msg": "done"}
