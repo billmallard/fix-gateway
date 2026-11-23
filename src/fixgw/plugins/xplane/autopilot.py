@@ -320,7 +320,7 @@ class Autopilot:
         self.msg, self.msg_until = "", 0.0
         self.requests = queue.Queue()
         self.deferred = []          # (due, dref, value)
-        self.targets = {key: {"fix": None, "pending": None}
+        self.targets = {key: {"fix": None, "pending": None, "pilot": False}
                         for key in TARGET_KEYS}
         self.walk = None            # the heading bug's walk, while one runs
         self.raw_log = None
@@ -461,6 +461,12 @@ class Autopilot:
         """A dial the pilot did not just set is copied into its FIX key."""
         for key, name, _dref, eps, angle in TARGETS:
             t = self.targets[key]
+            if key == WALK_KEY and t["pilot"]:
+                # A walk ends up to half a step off the pilot's bug, so that
+                # is the same bug. Copying the fraction back overwrote the
+                # glass's next click in flight (session 2a79cb152f26); a knob
+                # step in the cockpit is always at least half a step.
+                eps = WALK_DONE
             sim = self.raw[name] % 360.0 if angle else self.raw[name]
             if t["pending"] is not None:
                 value, sent = t["pending"]
@@ -475,7 +481,7 @@ class Autopilot:
             if t["fix"] is not None and target_diff(sim, t["fix"], angle) < eps:
                 continue
             self.parent.db_write(key, sim)
-            t["fix"] = self._read(key)
+            t["fix"], t["pilot"] = self._read(key), False
 
     def _sync_to_sim(self, now):
         """A target the pilot changed on the bus is written to its dial."""
@@ -486,7 +492,7 @@ class Autopilot:
                 continue                # the sim's dial has not been read yet
             if target_diff(value, t["fix"], angle) < eps:
                 continue
-            t["fix"] = value
+            t["fix"], t["pilot"] = value, True
             t["pending"] = (value, now)
             if key == WALK_KEY:
                 self._start_walk(value % 360.0)
@@ -502,7 +508,7 @@ class Autopilot:
     def _walk_bug(self, now):
         """One reply's worth of the heading bug's walk: one knob step the
         short way, once the dial shows the last. Ends within half a step of
-        the goal, where the dial's value is the bus's, or when the dial has
+        the goal, where the bus keeps the pilot's value, or when the dial has
         not come closer for TARGET_SETTLE_S."""
         w = self.walk
         if w is None:

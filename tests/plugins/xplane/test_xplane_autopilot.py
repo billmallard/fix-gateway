@@ -773,7 +773,8 @@ def test_a_walk_waits_for_the_dial_and_never_overshoots(sim):
 
 def test_the_bus_keeps_the_pilots_bug_through_the_walk(sim):
     """The bug on the bus does not flicker back through the dial's steps,
-    however long the walk takes, then takes the dial's value."""
+    however long the walk takes, and keeps the pilot's value when the dial
+    lands within half a step of it."""
     sim.step(hdg_dial=90.0)
     sim.turn_knob(lag=1)
     sim.db.write("HEADBUG", 270.4)
@@ -786,10 +787,40 @@ def test_the_bus_keeps_the_pilots_bug_through_the_walk(sim):
             break
     assert sim.ap.walk is None
     assert sim.clock.t - t0 > ap.TARGET_SETTLE_S        # longer than a write
-    assert seen[:-1] == [pytest.approx(270.4)] * (len(seen) - 1)
-    sim.step()
-    assert sim.read("HEADBUG") == pytest.approx(270.0)
+    assert seen == [pytest.approx(270.4)] * len(seen)
+    for _ in range(5):
+        sim.step()
+    assert sim.state["hdg_dial"] == 270.0
+    assert sim.read("HEADBUG") == pytest.approx(270.4)
     assert sim.drefs() == []
+
+
+def test_a_fractional_dial_does_not_undo_clicks_on_the_glass(sim):
+    """pyEfis steps the bug from the whole degree it shows, and a bus write
+    reaches it one click late. The walk leaves the dial's fraction (81.4 to
+    82.4), so copying the dial back on every click overwrote the next one:
+    the glass session 2a79cb152f26 lost 2 of 23 clicks this way."""
+    sim.step(hdg_dial=81.4)
+    sim.turn_knob()
+    glass, late = 81.4, None        # pyEfis's value; a bus write in flight
+    for _ in range(15):             # a click every two replies
+        glass = float(round(glass) + 1)
+        sim.db.write("HEADBUG", glass)
+        if late is not None:
+            glass, late = late, None
+        for _ in range(2):
+            sim.step()
+            if sim.read("HEADBUG") != glass:
+                late = sim.read("HEADBUG")
+    _walk(sim, replies=100)
+    if late is not None:
+        glass = late
+    assert glass == 96.0
+    assert sim.state["hdg_dial"] == pytest.approx(96.4)
+    assert sim.read("HEADBUG") == 96.0
+    sim.state["hdg_dial"] = 97.4          # X-Plane's own knob still shows
+    sim.step()
+    assert sim.read("HEADBUG") == pytest.approx(97.4)
 
 
 def test_a_bug_moved_again_mid_walk_walks_to_the_new_value(sim):
