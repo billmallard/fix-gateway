@@ -425,8 +425,9 @@ def test_gateway_without_sdr_vor_navsupp_stays_0(tmp_path):
 
 def test_only_sdr_vor_names_a_supplemental_slot_key():
     # Every other source leaves NAV1SUPP/NAV2SUPP alone: no plugin or
-    # connection config but sdr_vor's names them. The database definition and
-    # compute's select are the only other mentions.
+    # connection config but sdr_vor's names them. The database definition,
+    # compute's select and the key writer register's record of that select
+    # (a design record the gateway never loads) are the only other mentions.
     import pathlib
     import re
 
@@ -437,6 +438,7 @@ def test_only_sdr_vor_names_a_supplemental_slot_key():
         "src/fixgw/plugins/compute.py",
         "src/fixgw/config/connections/compute.yaml",
         "src/fixgw/config/database/ahrs.yaml",
+        "src/fixgw/database/writers.yaml",
     }
     found = set()
     for path in pathlib.Path("src/fixgw").rglob("*"):

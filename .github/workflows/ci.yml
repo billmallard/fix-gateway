@@ -56,6 +56,20 @@ jobs:
         # and pyEfis's test-evidence page are built from (TV11).
         pytest --junitxml=reports/junit.xml -o junit_family=xunit1
 
+    # ARCHG1 (AER-6350): the architecture ratchet runs inside the pytest step
+    # (tests/arch); this prints its report, which names the fix for each
+    # failure, to the job summary where a reviewer sees it first.
+    - name: Every FIX key write is declared; no new multi-writer key or route-concept class
+      if: always() && steps.pytest.outcome != 'skipped'
+      run: |
+        rc=0; python tools/check_key_writers.py > reports/key_writers.txt || rc=$?
+        cat reports/key_writers.txt
+        if [ $rc -ne 0 ]; then
+          { echo "### Architecture ratchet (doc/key_writers.md)"; echo; echo '```'
+            cat reports/key_writers.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+        fi
+        exit $rc
+
     # AER-6212: a new FPLMSG code needs plain words in pyEfis
     # (pyefis/flightplan/refusal.py) before it lands here. pyEfis's own CI runs
     # this test against our dev, so a code that landed first turned every pyEfis
