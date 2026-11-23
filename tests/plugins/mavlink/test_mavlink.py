@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 import importlib
+import math
 
 import pytest
 
@@ -334,7 +335,7 @@ def test_process_sensor_attitude_gps_position_pressure_and_servo_messages(monkey
     assert_write(parent, "ALONG", 1.111)
     assert_write(parent, "ANORM", 3.333)
     assert_write(parent, "ROLL", 28.65)
-    assert_write(parent, "ROT", ("rot", 20.0, 0.5))
+    assert_write(parent, "ROT", ("rot", 20.0, 28.65))
     assert_write(parent, "PITCH", -14.32)
     assert_write(parent, "YAW", 57.3)
     assert_write(parent, "TRACK", 123.45)
@@ -358,6 +359,70 @@ def test_process_sensor_attitude_gps_position_pressure_and_servo_messages(monkey
     assert mav._outputRoll == 250
     assert mav._outputPitch == -250
     assert mav._outputYaw == 10
+
+
+def test_rot_is_the_turn_rate_for_the_bank_in_degrees():
+    # pymavlink 2.4.42 rate_of_turn(speed, bank) takes m/s and degrees. Fed
+    # the roll in radians it read about 57x low (SRC1, AER-6405). At 30 deg
+    # and 100 kt the coordinated rate is g tan(bank) / V, about 6.3 deg/s.
+    parent = FakeParent()
+    tas_ms = 100 / 1.9438445
+    bank = math.radians(30)
+    mav = make_mav(
+        parent=parent,
+        messages=[Msg("VFR_HUD", airspeed=tas_ms, groundspeed=tas_ms, climb=0.0)]
+        + [Msg("ATTITUDE", roll=bank, pitch=0.0, yaw=0.0)] * 5,
+    )
+
+    for _ in range(6):
+        mav.process()
+
+    expected = math.degrees(9.80665 * math.tan(bank) / tas_ms)
+    rots = [v for k, v in parent.writes if k == "ROT"]
+    assert len(rots) == 5
+    for value in rots:
+        assert value == pytest.approx(expected, rel=0.01)
+
+
+def test_head_averages_across_north_not_to_the_reciprocal():
+    # HEAD is a running mean of up to 15 samples. An arithmetic mean of 359
+    # and 1 is 180; on the circle it is 0 (SRC1, AER-6405).
+    parent = FakeParent()
+    mav = make_mav(
+        parent=parent,
+        messages=[
+            Msg("GLOBAL_POSITION_INT", hdg=hdg, relative_alt=0, alt=0, lat=0, lon=0)
+            for hdg in [35900, 100] * 10
+        ],
+    )
+
+    for _ in range(20):
+        mav.process()
+
+    heads = [v for k, v in parent.writes if k == "HEAD"]
+    assert len(heads) == 20
+    for value in heads:
+        assert 0.0 <= value < 360.0
+        assert min(value, 360.0 - value) <= 1.0
+
+
+def test_head_mean_stays_inside_the_key_range():
+    # A mean a hair under 360 rounds to 360.0, which is north again: 0.0.
+    parent = FakeParent()
+    mav = make_mav(
+        parent=parent,
+        messages=[
+            Msg("GLOBAL_POSITION_INT", hdg=hdg, relative_alt=0, alt=0, lat=0, lon=0)
+            for hdg in (35999, 0, 0)
+        ],
+    )
+
+    for _ in range(3):
+        mav.process()
+
+    heads = [v for k, v in parent.writes if k == "HEAD"]
+    assert heads[0] == 359.99
+    assert heads[-1] == 0.0
 
 
 def _gps_raw(cog):
