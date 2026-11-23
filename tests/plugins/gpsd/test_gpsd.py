@@ -1,4 +1,4 @@
-from types import SimpleNamespace
+import json
 
 import pytest
 
@@ -37,49 +37,83 @@ def test_main_thread_logs_connect_failure(monkeypatch):
     assert parent.log.errors == ["Can't connect to gpsd"]
 
 
-def test_main_thread_writes_2d_and_3d_fix_data_and_warning_path(monkeypatch):
+class FakeStream:
+    """gpsd's side of the socket: answers each ?POLL with the next report.
+
+    The plugin and py-gpsd2 both talk to gpsd through gpsd2.gpsd_stream, so
+    driving the stream exercises the library's parsing as well as ours.
+    """
+
+    def __init__(self, thread, reports):
+        self.thread = thread
+        self.reports = list(reports)
+
+    def write(self, text):
+        pass
+
+    def flush(self):
+        pass
+
+    def readline(self):
+        report = self.reports.pop(0)
+        if not self.reports:
+            self.thread.getout = True
+        return json.dumps(report) + "\n"
+
+
+def poll(tpv, satellites=4, active=1):
+    return {
+        "class": "POLL",
+        "active": active,
+        "tpv": [dict(tpv, **{"class": "TPV"})],
+        "sky": [{"class": "SKY", "satellites": [{"used": True}] * satellites}],
+    }
+
+
+def run_thread(monkeypatch, reports):
     parent = FakeParent()
     thread = gpsd_plugin.MainThread(parent)
-    reports = [
-        UserWarning("no fix yet"),
-        SimpleNamespace(
-            sats=9,
-            mode=2,
-            lat=40.0,
-            lon=-83.0,
-            track=123.4,
-            hspeed=50.0,
-            alt=1000.0,
-            error={"x": 2.0, "v": 3.0, "s": 4.0},
-        ),
-        SimpleNamespace(
-            sats=10,
-            mode=3,
-            lat=41.0,
-            lon=-84.0,
-            track=222.0,
-            hspeed=60.0,
-            alt=1000.0,
-            error={"x": 1.0, "v": 2.0, "s": 3.0},
-        ),
-    ]
+    stream = FakeStream(thread, reports)
     monkeypatch.setattr(gpsd_plugin.gpsd2, "connect", lambda: None)
-
-    def get_current():
-        report = reports.pop(0)
-        if isinstance(report, Exception):
-            raise report
-        if not reports:
-            thread.getout = True
-        return report
-
-    monkeypatch.setattr(gpsd_plugin.gpsd2, "get_current", get_current)
+    monkeypatch.setattr(gpsd_plugin.gpsd2, "gpsd_stream", stream, raising=False)
     monkeypatch.setattr(gpsd_plugin.time, "sleep", lambda _seconds: None)
-
     thread.run()
-    thread.stop()
+    return parent
 
-    assert parent.log.warnings == ["gpsd warning: no fix yet"]
+
+FULL_3D = {
+    "mode": 3,
+    "lat": 41.0,
+    "lon": -84.0,
+    "track": 222.0,
+    "speed": 60.0,
+    "alt": 1000.0,
+    "epx": 1.0,
+    "epv": 2.0,
+    "eps": 3.0,
+}
+
+
+def test_main_thread_writes_2d_and_3d_fix_data_and_warning_path(monkeypatch):
+    reports = [
+        poll({"mode": 1}, active=0),
+        poll(
+            {
+                "mode": 2,
+                "lat": 40.0,
+                "lon": -83.0,
+                "track": 123.4,
+                "speed": 50.0,
+                "epx": 2.0,
+            },
+            satellites=9,
+        ),
+        poll(FULL_3D, satellites=10),
+    ]
+
+    parent = run_thread(monkeypatch, reports)
+
+    assert parent.log.warnings == ["gpsd warning: GPS not active"]
     assert ("GPS_SATS_VISIBLE", 9) in parent.writes
     assert ("GPS_FIX_TYPE", 2) in parent.writes
     assert ("LAT", 40.0) in parent.writes
@@ -87,20 +121,16 @@ def test_main_thread_writes_2d_and_3d_fix_data_and_warning_path(monkeypatch):
     assert ("TRACK", 123.4) in parent.writes
     assert ("GS", 50.0 * 1.94384) in parent.writes
     assert ("GPS_ACCURACY_HORIZ", 2.0 * 3.28084) in parent.writes
+    assert ("GPS_SATS_VISIBLE", 10) in parent.writes
+    assert ("GPS_FIX_TYPE", 3) in parent.writes
     assert ("GPS_ELLIPSOID_ALT", 1000.0 * 3.28084) in parent.writes
+    assert ("GPS_ACCURACY_HORIZ", 1.0 * 3.28084) in parent.writes
     assert ("GPS_ACCURACY_VERTICAL", 2.0 * 3.28084) in parent.writes
     assert ("GPS_ACCURACY_SPEED", 3.0 * 1.94384) in parent.writes
 
 
 def test_main_thread_writes_satellite_status_without_position_for_no_fix(monkeypatch):
-    parent = FakeParent()
-    thread = gpsd_plugin.MainThread(parent)
-    report = SimpleNamespace(sats=4, mode=1)
-    monkeypatch.setattr(gpsd_plugin.gpsd2, "connect", lambda: None)
-    monkeypatch.setattr(gpsd_plugin.gpsd2, "get_current", lambda: setattr(thread, "getout", True) or report)
-    monkeypatch.setattr(gpsd_plugin.time, "sleep", lambda _seconds: None)
-
-    thread.run()
+    parent = run_thread(monkeypatch, [poll({"mode": 1})])
 
     assert parent.writes == [("GPS_SATS_VISIBLE", 4), ("GPS_FIX_TYPE", 1)]
 
