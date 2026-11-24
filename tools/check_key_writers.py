@@ -389,11 +389,14 @@ def yaml_writes(path, catalog, rel):
         elif isinstance(node, yaml.SequenceNode):
             for v in node.value:
                 rec(v, trail)
-        elif isinstance(node, yaml.ScalarNode) and node.value in catalog:
+        elif isinstance(node, yaml.ScalarNode):
+            keys = [node.value] if node.value in catalog else \
+                templated_keys(node.value, catalog) if canfix and trail[-1:] == ["fixid"] else []
             t = "/".join(trail).lower()
             if (canfix and "inputs" in t) or \
                     (not canfix and re.search(r"(^|/)outputs?(/|$)", t)):
-                out.append((node.start_mark.line + 1, node.value, "yaml:" + "/".join(trail[-3:])))
+                for key in keys:
+                    out.append((node.start_mark.line + 1, key, "yaml:" + "/".join(trail[-3:])))
     if root is not None:
         rec(root, [])
     return out
@@ -466,6 +469,15 @@ def fgfs_protocol_writes(path, catalog):
             if m.group(1) in catalog:
                 out.append((base + block.group(1).count("\n", 0, m.start()), m.group(1), "xml:output"))
     return out
+
+
+def templated_keys(name, catalog):
+    """The keys a canfix input names with a database variable (`index: c`,
+    `fixid: CHT1c`): each lower-case letter stands for an instance number."""
+    if not re.fullmatch(r"[A-Z][A-Z0-9]*[a-z][A-Za-z0-9]*", name):
+        return []
+    rx = re.compile("^" + re.sub(r"[a-z]", "[0-9]{1,3}", name) + "$")
+    return sorted(k for k in catalog if rx.match(k))
 
 
 # ---- scan ------------------------------------------------------------------
