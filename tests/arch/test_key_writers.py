@@ -110,6 +110,13 @@ def test_the_scan_sees_the_known_writers(catalog):
     assert ("ALT", "xplane") in seen                 # xplane.yaml recv row
     assert ("EXTCRS", "xplane") in seen              # xplane.yaml datarefs
     assert ("ALT", "fgfs") in seen                   # fix_fgfs.xml <output>
+    # Names built at run time, and the rows demo streams (FPA6, AER-6518).
+    assert ("FPLIMP100ID", "fpl_exchange") in seen   # "FPLIMP%dID" % i
+    assert ("FPLSEQ", "demo") in seen                # loop over literal pairs
+    assert ("FPL1LAT", "demo") in seen               # fplroute row, f-string FPL{i}{field}
+    assert ("FPLS1KIND", "demo") in seen
+    assert ("FPLCMD", "demo") in seen                # generator row["FPLCMD"]
+    assert ("FPLFRLAT", "demo") not in seen          # an engine output: {i} is a counter
     selectors = ckw.scan_selectors(ROOT)
     assert selectors["CDI"]["by"] == "NAVSRC"
     assert selectors["BRG1"]["sources"] == ["VOR1BRG", "VOR2BRG", "GPSBRG"]
@@ -188,6 +195,118 @@ def test_a_key_table_is_read_as_the_plugin_s_writes(tmp_path):
         ("ALT", "aaa", "table OUTPUT_GROUPS"), ("ALT", "xplane", "yaml:recv"),
         ("HEAD", "fgfs", "xml:output"), ("VS", "aaa", "table OUTPUT_GROUPS"),
         ("VS", "xplane", "yaml:datarefs")]
+
+
+CAT_FPL = {k: {"key": k, "units": "", "type": t, "description": d} for k, t, d in
+           [("FPL%d%s" % (i, f), t, d) for i in (1, 2, 10)
+            for f, t, d in (("ID", "str", "Slot ident"), ("LAT", "float", "Slot latitude"),
+                            ("ALT", "str", "Slot altitude constraint"))]
+           + [("FPLFRLAT", "float", "FROM point latitude"), ("FPLSEQ", "int", "Commit counter"),
+              ("FPLNAME", "str", "Route name")]}
+
+
+def scanned(root, cat=CAT_FPL):
+    return sorted({(w["key"], w["how"]) for w in ckw.scan_writes(root, cat)})
+
+
+def test_a_percent_formatted_key_name_is_a_write(tmp_path):
+    # fpl_exchange writes its 400 point keys as "FPLIMP%dID" % i, and the
+    # scan saw none of them (FPA6).
+    root = tree(tmp_path, {"src/fixgw/plugins/aaa/__init__.py": """
+        def run(parent, points):
+            for i, p in enumerate(points, start=1):
+                parent.write("FPL%dID" % i, p)
+            parent.write("FPL%dLAT" % (2,), 0.0)
+            parent.write("FPL%sALT" % "10", "")
+    """})
+    hows = {h for _, h in scanned(root)}
+    assert hows == {"write(%-format FPL{n}ID)", "write(%-format FPL{n}LAT)",
+                    "write(%-format FPL{}ALT)"}
+    keys = {k for k, _ in scanned(root)}
+    assert keys == {"FPL1ID", "FPL2ID", "FPL10ID", "FPL1LAT", "FPL2LAT", "FPL10LAT",
+                    "FPL1ALT", "FPL2ALT", "FPL10ALT"}
+
+
+def test_format_and_loop_names_resolve_and_a_counter_is_digits(tmp_path):
+    root = tree(tmp_path, {"src/fixgw/plugins/aaa/__init__.py": """
+        def run(parent, slots):
+            parent.write("FPL{}ID".format(1), "")
+            parent.write("FPL{n}ALT".format(n=2), "")
+            for key, value in (("FPLSEQ", 1), ("FPLNAME", "")):
+                parent.write(key, value)
+            for i, slot in enumerate(slots, start=1):
+                for field in ("LAT",):
+                    parent.write(f"FPL{i}{field}", slot)
+    """})
+    keys = {k for k, _ in scanned(root)}
+    # {i} counts slots, so FPLFRLAT (an engine output) is not one of them.
+    assert keys == {"FPL1ID", "FPL2ID", "FPL10ID", "FPL1ALT", "FPL2ALT", "FPL10ALT",
+                    "FPLSEQ", "FPLNAME", "FPL1LAT", "FPL2LAT", "FPL10LAT"}
+
+
+def test_demo_writes_the_rows_it_streams(tmp_path):
+    root = tree(tmp_path, {"src/fixgw/sim/fplroute.py": """
+        def route_block_writes(slots, name, seq):
+            writes = []
+            for i, slot in enumerate(slots, start=1):
+                for field in ("ID", "LAT"):
+                    writes.append((f"FPL{i}{field}", slot[field]))
+            writes += [("FPLNAME", name), ("FPLSEQ", seq)]
+            return writes
+    """, "src/fixgw/sim/generator.py": """
+        def rows(route):
+            row = {}
+            row["REFLAT"] = 0.0
+            row["FPLSEQ"] = 1
+            return row
+    """})
+    cat = dict(CAT_FPL, REFLAT={"key": "REFLAT", "units": "", "type": "float", "description": ""})
+    w = ckw.scan_writes(root, cat)
+    assert {(x["key"], x["module"], x["category"]) for x in w} == \
+        {(k, "demo", "sim") for k in ("FPL1ID", "FPL2ID", "FPL10ID", "FPL1LAT", "FPL2LAT",
+                                      "FPL10LAT", "FPLNAME", "FPLSEQ")}
+
+
+def test_row_streams_names_what_demo_streams():
+    # ROW_STREAMS is a declaration the scan trusts: demo streams the sim
+    # generator's rows through live.stream, all but the REF* keys.
+    src = ckw.read(os.path.join(ROOT, "src/fixgw/plugins/demo/__init__.py"))
+    assert "live.stream(_Run(renumber(rows" in src
+    assert "k.startswith(REF_PREFIX)" in src and 'REF_PREFIX = "%s"' % ckw.ROW_SKIP in src
+    gen = ckw.read(os.path.join(ROOT, "src/fixgw/sim/generator.py"))
+    assert "fplroute.route_block_writes(" in gen
+    for rel in ckw.ROW_STREAMS["demo"]:
+        assert os.path.exists(os.path.join(ROOT, rel)), rel
+
+
+def test_a_datum_on_a_text_key_fails(tmp_path):
+    root = tree(tmp_path, {"src/fixgw/plugins/aaa/__init__.py":
+                           'def run(parent):\n    parent.write("FPL1ALT", "")\n'})
+    writes = ckw.scan_writes(root, CAT_FPL)
+    reg = {"FPL1ALT": {"units": "", "datum": "geodetic degrees", "writers": ["aaa"]}}
+    assert ckw.check_register(CAT_FPL, writes, {}, reg) == [
+        "FPL1ALT: writers.yaml gives a datum for a str key; a datum describes an altitude or "
+        "position number, so remove it"]
+    # --generate drops it.
+    assert "datum" not in ckw.build_register(CAT_FPL, writes, {}, reg)["FPL1ALT"]
+
+
+def test_the_register_records_the_flight_plan_writers():
+    # FPA6 (AER-6518): ARCH1 section 2.3 finding 6, on the real register.
+    reg = ckw.load_yaml(ROOT, ckw.REGISTER)
+    imp = [k for k in reg if k.startswith("FPLIMP") and k[6:7].isdigit()]
+    assert len(imp) == 400 and all(reg[k]["writers"] == ["fpl_exchange"] for k in imp)
+    assert reg["FPLIMP1LAT"]["datum"]["fpl_exchange"].startswith("wgs84:")
+    for i in range(1, 101):
+        for f in ("ALT", "PT"):
+            assert "datum" not in reg["FPL%d%s" % (i, f)]
+    for k in ("FPL1ID", "FPL100TURN", "FPLS1KIND", "FPLCOUNT", "FPLSEQ", "FPLCMD"):
+        assert reg[k]["pyefis"] == ["pyefis/flightplan"] and reg[k]["sim"] == ["demo"], k
+    for k in ("DTOID", "DTOLAT", "DTOLON", "DTOTYPE"):
+        assert reg[k]["pyefis"] == ["pyefis/flightplan"], k
+    assert reg["BRG1SRC"]["pyefis"] == ["pyefis/instruments/hsi"]
+    # The pyEfis editor has not been built to write FPLIMPDONE yet.
+    assert "FPLIMPDONE" not in reg
 
 
 def test_a_second_live_writer_fails_even_when_declared(tmp_path):

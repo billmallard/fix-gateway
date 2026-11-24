@@ -220,6 +220,25 @@ def key_pattern_match(prefix, suffix, catalog):
     return sorted(k for k in catalog if rx.match(k))
 
 
+# A placeholder in a key name: any short instance (`QVOTE{n}`), or digits
+# where the format says so (`"FPLIMP%dID" % i`).
+ANY_PART = r"[A-Za-z0-9]{1,3}"
+DIGIT_PART = r"[0-9]{1,3}"
+INT = "int"                    # a loop counter: range() or enumerate()
+PCT_SPEC = re.compile(r"%(?:\([^)]*\))?[-#0 +]*[0-9*]*(?:\.[0-9*]+)?([diouxXeEfFgGcrsa%])")
+BRACE_SPEC = re.compile(r"\{([^{}!:]*)(?:![rsa])?(?::[^{}]*)?\}")
+
+
+def template_match(parts, catalog):
+    """The keys a built name can be: `parts` alternates literal text with
+    placeholder regexes.  None unless it starts with literal text."""
+    if not parts or not isinstance(parts[0], str) or not parts[0]:
+        return []
+    rx = re.compile("^" + "".join(re.escape(p) if isinstance(p, str) else p[0]
+                                  for p in parts) + "$")
+    return sorted(k for k in catalog if rx.match(k))
+
+
 # ---- python writes ---------------------------------------------------------
 class KeyVisitor(ast.NodeVisitor):
     def __init__(self, catalog, consts, wrappers=None):
@@ -228,6 +247,7 @@ class KeyVisitor(ast.NodeVisitor):
         self.consts = consts          # module-level NAME = "KEY"
         self.refs = []                # (line, key, how)
         self.items = [{}]             # scopes: var/attr name -> key
+        self.loops = [{}]             # `for x in ("A", "B")`: x -> ["A", "B"]; a counter -> INT
 
     def keys_of(self, node):
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -237,15 +257,108 @@ class KeyVisitor(ast.NodeVisitor):
             return [self.consts[node.id]], "constant"
         if isinstance(node, ast.Attribute) and node.attr in self.consts:
             return [self.consts[node.attr]], "constant"
-        if isinstance(node, ast.JoinedStr):
-            vals = node.values
-            pre = vals[0].value if vals and isinstance(vals[0], ast.Constant) else ""
-            suf = vals[-1].value if len(vals) > 1 and isinstance(vals[-1], ast.Constant) else ""
-            if pre:
-                ks = key_pattern_match(pre, suf, self.cat)
-                if ks:
-                    return ks, "f-string %s{}%s" % (pre, suf)
+        if isinstance(node, ast.Name) and isinstance(self.loop_values(node), list):
+            ks = [k for k in self.loop_values(node) if k in self.cat]
+            if ks:
+                return ks, "loop over literals"
+        parts, how = self.name_parts(node)
+        if parts:
+            ks = template_match(parts, self.cat)
+            if ks:
+                return ks, "%s %s" % (how, "".join(p if isinstance(p, str) else p[1] for p in parts))
         return [], ""
+
+    def loop_values(self, node):
+        for scope in reversed(self.loops):
+            if node.id in scope:
+                return scope[node.id]
+        return None
+
+    def placeholder(self, node, spec_char=""):
+        """(regex, shown) for one placeholder: the strings a loop binds it
+        to, else an instance."""
+        vals = self.loop_values(node) if isinstance(node, ast.Name) else None
+        if vals == INT or (spec_char and spec_char in "diu"):
+            return DIGIT_PART, "{n}"
+        if vals:
+            return "(?:%s)" % "|".join(re.escape(v) for v in vals), "{%s}" % node.id
+        return ANY_PART, "{}"
+
+    def name_parts(self, node):
+        """A key name built at run time, as literal text and placeholders:
+        an f-string, `"FPL%dID" % i`, or `"FPL{}ID".format(i)`."""
+        if isinstance(node, ast.JoinedStr):
+            parts = []
+            for v in node.values:
+                if isinstance(v, ast.Constant):
+                    parts.append(str(v.value))
+                else:
+                    parts.append(self.placeholder(v.value))
+            return parts, "f-string"
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod) and \
+                isinstance(node.left, ast.Constant) and isinstance(node.left.value, str):
+            args = list(node.right.elts) if isinstance(node.right, ast.Tuple) else [node.right]
+            parts, pos, text = [], 0, node.left.value
+            for m in PCT_SPEC.finditer(text):
+                parts.append(text[pos:m.start()])
+                if m.group(1) == "%":
+                    parts.append("%")
+                else:
+                    arg = args.pop(0) if args else None
+                    parts.append(self.placeholder(arg, m.group(1)))
+                pos = m.end()
+            parts.append(text[pos:])
+            return merge_literals(parts), "%-format"
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and \
+                node.func.attr == "format" and isinstance(node.func.value, ast.Constant) and \
+                isinstance(node.func.value.value, str):
+            text = node.func.value.value.replace("{{", "\0").replace("}}", "\1")
+            kw = {k.arg: k.value for k in node.keywords if k.arg}
+            parts, pos, auto = [], 0, 0
+            for m in BRACE_SPEC.finditer(text):
+                parts.append(text[pos:m.start()])
+                field = m.group(1)
+                if field == "":
+                    arg = node.args[auto] if auto < len(node.args) else None
+                    auto += 1
+                elif field.isdigit():
+                    arg = node.args[int(field)] if int(field) < len(node.args) else None
+                else:
+                    arg = kw.get(field)
+                parts.append(self.placeholder(arg))
+                pos = m.end()
+            parts.append(text[pos:])
+            parts = [p.replace("\0", "{").replace("\1", "}") if isinstance(p, str) else p
+                     for p in parts]
+            return merge_literals(parts), ".format"
+        return [], ""
+
+    def visit_For(self, node):
+        # for key in ("A", "B"): / for key, v in (("A", 1), ("B", 2)):
+        bound = {}
+        elts = node.iter.elts if isinstance(node.iter, (ast.Tuple, ast.List)) else []
+        counter = isinstance(node.iter, ast.Call) and call_name(node.iter) in ("range", "enumerate")
+        if counter and call_name(node.iter) == "range" and isinstance(node.target, ast.Name):
+            bound[node.target.id] = INT
+        if counter and call_name(node.iter) == "enumerate" and isinstance(node.target, ast.Tuple) \
+                and node.target.elts and isinstance(node.target.elts[0], ast.Name):
+            bound[node.target.elts[0].id] = INT
+        if isinstance(node.target, ast.Name):
+            vals = [e.value for e in elts if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+            if elts and len(vals) == len(elts):
+                bound[node.target.id] = vals
+        elif isinstance(node.target, ast.Tuple):
+            for i, t in enumerate(node.target.elts):
+                if not isinstance(t, ast.Name):
+                    continue
+                vals = [e.elts[i].value for e in elts
+                        if isinstance(e, (ast.Tuple, ast.List)) and len(e.elts) > i
+                        and isinstance(e.elts[i], ast.Constant) and isinstance(e.elts[i].value, str)]
+                if elts and len(vals) == len(elts):
+                    bound[t.id] = vals
+        self.loops.append(bound)
+        self.generic_visit(node)
+        self.loops.pop()
 
     def lookup_item(self, node):
         name = None
@@ -296,6 +409,16 @@ class KeyVisitor(ast.NodeVisitor):
             for k in self.lookup_item(node.func.value) or []:
                 self.refs.append((node.lineno, k, "item.set()"))
         self.generic_visit(node)
+
+
+def merge_literals(parts):
+    out = []
+    for p in parts:
+        if isinstance(p, str) and out and isinstance(out[-1], str):
+            out[-1] += p
+        elif p != "":
+            out.append(p)
+    return out
 
 
 def find_wrappers(tree):
@@ -426,6 +549,68 @@ def table_writes(tree, catalog):
     return out
 
 
+# A writer that streams rows another module builds.  demo flies the
+# fixgw.sim generator's rows through `live.stream(..., self._write)`, all but
+# the REF* keys (`route_rows`), so the keys a row is given in these files
+# are demo's writes: the route block (`fplroute.route_block_writes`) and
+# FPLCMD (generator.py).  The sensors go through demo's SOURCE_KEYS table.
+ROW_STREAMS = {"demo": ("src/fixgw/sim/generator.py", "src/fixgw/sim/fplroute.py")}
+ROW_NAMES = {"row", "writes"}
+ROW_SKIP = "REF"
+
+
+class RowVisitor(KeyVisitor):
+    """The keys a row is given: `row[KEY] = v`, and the `(KEY, v)` pairs
+    put on a `writes` list."""
+
+    def visit_Assign(self, node):
+        for t in node.targets:
+            if isinstance(t, ast.Subscript) and isinstance(t.value, ast.Name) and t.value.id in ROW_NAMES:
+                self.add(node.lineno, t.slice, "row[]")
+        self.generic_visit(node)
+
+    def visit_AugAssign(self, node):
+        if isinstance(node.target, ast.Name) and node.target.id in ROW_NAMES:
+            self.pairs(node.value, "+=")
+        self.generic_visit(node)
+
+    def visit_Call(self, node):
+        f = node.func
+        if isinstance(f, ast.Attribute) and f.attr in ("append", "extend") and \
+                isinstance(f.value, ast.Name) and f.value.id in ROW_NAMES and node.args:
+            if f.attr == "append":
+                self.pairs(ast.List(elts=[node.args[0]]), "append")
+            else:
+                self.pairs(node.args[0], "extend")
+        self.generic_visit(node)
+
+    def pairs(self, seq, how):
+        for e in getattr(seq, "elts", []):
+            if isinstance(e, ast.Tuple) and len(e.elts) == 2:
+                self.add(e.lineno, e.elts[0], how)
+
+    def add(self, line, node, how):
+        ks, what = self.keys_of(node)
+        for k in ks:
+            if not k.startswith(ROW_SKIP):
+                self.refs.append((line, k, "row stream %s(%s)" % (how, what)))
+
+
+def row_stream_writes(root, catalog):
+    """(module, rel, line, key, how) for each ROW_STREAMS row key."""
+    out = []
+    for mod, files in sorted(ROW_STREAMS.items()):
+        for rel in files:
+            path = os.path.join(root, rel)
+            if not os.path.exists(path):
+                continue
+            tree = ast.parse(read(path))
+            v = RowVisitor(catalog, module_consts(tree, catalog))
+            v.visit(tree)
+            out += [(mod, rel, line, key, how) for line, key, how in v.refs]
+    return out
+
+
 def xplane_map_writes(path, catalog):
     """The X-Plane connection's sim-to-FIX maps: the keys in each `recv`
     row, and the keys of `datarefs` (`dataref_writes` goes the other way)."""
@@ -511,6 +696,10 @@ def scan_writes(root, catalog, repo="fix-gateway"):
                 found += xplane_map_writes(path, catalog)
         for line, key, how in found:
             writes.append(dict(key=key, module=mod, category=cat, file=rel, line=line, how=how))
+    if repo == "fix-gateway":
+        for mod, rel, line, key, how in row_stream_writes(root, catalog):
+            writes.append(dict(key=key, module=mod, category=category(repo, mod),
+                               file=rel, line=line, how=how))
     return writes
 
 
@@ -551,17 +740,23 @@ def load_yaml(root, rel):
 
 
 def build_register(catalog, writes, selectors, old, pyefis_writes=None):
-    """The register from a scan.  Datum entries are kept from `old`; pyEfis
-    writers come from `pyefis_writes` when given, else from `old`."""
+    """The register from a scan.  Datum entries are kept from `old`; the
+    pyEfis writers are `old`'s, plus any `pyefis_writes` adds.  They are
+    never dropped here: the pyEfis scan cannot see a write through a helper
+    (fixbridge's `_set`), so the hand-declared ones would go, and ARCHG2
+    reports a stale one from pyEfis's side."""
     found = writers_by_key(writes)
-    pyefis = writers_by_key(pyefis_writes) if pyefis_writes is not None else \
-        {k: {"pyefis": v["pyefis"]} for k, v in old.items() if v.get("pyefis")}
+    pyefis = {k: {"pyefis": set(v["pyefis"])} for k, v in old.items() if v.get("pyefis")}
+    for k, v in (writers_by_key(pyefis_writes) if pyefis_writes is not None else {}).items():
+        if v.get("pyefis"):
+            pyefis.setdefault(k, {"pyefis": set()})["pyefis"] |= set(v["pyefis"])
+    pyefis = {k: {"pyefis": sorted(v["pyefis"])} for k, v in pyefis.items()}
     reg = {}
     for key in sorted(set(found) | set(pyefis)):
         if key not in catalog:
             continue
         e = {"units": catalog[key].get("units") or ""}
-        if (old.get(key) or {}).get("datum"):
+        if (old.get(key) or {}).get("datum") and numeric(key, catalog):
             e["datum"] = old[key]["datum"]
         elif needs_datum(key, catalog):
             e["datum"] = "unrecorded"
@@ -582,6 +777,12 @@ def needs_datum(key, catalog):
     """Altitude and position keys carry a datum."""
     k = catalog.get(key, {})
     return k.get("type") == "float" and bool(DATUM_KEY.search(k.get("description") or ""))
+
+
+def numeric(key, catalog):
+    """A datum describes a number: a text or flag key never has one (an
+    altitude constraint string, a path terminator)."""
+    return catalog.get(key, {}).get("type") in ("float", "int")
 
 
 def parse_cell(cell):
@@ -727,6 +928,10 @@ def check_register(catalog, writes, selectors, register):
         if needs_datum(key, catalog) and not e.get("datum"):
             fails.append("%s: an altitude or position key needs a `datum` in writers.yaml "
                          "(`unrecorded` if nobody has read the writer)" % key)
+        if e.get("datum") and not numeric(key, catalog):
+            fails.append("%s: writers.yaml gives a datum for a %s key; a datum describes an "
+                         "altitude or position number, so remove it"
+                         % (key, catalog[key].get("type")))
         if isinstance(e.get("datum"), dict):
             for m in e["datum"]:
                 if m not in live_writers(e) | set(e.get("sim") or []):
