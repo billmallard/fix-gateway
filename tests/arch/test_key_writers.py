@@ -52,6 +52,7 @@ def test_the_scan_sees_the_known_writers(catalog):
     seen = {(w["key"], w["module"]) for w in writes}
     assert ("ALT", "mavlink") in seen                # db_write literal
     assert ("ALT", "canfix") in seen                 # canfix map.yaml inputs
+    assert ("CHT16", "canfix") in seen               # canfix `index: c` input
     assert ("CDI", "compute") in seen                # compute.yaml output
     assert ("WPLAT", "flightplan") in seen           # _setval wrapper
     assert ("QVOTE1", "canfix") in seen              # f-string QVOTE{}
