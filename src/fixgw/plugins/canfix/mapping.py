@@ -223,19 +223,12 @@ class Mapping(object):
                 # This is a switch output
                 # merge value of all switches
                 val = bytearray([0x0] * 5)
-                # Loop always runs
-                for b, valByte in enumerate(val):  # pragma: no cover # fmt: skip
-                    # Each byte of val
-                    for bt in range(8):
-                        # Each bit in the byte
-                        if b + bt + 1 > len(m["fixids"]):
-                            break
-                        else:
-                            if database.get_raw_item(m["fixids"][b + bt]).value[0]:
-                                val[b] = val[b] | (1 << bt)
-                                # Do not need to set 0 since that is default
-                    if b + bt + 1 > len(m["fixids"]):
-                        break
+                # Switch i is bit i % 8 of byte i // 8, the order the switch
+                # input unpacks; five bytes carry at most 40 switches
+                for i, fixid in enumerate(m["fixids"][: len(val) * 8]):
+                    if database.get_raw_item(fixid).value[0]:
+                        val[i // 8] |= 1 << (i % 8)
+                        # Do not need to set 0 since that is default
                 # Not setting the flags for the buttons because it is not
                 # possible to set them for each individual button
                 value = (val, 0, 0, 0, 0, 0)
