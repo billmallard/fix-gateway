@@ -7,6 +7,7 @@
 
 import ipaddress
 import json
+import math
 import re
 import select
 import socket
@@ -212,6 +213,30 @@ class FixReader(object):
 
 
 FT_PER_M = 1 / 0.3048
+
+
+def parse_assumed_accuracy(value, log):
+    """The `assumed_accuracy_ft` setting in feet, or None when it is unset.
+
+    A value that is not a positive, finite number of feet is refused, logged,
+    and left unset, so a typo never claims an accuracy.
+    """
+    if value is None or value == "":
+        return None
+    try:
+        if isinstance(value, bool):
+            raise ValueError
+        ft = float(value)
+    except (TypeError, ValueError):
+        ft = float("nan")
+    if not math.isfinite(ft) or ft <= 0:
+        log.error("assumed_accuracy_ft: %r is not a positive number of feet; leaving it unset" % (value,))
+        return None
+    log.warning(
+        "gdl90_out: assumed_accuracy_ft %g in effect: with no GPS_ACCURACY_HORIZ writer, "
+        "the ownship report claims an accuracy the source does not report" % ft
+    )
+    return ft
 TRAFFIC_KEY = re.compile(r"^TFC(\d+)TGT$")
 
 
@@ -232,6 +257,7 @@ class Encoder(object):
         self.callsign = config.get("callsign", "") or ""
         self.emitter = int(config.get("emitter_category", 1))
         self.internet_policy = int(config.get("internet_policy", 0)) & 0x03
+        self.assumed_epu_ft = parse_assumed_accuracy(config.get("assumed_accuracy_ft"), log)
         address, _source = resolve_ownship_address(config, preferences, log)
         self.address = address or 0
         self.long_name = "%s %s" % (DEVICE_NAME, fixgw.__version__)
@@ -269,6 +295,11 @@ class Encoder(object):
         lat, lon = pos if pos is not None else (None, None)
         nacp = 0
         epu_ft = v("GPS_ACCURACY_HORIZ")
+        if epu_ft is None and not self.r.written("GPS_ACCURACY_HORIZ"):
+            # Only a source that has never written the key gets the setting.
+            # A written key that is now old, bad or failed is a real receiver
+            # that lost its estimate, and that stays NACp 0.
+            epu_ft = self.assumed_epu_ft
         if pos is not None and epu_ft is not None:
             nacp = messages.nacp_code(epu_ft / FT_PER_M)
         return messages.report(
