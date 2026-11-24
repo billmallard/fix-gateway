@@ -31,8 +31,13 @@ python tools/check_key_writers.py      # prints each failure; exit 1 if any
 The scan is static. It imports nothing from `plugins/` and finds a write when:
 
 - a module calls `db_write`, `write`, `set_value` or `setValue` with a key:
-  a literal, a module constant (`KEY = "ALT"`), or an f-string whose expansions
-  are keys (`f"QVOTE{n}"`);
+  a literal, a module constant (`KEY = "ALT"`), or a name built from literal
+  text whose expansions are keys: an f-string (`f"QVOTE{n}"`), a `%` format
+  (`"FPLIMP%dID" % i`) or `.format` (`"FPL{}ID".format(i)`). A placeholder bound
+  by a loop over literals (`for field in ("ID", "LAT")`) stands for those
+  strings, and a `range()` or `enumerate()` counter, or a `%d`, for digits;
+- a module writes in a loop over literal keys
+  (`for key, value in (("FPLSEQ", n), ...): write(key, value)`);
 - a module calls one of its own functions that hands a parameter on to a write
   (`_setval(key, v)`, two levels deep);
 - a module sets `.value` on, or calls `.set()` on, an item it got with
@@ -44,7 +49,11 @@ The scan is static. It imports nothing from `plugins/` and finds a write when:
   onspeed), and every key in it is a write;
 - a simulator's key map names the key: the X-Plane connection's `recv` rows
   and `datarefs` map, and the `<output>` chunk names of the FlightGear protocol
-  file (`fix_fgfs.xml`).
+  file (`fix_fgfs.xml`);
+- demo streams the rows the `fixgw.sim` generator builds, so a key a row is
+  given in `sim/generator.py` or `sim/fplroute.py` (`row["FPLCMD"] = c`, a
+  `(key, value)` pair on a `writes` list) is a demo write, except the `REF*`
+  keys. `ROW_STREAMS` in the scanner names those files.
 
 A key written under a computed name (`db_write(self.key, v)`) is not seen. Write
 the key as a literal, a module constant or one of the tables above, so the
@@ -61,7 +70,10 @@ The register sorts each module into one of these fields:
 - **`writers`**: fix-gateway plugins and compute modules. These are live writers.
 - **`pyefis`**: pyEfis instruments, such as the altimeter knob on `BARO` and the
   HSI on `NAVSRC`. These are live writers too. fix-gateway cannot scan pyEfis,
-  so these are declared by hand. ARCHG2 checks them from pyEfis's side.
+  so these are declared by hand. ARCHG2 checks them from pyEfis's side. The
+  flight-plan editor writes the route block, `FPLSEQ`, `DTO*` and `FPLCMD`
+  through `fixbridge._set`, which the pyEfis scan cannot follow: those entries
+  are declared by reading the code, not by a scan.
 - **`sim`**: X-Plane, FlightGear, demo, replay and test plugins. They stand in
   for a live writer, so they are declared but never count as a second writer.
 - **`relay`**: netfix, command and the persisters. They pass on another
@@ -148,6 +160,10 @@ check is what makes it shrink.
 **`VS: writers.yaml lists gone under writers, and the scan finds no write from it`.**
 The register must state today's truth, so remove the stale writer.
 
+**`FPL1ALT: writers.yaml gives a datum for a str key`.**
+A datum describes a number. An altitude constraint string or a path terminator
+has none, so remove it; `--generate` drops it too.
+
 **`ALT: an altitude or position key needs a datum`.**
 Say what the number is measured from: MSL, ellipsoid (HAE), indicated (baro
 corrected), pressure (29.92), or height above home or above ground, and for a
@@ -187,8 +203,9 @@ python tools/check_key_writers.py --generate --pyefis ../pyEfis
 ```
 
 This rewrites `writers.yaml` and both baselines from the scan. It keeps the
-provider columns, and it takes the pyEfis writers from a pyEfis checkout when one is
-given, or from the existing register when not. Use it to fill in the line for a
+provider columns and the declared pyEfis writers, and adds any a pyEfis checkout
+shows when one is given. It never drops a pyEfis writer; take a stale one out
+by hand when ARCHG2 reports it. Use it to fill in the line for a
 new key. Do not use it to make the ratchet pass: a regenerated baseline that
 grew is the thing a reviewer looks for. `test_generate_reproduces_the_committed_records`
 fails if the committed files are not exactly what the scan states.
