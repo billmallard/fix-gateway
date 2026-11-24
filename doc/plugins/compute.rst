@@ -170,3 +170,10 @@ GPS2) onto X-Plane's single GPS, for the :doc:`xplane` plugin's
 The per-source keys (``GPSCRS``, ``NAV1CRS``, ...) are populated by the
 :doc:`xplane` plugin's ``datarefs`` subscriptions; on a real aircraft they would
 come from the GPS / nav-radio source plugins instead.
+
+``NAVSRC`` and the bearing-pointer selectors ``BRG1SRC`` / ``BRG2SRC`` allow
+``0`` .. ``3`` (``database/ahrs.yaml``). pyEfis's HSI labels every value in that
+range, ``3`` as ``GPS2`` in the GPS colour (ENUM2, AER-6457); nothing writes
+``3`` yet, and the ``select`` functions above have no fourth input for it. CI
+runs pyEfis's ``tests/instruments/hsi/test_source_enums.py`` against this
+tree's database, so a range widened here needs its pyEfis label first.
