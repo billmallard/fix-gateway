@@ -601,6 +601,11 @@ class Plugin(plugin.PluginBase):
                         continue
                 m.active = False
                 m.pending_since = None
+                if isinstance(e, TestEntry) and not self.test_acked:
+                    # Nobody touched it: the panel may have no window that
+                    # can acknowledge, or none on the glass (CAS-1u).
+                    self.log.warning("CAS TEST cleared unacknowledged at the "
+                                     "{:.0f} s backstop".format(e.seconds))
 
     def ordered(self):
         """Warnings, cautions, advisories; within a level unacknowledged

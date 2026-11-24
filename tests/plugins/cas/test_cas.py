@@ -147,6 +147,24 @@ def test_cas_test_clears_at_the_backstop_unacknowledged(database):
     assert database.read("CASTOP")[0] == 0
 
 
+def test_the_backstop_clear_is_logged_and_an_acknowledge_is_not(database,
+                                                                 caplog):
+    p = make(database, priority_catalogue())
+    step(p)
+    step(p, 600.1)
+    assert caplog.text.count("CAS TEST cleared unacknowledged") == 1
+    step(p, 1)
+    assert caplog.text.count("CAS TEST cleared unacknowledged") == 1
+    p.stop()
+    caplog.clear()
+    p = make(database, priority_catalogue())
+    step(p)
+    database.write("CASACK", database.read("CASSEQ")[0])
+    step(p)
+    step(p, 700)
+    assert "CAS TEST cleared unacknowledged" not in caplog.text
+
+
 def test_cas_test_cleared_by_the_panel_button(database):
     p = make(database, priority_catalogue())
     step(p, 20)

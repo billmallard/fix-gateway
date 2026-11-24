@@ -109,7 +109,8 @@ The pilot taps it once at power-up. It is held until acknowledged because a
 display draws later than the gateway starts: on the CAS3 bench pyEfis first
 drew about 6 s after it connected, and 11 s after a gateway restart under it,
 so the old fixed 5 s never reached the glass (AER-6346, AER-6497). The
-backstop clears it on a panel whose display cannot acknowledge. The old
+backstop clears it on a panel whose display cannot acknowledge. A clear at the backstop, with nobody having touched it, is
+logged as a warning. The old
 `test_time` option is ignored with a warning, since installs carry a copied
 `cas.yaml` with `test_time: 5`.
 
