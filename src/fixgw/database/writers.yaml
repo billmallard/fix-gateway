@@ -12,6 +12,8 @@
 #   relay     modules that pass a client's write on (netfix, command, ...)
 #   selector  a compute `select`: `by` picks one of `sources`, and the
 #             selector is the key's only live writer
+#   no_writer a key declared for a writer nothing shipped provides yet, and
+#             why (a panel button's key that no shipped config wires up)
 #
 # tools/check_key_writers.py checks this file against the code; see
 # doc/key_writers.md for how to declare a writer.
@@ -42,7 +44,21 @@ BAT_REMAINING: {units: '', writers: [X728, strom_pi]}
 BAT_VOLTAGE: {units: '', writers: [X728]}
 BRG1: {units: deg, writers: [compute], selector: {module: compute, by: BRG1SRC, sources: [VOR1BRG, VOR2BRG, GPSBRG]}}
 BRG2: {units: deg, writers: [compute], selector: {module: compute, by: BRG2SRC, sources: [VOR1BRG, VOR2BRG, GPSBRG]}}
+CASACK: {units: '', pyefis: [pyefis/instruments/cas]}
+CASACKBTN: {units: '', no_writer: 'a panel button: rpi_button writes the key its btnkey names, and no shipped config names this one'}
 CASCNT: {units: '', writers: [cas]}
+CASMSG1: {units: '', writers: [cas]}
+CASMSG10: {units: '', writers: [cas]}
+CASMSG11: {units: '', writers: [cas]}
+CASMSG12: {units: '', writers: [cas]}
+CASMSG2: {units: '', writers: [cas]}
+CASMSG3: {units: '', writers: [cas]}
+CASMSG4: {units: '', writers: [cas]}
+CASMSG5: {units: '', writers: [cas]}
+CASMSG6: {units: '', writers: [cas]}
+CASMSG7: {units: '', writers: [cas]}
+CASMSG8: {units: '', writers: [cas]}
+CASMSG9: {units: '', writers: [cas]}
 CASSEQ: {units: '', writers: [cas]}
 CASTOP: {units: '', writers: [cas]}
 CDI: {units: '', writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1CDI, NAV2CDI, GPSCDI]}}
