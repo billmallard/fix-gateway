@@ -291,6 +291,67 @@ def test_switch_output_merges_database_bits(monkeypatch):
     assert m.sendcount == 1
 
 
+def _pack_switch_output(monkeypatch, states):
+    # Packs one switch output whose keys are SW1..SWn, with key i+1 set to
+    # states[i], and returns the five data bytes it would send.
+    m = make_mapping()
+    fixids = [f"SW{i + 1}" for i in range(len(states))]
+    items = {
+        k: FakeDBItem(k, (bool(s), False, False, False, False, False))
+        for k, s in zip(fixids, states)
+    }
+    m.output_mapping[fixids[0]] = {
+        "canid": 0x308,
+        "index": 0,
+        "owner": True,
+        "require_leader": False,
+        "on_change": False,
+        "exclude": False,
+        "lastValue": None,
+        "lastFlags": None,
+        "lastOld": None,
+        "switch": True,
+        "fixids": fixids,
+    }
+    monkeypatch.setattr(mapping.database, "get_raw_item", lambda key: items[key])
+    func = m.getOutputFunction(FakeBus(), fixids[0], 1)
+    func(fixids[0], (False, False, False, False, False, False), None)
+    return m.output_mapping[fixids[0]]["lastValue"]
+
+
+def test_switch_output_ninth_key_packs_byte_one_bit_zero(monkeypatch):
+    # Bit bt of byte b is switch b * 8 + bt, the same order the switch input
+    # unpacks.  Indexing by b + bt sent key 2's state in key 9's place.
+    states = [False] * 8 + [True]
+
+    assert _pack_switch_output(monkeypatch, states) == bytearray([0, 1, 0, 0, 0])
+
+
+def test_switch_output_each_of_forty_keys_packs_its_own_bit(monkeypatch):
+    for i in range(40):
+        states = [False] * 40
+        states[i] = True
+        expected = bytearray(5)
+        expected[i // 8] = 1 << (i % 8)
+
+        assert _pack_switch_output(monkeypatch, states) == expected, f"key {i + 1}"
+
+
+def test_switch_output_six_keys_unchanged_for_every_state(monkeypatch):
+    # The shipped map's BTN11-16 output: all 64 states pack into byte 0 as
+    # they did before the index fix.
+    for bits in range(64):
+        states = [bool(bits & (1 << i)) for i in range(6)]
+
+        assert _pack_switch_output(monkeypatch, states) == bytearray([bits, 0, 0, 0, 0])
+
+
+def test_switch_output_ignores_keys_past_forty(monkeypatch):
+    states = [False] * 40 + [True]
+
+    assert _pack_switch_output(monkeypatch, states) == bytearray(5)
+
+
 def test_non_owner_output_duplicate_and_send_failure_paths():
     m = make_mapping()
     m.output_mapping["BARO"] = {
