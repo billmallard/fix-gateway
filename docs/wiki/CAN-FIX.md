@@ -37,6 +37,16 @@ inputs:
 With `ignore_fixid_missing: true` (shipped), entries for keys that do not exist,
 such as a second engine's, are skipped.
 
+An `index` may be a database variable (`database/variables.yaml`) that the
+`fixid` names. The entry then stands for one input per instance, index 0 being
+instance 1. The shipped maps carry each cylinder this way, so they follow `c`:
+
+```yaml
+  - { canid: 0x500, index: c, fixid: "CHT1c" }   # CHT11 at index 0 .. CHT1<c> at c-1
+```
+
+A frame at an index past the count is ignored, as any unmapped index is.
+
 **`outputs`** — database to bus. `owner: True` sends a normal parameter update,
 by default only when the value or flags change (`on_change: False` sends every
 write). Without it, the plugin sends a node-specific parameter set. A value just

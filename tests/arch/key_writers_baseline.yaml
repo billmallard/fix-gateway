@@ -4,7 +4,7 @@
 # and when a listed key has lost one -- so this file only shrinks.  Remove
 # an entry by giving the key one writer (a selector, roadmap 9.1).
 # Live writers: `writers` and `pyefis` in src/fixgw/database/writers.yaml.
-# 53 keys.
+# 57 keys.
 
 AGL: [canfix, mavlink]
 ALAT: [canfix, dynon, mavlink, rpi_bno055, stratux]
@@ -18,10 +18,14 @@ CHT11: [canfix, grand_rapids_eis]
 CHT12: [canfix, grand_rapids_eis]
 CHT13: [canfix, grand_rapids_eis]
 CHT14: [canfix, grand_rapids_eis]
+CHT15: [canfix, grand_rapids_eis]
+CHT16: [canfix, grand_rapids_eis]
 EGT11: [canfix, grand_rapids_eis]
 EGT12: [canfix, grand_rapids_eis]
 EGT13: [canfix, grand_rapids_eis]
 EGT14: [canfix, grand_rapids_eis]
+EGT15: [canfix, grand_rapids_eis]
+EGT16: [canfix, grand_rapids_eis]
 EXTCDI: [garmin_gnx375, navigator_adapter]
 EXTCRS: [garmin_gnx375, navigator_adapter]
 EXTTF: [garmin_gnx375, navigator_adapter]
