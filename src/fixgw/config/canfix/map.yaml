@@ -53,22 +53,16 @@ inputs:
   - { canid: 0x221, index: 0, fixid: "OILP2", priority: 0 }
   - { canid: 0x222, index: 0, fixid: "OILT1", priority: 0 }
   - { canid: 0x223, index: 0, fixid: "OILT2", priority: 0 }
-  - { canid: 0x500, index: 0, fixid: "CHT11", priority: 0 }
-  - { canid: 0x500, index: 1, fixid: "CHT12", priority: 0 }
-  - { canid: 0x500, index: 2, fixid: "CHT13", priority: 0 }
-  - { canid: 0x500, index: 3, fixid: "CHT14", priority: 0 }
-  - { canid: 0x501, index: 0, fixid: "CHT21", priority: 0 }
-  - { canid: 0x501, index: 1, fixid: "CHT22", priority: 0 }
-  - { canid: 0x501, index: 2, fixid: "CHT23", priority: 0 }
-  - { canid: 0x501, index: 3, fixid: "CHT24", priority: 0 }
-  - { canid: 0x502, index: 0, fixid: "EGT11", priority: 0 }
-  - { canid: 0x502, index: 1, fixid: "EGT12", priority: 0 }
-  - { canid: 0x502, index: 2, fixid: "EGT13", priority: 0 }
-  - { canid: 0x502, index: 3, fixid: "EGT14", priority: 0 }
-  - { canid: 0x503, index: 0, fixid: "EGT21", priority: 0 }
-  - { canid: 0x503, index: 1, fixid: "EGT22", priority: 0 }
-  - { canid: 0x503, index: 2, fixid: "EGT23", priority: 0 }
-  - { canid: 0x503, index: 3, fixid: "EGT24", priority: 0 }
+  # Cylinder Head and Exhaust Gas Temperature (1280-1283): one id per engine,
+  # the cylinder in the index (index 0 is cylinder 1). `index: c` makes one
+  # input per cylinder up to c in database/variables.yaml, so CHT1c on 0x500 is
+  # CHT11 at index 0 through CHT1<c> at index c-1. A frame at an index past c
+  # is ignored. CAN-FIX has ids for two engines only; with e: 1 the engine 2
+  # keys do not exist and ignore_fixid_missing skips them.
+  - { canid: 0x500, index: c, fixid: "CHT1c", priority: 0 }
+  - { canid: 0x501, index: c, fixid: "CHT2c", priority: 0 }
+  - { canid: 0x502, index: c, fixid: "EGT1c", priority: 0 }
+  - { canid: 0x503, index: c, fixid: "EGT2c", priority: 0 }
   # Fuel Quantity (550-553). Tank n is id 550 + (n-1) mod 4, index
   # floor((n-1)/4) (canfix-spec #7), so tanks 1-4 are index 0 and tanks
   # 5-8 are index 1 on the same four ids. FUELQ4 exists only when the
