@@ -98,16 +98,19 @@ class Mapping(object):
                 self.output_mapping[ea] = output
 
         # each input mapping item := [CANID, Index, FIX DB ID, Priority]
-        for index, each in enumerate(maps["inputs"]):
-            self.validate_mapping_inputs(each, meta["inputs"], index)
-            # Parameters start at 0x100 so we subtract that offset to index the array
-            ix = each["canid"] - 0x100
-            if self.input_mapping[ix] is None:
-                self.input_mapping[ix] = [None] * 256
-            self.input_mapping[ix][each["index"]] = self.getInputFunction(
-                each["fixid"], each.get("scale")
-            )
-            self.input_nodespecific[each["canid"]] = each.get("nodespecific", False)
+        for index, row in enumerate(maps["inputs"]):
+            for each in self.expand_input(row, meta["inputs"], index):
+                self.validate_mapping_inputs(each, meta["inputs"], index)
+                # Parameters start at 0x100 so we subtract that offset to index the array
+                ix = each["canid"] - 0x100
+                if self.input_mapping[ix] is None:
+                    self.input_mapping[ix] = [None] * 256
+                self.input_mapping[ix][each["index"]] = self.getInputFunction(
+                    each["fixid"], each.get("scale")
+                )
+                self.input_nodespecific[each["canid"]] = each.get(
+                    "nodespecific", False
+                )
         # each input mapping item := [CANID, Index, FIX DB ID, Priority]
         for each in maps["encoders"]:
             # p = canfix.protocol.parameters[each["canid"]]
@@ -471,6 +474,30 @@ class Mapping(object):
                 if detailed
                 else False
             )
+
+    # An input whose index is a database variable stands for one input per
+    # instance: { canid: 0x500, index: c, fixid: "CHT1c" } is index 0 to CHT11,
+    # index 1 to CHT12, and so on up to the database's c.  A frame at an index
+    # past the count finds no input and is ignored, as any unmapped index is.
+    def expand_input(self, data, meta, index):
+        if not isinstance(data, dict) or not isinstance(data.get("index"), str):
+            return [data]
+        var = data["index"]
+        if var not in database.variables or var not in str(data.get("fixid", "")):
+            if var in database.variables or not self.ignore_fixid_missing:
+                raise ValueError(
+                    cfg.message(
+                        f"index '{var}' must be a database variable named in the fixid",
+                        meta[index],
+                        "index",
+                        True,
+                    )
+                )
+            return []
+        return [
+            dict(data, index=i, fixid=data["fixid"].replace(var, str(i + 1)))
+            for i in range(database.variables[var])
+        ]
 
     def valid_fixid(self, fixid):
         return fixid in database.listkeys()
