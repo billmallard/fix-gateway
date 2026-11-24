@@ -31,8 +31,13 @@ Usage:
     python tools/check_key_writers.py                 # check; exit 1 on a failure
     python tools/check_key_writers.py --generate [--pyefis PYEFIS_CHECKOUT]
 
-`--generate` rewrites both records from the scan.  It keeps what a scan cannot
-know -- the datum entries and the pyEfis writers -- from the existing register,
+and, for the provider declaration (SRC4, AER-6455), the per-writer `datum`,
+`quality`, `on_loss` and `rate_hz` columns of the ARCH2 section 3.2 source
+keys, with `tests/arch/datum_baseline.yaml`: the keys whose writers declare
+more than one datum today.  It may only shrink.
+
+`--generate` rewrites the records from the scan.  It keeps what a scan cannot
+know -- the provider columns and the pyEfis writers -- from the existing register,
 or takes the pyEfis writers from a scan of a pyEfis checkout when one is given.
 The ratchet is the check; regenerating to make it pass is the thing a reviewer
 looks for.
@@ -54,6 +59,7 @@ ROOT = os.path.dirname(HERE)
 REGISTER = os.path.join("src", "fixgw", "database", "writers.yaml")
 BASELINE = os.path.join("tests", "arch", "key_writers_baseline.yaml")
 CONCEPTS = os.path.join("tests", "arch", "concept_names.yaml")
+DATUM_BASELINE = os.path.join("tests", "arch", "datum_baseline.yaml")
 COMPUTE_CONFIG = os.path.join("src", "fixgw", "config", "connections", "compute.yaml")
 
 SKIP_DIRS = {".git", "node_modules", "tests", "test", "doc", "docs", "evidence",
@@ -83,6 +89,60 @@ TOOL_FILE = re.compile(r"(^|/)(tools|scripts|bench|examples?)/|(^|/)conftest\.py
 
 # Altitude and position keys, by the catalog's description: these carry a datum.
 DATUM_KEY = re.compile(r"altitude|latitude|longitude|el+ipsoid|above ground", re.I)
+
+# ---- the provider declaration (SRC4, AER-6455) ---------------------------
+# The source keys of ARCH2 section 3.2 (maos-workspace
+# makerplane/briefs/architecture_audit.md): position, GPS altitude and
+# quality, indicated altitude, attitude, accelerations, airspeed, the baro
+# setting, the active waypoint and the navigation guidance.  Each writer of
+# one of these declares, per key, what it signals about quality and what it
+# does when it loses its input; altitude, position, heading, track and
+# accuracy keys also declare the datum or statistic it writes.
+PROVIDER_KEYS = (
+    "LAT", "LONG", "GS", "TRACK",
+    "GPS_ELLIPSOID_ALT",
+    "GPS_FIX_TYPE", "GPS_ACCURACY_HORIZ", "GPS_ACCURACY_VERTICAL", "GPS_ACCURACY_SPEED",
+    "GPS_SATS_VISIBLE", "GPS_SATS_TRACKED",
+    "ALT",
+    "PITCH", "ROLL", "HEAD",
+    "ALAT", "ANORM", "ROT",
+    "IAS", "TAS",
+    "BARO",
+    "WPLAT", "WPLON", "WPNAME",
+    "EXTCRS", "EXTCDI", "EXTTF", "EXTXTK", "GPSCRS", "GPSCDI", "COURSE", "CDI",
+)
+DIRECTION_KEYS = {"HEAD", "TRACK"}
+STATISTIC_KEYS = {"GPS_ACCURACY_HORIZ", "GPS_ACCURACY_VERTICAL", "GPS_ACCURACY_SPEED"}
+COLUMNS = ("datum", "quality", "on_loss", "rate_hz")
+
+# A cell is "<token>[, <token>...][: note]".
+DATUMS = {
+    # altitude
+    "indicated", "pressure", "msl", "ellipsoid", "above_home", "above_ground", "density",
+    # position
+    "wgs84",
+    # heading and track
+    "magnetic", "true",
+    # the statistic of an accuracy key: a 95 % bound, one sigma, a constant
+    # the writer assumes, or a source that does not say
+    "p95", "one_sigma", "assumed", "unstated",
+    # nobody has read the writer's code
+    "unrecorded",
+}
+# These two cannot be shown to agree with anything, even each other.
+UNKNOWN_DATUMS = {"unrecorded", "unstated"}
+# A flag the writer sets on the key itself, `passthrough` for one that copies
+# its source's flags (the canfix sender's, a compute select's), or the FIX
+# keys it writes that qualify this one (GPS_FIX_TYPE, GPS_ACCURACY_HORIZ).
+QUALITY_FLAGS = {"none", "bad", "fail", "passthrough"}
+ON_LOSS = {
+    "silence",      # stops writing; the key goes old after its tol
+    "fail",         # sets the fail flag
+    "holds_last",   # keeps writing its last value, so a dead source stays fresh
+    "writes_zero",  # writes a valid 0 or a default
+    "on_change",    # a setting or an engine output, written when it changes
+    "follows",      # a compute select: the chosen source's value and flags
+}
 
 FIX_DECLARE = ("declare it in src/fixgw/database/writers.yaml and add the roadmap "
                "9.1 block (doc/key_writers.md)")
@@ -493,6 +553,9 @@ def build_register(catalog, writes, selectors, old, pyefis_writes=None):
             e["datum"] = old[key]["datum"]
         elif needs_datum(key, catalog):
             e["datum"] = "unrecorded"
+        for col in COLUMNS[1:]:
+            if (old.get(key) or {}).get(col) is not None:
+                e[col] = old[key][col]
         for field in REGISTER_LISTS:
             mods = (pyefis.get(key, {}) if field == "pyefis" else found.get(key, {})).get(field)
             if mods:
@@ -509,6 +572,38 @@ def needs_datum(key, catalog):
     return k.get("type") == "float" and bool(DATUM_KEY.search(k.get("description") or ""))
 
 
+def parse_cell(cell):
+    """'msl: NMEA GGA altitude' -> (['msl'], 'NMEA GGA altitude')."""
+    head, _, note = str(cell).partition(": ")
+    return [t.strip() for t in head.split(",")], note
+
+
+def declared_writers(e):
+    """Every module the register says writes the key, but the relays."""
+    return live_writers(e) | set(e.get("sim") or [])
+
+
+def needs_provider_datum(key, catalog):
+    return needs_datum(key, catalog) or key in DIRECTION_KEYS or key in STATISTIC_KEYS
+
+
+def datum_classes(e):
+    """writer -> datum token, from a per-writer datum mapping."""
+    d = e.get("datum")
+    if not isinstance(d, dict):
+        return {}
+    return {m: parse_cell(v)[0][0] for m, v in sorted(d.items())}
+
+
+def disagrees(classes):
+    toks = list(classes.values())
+    return len(toks) > 1 and (len(set(toks)) > 1 or bool(set(toks) & UNKNOWN_DATUMS))
+
+
+def build_datum_baseline(register):
+    return {k: datum_classes(e) for k, e in sorted(register.items()) if disagrees(datum_classes(e))}
+
+
 def build_baseline(register):
     return {k: sorted(live_writers(e)) for k, e in sorted(register.items())
             if len(live_writers(e)) > 1}
@@ -521,15 +616,25 @@ def dump_register(reg):
         "#",
         "# One entry per key that some module writes:",
         "#   units     the catalog's units (database.yaml)",
-        "#   datum     altitude and position keys: the datum each writer puts on the",
-        "#             bus.  A mapping is per writer, and where they differ the key is",
-        "#             wrong today; `unrecorded` means nobody has read the code yet.",
+        "#   datum     altitude, position, heading, track and accuracy keys: the datum",
+        "#             (or, for accuracy, the statistic) each writer puts on the bus.",
+        "#             A mapping is per writer, and where they differ the key is wrong",
+        "#             today (tests/arch/datum_baseline.yaml); `unrecorded` means",
+        "#             nobody has read the code yet.",
+        "#   quality   per writer (SRC4): the flags it sets on the key, `passthrough`,",
+        "#             the FIX keys it writes that qualify this one, or `none`",
+        "#   on_loss   per writer: silence, fail, holds_last, writes_zero, on_change",
+        "#             or follows -- what the key does when the writer loses its input",
+        "#   rate_hz   per writer, where the code or its doc states it",
         "#   writers   live writers in fix-gateway: plugins and compute modules",
         "#   pyefis    live writers in pyEfis (ARCHG2 checks these from pyEfis's side)",
         "#   sim       simulators and replays, which stand in for a live writer",
         "#   relay     modules that pass a client's write on (netfix, command, ...)",
         "#   selector  a compute `select`: `by` picks one of `sources`, and the",
         "#             selector is the key's only live writer",
+        "#",
+        "# A cell is \"<token>[, <token>]: note\".  Every writer of an ARCH2 section",
+        "# 3.2 source key fills quality and on_loss, and datum where it applies.",
         "#",
         "# tools/check_key_writers.py checks this file against the code; see",
         "# doc/key_writers.md for how to declare a writer.",
@@ -542,6 +647,24 @@ def dump_register(reg):
 
 def flow(obj):
     return yaml.safe_dump(obj, default_flow_style=True, sort_keys=False, width=10 ** 6).strip()
+
+
+def dump_datum_baseline(base):
+    lines = [
+        "# Keys whose writers put more than one datum on the bus today (SRC4,",
+        "# AER-6455): each writer and the datum it declares in",
+        "# src/fixgw/database/writers.yaml.  `unrecorded` and `unstated` never",
+        "# agree, so a key with one of them and a second writer is here too.",
+        "# tests/arch/test_key_writers.py fails when a key not listed here",
+        "# declares two datums, and when a listed key's writers or datums change",
+        "# -- so this file only shrinks.  Remove an entry by giving each datum its",
+        "# own key (GALT1) or by fixing the writer (MAVALT1).",
+        "# %d keys." % len(base),
+        "",
+    ]
+    for key, classes in base.items():
+        lines.append("%s: %s" % (key, flow(classes)))
+    return "\n".join(lines) + "\n"
 
 
 def dump_baseline(base):
@@ -646,6 +769,113 @@ def check_baseline(register, baseline):
     return fails
 
 
+def cell_fails(key, m, col, cell, register, catalog):
+    where = "%s: writers.yaml `%s` for %s" % (key, col, m)
+    if col == "rate_hz":
+        if isinstance(cell, bool) or not isinstance(cell, (int, float)) or cell <= 0:
+            return ["%s is %r; give a rate in Hz, or leave the writer out when it is not known"
+                    % (where, cell)]
+        return []
+    if not isinstance(cell, str) or not cell.strip():
+        return ["%s is %r; write \"<token>: note\" (doc/key_writers.md)" % (where, cell)]
+    toks, _note = parse_cell(cell)
+    fails = []
+    if col == "datum":
+        if len(toks) != 1 or toks[0] not in DATUMS:
+            fails.append("%s is %r; a datum is one of %s, then \": note\""
+                         % (where, ", ".join(toks), ", ".join(sorted(DATUMS))))
+    elif col == "on_loss":
+        bad = [t for t in toks if t not in ON_LOSS]
+        if bad:
+            fails.append("%s names %s; on_loss is one or more of %s"
+                         % (where, ", ".join(bad), ", ".join(sorted(ON_LOSS))))
+    elif col == "quality":
+        if "none" in toks and len(toks) > 1:
+            fails.append("%s says `none` and also %s" % (where, ", ".join(t for t in toks if t != "none")))
+        for t in toks:
+            if t in QUALITY_FLAGS:
+                continue
+            if t not in catalog:
+                fails.append("%s names %s, which is neither a flag (%s) nor a FIX key"
+                             % (where, t, ", ".join(sorted(QUALITY_FLAGS))))
+            elif m not in declared_writers(register.get(t) or {}):
+                fails.append("%s names %s, which %s does not write" % (where, t, m))
+    return fails
+
+
+def check_columns(catalog, register, provider_keys=PROVIDER_KEYS):
+    """Failures in the provider declaration: a provider key whose writers do
+    not each declare quality, on_loss and (where it applies) a datum; and a
+    cell that names a module that does not write the key, or a token outside
+    its column's vocabulary."""
+    fails = []
+    for key in provider_keys:
+        e = register.get(key)
+        if e is None:
+            fails.append("%s: an ARCH2 section 3.2 source key with no entry in writers.yaml" % key)
+            continue
+        need = ["quality", "on_loss"] + (["datum"] if needs_provider_datum(key, catalog) else [])
+        for col in need:
+            got = e.get(col)
+            if not isinstance(got, dict):
+                fails.append("%s: a source key needs a `%s` mapping, one cell per writer, in "
+                             "writers.yaml (doc/key_writers.md)" % (key, col))
+                continue
+            for m in sorted(declared_writers(e) - set(got)):
+                fails.append("%s: %s writes it and declares no `%s` in writers.yaml" % (key, m, col))
+    for key, e in sorted(register.items()):
+        writers = declared_writers(e)
+        for col in COLUMNS:
+            got = e.get(col)
+            if got is None or (col == "datum" and not isinstance(got, dict)):
+                continue   # a scalar datum is a note on the key, as before SRC4
+            if not isinstance(got, dict):
+                fails.append("%s: writers.yaml `%s` must map each writer to its cell" % (key, col))
+                continue
+            for m, cell in sorted(got.items()):
+                if col != "datum" and m not in writers:   # check_register covers datum
+                    fails.append("%s: writers.yaml gives `%s` for %s, which is not one of its "
+                                 "writers" % (key, col, m))
+                fails += cell_fails(key, m, col, cell, register, catalog)
+    return fails
+
+
+def check_datum_baseline(register, base):
+    """Failures: a key whose writers declare two datums and is not on the
+    datum baseline; a listed key whose writers or datums changed; a listed key
+    that now has one datum."""
+    fails = []
+    for key, e in sorted(register.items()):
+        classes = datum_classes(e)
+        if not disagrees(classes):
+            continue
+        said = ", ".join("%s %s" % (m, t) for m, t in classes.items())
+        if key not in base:
+            fails.append("%s: its writers declare more than one datum (%s), and it is not on "
+                         "tests/arch/datum_baseline.yaml.  A key has one datum: give the other "
+                         "datum its own key, as GALT1 does, or fix the writer, as MAVALT1 did" % (key, said))
+            continue
+        allowed = base[key] or {}
+        for m, t in classes.items():
+            if m not in allowed:
+                fails.append("%s: %s declares `%s` and the datum baseline does not list it; a "
+                             "new writer takes the key's one datum" % (key, m, t))
+            elif allowed[m] != t:
+                fails.append("%s: %s now declares `%s`, and the datum baseline has `%s`"
+                             % (key, m, t, allowed[m]))
+    for key in sorted(base):
+        classes = datum_classes(register.get(key) or {})
+        if not disagrees(classes):
+            fails.append("%s: its writers now agree on one datum and it is still on the datum "
+                         "baseline; remove it from tests/arch/datum_baseline.yaml" % key)
+            continue
+        gone = sorted(set(base[key] or {}) - set(classes))
+        if gone:
+            fails.append("%s: the datum baseline lists %s, which no longer declares a datum; "
+                         "remove it from the entry" % (key, ", ".join(gone)))
+    return fails
+
+
 # ---- concept names ---------------------------------------------------------
 TYPE_FACTORIES = {"namedtuple", "NamedTuple", "TypedDict", "make_dataclass"}
 
@@ -697,7 +927,9 @@ def run_checks(root=ROOT, catalog=None):
     baseline = load_yaml(root, BASELINE)
     return (check_register(catalog, writes, selectors, register),
             check_baseline(register, baseline),
-            check_concepts(root, load_yaml(root, CONCEPTS)))
+            check_concepts(root, load_yaml(root, CONCEPTS)),
+            check_columns(catalog, register),
+            check_datum_baseline(register, load_yaml(root, DATUM_BASELINE)))
 
 
 def generate(root, pyefis_root=None):
@@ -706,14 +938,16 @@ def generate(root, pyefis_root=None):
     pw = scan_writes(pyefis_root, catalog, repo="pyEfis") if pyefis_root else None
     reg = build_register(catalog, writes, scan_selectors(root), load_yaml(root, REGISTER), pw)
     base = build_baseline(reg)
-    for rel, text in ((REGISTER, dump_register(reg)), (BASELINE, dump_baseline(base))):
+    for rel, text in ((REGISTER, dump_register(reg)), (BASELINE, dump_baseline(base)),
+                      (DATUM_BASELINE, dump_datum_baseline(build_datum_baseline(reg)))):
         path = os.path.join(root, rel)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         if os.path.exists(path):
             os.remove(path)   # never overwrite in place: the NAS kept stale tail bytes
         with open(path, "w") as f:
             f.write(text)
-    print("wrote %s (%d keys) and %s (%d multi-writer keys)" % (REGISTER, len(reg), BASELINE, len(base)))
+    print("wrote %s (%d keys), %s (%d multi-writer keys) and %s"
+          % (REGISTER, len(reg), BASELINE, len(base), DATUM_BASELINE))
 
 
 def main():

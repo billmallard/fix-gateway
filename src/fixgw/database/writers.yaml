@@ -3,9 +3,16 @@
 #
 # One entry per key that some module writes:
 #   units     the catalog's units (database.yaml)
-#   datum     altitude and position keys: the datum each writer puts on the
-#             bus.  A mapping is per writer, and where they differ the key is
-#             wrong today; `unrecorded` means nobody has read the code yet.
+#   datum     altitude, position, heading, track and accuracy keys: the datum
+#             (or, for accuracy, the statistic) each writer puts on the bus.
+#             A mapping is per writer, and where they differ the key is wrong
+#             today (tests/arch/datum_baseline.yaml); `unrecorded` means
+#             nobody has read the code yet.
+#   quality   per writer (SRC4): the flags it sets on the key, `passthrough`,
+#             the FIX keys it writes that qualify this one, or `none`
+#   on_loss   per writer: silence, fail, holds_last, writes_zero, on_change
+#             or follows -- what the key does when the writer loses its input
+#   rate_hz   per writer, where the code or its doc states it
 #   writers   live writers in fix-gateway: plugins and compute modules
 #   pyefis    live writers in pyEfis (ARCHG2 checks these from pyEfis's side)
 #   sim       simulators and replays, which stand in for a live writer
@@ -13,16 +20,19 @@
 #   selector  a compute `select`: `by` picks one of `sources`, and the
 #             selector is the key's only live writer
 #
+# A cell is "<token>[, <token>]: note".  Every writer of an ARCH2 section
+# 3.2 source key fills quality and on_loss, and datum where it applies.
+#
 # tools/check_key_writers.py checks this file against the code; see
 # doc/key_writers.md for how to declare a writer.
 
 ACCELW: {units: warninglevel, writers: [rpi_bno055]}
-AGL: {units: ft, datum: {canfix: 'radar altitude, CAN-FIX parameter 0x188', mavlink: 'GLOBAL_POSITION_INT.relative_alt: height above the autopilot''s home, not above ground'}, writers: [canfix, mavlink], sim: [fgfs, xplane]}
+AGL: {units: ft, datum: {canfix: 'above_ground: radar altitude, CAN-FIX parameter 0x188', mavlink: 'above_home: GLOBAL_POSITION_INT.relative_alt, height above the autopilot''s home, not above ground'}, writers: [canfix, mavlink], sim: [fgfs, xplane]}
 AIRPRESS: {units: Pa, writers: [mavlink]}
-ALAT: {units: g, writers: [canfix, dynon, mavlink, rpi_bno055, stratux], sim: [fgfs, xplane]}
+ALAT: {units: g, quality: {canfix: 'passthrough: the CAN-FIX sender''s quality and failure flags', dynon: 'none: no checksum', fgfs: none, mavlink: none, rpi_bno055: 'ACCELW: the BNO055 calibration status; the value is divided by 60, not 9.81', stratux: 'none: -sin(slip angle), a slip proxy, not an acceleration', xplane: none}, on_loss: {canfix: 'silence, fail: the sender''s fail flag is passed through', dynon: 'silence: a bad frame is dropped; a serial error can re-parse stale bytes', fgfs: 'silence: the sim stops sending; a bad sentence is dropped', mavlink: 'silence: no message, no write', rpi_bno055: 'silence: the thread dies', stratux: 'silence: no invalid-sentinel check on the AHRS fields', xplane: 'silence: the sim stops sending; -999 slots are skipped'}, rate_hz: {fgfs: 10, mavlink: 5, rpi_bno055: 60}, writers: [canfix, dynon, mavlink, rpi_bno055, stratux], sim: [fgfs, xplane]}
 ALONG: {units: g, writers: [mavlink, rpi_bno055]}
-ALT: {units: ft, datum: {canfix: 'indicated, as the CAN-FIX node sends parameter 0x184', dynon: Dynon serial altitude field when status bit 0 is 0 (the same value goes to TALT); field not checked against Dynon's spec, grand_rapids_eis: 'unrecorded: a raw frame field, protocol not read', mavlink: 'indicated: SCALED_PRESSURE static pressure (plus pascal_offset), ISA pressure altitude less baro_offset_ft(BARO); not written without pressure', rpi_bmp085: sensor altitude at 29.92 plus (BARO - 29.92) * 1000 ft, stratux: Stratux AHRS altitude field less 5000.5 (Stratux documents pressure altitude); not corrected to BARO}, writers: [canfix, dynon, grand_rapids_eis, mavlink, onspeed, rpi_bmp085, stratux], sim: [demo, fgfs, xplane]}
-ANORM: {units: g, writers: [mavlink, rpi_bno055]}
+ALT: {units: ft, datum: {canfix: 'indicated: CAN-FIX parameter 0x184, Indicated Altitude', demo: 'msl: the model''s one altitude, not barometric', dynon: 'indicated: the serial altitude field when status bit 0 is 0 (it goes to TALT too); not checked against Dynon''s spec', fgfs: 'msl: /position/altitude-ft (fix_fgfs.xml)', grand_rapids_eis: 'unrecorded: a raw frame field, written unscaled; the protocol is not read', mavlink: 'indicated: SCALED_PRESSURE static pressure, ISA pressure altitude less baro_offset_ft(BARO) (MAVALT1)', onspeed: 'indicated: the sentence''s ISA pressure altitude less baro_offset_ft(BARO)', rpi_bmp085: 'indicated: sensor altitude at 29.92 plus (BARO - 29.92) * 1000 ft, a rule of thumb', stratux: 'pressure: the AHRS altitude field less 5000.5 (Stratux documents pressure altitude), not corrected to BARO', xplane: 'msl: data output row 20, alt_ft_msl (ARCH2 section 3.5, beside MAVALT1)'}, quality: {canfix: 'passthrough: the CAN-FIX sender''s quality and failure flags', demo: none, dynon: 'none: no checksum', fgfs: none, grand_rapids_eis: 'none: the checksum is read and never checked', mavlink: 'bad: on a bad or implausible BARO, or outside ALT''s range', onspeed: 'bad, fail: bad on a bad BARO or out of range', rpi_bmp085: none, stratux: none, xplane: none}, on_loss: {canfix: 'silence, fail: the sender''s fail flag is passed through', demo: 'silence: stops itself on a second writer', dynon: 'silence: a bad frame is dropped; a serial error can re-parse stale bytes', fgfs: 'silence: the sim stops sending; a bad sentence is dropped', grand_rapids_eis: 'silence: a bad frame writes nothing', mavlink: 'silence: never written without pressure', onspeed: 'fail: on port loss', rpi_bmp085: 'silence: the thread dies', stratux: 'silence: no invalid-sentinel check on the AHRS fields', xplane: 'silence: the sim stops sending; -999 slots are skipped'}, rate_hz: {demo: 5, fgfs: 10, mavlink: 5, onspeed: 10, rpi_bmp085: 10}, writers: [canfix, dynon, grand_rapids_eis, mavlink, onspeed, rpi_bmp085, stratux], sim: [demo, fgfs, xplane]}
+ANORM: {units: g, quality: {mavlink: none, rpi_bno055: 'ACCELW: the BNO055 calibration status; the value is divided by 60, not 9.81'}, on_loss: {mavlink: 'silence: no message, no write', rpi_bno055: 'silence: the thread dies'}, rate_hz: {mavlink: 5, rpi_bno055: 60}, writers: [mavlink, rpi_bno055]}
 AOA: {units: deg, writers: [canfix, onspeed], sim: [fgfs, xplane]}
 APALTCAP: {units: '', sim: [xplane]}
 APALTREF: {units: ft, datum: 'X-Plane''s alt_hold, the altitude the sim''s autopilot holds', sim: [xplane]}
@@ -36,7 +46,7 @@ APLATARM: {units: '', sim: [xplane]}
 APMSG: {units: '', sim: [xplane]}
 APVERT: {units: '', sim: [xplane]}
 APVERTARM: {units: '', sim: [xplane]}
-BARO: {units: inHg, writers: [canfix, grand_rapids_eis], pyefis: [pyefis/instruments/altimeter]}
+BARO: {units: inHg, quality: {canfix: 'passthrough: the CAN-FIX sender''s quality and failure flags', grand_rapids_eis: 'none: the checksum is read and never checked', pyefis/instruments/altimeter: none}, on_loss: {canfix: 'silence, fail: the sender''s fail flag is passed through', grand_rapids_eis: 'silence: a bad frame writes nothing', pyefis/instruments/altimeter: 'on_change: the pilot''s setting; BARO has no tol'}, writers: [canfix, grand_rapids_eis], pyefis: [pyefis/instruments/altimeter]}
 BAT_CHARGING: {units: '', writers: [strom_pi]}
 BAT_REMAINING: {units: '', writers: [X728, strom_pi]}
 BAT_VOLTAGE: {units: '', writers: [X728]}
@@ -45,7 +55,7 @@ BRG2: {units: deg, writers: [compute], selector: {module: compute, by: BRG2SRC, 
 CASCNT: {units: '', writers: [cas]}
 CASSEQ: {units: '', writers: [cas]}
 CASTOP: {units: '', writers: [cas]}
-CDI: {units: '', writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1CDI, NAV2CDI, GPSCDI]}}
+CDI: {units: '', quality: {compute: 'passthrough: the chosen source''s flags'}, on_loss: {compute: 'follows: a failed or never-written source fails the output'}, writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1CDI, NAV2CDI, GPSCDI]}}
 CDISCALE: {units: nM, writers: [flightplan]}
 CDIV: {units: '', writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1CDIV, NAV2CDIV, 1.0]}}
 CHT11: {units: degC, writers: [canfix, grand_rapids_eis], sim: [demo, fgfs]}
@@ -55,7 +65,7 @@ CHT14: {units: degC, writers: [canfix, grand_rapids_eis], sim: [demo]}
 CHT15: {units: degC, writers: [grand_rapids_eis]}
 CHT16: {units: degC, writers: [grand_rapids_eis]}
 CHTMAX1: {units: degC, writers: [compute]}
-COURSE: {units: deg, writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1CRS, NAV2CRS, GPSCRS]}}
+COURSE: {units: deg, quality: {compute: 'passthrough: the chosen source''s flags'}, on_loss: {compute: 'follows: a failed or never-written source fails the output'}, writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1CRS, NAV2CRS, GPSCRS]}}
 CURRNT: {units: amps, writers: [canfix], sim: [demo]}
 DALT: {units: ft, datum: 'density altitude: altd from PALT, TALT and OAT', writers: [compute]}
 DIFFAIRPRESS: {units: Pa, writers: [mavlink]}
@@ -68,15 +78,15 @@ EGT16: {units: degC, writers: [grand_rapids_eis]}
 EGTAVG1: {units: degC, writers: [compute]}
 EGTMAX1: {units: degC, writers: [compute]}
 EGTSPAN1: {units: degC, writers: [compute]}
-EXTCDI: {units: '', writers: [garmin_gnx375, navigator_adapter], sim: [fgfs, xplane]}
-EXTCRS: {units: deg, writers: [garmin_gnx375, navigator_adapter], sim: [fgfs, xplane]}
+EXTCDI: {units: '', quality: {fgfs: none, garmin_gnx375: none, navigator_adapter: none, xplane: none}, on_loss: {fgfs: 'silence: the sim stops sending; a bad sentence is dropped', garmin_gnx375: 'silence: an RMB or APB without the field writes nothing', navigator_adapter: silence, xplane: 'silence: the sim stops sending'}, rate_hz: {fgfs: 10, xplane: 10}, writers: [garmin_gnx375, navigator_adapter], sim: [fgfs, xplane]}
+EXTCRS: {units: deg, quality: {fgfs: none, garmin_gnx375: none, navigator_adapter: none, xplane: none}, on_loss: {fgfs: 'silence: the sim stops sending; a bad sentence is dropped', garmin_gnx375: 'silence: an RMB or APB without the field writes nothing', navigator_adapter: silence, xplane: 'silence: the sim stops sending'}, rate_hz: {fgfs: 10, xplane: 10}, writers: [garmin_gnx375, navigator_adapter], sim: [fgfs, xplane]}
 EXTGSF: {units: '', sim: [fgfs, xplane]}
 EXTGSI: {units: '', sim: [fgfs, xplane]}
 EXTGSV: {units: '', writers: [compute]}
 EXTOBSCRS: {units: deg, sim: [fgfs, xplane]}
 EXTSEQ: {units: '', sim: [xplane]}
-EXTTF: {units: '', writers: [garmin_gnx375, navigator_adapter], sim: [fgfs, xplane]}
-EXTXTK: {units: nM, writers: [garmin_gnx375, navigator_adapter]}
+EXTTF: {units: '', quality: {fgfs: none, garmin_gnx375: none, navigator_adapter: none, xplane: none}, on_loss: {fgfs: 'silence: the sim stops sending; a bad sentence is dropped', garmin_gnx375: 'silence: an RMB or APB without the field writes nothing', navigator_adapter: silence, xplane: 'silence: the sim stops sending'}, rate_hz: {fgfs: 10, xplane: 10}, writers: [garmin_gnx375, navigator_adapter], sim: [fgfs, xplane]}
+EXTXTK: {units: nM, quality: {garmin_gnx375: none, navigator_adapter: none}, on_loss: {garmin_gnx375: 'silence: an RMB or APB without the field writes nothing', navigator_adapter: silence}, writers: [garmin_gnx375, navigator_adapter]}
 FDENG: {units: '', sim: [xplane]}
 FDPITCH: {units: deg, sim: [xplane]}
 FDROLL: {units: deg, sim: [xplane]}
@@ -2223,32 +2233,32 @@ FUELQT: {units: gal, writers: [compute, shadin]}
 GATEWAY_VERSION: {units: '', writers: [fixgw]}
 GPSBRG: {units: deg, writers: [compute]}
 GPSBRGT: {units: deg, writers: [compute]}
-GPSCDI: {units: '', writers: [compute], selector: {module: compute, by: GPSSRC, sources: [FPLCDI, EXTCDI]}}
-GPSCRS: {units: deg, writers: [compute], selector: {module: compute, by: GPSSRC, sources: [FPLCRS, EXTCRS]}}
+GPSCDI: {units: '', quality: {compute: 'passthrough: the chosen source''s flags'}, on_loss: {compute: 'follows: a failed or never-written source fails the output'}, writers: [compute], selector: {module: compute, by: GPSSRC, sources: [FPLCDI, EXTCDI]}}
+GPSCRS: {units: deg, quality: {compute: 'passthrough: the chosen source''s flags'}, on_loss: {compute: 'follows: a failed or never-written source fails the output'}, writers: [compute], selector: {module: compute, by: GPSSRC, sources: [FPLCRS, EXTCRS]}}
 GPSGSI: {units: '', writers: [compute], selector: {module: compute, by: GPSSRC, sources: [0.0, EXTGSI]}}
 GPSGSV: {units: '', writers: [compute], selector: {module: compute, by: GPSSRC, sources: [0.0, EXTGSV]}}
 GPSTF: {units: '', writers: [compute], selector: {module: compute, by: GPSSRC, sources: [FPLTF, EXTTF]}}
-GPS_ACCURACY_HORIZ: {units: ft, writers: [gpsd, mavlink], sim: [demo]}
-GPS_ACCURACY_SPEED: {units: knots, writers: [gpsd, mavlink]}
-GPS_ACCURACY_VERTICAL: {units: ft, writers: [gpsd, mavlink]}
-GPS_ELLIPSOID_ALT: {units: ft, datum: {garmin_gnx375: 'MSL: NMEA GGA altitude', gpsd: 'gpsd TPV alt: deprecated in current gpsd, historically MSL; the benches'' gpsd version is not checked', mavlink: 'ellipsoid (HAE): GPS_RAW_INT.alt_ellipsoid', navigator_adapter: 'MSL: NormalizedNavMessage position alt_ft_msl'}, writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter]}
-GPS_FIX_TYPE: {units: '', writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter], sim: [demo]}
-GPS_SATS_TRACKED: {units: '', writers: [mavlink]}
-GPS_SATS_VISIBLE: {units: '', writers: [gpsd, mavlink]}
-GS: {units: knots, writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter, stratux], sim: [demo, fgfs, xplane]}
+GPS_ACCURACY_HORIZ: {units: ft, datum: {demo: 'assumed: a constant 30 ft', gpsd: 'unstated: gpsd TPV epx, the LONGITUDE error only; gpsd''s own reference says certainty unknown, guessed to be 95 %', mavlink: 'unstated: GPS_RAW_INT h_acc; MAVLink says "position uncertainty" and names no statistic'}, quality: {demo: none, gpsd: GPS_FIX_TYPE, mavlink: GPS_FIX_TYPE}, on_loss: {demo: 'silence: stops itself on a second writer', gpsd: 'silence: a field gpsd leaves out writes nothing (SRC2); below a 2-D fix no position', mavlink: 'silence: no message, no write'}, rate_hz: {demo: 5, gpsd: 5, mavlink: 5}, writers: [gpsd, mavlink], sim: [demo]}
+GPS_ACCURACY_SPEED: {units: knots, datum: {gpsd: 'unstated: gpsd TPV eps, certainty unknown', mavlink: 'unstated: GPS_RAW_INT vel_acc'}, quality: {gpsd: GPS_FIX_TYPE, mavlink: GPS_FIX_TYPE}, on_loss: {gpsd: 'silence: below a 3-D fix, or without eps, nothing', mavlink: 'silence: no message, no write'}, rate_hz: {gpsd: 5, mavlink: 5}, writers: [gpsd, mavlink]}
+GPS_ACCURACY_VERTICAL: {units: ft, datum: {gpsd: 'unstated: gpsd TPV epv, certainty unknown', mavlink: 'unstated: GPS_RAW_INT v_acc'}, quality: {gpsd: GPS_FIX_TYPE, mavlink: GPS_FIX_TYPE}, on_loss: {gpsd: 'silence: below a 3-D fix, or without epv, nothing', mavlink: 'silence: no message, no write'}, rate_hz: {gpsd: 5, mavlink: 5}, writers: [gpsd, mavlink]}
+GPS_ELLIPSOID_ALT: {units: ft, datum: {garmin_gnx375: 'msl: NMEA GGA altitude, above the geoid (GALT1)', gpsd: 'msl: gpsd TPV alt, which gpsd now calls deprecated and undefined, historically MSL; the benches'' gpsd version is not checked (GALT1)', mavlink: 'ellipsoid: GPS_RAW_INT alt_ellipsoid', navigator_adapter: 'msl: NormalizedNavMessage position alt_ft_msl (GALT1)'}, quality: {garmin_gnx375: 'GPS_FIX_TYPE: no accuracy key', gpsd: 'GPS_FIX_TYPE, GPS_ACCURACY_VERTICAL', mavlink: 'GPS_FIX_TYPE, GPS_ACCURACY_VERTICAL', navigator_adapter: 'GPS_FIX_TYPE: when the navigator sends one; the record''s `integrity` field is never read'}, on_loss: {garmin_gnx375: 'silence: a GGA of quality 0 writes nothing', gpsd: 'silence: below a 3-D fix, or without alt, nothing', mavlink: 'silence: no message, no write', navigator_adapter: silence}, rate_hz: {gpsd: 5, mavlink: 5}, writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter]}
+GPS_FIX_TYPE: {units: '', quality: {demo: none, garmin_gnx375: none, gpsd: none, mavlink: 'none: the raw GPS_FIX_TYPE enum, to 8; the catalog''s max is 5', navigator_adapter: none}, on_loss: {demo: 'silence: stops itself on a second writer', garmin_gnx375: 'silence: a GGA of quality 0 writes fix type 0, which says so', gpsd: 'silence: written on every gpsd reply; a lost fix writes mode 1, which says so', mavlink: 'silence: no message, no write', navigator_adapter: silence}, rate_hz: {demo: 5, gpsd: 5, mavlink: 5}, writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter], sim: [demo]}
+GPS_SATS_TRACKED: {units: '', quality: {mavlink: 'none: the visible count; MAVLink gives no tracked count'}, on_loss: {mavlink: 'silence: no message, no write'}, rate_hz: {mavlink: 5}, writers: [mavlink]}
+GPS_SATS_VISIBLE: {units: '', quality: {gpsd: none, mavlink: none}, on_loss: {gpsd: 'silence: written on every gpsd reply; a lost fix writes mode 1, which says so', mavlink: 'silence: no message, no write'}, rate_hz: {gpsd: 5, mavlink: 5}, writers: [gpsd, mavlink]}
+GS: {units: knots, quality: {demo: none, fgfs: none, garmin_gnx375: 'GPS_FIX_TYPE: no accuracy key', gpsd: 'GPS_FIX_TYPE, GPS_ACCURACY_SPEED', mavlink: 'none: VFR_HUD groundspeed, 0 below 3 kt', navigator_adapter: 'GPS_FIX_TYPE: when the navigator sends one; the record''s `integrity` field is never read', stratux: none, xplane: none}, on_loss: {demo: 'silence: stops itself on a second writer', fgfs: 'silence: the sim stops sending; a bad sentence is dropped', garmin_gnx375: 'silence: a void RMC writes nothing', gpsd: 'silence: a field gpsd leaves out writes nothing (SRC2); below a 2-D fix no position', mavlink: 'silence: no message, no write', navigator_adapter: silence, stratux: silence, xplane: 'silence: the sim stops sending; -999 slots are skipped'}, rate_hz: {demo: 5, fgfs: 10, gpsd: 5, mavlink: 5, stratux: 1}, writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter, stratux], sim: [demo, fgfs, xplane]}
 GSI: {units: '', writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1GSI, NAV2GSI, GPSGSI]}}
 GSV: {units: '', writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1GSV, NAV2GSV, GPSGSV]}}
 GYROW: {units: warninglevel, writers: [rpi_bno055]}
 H2OT1: {units: degC, writers: [grand_rapids_eis]}
-HEAD: {units: deg, writers: [canfix, mavlink, rpi_bno055, stratux], sim: [demo, fgfs, xplane]}
+HEAD: {units: deg, datum: {canfix: 'magnetic: CAN-FIX parameter 0x185, Heading, "Magnetic Heading"', demo: 'unrecorded: the recorded route''s heading; its reference is not read', fgfs: 'magnetic: /orientation/heading-magnetic-deg', mavlink: 'true: GLOBAL_POSITION_INT hdg, ArduPilot''s EKF yaw, which is referenced to true north; the catalog says magnetic.  Not checked on SITL', rpi_bno055: 'magnetic: the BNO055 fused heading, from its magnetometer', stratux: 'unrecorded: the AHRS heading field; its reference is not read', xplane: 'magnetic: data output row 17, Hdg_mag'}, quality: {canfix: 'passthrough: the CAN-FIX sender''s quality and failure flags', demo: none, fgfs: none, mavlink: none, rpi_bno055: 'ORISYSW: the BNO055 calibration status', stratux: none, xplane: none}, on_loss: {canfix: 'silence, fail: the sender''s fail flag is passed through', demo: 'silence: stops itself on a second writer', fgfs: 'silence: the sim stops sending; a bad sentence is dropped', mavlink: 'silence, writes_zero: init() writes a valid 0 on every connect with ahrs on, until the first real message (SRC3)', rpi_bno055: 'silence: the thread dies', stratux: 'silence: no invalid-sentinel check on the AHRS fields', xplane: 'silence: the sim stops sending; -999 slots are skipped'}, rate_hz: {demo: 5, fgfs: 10, mavlink: 5, rpi_bno055: 60}, writers: [canfix, mavlink, rpi_bno055, stratux], sim: [demo, fgfs, xplane]}
 HEADBUG: {units: deg, sim: [fgfs]}
 HIDEBUTTON: {units: '', pyefis: [pyefis/instruments/button]}
 HOBBS1: {units: Hours, writers: [canfix, grand_rapids_eis]}
-IAS: {units: knots, writers: [canfix, mavlink, onspeed, rpi_virtualwire], sim: [demo, fgfs, xplane]}
+IAS: {units: knots, quality: {canfix: 'passthrough: the CAN-FIX sender''s quality and failure flags', demo: none, fgfs: none, mavlink: 'none: VFR_HUD airspeed, 0 below min_airspeed', onspeed: 'bad: outside the key''s range; fail on port loss', rpi_virtualwire: 'IASW: the sender''s warning level', xplane: none}, on_loss: {canfix: 'silence, fail: the sender''s fail flag is passed through', demo: 'silence: stops itself on a second writer', fgfs: 'silence: the sim stops sending; a bad sentence is dropped', mavlink: 'silence: no message, no write', onspeed: 'fail: on port loss', rpi_virtualwire: 'holds_last: the last value is rewritten every 0.25 s whatever arrives (SRC3)', xplane: 'silence: the sim stops sending; -999 slots are skipped'}, rate_hz: {demo: 5, fgfs: 10, mavlink: 5, onspeed: 10, rpi_virtualwire: 4}, writers: [canfix, mavlink, onspeed, rpi_virtualwire], sim: [demo, fgfs, xplane]}
 IASW: {units: warninglevel, writers: [rpi_virtualwire]}
-LAT: {units: deg, datum: 'WGS-84 geodetic degrees, as each GNSS source reports', writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter], sim: [demo, fgfs, xplane]}
+LAT: {units: deg, datum: {demo: 'wgs84: the recorded route', fgfs: 'wgs84: /position/latitude-deg, longitude-deg', garmin_gnx375: 'wgs84: NMEA RMC/GGA position', gpsd: 'wgs84: gpsd TPV lat, lon', mavlink: 'wgs84: GLOBAL_POSITION_INT lat, lon', navigator_adapter: 'wgs84: NormalizedNavMessage position', xplane: 'wgs84: data output row 20'}, quality: {demo: 'bad, GPS_FIX_TYPE, GPS_ACCURACY_HORIZ: bad in the restart hold', fgfs: none, garmin_gnx375: 'GPS_FIX_TYPE: no accuracy key', gpsd: 'GPS_FIX_TYPE, GPS_ACCURACY_HORIZ', mavlink: 'GPS_FIX_TYPE, GPS_ACCURACY_HORIZ: written, but not gated by the fix type', navigator_adapter: 'GPS_FIX_TYPE: when the navigator sends one; the record''s `integrity` field is never read', xplane: none}, on_loss: {demo: 'silence: stops itself on a second writer; bad in the restart hold', fgfs: 'silence: the sim stops sending; a bad sentence is dropped', garmin_gnx375: 'silence: a void RMC or a GGA of quality 0 writes no position', gpsd: 'silence: a field gpsd leaves out writes nothing (SRC2); below a 2-D fix no position', mavlink: 'silence: no message, no write', navigator_adapter: 'silence: a field the navigator leaves out writes nothing; link health reaches only the status page', xplane: 'silence: the sim stops sending; -999 slots are skipped'}, rate_hz: {demo: 5, fgfs: 10, gpsd: 5, mavlink: 5}, writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter], sim: [demo, fgfs, xplane]}
 LEADER: {units: '', writers: [quorum]}
-LONG: {units: deg, datum: 'WGS-84 geodetic degrees, as each GNSS source reports', writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter], sim: [demo, fgfs, xplane]}
+LONG: {units: deg, datum: {demo: 'wgs84: the recorded route', fgfs: 'wgs84: /position/latitude-deg, longitude-deg', garmin_gnx375: 'wgs84: NMEA RMC/GGA position', gpsd: 'wgs84: gpsd TPV lat, lon', mavlink: 'wgs84: GLOBAL_POSITION_INT lat, lon', navigator_adapter: 'wgs84: NormalizedNavMessage position', xplane: 'wgs84: data output row 20'}, quality: {demo: 'bad, GPS_FIX_TYPE, GPS_ACCURACY_HORIZ: bad in the restart hold', fgfs: none, garmin_gnx375: 'GPS_FIX_TYPE: no accuracy key', gpsd: 'GPS_FIX_TYPE, GPS_ACCURACY_HORIZ', mavlink: 'GPS_FIX_TYPE, GPS_ACCURACY_HORIZ: written, but not gated by the fix type', navigator_adapter: 'GPS_FIX_TYPE: when the navigator sends one; the record''s `integrity` field is never read', xplane: none}, on_loss: {demo: 'silence: stops itself on a second writer; bad in the restart hold', fgfs: 'silence: the sim stops sending; a bad sentence is dropped', garmin_gnx375: 'silence: a void RMC or a GGA of quality 0 writes no position', gpsd: 'silence: a field gpsd leaves out writes nothing (SRC2); below a 2-D fix no position', mavlink: 'silence: no message, no write', navigator_adapter: 'silence: a field the navigator leaves out writes nothing; link health reaches only the status page', xplane: 'silence: the sim stops sending; -999 slots are skipped'}, rate_hz: {demo: 5, fgfs: 10, gpsd: 5, mavlink: 5}, writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter], sim: [demo, fgfs, xplane]}
 MAGVAR: {units: deg, sim: [demo, fgfs, xplane]}
 MAGW: {units: warninglevel, writers: [rpi_bno055]}
 MAP1: {units: inHg, writers: [canfix], sim: [demo, fgfs]}
@@ -2289,8 +2299,8 @@ OATW: {units: warninglevel, writers: [rpi_virtualwire]}
 OILP1: {units: psi, writers: [canfix, grand_rapids_eis], sim: [demo, fgfs]}
 OILT1: {units: degC, writers: [canfix, grand_rapids_eis], sim: [demo, fgfs]}
 ORISYSW: {units: warninglevel, writers: [rpi_bno055]}
-PALT: {units: ft, datum: {compute: 'pressure altitude: altp from ALT and BARO', dynon: Dynon serial altitude field when status bit 0 is 1}, writers: [compute, dynon]}
-PITCH: {units: deg, writers: [canfix, dynon, mavlink, onspeed, rpi_bno055, stratux], sim: [demo, fgfs, xplane]}
+PALT: {units: ft, datum: {compute: 'pressure: altp from ALT and BARO', dynon: 'pressure: the serial altitude field when status bit 0 is 1'}, writers: [compute, dynon]}
+PITCH: {units: deg, quality: {canfix: 'passthrough: the CAN-FIX sender''s quality and failure flags', demo: none, dynon: 'none: no checksum', fgfs: none, mavlink: none, onspeed: 'bad: outside the key''s range; fail on port loss', rpi_bno055: 'ORISYSW: the BNO055 calibration status', stratux: none, xplane: none}, on_loss: {canfix: 'silence, fail: the sender''s fail flag is passed through', demo: 'silence: stops itself on a second writer', dynon: 'silence: a bad frame is dropped; a serial error can re-parse stale bytes', fgfs: 'silence: the sim stops sending; a bad sentence is dropped', mavlink: 'silence, writes_zero: init() writes a valid 0 on every connect with ahrs on, until the first real message (SRC3)', onspeed: 'fail: on port loss', rpi_bno055: 'silence: the thread dies', stratux: 'silence: no invalid-sentinel check on the AHRS fields', xplane: 'silence: the sim stops sending; -999 slots are skipped'}, rate_hz: {demo: 5, fgfs: 10, mavlink: 10, onspeed: 10, rpi_bno055: 60}, writers: [canfix, dynon, mavlink, onspeed, rpi_bno055, stratux], sim: [demo, fgfs, xplane]}
 POWER_FAIL: {units: '', writers: [X728, strom_pi]}
 PROP1: {units: RPM, writers: [canfix]}
 PYEFIS_VERSION: {units: '', pyefis: [pyefis/pyefis]}
@@ -2299,13 +2309,13 @@ QVOTE2: {units: '', writers: [canfix]}
 QVOTE3: {units: '', writers: [canfix]}
 QVOTE4: {units: '', writers: [canfix]}
 QVOTE5: {units: '', writers: [canfix]}
-ROLL: {units: deg, writers: [canfix, dynon, mavlink, onspeed, rpi_bno055, stratux], sim: [demo, fgfs, xplane]}
-ROT: {units: Deg/sec, writers: [canfix, dynon, mavlink], sim: [fgfs, xplane]}
+ROLL: {units: deg, quality: {canfix: 'passthrough: the CAN-FIX sender''s quality and failure flags', demo: none, dynon: 'none: no checksum', fgfs: none, mavlink: none, onspeed: 'bad: outside the key''s range; fail on port loss', rpi_bno055: 'ORISYSW: the BNO055 calibration status', stratux: none, xplane: none}, on_loss: {canfix: 'silence, fail: the sender''s fail flag is passed through', demo: 'silence: stops itself on a second writer', dynon: 'silence: a bad frame is dropped; a serial error can re-parse stale bytes', fgfs: 'silence: the sim stops sending; a bad sentence is dropped', mavlink: 'silence, writes_zero: init() writes a valid 0 on every connect with ahrs on, until the first real message (SRC3)', onspeed: 'fail: on port loss', rpi_bno055: 'silence: the thread dies', stratux: 'silence: no invalid-sentinel check on the AHRS fields', xplane: 'silence: the sim stops sending; -999 slots are skipped'}, rate_hz: {demo: 5, fgfs: 10, mavlink: 10, onspeed: 10, rpi_bno055: 60}, writers: [canfix, dynon, mavlink, onspeed, rpi_bno055, stratux], sim: [demo, fgfs, xplane]}
+ROT: {units: Deg/sec, quality: {canfix: 'passthrough: the CAN-FIX sender''s quality and failure flags', dynon: 'none: no checksum', fgfs: none, mavlink: 'none: derived from averaged roll and airspeed (SRC1)', xplane: 'none: slot Rrad_sec, written unconverted; may be rad/s'}, on_loss: {canfix: 'silence, fail: the sender''s fail flag is passed through', dynon: 'silence: a bad frame is dropped; a serial error can re-parse stale bytes', fgfs: 'silence: the sim stops sending; a bad sentence is dropped', mavlink: 'silence: no message, no write', xplane: 'silence: the sim stops sending; -999 slots are skipped'}, rate_hz: {fgfs: 10, mavlink: 10}, writers: [canfix, dynon, mavlink], sim: [fgfs, xplane]}
 TACH1: {units: RPM, writers: [canfix, grand_rapids_eis], sim: [demo, fgfs]}
-TALT: {units: ft, datum: {dynon: the same field as its ALT write, mavlink: 'MSL: GLOBAL_POSITION_INT.alt'}, writers: [dynon, mavlink]}
-TAS: {units: knots, writers: [canfix, dynon, mavlink], sim: [demo, fgfs, xplane]}
+TALT: {units: ft, datum: {dynon: 'indicated: the same field as its ALT write', mavlink: 'msl: GLOBAL_POSITION_INT.alt'}, writers: [dynon, mavlink]}
+TAS: {units: knots, quality: {canfix: 'passthrough: the CAN-FIX sender''s quality and failure flags', demo: none, dynon: 'none: no checksum', fgfs: none, mavlink: 'none: VFR_HUD airspeed, which is IAS, not TAS', xplane: none}, on_loss: {canfix: 'silence, fail: the sender''s fail flag is passed through', demo: 'silence: stops itself on a second writer', dynon: 'silence: a bad frame is dropped; a serial error can re-parse stale bytes', fgfs: 'silence: the sim stops sending; a bad sentence is dropped', mavlink: 'silence: no message, no write', xplane: 'silence: the sim stops sending; -999 slots are skipped'}, rate_hz: {demo: 5, fgfs: 10, mavlink: 5}, writers: [canfix, dynon, mavlink], sim: [demo, fgfs, xplane]}
 TOFROM: {units: '', writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1TF, NAV2TF, GPSTF]}}
-TRACK: {units: deg, writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter], sim: [demo, fgfs, xplane]}
+TRACK: {units: deg, datum: {demo: 'unrecorded: the recorded route''s track; its reference is not read', fgfs: 'true: /orientation/track-deg, "Ground track, true"', garmin_gnx375: 'true: RMC true course', gpsd: 'true: gpsd TPV track', mavlink: 'true: GPS_RAW_INT cog', navigator_adapter: 'true: ground_track_deg_true', xplane: 'true: data output row 18, hpath, X-Plane''s flight path heading'}, quality: {demo: none, fgfs: none, garmin_gnx375: 'GPS_FIX_TYPE: no accuracy key', gpsd: 'GPS_FIX_TYPE, GPS_ACCURACY_SPEED', mavlink: 'GPS_FIX_TYPE, GPS_ACCURACY_SPEED', navigator_adapter: 'GPS_FIX_TYPE: when the navigator sends one; the record''s `integrity` field is never read', xplane: none}, on_loss: {demo: 'silence: stops itself on a second writer', fgfs: 'silence: the sim stops sending; a bad sentence is dropped', garmin_gnx375: 'silence: a void RMC writes nothing', gpsd: 'silence: a field gpsd leaves out writes nothing (SRC2); below a 2-D fix no position', mavlink: 'silence: below 3 kt or with cog unknown, nothing', navigator_adapter: silence, xplane: 'silence: the sim stops sending; -999 slots are skipped'}, rate_hz: {demo: 5, fgfs: 10, gpsd: 5, mavlink: 5}, writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter], sim: [demo, fgfs, xplane]}
 TRACKM: {units: deg, writers: [compute], sim: [fgfs]}
 TRIMP: {units: '', writers: [mavlink]}
 TRIMR: {units: '', writers: [mavlink]}
@@ -2319,9 +2329,9 @@ WPDIS: {units: nM, writers: [flightplan]}
 WPETE: {units: s, writers: [flightplan]}
 WPFROM: {units: '', writers: [flightplan]}
 WPHEAD: {units: '', writers: [ifly]}
-WPLAT: {units: '', datum: {flightplan: geodetic degrees from the engine's nav data, ifly: geodetic degrees as iFly sends its waypoint, navigator_adapter: geodetic degrees as the external navigator sends its waypoint}, writers: [flightplan, ifly, navigator_adapter]}
-WPLON: {units: '', datum: {flightplan: geodetic degrees from the engine's nav data, ifly: geodetic degrees as iFly sends its waypoint, navigator_adapter: geodetic degrees as the external navigator sends its waypoint}, writers: [flightplan, ifly, navigator_adapter]}
-WPNAME: {units: '', writers: [flightplan, ifly, navigator_adapter]}
+WPLAT: {units: '', datum: {flightplan: 'wgs84: geodetic degrees from the engine''s nav data', ifly: 'wgs84: geodetic degrees as iFly sends its waypoint', navigator_adapter: 'wgs84: geodetic degrees as the external navigator sends its waypoint'}, quality: {flightplan: none, ifly: 'none: RMB status not checked', navigator_adapter: none}, on_loss: {flightplan: 'on_change: the engine''s active waypoint', ifly: 'silence: goes old by its 50 s tol', navigator_adapter: silence}, writers: [flightplan, ifly, navigator_adapter]}
+WPLON: {units: '', datum: {flightplan: 'wgs84: geodetic degrees from the engine''s nav data', ifly: 'wgs84: geodetic degrees as iFly sends its waypoint', navigator_adapter: 'wgs84: geodetic degrees as the external navigator sends its waypoint'}, quality: {flightplan: none, ifly: 'none: RMB status not checked', navigator_adapter: none}, on_loss: {flightplan: 'on_change: the engine''s active waypoint', ifly: 'silence: goes old by its 50 s tol', navigator_adapter: silence}, writers: [flightplan, ifly, navigator_adapter]}
+WPNAME: {units: '', quality: {flightplan: none, ifly: 'none: RMB status not checked', navigator_adapter: none}, on_loss: {flightplan: 'on_change: the engine''s active waypoint', ifly: 'silence: goes old by its 50 s tol', navigator_adapter: silence}, writers: [flightplan, ifly, navigator_adapter]}
 WPNEXT: {units: '', writers: [flightplan]}
 XPHSISRC: {units: '', writers: [compute]}
 XTRACK: {units: nM, writers: [compute], selector: {module: compute, by: GPSSRC, sources: [FPLXTK, EXTXTK]}}

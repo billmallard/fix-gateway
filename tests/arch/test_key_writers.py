@@ -31,18 +31,63 @@ def report(fails):
 
 
 def test_every_write_is_declared_in_writers_yaml(checks):
-    register_fails, _, _ = checks
+    register_fails = checks[0]
     assert not register_fails, report(register_fails)
 
 
 def test_no_new_multi_writer_key_and_the_baseline_only_shrinks(checks):
-    _, baseline_fails, _ = checks
+    baseline_fails = checks[1]
     assert not baseline_fails, report(baseline_fails)
 
 
 def test_no_new_class_takes_a_route_concept_name(checks):
-    _, _, concept_fails = checks
+    concept_fails = checks[2]
     assert not concept_fails, report(concept_fails)
+
+
+def test_every_source_key_writer_declares_datum_quality_and_on_loss(checks):
+    column_fails = checks[3]
+    assert not column_fails, report(column_fails)
+
+
+def test_no_key_gains_a_second_datum_and_the_datum_baseline_only_shrinks(checks):
+    datum_fails = checks[4]
+    assert not datum_fails, report(datum_fails)
+
+
+def test_the_declaration_records_what_arch2_found():
+    # SRC4 seeds the columns from ARCH2 section 3.1, wrong parts included.
+    # These are the findings a consumer would otherwise rebuild for itself.
+    reg = ckw.load_yaml(ROOT, ckw.REGISTER)
+
+    def tok(key, col, m):
+        return ckw.parse_cell(reg[key][col][m])[0]
+
+    assert {m: tok("GPS_ELLIPSOID_ALT", "datum", m)[0] for m in reg["GPS_ELLIPSOID_ALT"]["datum"]} \
+        == {"garmin_gnx375": "msl", "gpsd": "msl", "mavlink": "ellipsoid", "navigator_adapter": "msl"}
+    # Which position sources say how good the fix is: the AER-4217 question.
+    has_acc = {m for m in reg["LAT"]["quality"] if "GPS_ACCURACY_HORIZ" in tok("LAT", "quality", m)}
+    assert has_acc == {"gpsd", "mavlink", "demo"}
+    assert tok("IAS", "on_loss", "rpi_virtualwire") == ["holds_last"]
+    assert "writes_zero" in tok("PITCH", "on_loss", "mavlink")
+    assert tok("ALT", "on_loss", "onspeed") == ["fail"]
+    assert tok("ALT", "quality", "canfix") == ["passthrough"]
+
+
+def test_a_second_datum_on_alt_fails_the_real_register():
+    # The definition of done's throwaway commit, in a test: one ALT writer
+    # declares another datum, or a clean key gains a second one.
+    reg = ckw.load_yaml(ROOT, ckw.REGISTER)
+    base = ckw.load_yaml(ROOT, ckw.DATUM_BASELINE)
+    assert ckw.check_datum_baseline(reg, base) == []
+    reg["ALT"]["datum"]["canfix"] = "pressure: a mutant"
+    assert ckw.check_datum_baseline(reg, base) == [
+        "ALT: canfix now declares `pressure`, and the datum baseline has `indicated`"]
+    reg = ckw.load_yaml(ROOT, ckw.REGISTER)
+    reg["LAT"]["datum"]["gpsd"] = "msl: a mutant"
+    fails = ckw.check_datum_baseline(reg, base)
+    assert len(fails) == 1 and fails[0].startswith(
+        "LAT: its writers declare more than one datum (")
 
 
 def test_the_scan_sees_the_known_writers(catalog):
@@ -257,4 +302,81 @@ def test_generate_reproduces_the_committed_records(catalog, tmp_path):
     reg = ckw.build_register(catalog, writes, ckw.scan_selectors(ROOT), old)
     assert reg == old
     assert ckw.build_baseline(reg) == ckw.load_yaml(ROOT, ckw.BASELINE)
+    assert ckw.build_datum_baseline(reg) == ckw.load_yaml(ROOT, ckw.DATUM_BASELINE)
     assert yaml.safe_load(ckw.dump_register(reg)) == reg
+
+
+# ---- the provider declaration, on a small register (SRC4) ------------------
+def columns(register, keys=("ALT",)):
+    return ckw.check_columns(CAT, register, provider_keys=keys)
+
+
+def alt(**cols):
+    e = {"units": "ft", "writers": ["aaa", "bbb"]}
+    e.update(cols)
+    return {"ALT": e, "VS": {"units": "ft", "writers": ["bbb"]}}
+
+
+GOOD = dict(datum={"aaa": "indicated", "bbb": "indicated: note"},
+            quality={"aaa": "none", "bbb": "bad, VS: note"},
+            on_loss={"aaa": "silence", "bbb": "fail, writes_zero"},
+            rate_hz={"aaa": 10})
+
+
+def test_a_complete_declaration_passes():
+    assert columns(alt(**GOOD)) == []
+
+
+def test_each_writer_of_a_source_key_declares_each_column():
+    reg = alt(**dict(GOOD, quality={"aaa": "none"}))
+    assert columns(reg) == ["ALT: bbb writes it and declares no `quality` in writers.yaml"]
+    reg = alt(**{k: v for k, v in GOOD.items() if k != "on_loss"})
+    assert columns(reg) == ["ALT: a source key needs a `on_loss` mapping, one cell per writer, in "
+                            "writers.yaml (doc/key_writers.md)"]
+    # A key that is not a source key may leave the columns out.
+    assert columns(alt(), keys=()) == []
+
+
+def test_a_cell_for_a_module_that_does_not_write_the_key_fails():
+    reg = alt(**dict(GOOD, on_loss=dict(GOOD["on_loss"], ccc="silence")))
+    assert columns(reg) == ["ALT: writers.yaml gives `on_loss` for ccc, which is not one of its writers"]
+
+
+def test_a_cell_outside_its_vocabulary_fails():
+    reg = alt(**dict(GOOD, datum={"aaa": "indicated", "bbb": "baro"},
+                     on_loss={"aaa": "silence", "bbb": "explodes"},
+                     quality={"aaa": "none, bad", "bbb": "HEAD"},
+                     rate_hz={"aaa": "fast"}))
+    fails = columns(reg)
+    assert len(fails) == 5
+    assert fails[0].startswith("ALT: writers.yaml `datum` for bbb is 'baro'; a datum is one of")
+    assert fails[1] == "ALT: writers.yaml `quality` for aaa says `none` and also bad"
+    assert fails[2] == "ALT: writers.yaml `quality` for bbb names HEAD, which bbb does not write"
+    assert fails[3].startswith("ALT: writers.yaml `on_loss` for bbb names explodes; on_loss is")
+    assert fails[4].startswith("ALT: writers.yaml `rate_hz` for aaa is 'fast'")
+
+
+def test_two_datums_fail_unless_on_the_datum_baseline():
+    reg = alt(datum={"aaa": "indicated", "bbb": "msl"})
+    assert ckw.check_datum_baseline(reg, {}) == [
+        "ALT: its writers declare more than one datum (aaa indicated, bbb msl), and it is not on "
+        "tests/arch/datum_baseline.yaml.  A key has one datum: give the other datum its own key, "
+        "as GALT1 does, or fix the writer, as MAVALT1 did"]
+    assert ckw.check_datum_baseline(reg, {"ALT": {"aaa": "indicated", "bbb": "msl"}}) == []
+    # Two writers that cannot be shown to agree count as two datums.
+    assert ckw.check_datum_baseline(alt(datum={"aaa": "unrecorded", "bbb": "unrecorded"}), {})
+    assert ckw.check_datum_baseline(alt(datum={"aaa": "msl", "bbb": "msl"}), {}) == []
+
+
+def test_the_datum_baseline_only_shrinks():
+    base = {"ALT": {"aaa": "indicated", "bbb": "msl"}}
+    reg = alt(datum={"aaa": "indicated", "bbb": "msl", "ccc": "pressure"})
+    assert ckw.check_datum_baseline(reg, base) == [
+        "ALT: ccc declares `pressure` and the datum baseline does not list it; a new writer takes "
+        "the key's one datum"]
+    assert ckw.check_datum_baseline(alt(datum={"aaa": "indicated", "bbb": "indicated"}), base) == [
+        "ALT: its writers now agree on one datum and it is still on the datum baseline; remove it "
+        "from tests/arch/datum_baseline.yaml"]
+    base3 = {"ALT": {"aaa": "indicated", "bbb": "msl", "ccc": "pressure"}}
+    assert ckw.check_datum_baseline(alt(datum={"aaa": "indicated", "bbb": "msl"}), base3) == [
+        "ALT: the datum baseline lists ccc, which no longer declares a datum; remove it from the entry"]
