@@ -37,10 +37,20 @@ The scan is static. It imports nothing from `plugins/` and finds a write when:
 - a module sets `.value` on, or calls `.set()` on, an item it got with
   `get_item("KEY")`;
 - shipped YAML names a key under a write path: a canfix map's `inputs` (bus to
-  database), and elsewhere an `output` or `outputs`, such as a compute function.
+  database), and elsewhere an `output` or `outputs`, such as a compute function;
+- a module that writes in a loop over a key table declares the table as a
+  module constant named `SOURCE_KEYS`, `ENGINE_KEYS` or `OUTPUT_GROUPS` (demo,
+  onspeed), and every key in it is a write;
+- a simulator's key map names the key: the X-Plane connection's `recv` rows
+  and `datarefs` map, and the `<output>` chunk names of the FlightGear protocol
+  file (`fix_fgfs.xml`).
 
 A key written under a computed name (`db_write(self.key, v)`) is not seen. Write
-the key as a literal or a module constant, so the record can name it.
+the key as a literal, a module constant or one of the tables above, so the
+record can name it. Unseen today, among others: `rais` (keys from the RAIS server's own
+configuration), the config-named keys of `rpi_bmp085`, `rpi_button`,
+`rpi_mcp3008` and `rpi_rotary_encoder`, and `knobster`, `megasquirt`, `mgl`,
+`rtl_433` and `tessera`.
 
 Files under `tools/`, `examples/` and the tests are not writers: they write to a
 bench, not to an aircraft.

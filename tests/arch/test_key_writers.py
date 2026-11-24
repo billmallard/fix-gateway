@@ -57,6 +57,13 @@ def test_the_scan_sees_the_known_writers(catalog):
     assert ("QVOTE1", "canfix") in seen              # f-string QVOTE{}
     assert ("APLAT", "xplane") in seen               # _write wrapper, sim
     assert ("GPS_ELLIPSOID_ALT", "navigator_adapter") in seen
+    # Writers that loop over a key table (SRC4, AER-6455).
+    assert ("ALT", "onspeed") in seen                # OUTPUT_GROUPS
+    assert ("ALT", "demo") in seen                   # SOURCE_KEYS
+    assert ("OILT1", "demo") in seen                 # ENGINE_KEYS
+    assert ("ALT", "xplane") in seen                 # xplane.yaml recv row
+    assert ("EXTCRS", "xplane") in seen              # xplane.yaml datarefs
+    assert ("ALT", "fgfs") in seen                   # fix_fgfs.xml <output>
     selectors = ckw.scan_selectors(ROOT)
     assert selectors["CDI"]["by"] == "NAVSRC"
     assert selectors["BRG1"]["sources"] == ["VOR1BRG", "VOR2BRG", "GPSBRG"]
@@ -107,6 +114,34 @@ def test_a_wrapper_and_a_module_constant_are_writes(tmp_path):
     root = tree(tmp_path, {"src/fixgw/plugins/aaa/__init__.py": plugin("VS", wrapper=True)})
     assert [(w["key"], w["module"], w["how"]) for w in ckw.scan_writes(root, CAT)] == \
         [("VS", "aaa", "_put(constant)")]
+
+
+def test_a_key_table_is_read_as_the_plugin_s_writes(tmp_path):
+    # demo, onspeed, xplane and fgfs write in a loop over a table; the scan
+    # reads the table.  A key the sim sends the other way is not a write.
+    root = tree(tmp_path, {
+        "src/fixgw/plugins/aaa/__init__.py":
+            'OUTPUT_GROUPS = (("air", ("VS",)), ("alt", ("ALT",)))\n'
+            'OTHER = ("HEAD",)\n',
+        "src/fixgw/config/connections/xplane.yaml": """
+            xplane:
+                recv:
+                    3: [_, ALT, _]
+                datarefs:
+                    VS: sim/vvi
+                dataref_writes:
+                    BARO: sim/baro
+        """,
+        "src/fixgw/config/connections/fgfs/fix_fgfs.xml": """
+            <PropertyList><generic>
+              <output><chunk><name>HEAD: Heading</name></chunk></output>
+              <input><chunk><name>BARO: setting</name></chunk></input>
+            </generic></PropertyList>
+        """})
+    assert sorted((w["key"], w["module"], w["how"]) for w in ckw.scan_writes(root, CAT)) == [
+        ("ALT", "aaa", "table OUTPUT_GROUPS"), ("ALT", "xplane", "yaml:recv"),
+        ("HEAD", "fgfs", "xml:output"), ("VS", "aaa", "table OUTPUT_GROUPS"),
+        ("VS", "xplane", "yaml:datarefs")]
 
 
 def test_a_second_live_writer_fails_even_when_declared(tmp_path):

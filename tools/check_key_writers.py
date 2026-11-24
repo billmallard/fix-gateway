@@ -120,7 +120,7 @@ def module_of(repo, rel):
             return "tools"
         if "config" in parts:
             stem = os.path.splitext(parts[-1])[0]
-            return {"map": "canfix", "two_lane_map": "canfix"}.get(stem, stem)
+            return {"map": "canfix", "two_lane_map": "canfix", "fix_fgfs": "fgfs"}.get(stem, stem)
         return parts[-2] if len(parts) > 1 else parts[0]
     if "instruments" in parts:
         i = parts.index("instruments")
@@ -339,12 +339,81 @@ def yaml_writes(path, catalog, rel):
     return out
 
 
+# ---- key tables (SRC4) -----------------------------------------------------
+# Some writers take their keys from a table and write in a loop
+# (`for key in ...: db_write(key, v)`), so no write call names a key.  The
+# scan reads the table instead: a module constant that declares the outputs,
+# the X-Plane connection's `recv` rows and `datarefs` map, and the FlightGear
+# protocol file's <output> chunk names.
+OUTPUT_TABLES = {"SOURCE_KEYS", "ENGINE_KEYS", "OUTPUT_GROUPS"}
+
+
+def table_writes(tree, catalog):
+    """(line, key, how) for each key named in a module-level OUTPUT_TABLES
+    constant."""
+    out = []
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        names = [t.id for t in node.targets if isinstance(t, ast.Name) and t.id in OUTPUT_TABLES]
+        for name in names:
+            for n in ast.walk(node.value):
+                if isinstance(n, ast.Constant) and isinstance(n.value, str) and n.value in catalog:
+                    out.append((n.lineno, n.value, "table %s" % name))
+    return out
+
+
+def xplane_map_writes(path, catalog):
+    """The X-Plane connection's sim-to-FIX maps: the keys in each `recv`
+    row, and the keys of `datarefs` (`dataref_writes` goes the other way)."""
+    try:
+        root = yaml.compose(read(path))
+    except Exception:
+        return []
+    out = []
+
+    def rec(node):
+        if not isinstance(node, yaml.MappingNode):
+            return
+        for k, v in node.value:
+            if k.value == "recv" and isinstance(v, yaml.MappingNode):
+                for _idx, row in v.value:
+                    for s in getattr(row, "value", []):
+                        if isinstance(s, yaml.ScalarNode) and s.value in catalog:
+                            out.append((s.start_mark.line + 1, s.value, "yaml:recv"))
+            elif k.value == "datarefs" and isinstance(v, yaml.MappingNode):
+                for key, _ref in v.value:
+                    if key.value in catalog:
+                        out.append((key.start_mark.line + 1, key.value, "yaml:datarefs"))
+            else:
+                rec(v)
+    if root is not None:
+        rec(root)
+    return out
+
+
+FG_OUTPUT_NAME = re.compile(r"<name>\s*([A-Za-z0-9_]+)\s*:")
+
+
+def fgfs_protocol_writes(path, catalog):
+    """A FlightGear generic protocol file: each <output> chunk's <name> is
+    "FIX_KEY: description", and FlightGear's output is the plugin's input."""
+    text = read(path)
+    out = []
+    for block in re.finditer(r"<output>(.*?)</output>", text, re.S):
+        base = text.count("\n", 0, block.start(1)) + 1
+        for m in FG_OUTPUT_NAME.finditer(block.group(1)):
+            if m.group(1) in catalog:
+                out.append((base + block.group(1).count("\n", 0, m.start()), m.group(1), "xml:output"))
+    return out
+
+
 # ---- scan ------------------------------------------------------------------
 def scan_writes(root, catalog, repo="fix-gateway"):
     """Proven writes: dicts of key, module, category, file, line, how.
     Tool files are left out: they write to a bench, not to an aircraft."""
     writes = []
-    for path in walk(root, {".py", ".yaml", ".yml"}):
+    for path in walk(root, {".py", ".yaml", ".yml", ".xml"}):
         rel = os.path.relpath(path, root).replace(os.sep, "/")
         mod = module_of(repo, rel)
         cat = category(repo, mod, rel)
@@ -357,11 +426,17 @@ def scan_writes(root, catalog, repo="fix-gateway"):
                 continue
             v = KeyVisitor(catalog, module_consts(tree, catalog), find_wrappers(tree))
             v.visit(tree)
-            found = v.refs
-        elif repo == "fix-gateway":
-            found = yaml_writes(path, catalog, rel)
-        else:
+            found = v.refs + (table_writes(tree, catalog) if repo == "fix-gateway" else [])
+        elif repo != "fix-gateway":
             continue
+        elif path.endswith(".xml"):
+            if mod != "fgfs":
+                continue
+            found = fgfs_protocol_writes(path, catalog)
+        else:
+            found = yaml_writes(path, catalog, rel)
+            if mod == "xplane":
+                found += xplane_map_writes(path, catalog)
         for line, key, how in found:
             writes.append(dict(key=key, module=mod, category=cat, file=rel, line=line, how=how))
     return writes
@@ -634,6 +709,8 @@ def generate(root, pyefis_root=None):
     for rel, text in ((REGISTER, dump_register(reg)), (BASELINE, dump_baseline(base))):
         path = os.path.join(root, rel)
         os.makedirs(os.path.dirname(path), exist_ok=True)
+        if os.path.exists(path):
+            os.remove(path)   # never overwrite in place: the NAS kept stale tail bytes
         with open(path, "w") as f:
             f.write(text)
     print("wrote %s (%d keys) and %s (%d multi-writer keys)" % (REGISTER, len(reg), BASELINE, len(base)))

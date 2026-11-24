@@ -17,13 +17,13 @@
 # doc/key_writers.md for how to declare a writer.
 
 ACCELW: {units: warninglevel, writers: [rpi_bno055]}
-AGL: {units: ft, datum: {canfix: 'radar altitude, CAN-FIX parameter 0x188', mavlink: 'GLOBAL_POSITION_INT.relative_alt: height above the autopilot''s home, not above ground'}, writers: [canfix, mavlink]}
+AGL: {units: ft, datum: {canfix: 'radar altitude, CAN-FIX parameter 0x188', mavlink: 'GLOBAL_POSITION_INT.relative_alt: height above the autopilot''s home, not above ground'}, writers: [canfix, mavlink], sim: [fgfs, xplane]}
 AIRPRESS: {units: Pa, writers: [mavlink]}
-ALAT: {units: g, writers: [canfix, dynon, mavlink, rpi_bno055, stratux]}
+ALAT: {units: g, writers: [canfix, dynon, mavlink, rpi_bno055, stratux], sim: [fgfs, xplane]}
 ALONG: {units: g, writers: [mavlink, rpi_bno055]}
-ALT: {units: ft, datum: {canfix: 'indicated, as the CAN-FIX node sends parameter 0x184', dynon: Dynon serial altitude field when status bit 0 is 0 (the same value goes to TALT); field not checked against Dynon's spec, grand_rapids_eis: 'unrecorded: a raw frame field, protocol not read', mavlink: 'indicated: SCALED_PRESSURE static pressure (plus pascal_offset), ISA pressure altitude less baro_offset_ft(BARO); not written without pressure', rpi_bmp085: sensor altitude at 29.92 plus (BARO - 29.92) * 1000 ft, stratux: Stratux AHRS altitude field less 5000.5 (Stratux documents pressure altitude); not corrected to BARO}, writers: [canfix, dynon, grand_rapids_eis, mavlink, rpi_bmp085, stratux]}
+ALT: {units: ft, datum: {canfix: 'indicated, as the CAN-FIX node sends parameter 0x184', dynon: Dynon serial altitude field when status bit 0 is 0 (the same value goes to TALT); field not checked against Dynon's spec, grand_rapids_eis: 'unrecorded: a raw frame field, protocol not read', mavlink: 'indicated: SCALED_PRESSURE static pressure (plus pascal_offset), ISA pressure altitude less baro_offset_ft(BARO); not written without pressure', rpi_bmp085: sensor altitude at 29.92 plus (BARO - 29.92) * 1000 ft, stratux: Stratux AHRS altitude field less 5000.5 (Stratux documents pressure altitude); not corrected to BARO}, writers: [canfix, dynon, grand_rapids_eis, mavlink, onspeed, rpi_bmp085, stratux], sim: [demo, fgfs, xplane]}
 ANORM: {units: g, writers: [mavlink, rpi_bno055]}
-AOA: {units: deg, writers: [canfix, onspeed]}
+AOA: {units: deg, writers: [canfix, onspeed], sim: [fgfs, xplane]}
 APALTCAP: {units: '', sim: [xplane]}
 APALTREF: {units: ft, datum: 'X-Plane''s alt_hold, the altitude the sim''s autopilot holds', sim: [xplane]}
 APCAPS: {units: '', sim: [xplane]}
@@ -48,30 +48,34 @@ CASTOP: {units: '', writers: [cas]}
 CDI: {units: '', writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1CDI, NAV2CDI, GPSCDI]}}
 CDISCALE: {units: nM, writers: [flightplan]}
 CDIV: {units: '', writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1CDIV, NAV2CDIV, 1.0]}}
-CHT11: {units: degC, writers: [canfix, grand_rapids_eis]}
-CHT12: {units: degC, writers: [canfix, grand_rapids_eis]}
-CHT13: {units: degC, writers: [canfix, grand_rapids_eis]}
-CHT14: {units: degC, writers: [canfix, grand_rapids_eis]}
+CHT11: {units: degC, writers: [canfix, grand_rapids_eis], sim: [demo, fgfs]}
+CHT12: {units: degC, writers: [canfix, grand_rapids_eis], sim: [demo]}
+CHT13: {units: degC, writers: [canfix, grand_rapids_eis], sim: [demo]}
+CHT14: {units: degC, writers: [canfix, grand_rapids_eis], sim: [demo]}
 CHT15: {units: degC, writers: [grand_rapids_eis]}
 CHT16: {units: degC, writers: [grand_rapids_eis]}
 CHTMAX1: {units: degC, writers: [compute]}
 COURSE: {units: deg, writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1CRS, NAV2CRS, GPSCRS]}}
-CURRNT: {units: amps, writers: [canfix]}
+CURRNT: {units: amps, writers: [canfix], sim: [demo]}
 DALT: {units: ft, datum: 'density altitude: altd from PALT, TALT and OAT', writers: [compute]}
 DIFFAIRPRESS: {units: Pa, writers: [mavlink]}
-EGT11: {units: degC, writers: [canfix, grand_rapids_eis]}
-EGT12: {units: degC, writers: [canfix, grand_rapids_eis]}
-EGT13: {units: degC, writers: [canfix, grand_rapids_eis]}
-EGT14: {units: degC, writers: [canfix, grand_rapids_eis]}
+EGT11: {units: degC, writers: [canfix, grand_rapids_eis], sim: [demo, fgfs]}
+EGT12: {units: degC, writers: [canfix, grand_rapids_eis], sim: [demo]}
+EGT13: {units: degC, writers: [canfix, grand_rapids_eis], sim: [demo]}
+EGT14: {units: degC, writers: [canfix, grand_rapids_eis], sim: [demo]}
 EGT15: {units: degC, writers: [grand_rapids_eis]}
 EGT16: {units: degC, writers: [grand_rapids_eis]}
 EGTAVG1: {units: degC, writers: [compute]}
 EGTMAX1: {units: degC, writers: [compute]}
 EGTSPAN1: {units: degC, writers: [compute]}
-EXTCDI: {units: '', writers: [garmin_gnx375, navigator_adapter]}
-EXTCRS: {units: deg, writers: [garmin_gnx375, navigator_adapter]}
+EXTCDI: {units: '', writers: [garmin_gnx375, navigator_adapter], sim: [fgfs, xplane]}
+EXTCRS: {units: deg, writers: [garmin_gnx375, navigator_adapter], sim: [fgfs, xplane]}
+EXTGSF: {units: '', sim: [fgfs, xplane]}
+EXTGSI: {units: '', sim: [fgfs, xplane]}
 EXTGSV: {units: '', writers: [compute]}
-EXTTF: {units: '', writers: [garmin_gnx375, navigator_adapter]}
+EXTOBSCRS: {units: deg, sim: [fgfs, xplane]}
+EXTSEQ: {units: '', sim: [xplane]}
+EXTTF: {units: '', writers: [garmin_gnx375, navigator_adapter], sim: [fgfs, xplane]}
 EXTXTK: {units: nM, writers: [garmin_gnx375, navigator_adapter]}
 FDENG: {units: '', sim: [xplane]}
 FDPITCH: {units: deg, sim: [xplane]}
@@ -2210,10 +2214,10 @@ FPLTF: {units: '', writers: [flightplan]}
 FPLTURN: {units: '', writers: [flightplan]}
 FPLXTK: {units: nM, writers: [flightplan]}
 FTIME: {units: '', writers: [canfix]}
-FUELF1: {units: gal/hr, writers: [canfix, shadin]}
-FUELP1: {units: psi, writers: [canfix]}
-FUELQ1: {units: gal, writers: [canfix, grand_rapids_eis]}
-FUELQ2: {units: gal, writers: [canfix]}
+FUELF1: {units: gal/hr, writers: [canfix, shadin], sim: [demo, fgfs]}
+FUELP1: {units: psi, writers: [canfix], sim: [demo]}
+FUELQ1: {units: gal, writers: [canfix, grand_rapids_eis], sim: [demo, fgfs]}
+FUELQ2: {units: gal, writers: [canfix], sim: [demo, fgfs]}
 FUELQ3: {units: gal, writers: [canfix]}
 FUELQT: {units: gal, writers: [compute, shadin]}
 GATEWAY_VERSION: {units: '', writers: [fixgw]}
@@ -2224,28 +2228,30 @@ GPSCRS: {units: deg, writers: [compute], selector: {module: compute, by: GPSSRC,
 GPSGSI: {units: '', writers: [compute], selector: {module: compute, by: GPSSRC, sources: [0.0, EXTGSI]}}
 GPSGSV: {units: '', writers: [compute], selector: {module: compute, by: GPSSRC, sources: [0.0, EXTGSV]}}
 GPSTF: {units: '', writers: [compute], selector: {module: compute, by: GPSSRC, sources: [FPLTF, EXTTF]}}
-GPS_ACCURACY_HORIZ: {units: ft, writers: [gpsd, mavlink]}
+GPS_ACCURACY_HORIZ: {units: ft, writers: [gpsd, mavlink], sim: [demo]}
 GPS_ACCURACY_SPEED: {units: knots, writers: [gpsd, mavlink]}
 GPS_ACCURACY_VERTICAL: {units: ft, writers: [gpsd, mavlink]}
 GPS_ELLIPSOID_ALT: {units: ft, datum: {garmin_gnx375: 'MSL: NMEA GGA altitude', gpsd: 'gpsd TPV alt: deprecated in current gpsd, historically MSL; the benches'' gpsd version is not checked', mavlink: 'ellipsoid (HAE): GPS_RAW_INT.alt_ellipsoid', navigator_adapter: 'MSL: NormalizedNavMessage position alt_ft_msl'}, writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter]}
-GPS_FIX_TYPE: {units: '', writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter]}
+GPS_FIX_TYPE: {units: '', writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter], sim: [demo]}
 GPS_SATS_TRACKED: {units: '', writers: [mavlink]}
 GPS_SATS_VISIBLE: {units: '', writers: [gpsd, mavlink]}
-GS: {units: knots, writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter, stratux]}
+GS: {units: knots, writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter, stratux], sim: [demo, fgfs, xplane]}
 GSI: {units: '', writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1GSI, NAV2GSI, GPSGSI]}}
 GSV: {units: '', writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1GSV, NAV2GSV, GPSGSV]}}
 GYROW: {units: warninglevel, writers: [rpi_bno055]}
 H2OT1: {units: degC, writers: [grand_rapids_eis]}
-HEAD: {units: deg, writers: [canfix, mavlink, rpi_bno055, stratux]}
+HEAD: {units: deg, writers: [canfix, mavlink, rpi_bno055, stratux], sim: [demo, fgfs, xplane]}
+HEADBUG: {units: deg, sim: [fgfs]}
 HIDEBUTTON: {units: '', pyefis: [pyefis/instruments/button]}
 HOBBS1: {units: Hours, writers: [canfix, grand_rapids_eis]}
-IAS: {units: knots, writers: [canfix, mavlink, rpi_virtualwire]}
+IAS: {units: knots, writers: [canfix, mavlink, onspeed, rpi_virtualwire], sim: [demo, fgfs, xplane]}
 IASW: {units: warninglevel, writers: [rpi_virtualwire]}
-LAT: {units: deg, datum: 'WGS-84 geodetic degrees, as each GNSS source reports', writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter]}
+LAT: {units: deg, datum: 'WGS-84 geodetic degrees, as each GNSS source reports', writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter], sim: [demo, fgfs, xplane]}
 LEADER: {units: '', writers: [quorum]}
-LONG: {units: deg, datum: 'WGS-84 geodetic degrees, as each GNSS source reports', writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter]}
+LONG: {units: deg, datum: 'WGS-84 geodetic degrees, as each GNSS source reports', writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter], sim: [demo, fgfs, xplane]}
+MAGVAR: {units: deg, sim: [demo, fgfs, xplane]}
 MAGW: {units: warninglevel, writers: [rpi_bno055]}
-MAP1: {units: inHg, writers: [canfix]}
+MAP1: {units: inHg, writers: [canfix], sim: [demo, fgfs]}
 MAVADJ: {units: '', writers: [mavlink]}
 MAVMODE: {units: '', writers: [mavlink]}
 MAVMSG: {units: '', writers: [mavlink]}
@@ -2254,24 +2260,37 @@ MAVREQCRUISE: {units: '', writers: [mavlink]}
 MAVREQGUIDED: {units: '', writers: [mavlink]}
 MAVSTATE: {units: '', writers: [mavlink]}
 MAVWPVALID: {units: '', writers: [mavlink]}
+NAV1CDI: {units: '', sim: [fgfs, xplane]}
 NAV1CDIV: {units: '', writers: [compute]}
-NAV1GSI: {units: '', writers: [canfix]}
+NAV1CRS: {units: deg, sim: [fgfs]}
+NAV1DH: {units: '', sim: [fgfs, xplane]}
+NAV1GSF: {units: '', sim: [fgfs, xplane]}
+NAV1GSI: {units: '', writers: [canfix], sim: [fgfs, xplane]}
 NAV1GSNF: {units: '', writers: [compute]}
 NAV1GSV: {units: '', writers: [compute]}
+NAV1TF: {units: '', sim: [fgfs, xplane]}
+NAV1TYPE: {units: '', sim: [fgfs, xplane]}
+NAV2CDI: {units: '', sim: [fgfs, xplane]}
 NAV2CDIV: {units: '', writers: [compute]}
+NAV2CRS: {units: deg, sim: [fgfs]}
+NAV2DH: {units: '', sim: [fgfs, xplane]}
+NAV2GSF: {units: '', sim: [fgfs, xplane]}
+NAV2GSI: {units: '', sim: [fgfs, xplane]}
 NAV2GSNF: {units: '', writers: [compute]}
 NAV2GSV: {units: '', writers: [compute]}
+NAV2TF: {units: '', sim: [fgfs, xplane]}
+NAV2TYPE: {units: '', sim: [fgfs, xplane]}
 NAVFAIL: {units: '', writers: [cas]}
 NAVSRC: {units: '', pyefis: [pyefis/instruments/hsi]}
 NAVSUPP: {units: '', writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1SUPP, NAV2SUPP, 0.0]}}
 NAVTYPE: {units: '', writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1TYPE, NAV2TYPE, 0.0]}}
-OAT: {units: degC, writers: [canfix, grand_rapids_eis, rpi_virtualwire]}
+OAT: {units: degC, writers: [canfix, grand_rapids_eis, rpi_virtualwire], sim: [demo, fgfs]}
 OATW: {units: warninglevel, writers: [rpi_virtualwire]}
-OILP1: {units: psi, writers: [canfix, grand_rapids_eis]}
-OILT1: {units: degC, writers: [canfix, grand_rapids_eis]}
+OILP1: {units: psi, writers: [canfix, grand_rapids_eis], sim: [demo, fgfs]}
+OILT1: {units: degC, writers: [canfix, grand_rapids_eis], sim: [demo, fgfs]}
 ORISYSW: {units: warninglevel, writers: [rpi_bno055]}
 PALT: {units: ft, datum: {compute: 'pressure altitude: altp from ALT and BARO', dynon: Dynon serial altitude field when status bit 0 is 1}, writers: [compute, dynon]}
-PITCH: {units: deg, writers: [canfix, dynon, mavlink, rpi_bno055, stratux]}
+PITCH: {units: deg, writers: [canfix, dynon, mavlink, onspeed, rpi_bno055, stratux], sim: [demo, fgfs, xplane]}
 POWER_FAIL: {units: '', writers: [X728, strom_pi]}
 PROP1: {units: RPM, writers: [canfix]}
 PYEFIS_VERSION: {units: '', pyefis: [pyefis/pyefis]}
@@ -2280,19 +2299,22 @@ QVOTE2: {units: '', writers: [canfix]}
 QVOTE3: {units: '', writers: [canfix]}
 QVOTE4: {units: '', writers: [canfix]}
 QVOTE5: {units: '', writers: [canfix]}
-ROLL: {units: deg, writers: [canfix, dynon, mavlink, rpi_bno055, stratux]}
-ROT: {units: Deg/sec, writers: [canfix, dynon, mavlink]}
-TACH1: {units: RPM, writers: [canfix, grand_rapids_eis]}
+ROLL: {units: deg, writers: [canfix, dynon, mavlink, onspeed, rpi_bno055, stratux], sim: [demo, fgfs, xplane]}
+ROT: {units: Deg/sec, writers: [canfix, dynon, mavlink], sim: [fgfs, xplane]}
+TACH1: {units: RPM, writers: [canfix, grand_rapids_eis], sim: [demo, fgfs]}
 TALT: {units: ft, datum: {dynon: the same field as its ALT write, mavlink: 'MSL: GLOBAL_POSITION_INT.alt'}, writers: [dynon, mavlink]}
-TAS: {units: knots, writers: [canfix, dynon, mavlink]}
+TAS: {units: knots, writers: [canfix, dynon, mavlink], sim: [demo, fgfs, xplane]}
 TOFROM: {units: '', writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1TF, NAV2TF, GPSTF]}}
-TRACK: {units: deg, writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter]}
-TRACKM: {units: deg, writers: [compute]}
+TRACK: {units: deg, writers: [garmin_gnx375, gpsd, mavlink, navigator_adapter], sim: [demo, fgfs, xplane]}
+TRACKM: {units: deg, writers: [compute], sim: [fgfs]}
 TRIMP: {units: '', writers: [mavlink]}
 TRIMR: {units: '', writers: [mavlink]}
 TRIMY: {units: '', writers: [mavlink]}
-VOLT: {units: volt, writers: [canfix, grand_rapids_eis, mgl_serial]}
-VS: {units: ft/min, writers: [canfix, dynon, mavlink, stratux]}
+VOLT: {units: volt, writers: [canfix, grand_rapids_eis, mgl_serial], sim: [demo, fgfs]}
+VOR1BRG: {units: deg, sim: [fgfs, xplane]}
+VOR2BRG: {units: deg, sim: [fgfs, xplane]}
+VPATH: {units: deg, sim: [fgfs, xplane]}
+VS: {units: ft/min, writers: [canfix, dynon, mavlink, stratux], sim: [demo, fgfs, xplane]}
 WPDIS: {units: nM, writers: [flightplan]}
 WPETE: {units: s, writers: [flightplan]}
 WPFROM: {units: '', writers: [flightplan]}
