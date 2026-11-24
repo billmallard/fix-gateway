@@ -95,7 +95,7 @@ the HSI does; the `NAV FAIL` alert does not (below).
 
 | Id | Text | Level | When |
 |---|---|---|---|
-| `CASTEST` | `CAS TEST` | advisory | The first `test_time` seconds (5) after start. Always on |
+| `CASTEST` | `CAS TEST` | advisory | From start until acknowledged (a touch on the window, or the panel button), or `test_backstop` seconds (600) after start. Always on |
 | `APLINK` | `AP LINK LOST` | warning if `APENG` was last true, else caution | `APENG` old, bad or failed, after it has been valid in this run. Clears 5 s after the link is steady |
 | `HDGFAIL` | `HDG FAIL` | caution | `HEAD` old, bad or failed. At once once it has been valid; a heading not yet valid 30 s after start also raises it |
 | `NAVFAIL` | `NAV FAIL` | caution | Lateral guidance lost on a nav source that had it earlier in this run |
@@ -104,6 +104,14 @@ the HSI does; the `NAV FAIL` alert does not (below).
 `CAS TEST` proves the plugin, the bus, the display and the glass on every
 start, the way a lamp test does. A window that draws nothing when quiet cannot
 otherwise be told from a missing one.
+
+The pilot taps it once at power-up. It is held until acknowledged because a
+display draws later than the gateway starts: on the CAS3 bench pyEfis first
+drew about 6 s after it connected, and 11 s after a gateway restart under it,
+so the old fixed 5 s never reached the glass (AER-6346, AER-6497). The
+backstop clears it on a panel whose display cannot acknowledge. The old
+`test_time` option is ignored with a warning, since installs carry a copied
+`cas.yaml` with `test_time: 5`.
 
 `AP LINK LOST` and `NAV FAIL` alert only on losing something the pilot had.
 An install without an autopilot never writes `APENG`, and a VOR with nothing

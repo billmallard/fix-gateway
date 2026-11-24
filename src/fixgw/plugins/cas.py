@@ -67,6 +67,12 @@ SEQ_EPOCH = 1767225600
 # writer; jumping to it would clamp CASSEQ at the key's maximum, where no
 # acknowledge could ever reach a new message (AER-6093).
 SEQ_PLAUSIBLE = 10 ** 7
+# CAS TEST's backstop: it clears unacknowledged this long after start, so a
+# panel with no display that can acknowledge does not carry it all flight.
+# Bill's ruling, 10 minutes (AER-6409). Below the floor a configured value is
+# refused: the measured boot and reconnect draws were 6 and 11 s (AER-6346).
+TEST_BACKSTOP = 600
+TEST_BACKSTOP_MIN = 60
 SLOT_KEYS = ["CASMSG{}".format(n + 1) for n in range(SLOTS)]
 ACK_KEYS = ("CASACK", "CASACKBTN")
 CAS_KEYS = SLOT_KEYS + ["CASCNT", "CASTOP", "CASSEQ"] + list(ACK_KEYS)
@@ -114,6 +120,7 @@ CONFIG_FIELDS = {
     "module",
     "CONFIGPATH",
     "entries",
+    "test_backstop",
     "test_time",
     "ack_debounce",
     "fuel_no_data_tanks",
@@ -259,8 +266,15 @@ class Entry(object):
 
 
 class TestEntry(object):
-    """CAS TEST: one advisory at start, gone after test_time seconds. Seeing
-    it proves plugin, bus, widget and glass on every boot (brief 6.4, C2)."""
+    """CAS TEST: one advisory at start, held until a display or the panel
+    button acknowledges it, or ``seconds`` (the backstop) after start. Seeing
+    it proves plugin, bus, widget and glass on every boot (brief 6.4, C2).
+
+    It used to clear 5 s after start, which no display ever drew: pyEfis
+    first draws about 6 s after it connects, and 11 s after a gateway restart
+    under it (CAS3 bench, AER-6346). Holding it until acknowledged ties it to
+    what a pilot has seen, not to the gateway's clock (AER-6497, Bill's
+    ruling in AER-6409)."""
 
     id = "CASTEST"
     level = LEVELS["advisory"]
@@ -357,6 +371,7 @@ class Plugin(plugin.PluginBase):
         self.published_navfail = None
         self.last_publish = None
         self.start_time = None
+        self.test_acked = False  # CAS TEST acknowledged: gone for this run
         self.thread = None
         self.getout = threading.Event()
         self.errors = 0
@@ -375,19 +390,28 @@ class Plugin(plugin.PluginBase):
         unknown = set(self.config) - CONFIG_FIELDS
         for k in sorted(unknown):
             self.log.warning("Unknown option {} ignored".format(k))
-        self.test_time = _seconds(self.config.get("test_time", 5), "test_time")
-        if self.test_time < 1:
+        if "test_time" in self.config:
+            # The old fixed duration, still in every install's copied
+            # cas.yaml as 5. Honouring it would keep the defect it replaced.
+            self.log.warning("test_time is no longer used: CAS TEST now holds "
+                             "until acknowledged, test_backstop {} s at most"
+                             .format(TEST_BACKSTOP))
+        self.test_backstop = _seconds(
+            self.config.get("test_backstop", TEST_BACKSTOP), "test_backstop")
+        if self.test_backstop < TEST_BACKSTOP_MIN:
             # The power-up test is the only proof the window is on the glass
-            # (C2), so it cannot be turned off.
-            self.log.warning("test_time below 1 s: using 5")
-            self.test_time = 5.0
+            # (C2), so it cannot be turned off, nor cut shorter than a
+            # display takes to boot and draw.
+            self.log.warning("test_backstop below {} s: using {}".format(
+                TEST_BACKSTOP_MIN, TEST_BACKSTOP))
+            self.test_backstop = float(TEST_BACKSTOP)
         self.ack_debounce = _seconds(self.config.get("ack_debounce", 0.5),
                                      "ack_debounce")
         defs = list(self.config.get("entries") or [])
         tanks = self.config.get("fuel_no_data_tanks") or []
         grace = self.config.get("fuel_no_data_grace", 30)
         defs.extend(fuel_entries(tanks, grace))
-        entries = [TestEntry(self.test_time)]
+        entries = [TestEntry(self.test_backstop)]
         ids = {e.id for e in entries}
         for defn in defs:
             name = defn.get("id") if isinstance(defn, dict) else defn
@@ -486,6 +510,8 @@ class Plugin(plugin.PluginBase):
         for m in self.messages:
             if m.active and m.onset_seq is not None and m.onset_seq <= seq:
                 m.acked = True
+                if isinstance(m.entry, TestEntry):
+                    self.test_acked = True
 
     def _poll(self):
         for key, st in self.watched.items():
@@ -518,7 +544,8 @@ class Plugin(plugin.PluginBase):
     def _holds(self, entry, now):
         c = getattr(entry, "condition", None)
         if c is None:  # CAS TEST
-            return now - self.start_time < entry.seconds
+            return (not self.test_acked
+                    and now - self.start_time < entry.seconds)
         if c.kind == "nav_lost":
             return self.nav_lost
         if c.kind == "never_written":
