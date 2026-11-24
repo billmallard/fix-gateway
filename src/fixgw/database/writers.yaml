@@ -52,8 +52,8 @@ CHT11: {units: degC, writers: [canfix, grand_rapids_eis]}
 CHT12: {units: degC, writers: [canfix, grand_rapids_eis]}
 CHT13: {units: degC, writers: [canfix, grand_rapids_eis]}
 CHT14: {units: degC, writers: [canfix, grand_rapids_eis]}
-CHT15: {units: degC, writers: [grand_rapids_eis]}
-CHT16: {units: degC, writers: [grand_rapids_eis]}
+CHT15: {units: degC, writers: [canfix, grand_rapids_eis]}
+CHT16: {units: degC, writers: [canfix, grand_rapids_eis]}
 CHTMAX1: {units: degC, writers: [compute]}
 COURSE: {units: deg, writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1CRS, NAV2CRS, GPSCRS]}}
 CURRNT: {units: amps, writers: [canfix]}
@@ -63,8 +63,8 @@ EGT11: {units: degC, writers: [canfix, grand_rapids_eis]}
 EGT12: {units: degC, writers: [canfix, grand_rapids_eis]}
 EGT13: {units: degC, writers: [canfix, grand_rapids_eis]}
 EGT14: {units: degC, writers: [canfix, grand_rapids_eis]}
-EGT15: {units: degC, writers: [grand_rapids_eis]}
-EGT16: {units: degC, writers: [grand_rapids_eis]}
+EGT15: {units: degC, writers: [canfix, grand_rapids_eis]}
+EGT16: {units: degC, writers: [canfix, grand_rapids_eis]}
 EGTAVG1: {units: degC, writers: [compute]}
 EGTMAX1: {units: degC, writers: [compute]}
 EGTSPAN1: {units: degC, writers: [compute]}
