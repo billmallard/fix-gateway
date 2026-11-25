@@ -30,6 +30,14 @@ EXTCDI: [garmin_gnx375, navigator_adapter]
 EXTCRS: [garmin_gnx375, navigator_adapter]
 EXTTF: [garmin_gnx375, navigator_adapter]
 EXTXTK: [garmin_gnx375, navigator_adapter]
+# FPLCMD: a sanctioned addition (Bill, card bc9865d2 on AER-6518, 2026-11-25).
+# A seq-arbitrated command channel, not a second source: the pyEfis editor's
+# fixbridge.command and the HSI's _send_fpl_command each send one past the
+# highest seq on the bus (the last FPLCMD or FPLCMDACK), and acks are matched
+# by seq. The HSI keeps its own copy of the rule because rule R1 bars core from
+# importing the flight-plan package; a pyEfis test (test_hsi_gps_obs.py) holds
+# the two copies together. A selector cannot apply: a command has no source to
+# choose between.
 FPLCMD: [pyefis/flightplan, pyefis/instruments/hsi]
 FUELF1: [canfix, shadin]
 FUELQ1: [canfix, grand_rapids_eis]
@@ -54,7 +62,7 @@ POWER_FAIL: [X728, strom_pi]
 ROLL: [canfix, dynon, mavlink, onspeed, rpi_bno055, stratux]
 ROT: [canfix, dynon, mavlink]
 TACH1: [canfix, grand_rapids_eis]
-# TALT: the one sanctioned addition (Bill, card 82b0b10b on AER-6458, 2026-11-24).
+# TALT: a sanctioned addition (Bill, card 82b0b10b on AER-6458, 2026-11-24).
 # garmin_gnx375, gpsd and navigator_adapter moved their MSL write here off
 # GPS_ELLIPSOID_ALT, which named the wrong datum; the baseline's writer
 # entries fell (GPS_ELLIPSOID_ALT left it). It holds only while
