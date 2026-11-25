@@ -279,6 +279,45 @@ def test_row_streams_names_what_demo_streams():
         assert os.path.exists(os.path.join(ROOT, rel)), rel
 
 
+def test_the_restore_republish_relays_only_the_route_block(tmp_path):
+    # The engine's restore writes back the editor's last commit: its
+    # route-block writes are a relay.  Anything else it writes, and the same
+    # keys written from any other function, stay the engine's own writes.
+    root = tree(tmp_path, {"src/fixgw/plugins/flightplan/__init__.py": """
+        class Plugin:
+            def _republish_route(self):
+                self.parent.db_write("FPL1ID", "")
+                self.parent.db_write("FPLSEQ", 1)
+                self.parent.db_write("FPLLDSEQ", 1)
+                self.parent.db_write("FPLFRLAT", 0.0)
+
+            def _load(self):
+                self.parent.db_write("FPLSEQ", 2)
+    """})
+    cat = dict(CAT_FPL, FPLLDSEQ={"key": "FPLLDSEQ", "units": "", "type": "int",
+                                  "description": "Loaded commit"})
+    got = sorted((w["key"], w["line"], w["category"]) for w in ckw.scan_writes(root, cat))
+    assert got == [("FPL1ID", 4, "relay"), ("FPLFRLAT", 7, "compute"), ("FPLLDSEQ", 6, "compute"),
+                   ("FPLSEQ", 5, "relay"), ("FPLSEQ", 10, "compute")]
+
+
+def test_relay_sites_names_the_restore_republish(catalog):
+    # RELAY_SITES is a declaration the scan trusts: the function exists, it
+    # ignores its own FPLSEQ while it runs, and on the real tree no relay
+    # write from flightplan comes from anywhere else or names a key outside
+    # the route block.
+    (rel, fn), = ckw.RELAY_SITES
+    src = ckw.read(os.path.join(ROOT, rel))
+    assert "def %s(self):" % fn in src
+    assert "if self._restoring:\n            return\n        self._load_route_from_db()" in src
+    w = [x for x in ckw.scan_writes(ROOT, catalog) if x["module"] == "flightplan"]
+    relayed = {x["key"] for x in w if x["category"] == "relay"}
+    assert {x["file"] for x in w if x["category"] == "relay"} == {rel}
+    assert relayed and all(ckw.ROUTE_BLOCK.fullmatch(k) for k in relayed)
+    assert {"FPL1ID", "FPL100TURN", "FPLS100LAST", "FPLCOUNT", "FPLSEQ"} <= relayed
+    assert "FPLLDSEQ" not in relayed and "FPL1TA" not in relayed
+
+
 def test_a_datum_on_a_text_key_fails(tmp_path):
     root = tree(tmp_path, {"src/fixgw/plugins/aaa/__init__.py":
                            'def run(parent):\n    parent.write("FPL1ALT", "")\n'})
@@ -302,6 +341,9 @@ def test_the_register_records_the_flight_plan_writers():
             assert "datum" not in reg["FPL%d%s" % (i, f)]
     for k in ("FPL1ID", "FPL100TURN", "FPLS1KIND", "FPLCOUNT", "FPLSEQ"):
         assert reg[k]["pyefis"] == ["pyefis/flightplan"] and reg[k]["sim"] == ["demo"], k
+        # The engine's restore passes the editor's commit back on: a relay.
+        assert reg[k]["relay"] == ["flightplan"] and "writers" not in reg[k], k
+    assert reg["FPLLDSEQ"]["writers"] == ["flightplan"]
     # The HSI sends its own FPLCMD (OBS, through _fix_item; OUT1 found it).
     assert reg["FPLCMD"]["pyefis"] == ["pyefis/flightplan", "pyefis/instruments/hsi"]
     assert reg["FPLCMD"]["sim"] == ["demo"]
