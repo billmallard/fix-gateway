@@ -8,7 +8,7 @@ compute (AER-4473).
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, Optional
 
 from fixgw.nmea_fix import cdi_from_cross_track
 
