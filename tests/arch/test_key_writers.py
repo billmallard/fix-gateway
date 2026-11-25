@@ -300,8 +300,10 @@ def test_the_register_records_the_flight_plan_writers():
     for i in range(1, 101):
         for f in ("ALT", "PT"):
             assert "datum" not in reg["FPL%d%s" % (i, f)]
-    for k in ("FPL1ID", "FPL100TURN", "FPLS1KIND", "FPLCOUNT", "FPLSEQ", "FPLCMD"):
+    for k in ("FPL1ID", "FPL100TURN", "FPLS1KIND", "FPLCOUNT", "FPLSEQ"):
         assert reg[k]["pyefis"] == ["pyefis/flightplan"] and reg[k]["sim"] == ["demo"], k
+    # The HSI sends FPLCMD too (OUT1 found it; ARCHG2b declares it).
+    assert reg["FPLCMD"]["pyefis"] == ["pyefis/flightplan", "pyefis/instruments/hsi"]
     for k in ("DTOID", "DTOLAT", "DTOLON", "DTOTYPE"):
         assert reg[k]["pyefis"] == ["pyefis/flightplan"], k
     assert reg["BRG1SRC"]["pyefis"] == ["pyefis/instruments/hsi"]
@@ -724,3 +726,26 @@ def test_a_writes_comment_must_name_keys_on_a_write_the_scan_cannot_name(tmp_pat
     with pytest.raises(ckw.ScanError, match=error) as e:
         ckw.scan_writes(root, CAT_UI, repo="pyEfis")
     assert "src/pyefis/instruments/altimeter/altsel.py:9" in str(e.value)
+
+
+def test_the_register_records_the_pyefis_item_helper_writes():
+    # ARCHG2b (AER-6541), on the real register: what the scan finds in pyEfis
+    # `dev` through fixbridge's _set, a BugBinding and `# writes:`.
+    reg = ckw.load_yaml(ROOT, ckw.REGISTER)
+    pyefis = {k: e["pyefis"] for k, e in reg.items() if e.get("pyefis")}
+    assert pyefis["ALTSEL"] == ["pyefis/instruments/altimeter"]
+    assert pyefis["IASSEL"] == ["pyefis/instruments/airspeed", "pyefis/instruments/autopilot"]
+    assert pyefis["VSSEL"] == ["pyefis/instruments/autopilot"]
+    assert pyefis["HEADBUG"] == ["pyefis/instruments/autopilot", "pyefis/instruments/hsi"]
+    assert pyefis["NAV1CRS"] == pyefis["NAV2CRS"] == ["pyefis/instruments/hsi"]
+    assert pyefis["BANKBUG"] == ["pyefis/instruments/ai"]
+    # X-Plane's autopilot adapter copies its dials into the same keys, from
+    # its TARGETS table: a sim writer, so not a second live writer.
+    for k in ("ALTSEL", "VSSEL", "IASSEL", "HEADBUG", "NAV1CRS", "NAV2CRS", "BARO"):
+        assert "xplane" in reg[k]["sim"], k
+    # Two pyEfis surfaces edit one pilot-set key: on the baseline, by Bill's
+    # ruling on the ARCHG2b packet (AER-6493), until a selector item says
+    # otherwise.
+    base = ckw.load_yaml(ROOT, ckw.BASELINE)
+    for k in ("FPLCMD", "HEADBUG", "IASSEL"):
+        assert base[k] == pyefis[k], k
