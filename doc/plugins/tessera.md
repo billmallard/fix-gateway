@@ -66,11 +66,13 @@ nothing. The last case matters because a panel that has just connected or
 restarted shows the layout it saved, which may not be ours.
 
 The `pulse` form is how a pyEfis touchscreen button or the Knobster's push
-writes a button key. Pulsing `TSBTN12` runs pyEfis's `baro-up-invisible`
-button exactly as a tap on the glass would. pyEfis acts on it only while that
-button is on its visible screen (`instruments/button` `dbkeyChanged`). For a
-press that should work on any screen, pulse a `BTN` key and bind it with a
-pyEfis data binding.
+writes a button key. Pulsing `TSBTN12` runs the command of pyEfis's
+`baro-up-invisible` button, as a tap on the glass would. pyEfis's stock data
+bindings (`databindings/default.yaml`, pyEfis #591) run the baro, trim,
+dimmer, heading-bug and CDI-source commands on any screen. A pyEfis whose
+bindings file predates them acts only while that button shows
+(`instruments/button` `dbkeyChanged`); for any other command that should work
+on every screen, bind its key with a pyEfis data binding.
 
 ### How a key is drawn
 
