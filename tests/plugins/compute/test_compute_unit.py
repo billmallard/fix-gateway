@@ -212,6 +212,42 @@ def test_alt_density_waits_for_inputs_and_computes_value():
     assert parent.db_get_item("DALT").value == pytest.approx(2437.6)
 
 
+# ISA temperature is defined on pressure altitude, so a TALT 1,000 ft above
+# PALT must not move DALT: 5,000 + 120 * (20 - 5.1) = 6,788 ft.  Reading the
+# standard temperature from TALT gave about 7,026 (DALT1, AER-6594).
+def test_alt_density_takes_standard_temperature_from_palt():
+    parent = FakeParent()
+    func = compute.altDensity(["PALT", "TALT", "OAT"], "DALT", require_leader=False)
+
+    func("PALT", value_tuple(5000.0), parent)
+    func("TALT", value_tuple(6000.0), parent)
+    func("OAT", value_tuple(20.0), parent)
+
+    assert parent.db_get_item("DALT").value == pytest.approx(6788.0)
+
+
+# A panel with pressure and OAT but no GPS has no TALT writer.  An installed
+# config that still lists TALT publishes DALT anyway, and TALT's flags do not
+# reach it.  The shipped two-input form does the same.
+def test_alt_density_publishes_without_talt():
+    for inputs in (["PALT", "TALT", "OAT"], ["PALT", "OAT"]):
+        parent = FakeParent()
+        func = compute.altDensity(inputs, "DALT", require_leader=False)
+
+        func("PALT", value_tuple(5000.0), parent)
+        func("OAT", value_tuple(20.0), parent)
+
+        output = parent.db_get_item("DALT")
+        assert output.value == pytest.approx(6788.0)
+        assert output.bad is False
+
+        if "TALT" in inputs:
+            func("TALT", value_tuple(6000.0, bad=True, fail=True), parent)
+            assert output.value == pytest.approx(6788.0)
+            assert output.bad is False
+            assert output.fail is False
+
+
 @pytest.mark.parametrize(
     "factory,args",
     [
@@ -522,17 +558,16 @@ def test_glideslope_valid_drops_when_the_localizer_is_lost():
 
 def test_alt_density_flag_paths_and_aux_metadata():
     parent = FakeParent()
-    func = compute.altDensity(["PALT", "ALTMSL", "OAT"], "DALT", require_leader=False)
+    func = compute.altDensity(["PALT", "OAT"], "DALT", require_leader=False)
 
     func("PALT.Min", 10, parent)
     assert parent.db_get_item("DALT").aux["Min"] == 10
     func("PALT.Min", 10, parent)
-    func("ALTMSL.Min", 20, parent)
+    func("OAT.Min", 20, parent)
     assert parent.db_get_item("DALT").aux["Min"] == 10
 
     func("PALT", value_tuple(1000, old=True), parent)
-    func("ALTMSL", value_tuple(1000, bad=True), parent)
-    func("OAT", value_tuple(25, fail=True, secfail=True), parent)
+    func("OAT", value_tuple(25, bad=True, fail=True, secfail=True), parent)
 
     output = parent.db_get_item("DALT")
     assert output.value == 0.0
