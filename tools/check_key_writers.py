@@ -24,8 +24,11 @@ constants that name a key, `item = get_item(KEY); item.value = v` (and
 `.set()`, `.output_value()`, and an item from a function that returns one for
 a key parameter), a loop over a module-level table of keys, and the
 `outputs:`/`inputs:` paths of the shipped YAML (a canfix map's `inputs` are
-bus-to-database writes; a compute function's `output` is its write).  Static
-only: nothing under `plugins/` is imported.  The key catalog comes from the
+bus-to-database writes; a compute function's `output` is its write).  For
+pyEfis (ARCHG2b): a wrapper over such a getter, a function that returns a key
+name built from its parameters, a loop over a module-level tuple of rows, a
+`BugBinding("KEY")`'s `.item`, and a `# writes: KEY` comment on a write whose
+item comes from elsewhere.  Static only: nothing under `plugins/` is imported.  The key catalog comes from the
 real database loader, so templated keys (`CHTec` -> `CHT11`) expand as the
 running gateway expands them.
 
@@ -46,12 +49,14 @@ looks for.
 """
 import argparse
 import ast
+import io
 import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
+import tokenize
 from collections import defaultdict
 
 import yaml
@@ -75,6 +80,14 @@ WRITE_CALLS = {"db_write", "write", "set_value", "setValue"}
 ITEM_WRITES = {"set", "output_value"}
 READ_CALLS = {"db_read", "read", "db_get_item", "get_item", "get_raw_item",
               "getItem", "db_get_value", "get_value"}
+# Objects made for one key whose `.item` is that key's item: pyEfis's
+# `bugs.BugBinding("BANKBUG", self)`.
+BINDINGS = {"BugBinding"}
+# A write whose item the scan cannot name -- it comes from the panel config,
+# through another module -- says which keys it reaches (ARCHG2b):
+#     item.output_value()  # writes: HEADBUG, NAV1CRS
+# on the write's line, or alone on the line above it.
+WRITES_COMMENT = re.compile(r"#\s*writes:\s*(.*)$")
 
 # ---- writer categories (fix-gateway module -> category) ------------------
 SIM = {"xplane", "fgfs", "demo", "data_playback", "test", "sim", "flown_baseline"}
@@ -155,6 +168,10 @@ FIX_DECLARE = ("declare it in src/fixgw/database/writers.yaml and add the roadma
 FIX_SELECTOR = ("add a selector: each source writes its own key and one compute "
                 "`select` writes {key} (the bearing-pointer pattern, roadmap 9.1; "
                 "doc/key_writers.md)")
+
+
+class ScanError(ValueError):
+    """A `# writes:` comment the scan cannot honour."""
 
 
 def read(path):
@@ -247,12 +264,18 @@ def template_match(parts, catalog):
 
 # ---- python writes ---------------------------------------------------------
 class KeyVisitor(ast.NodeVisitor):
-    def __init__(self, catalog, consts, wrappers=None, tables=None, getters=None):
+    def __init__(self, catalog, consts, wrappers=None, tables=None, getters=None,
+                 builders=None, literals=None, declared=None):
         self.wrappers = wrappers or {}
         self.cat = catalog
         self.consts = consts          # module-level NAME = "KEY"
         self.tables = tables or {}    # module-level NAME = [keys]
         self.getters = getters or {}  # functions returning the item for a key
+        self.builders = builders or {}  # functions returning a key name: params, expr
+        self.literals = literals or {}  # module-level NAME = (literal rows)
+        self.declared = declared or {}  # line -> keys of its `# writes:` comment
+        self.declared_used = {}       # line -> "declared" or "named" (the scan knew it)
+        self.subst = [{}]             # a name function's parameters -> the call's arguments
         self.refs = []                # (line, key, how)
         self.items = [{}]             # scopes: var/attr name -> key
         self.loops = [{}]             # `for x in ("A", "B")` or a table: x -> its strings; a counter -> INT
@@ -269,6 +292,16 @@ class KeyVisitor(ast.NodeVisitor):
             ks = [k for k in self.loop_values(node) if k in self.cat]
             if ks:
                 return ks, "loop over %s" % (self.loop_values(node, "/table") or "literals")
+        if isinstance(node, ast.Call) and call_name(node) in self.builders:
+            params, expr = self.builders[call_name(node)]
+            sub = dict(zip(params, node.args))
+            sub.update((k.arg, k.value) for k in node.keywords if k.arg in params)
+            self.subst.append(sub)
+            try:
+                ks, how = self.keys_of(expr)
+            finally:
+                self.subst.pop()
+            return ks, ("%s() %s" % (call_name(node), how)) if ks else ""
         parts, how = self.name_parts(node)
         if parts:
             ks = template_match(parts, self.cat)
@@ -284,7 +317,12 @@ class KeyVisitor(ast.NodeVisitor):
 
     def placeholder(self, node, spec_char=""):
         """(regex, shown) for one placeholder: the strings a loop binds it
-        to, else an instance."""
+        to, else an instance.  In a name function, a parameter stands for the
+        call's argument."""
+        if isinstance(node, ast.Name) and node.id in self.subst[-1]:
+            node = self.subst[-1][node.id]
+            if isinstance(node, ast.Constant) and isinstance(node.value, (str, int)):
+                return re.escape(str(node.value)), str(node.value)
         vals = self.loop_values(node) if isinstance(node, ast.Name) else None
         if vals == INT or (spec_char and spec_char in "diu"):
             return DIGIT_PART, "{n}"
@@ -344,7 +382,8 @@ class KeyVisitor(ast.NodeVisitor):
     def visit_For(self, node):
         # for key in ("A", "B"): / for key, v in (("A", 1), ("B", 2)):
         bound = {}
-        elts = node.iter.elts if isinstance(node.iter, (ast.Tuple, ast.List)) else []
+        elts = node.iter.elts if isinstance(node.iter, (ast.Tuple, ast.List)) else \
+            self.literals.get(node.iter.id, []) if isinstance(node.iter, ast.Name) else []
         counter = isinstance(node.iter, ast.Call) and call_name(node.iter) in ("range", "enumerate")
         if counter and call_name(node.iter) == "range" and isinstance(node.target, ast.Name):
             bound[node.target.id] = INT
@@ -388,11 +427,7 @@ class KeyVisitor(ast.NodeVisitor):
             self.visit(n)
 
     def lookup_item(self, node):
-        name = None
-        if isinstance(node, ast.Name):
-            name = node.id
-        elif isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
-            name = node.value.id + "." + node.attr
+        name = dotted(node)
         for scope in reversed(self.items):
             if name in scope:
                 return scope[name]
@@ -405,39 +440,54 @@ class KeyVisitor(ast.NodeVisitor):
     visit_AsyncFunctionDef = visit_FunctionDef
 
     def visit_Assign(self, node):
-        # x = get_item("KEY")  -> remember x (and self.x) for later .value writes
+        # x = get_item("KEY")  -> remember x (and self.x) for later .value writes;
+        # b = BugBinding("KEY") -> remember b.item; y = x / y = b.item -> y too.
+        ks, suffix = None, ""
         if isinstance(node.value, ast.Call):
             fn = call_name(node.value)
-            idx = 0 if fn in READ_CALLS else self.getters.get(fn)
+            idx = 0 if fn in READ_CALLS or fn in BINDINGS else self.getters.get(fn)
             if idx is not None and len(node.value.args) > idx:
                 ks, _ = self.keys_of(node.value.args[idx])
-                if ks:
-                    for t in node.targets:
-                        n = (t.id if isinstance(t, ast.Name) else
-                             t.value.id + "." + t.attr
-                             if isinstance(t, ast.Attribute) and isinstance(t.value, ast.Name)
-                             else None)
-                        if n:
-                            scope = self.items[0] if n.startswith("self.") else self.items[-1]
-                            scope[n] = ks
+                suffix = ".item" if fn in BINDINGS else ""
+        elif isinstance(node.value, (ast.Name, ast.Attribute)):
+            ks = self.lookup_item(node.value)
+        if ks:
+            for t in node.targets:
+                n = dotted(t) if isinstance(t, (ast.Name, ast.Attribute)) else None
+                if n and n.count(".") <= 1:
+                    scope = self.items[0] if n.startswith("self.") else self.items[-1]
+                    scope[n + suffix] = ks
         for t in node.targets:
             if isinstance(t, ast.Attribute) and t.attr == "value":
-                for k in self.lookup_item(t.value) or []:
-                    self.refs.append((node.lineno, k, "item.value ="))
+                self.item_write(node.lineno, self.lookup_item(t.value), "item.value =")
         self.generic_visit(node)
+
+    def item_write(self, line, keys, how):
+        """A write to an item: the keys the scan names, else the keys a
+        `# writes:` comment on the line declares."""
+        if keys:
+            if line in self.declared:
+                self.declared_used.setdefault(line, "named")
+            for k in keys:
+                self.refs.append((line, k, how))
+        elif line in self.declared:
+            self.declared_used[line] = "declared"
+            for k in self.declared[line]:
+                self.refs.append((line, k, how + " (# writes:)"))
 
     def visit_Call(self, node):
         fn = call_name(node)
         idx = self.wrappers.get(fn, 0)
         if (fn in WRITE_CALLS or fn in self.wrappers) and len(node.args) > idx:
             ks, how = self.keys_of(node.args[idx])
-            for k in ks:
-                self.refs.append((node.lineno, k, "%s(%s)" % (fn, how)))
+            if ks:
+                for k in ks:
+                    self.item_write(node.lineno, [k], "%s(%s)" % (fn, how))
+            else:
+                self.item_write(node.lineno, [], "%s()" % fn)
         elif fn in ITEM_WRITES and isinstance(node.func, ast.Attribute):
-            for k in self.lookup_item(node.func.value) or []:
-                self.refs.append((node.lineno, k, "item.%s()" % fn))
+            self.item_write(node.lineno, self.lookup_item(node.func.value), "item.%s()" % fn)
         self.generic_visit(node)
-
 
 
 def merge_literals(parts):
@@ -450,11 +500,13 @@ def merge_literals(parts):
     return out
 
 
-def find_wrappers(tree):
+def find_wrappers(tree, getters=None):
     """name -> positional index of the key argument, for module functions that
     hand a parameter to a write (`_setval(key, v)` -> db_write(key, v),
-    `_set(key, v)` -> items[key].set(v)).  Two passes, so a wrapper of a
-    wrapper is found too."""
+    `_set(key, v)` -> items[key].set(v), or `item = self._get(key)` from a
+    getter, then `item.value = v` / `item.output_value()`).  Two passes, so a
+    wrapper of a wrapper is found too."""
+    getters = getters or {}
     wr = {}
     for _ in range(2):
         for fn in ast.walk(tree):
@@ -465,7 +517,7 @@ def find_wrappers(tree):
             for n in ast.walk(fn):
                 if isinstance(n, ast.Assign) and len(n.targets) == 1 and \
                         isinstance(n.targets[0], ast.Name):
-                    k = subscript_name(n.value)
+                    k = subscript_name(n.value) or getter_arg(n.value, getters)
                     if k in params:
                         alias[n.targets[0].id] = k
             for n in ast.walk(fn):
@@ -475,7 +527,7 @@ def find_wrappers(tree):
                     idx = wr.get(name, 0) if (name in WRITE_CALLS or name in wr) else None
                     if idx is not None and len(n.args) > idx and isinstance(n.args[idx], ast.Name):
                         key = n.args[idx].id
-                    if name == "set" and isinstance(n.func, ast.Attribute):
+                    if name in ITEM_WRITES and isinstance(n.func, ast.Attribute):
                         v = n.func.value
                         key = subscript_name(v) or (alias.get(v.id) if isinstance(v, ast.Name) else None)
                 elif isinstance(n, ast.Assign):
@@ -487,6 +539,91 @@ def find_wrappers(tree):
                 if key in params and fn.name not in WRITE_CALLS:
                     wr[fn.name] = params.index(key)
     return wr
+
+
+def getter_arg(node, getters):
+    """`self._get(key)` -> 'key', for a getter's key argument that is a bare name."""
+    if isinstance(node, ast.Call) and call_name(node) in getters:
+        idx = getters[call_name(node)]
+        if len(node.args) > idx and isinstance(node.args[idx], ast.Name):
+            return node.args[idx].id
+    return None
+
+
+def find_name_builders(tree):
+    """name -> (params, expr), for functions whose whole body returns a key
+    name built from their parameters (`_slot_key(n, name)`: `return
+    f"FPL{n}{name}"`), so `_set(_slot_key(i, name), v)` resolves as the
+    f-string would at the call."""
+    out = {}
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        body = [n for n in fn.body if not (isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant))]
+        if len(body) != 1 or not isinstance(body[0], ast.Return):
+            continue
+        v = body[0].value
+        built = isinstance(v, ast.JoinedStr) or \
+            (isinstance(v, ast.BinOp) and isinstance(v.op, ast.Mod) and isinstance(v.left, ast.Constant)
+             and isinstance(v.left.value, str)) or \
+            (isinstance(v, ast.Call) and call_name(v) == "format" and isinstance(v.func, ast.Attribute)
+             and isinstance(v.func.value, ast.Constant) and isinstance(v.func.value.value, str))
+        if built:
+            out[fn.name] = ([a.arg for a in fn.args.args if a.arg not in ("self", "cls")], v)
+    return out
+
+
+def module_literals(tree):
+    """NAME -> rows, for module-level tuples and lists written out in the
+    source (`SLOT_FIELDS = (("ID", "str", ""), ...)`), so `for name, _, _ in
+    SLOT_FIELDS` binds name to the first column."""
+    out = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and isinstance(node.value, (ast.Tuple, ast.List)):
+            for t in node.targets:
+                if isinstance(t, ast.Name):
+                    out[t.id] = node.value.elts
+    return out
+
+
+def writes_comments(text):
+    """line -> (comment line, keys) for each `# writes:` comment: on the line
+    of the code it follows, or alone on the line above the next code line."""
+    out, pending = {}, []
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+            if tok.type == tokenize.COMMENT:
+                m = WRITES_COMMENT.match(tok.string)
+                if m:
+                    keys = [k for k in re.split(r"[,\s]+", m.group(1).strip()) if k]
+                    if tok.line[:tok.start[1]].strip():
+                        out[tok.start[0]] = (tok.start[0], keys)
+                    else:
+                        pending.append((tok.start[0], keys))
+            elif pending and tok.type not in (tokenize.NL, tokenize.NEWLINE, tokenize.INDENT,
+                                              tokenize.DEDENT, tokenize.COMMENT):
+                line, keys = pending[-1][0], [k for _, ks in pending for k in ks]
+                out[tok.start[0]] = (line, keys)
+                pending = []
+    except (tokenize.TokenError, IndentationError):
+        pass
+    for line, keys in pending:
+        out[-line] = (line, keys)     # a comment with no code after it: on no write
+    return out
+
+
+def check_writes_comments(rel, comments, used, catalog):
+    for line, (cline, keys) in sorted(comments.items(), key=lambda kv: kv[1][0]):
+        where = "%s:%d: `# writes: %s`" % (rel, cline, ", ".join(keys))
+        bad = [k for k in keys if k not in catalog]
+        if not keys or bad:
+            raise ScanError("%s: %s is not a key in the database" % (where, ", ".join(bad) or "(none)"))
+        if used.get(line) == "named":
+            raise ScanError("%s: the scan already names the key this line writes; remove the "
+                            "comment" % where)
+        if used.get(line) != "declared":
+            raise ScanError("%s: the comment is on no write; put it on the line that writes the "
+                            "item (`.output_value()`, `.value =`, `.set()`), or remove it" % where)
 
 
 def find_getters(tree):
@@ -578,6 +715,17 @@ def subscript_name(node):
             and isinstance(node.args[0], ast.Name):
         return node.args[0].id
     return None
+
+
+def dotted(node):
+    """`a` or `a.b.c` for a name or a chain of attributes on one, else None."""
+    parts = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return None
+    return ".".join([node.id] + parts[::-1])
 
 
 def call_name(call):
@@ -787,13 +935,18 @@ def scan_writes(root, catalog, repo="fix-gateway"):
         if cat == "tool":
             continue
         if path.endswith(".py"):
+            text = read(path)
             try:
-                tree = ast.parse(read(path))
+                tree = ast.parse(text)
             except SyntaxError:
                 continue
-            v = KeyVisitor(catalog, module_consts(tree, catalog), find_wrappers(tree),
-                           module_tables(tree, catalog), find_getters(tree))
+            getters = find_getters(tree)
+            comments = writes_comments(text) if "writes:" in text else {}
+            v = KeyVisitor(catalog, module_consts(tree, catalog), find_wrappers(tree, getters),
+                           module_tables(tree, catalog), getters, find_name_builders(tree),
+                           module_literals(tree), {ln: ks for ln, (_, ks) in comments.items()})
             v.visit(tree)
+            check_writes_comments(rel, comments, v.declared_used, catalog)
             found = v.refs + (table_writes(tree, catalog) if repo == "fix-gateway" else [])
         elif repo != "fix-gateway":
             continue
