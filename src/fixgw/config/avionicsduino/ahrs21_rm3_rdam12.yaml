@@ -69,8 +69,8 @@ inputs:
   - { canid: 30, field: gs_kmh, fixid: GS, converter: kmh2kt }
   # ID 30 GNSS altitude AMSL (ft): no GNSS-altitude key.  ALT is the
   # indicated (baro) altitude and GPS_ELLIPSOID_ALT is height above the
-  # ellipsoid, a different datum.  (mavlink writes TALT from GNSS MSL,
-  # but TALT feeds compute's DALT, so that is a separate decision.)
+  # ellipsoid, a different datum.  (mavlink writes TALT from GNSS MSL;
+  # mapping this field to TALT is a separate decision.)
   # - { canid: 30, field: alt_msl_ft, fixid: <none> }
 
   # ID 34, 5 Hz: UTC time and satellites in view.  No date keys.
