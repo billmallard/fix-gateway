@@ -300,8 +300,11 @@ def test_the_register_records_the_flight_plan_writers():
     for i in range(1, 101):
         for f in ("ALT", "PT"):
             assert "datum" not in reg["FPL%d%s" % (i, f)]
-    for k in ("FPL1ID", "FPL100TURN", "FPLS1KIND", "FPLCOUNT", "FPLSEQ", "FPLCMD"):
+    for k in ("FPL1ID", "FPL100TURN", "FPLS1KIND", "FPLCOUNT", "FPLSEQ"):
         assert reg[k]["pyefis"] == ["pyefis/flightplan"] and reg[k]["sim"] == ["demo"], k
+    # The HSI sends its own FPLCMD (OBS, through _fix_item; OUT1 found it).
+    assert reg["FPLCMD"]["pyefis"] == ["pyefis/flightplan", "pyefis/instruments/hsi"]
+    assert reg["FPLCMD"]["sim"] == ["demo"]
     for k in ("DTOID", "DTOLAT", "DTOLON", "DTOTYPE"):
         assert reg[k]["pyefis"] == ["pyefis/flightplan"], k
     assert reg["BRG1SRC"]["pyefis"] == ["pyefis/instruments/hsi"]

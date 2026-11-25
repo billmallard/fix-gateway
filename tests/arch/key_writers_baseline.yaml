@@ -4,7 +4,7 @@
 # and when a listed key has lost one -- so this file only shrinks.  Remove
 # an entry by giving the key one writer (a selector, roadmap 9.1).
 # Live writers: `writers` and `pyefis` in src/fixgw/database/writers.yaml.
-# 2063 keys.
+# 2064 keys.
 
 AGL: [canfix, mavlink]
 ALAT: [canfix, dynon, mavlink, rpi_bno055, stratux]
@@ -1431,6 +1431,7 @@ FPL9SPD: [flightplan, pyefis/flightplan]
 FPL9TURN: [flightplan, pyefis/flightplan]
 FPL9TYPE: [flightplan, pyefis/flightplan]
 FPLAPRTYPE: [flightplan, pyefis/flightplan]
+FPLCMD: [pyefis/flightplan, pyefis/instruments/hsi]
 FPLCOUNT: [flightplan, pyefis/flightplan]
 FPLDBCYC: [flightplan, pyefis/flightplan]
 FPLNAME: [flightplan, pyefis/flightplan]

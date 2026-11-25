@@ -1618,7 +1618,7 @@ FPLALERT: {units: '', writers: [flightplan]}
 FPLAPR: {units: '', writers: [flightplan]}
 FPLAPRTYPE: {units: '', writers: [flightplan], pyefis: [pyefis/flightplan], sim: [demo]}
 FPLCDI: {units: '', writers: [flightplan]}
-FPLCMD: {units: '', pyefis: [pyefis/flightplan], sim: [demo]}
+FPLCMD: {units: '', pyefis: [pyefis/flightplan, pyefis/instruments/hsi], sim: [demo]}
 FPLCMDACK: {units: '', writers: [flightplan]}
 FPLCOUNT: {units: '', writers: [flightplan], pyefis: [pyefis/flightplan], sim: [demo]}
 FPLCRS: {units: deg, writers: [flightplan]}
