@@ -40,7 +40,7 @@ standard NMEA 0183: `RMC`, `GGA`, `GSA`, `RMB` and `APB`. It needs the
 |---|---|
 | `LAT`, `LONG` | `RMC` (valid fixes) and `GGA` (when there is a fix) |
 | `GS`, `TRACK` | `RMC`, ground speed and true track |
-| `GPS_ELLIPSOID_ALT` | `GGA` altitude, converted to feet |
+| `TALT` | `GGA` altitude (MSL), converted to feet |
 | `GPS_FIX_TYPE` | `GGA`, with the 2D/3D mode from the preceding `GSA` |
 | `EXTXTK` | `RMB` cross-track, nm, positive right of track (steer left) |
 | `EXTCDI` | `-EXTXTK / cdi_full_scale_nm`, clamped to -1..+1 |

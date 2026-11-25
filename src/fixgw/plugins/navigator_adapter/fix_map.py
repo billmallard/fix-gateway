@@ -8,7 +8,7 @@ compute (AER-4473).
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, Optional
 
 from fixgw.nmea_fix import cdi_from_cross_track
 
@@ -21,15 +21,25 @@ def apply_to_db(
     msg: NormalizedNavMessage,
     db_write: Callable[[str, object], None],
     cdi_full_scale_nm: float = _DEFAULT_CDI_FULL_SCALE_NM,
+    set_value: Optional[Callable[[str, object, bool], None]] = None,
 ) -> None:
-    """Write all non-None fields from msg to the FIX database via db_write."""
+    """Write all non-None fields from msg to the FIX database via db_write.
+
+    ``set_value(key, value, bad)`` writes a value with its bad flag; TALT goes
+    through it, bad below a 3-D fix (TALTSRC1, AER-6458)."""
     pos = msg.position
     if pos.lat_deg is not None:
         db_write("LAT", pos.lat_deg)
     if pos.lon_deg is not None:
         db_write("LONG", pos.lon_deg)
     if pos.alt_ft_msl is not None:
-        db_write("GPS_ELLIPSOID_ALT", pos.alt_ft_msl)
+        # MSL, so TALT, never GPS_ELLIPSOID_ALT (GALT1/TALTSRC1, AER-6458).
+        # Bad below a 3-D fix, when the navigator says which fix it has.
+        bad = msg.gps_fix_type is not None and msg.gps_fix_type < 3
+        if set_value is not None:
+            set_value("TALT", pos.alt_ft_msl, bad)
+        else:
+            db_write("TALT", pos.alt_ft_msl)
 
     if msg.ground_speed_kt is not None:
         db_write("GS", msg.ground_speed_kt)

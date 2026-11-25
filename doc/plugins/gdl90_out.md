@@ -72,7 +72,7 @@ is not `old`, `bad` or `fail`. Validity maps through; nothing is smoothed over.
 |---|---|---|---|
 | Latitude, longitude | `LAT`, `LONG`, deg | 24-bit signed, 180/2^23 deg, truncated toward zero as the ICD's Table 12 is | Lat = lon = NIC = NACp = 0 (G§3.5.1.3), and heartbeat GPS-valid clear. Also when `GPS_FIX_TYPE` has been written and is not valid or is below 2. |
 | NIC | none | 0, "unknown": no key carries a containment radius | 0 |
-| NACp | `GPS_ACCURACY_HORIZ`, ft | Table 10 bin of the value in metres, strict `<` | 0, "unknown" |
+| NACp | `GPS_ACCURACY_HORIZ`, ft | Table 10 bin of the value in metres, strict `<` | 0, "unknown". With `assumed_accuracy_ft` set and the key never written, the bin of the setting (below). |
 | Pressure altitude | `PALT`, ft | (ddd x 25) - 1,000, nearest; clamps to 0x000 and 0xFFE | 0xFFF |
 | Ground speed | `GS`, kt | 1 kt, nearest; holds at 0xFFE | 0xFFF |
 | Vertical speed | `VS`, ft/min | 64 ft/min, nearest; beyond +-32,576 holds at 0x1FE / 0xE02 | 0x800 |
@@ -88,10 +88,11 @@ is not `old`, `bad` or `fail`. Validity maps through; nothing is smoothed over.
 | IAS, TAS | `IAS`, `TAS`, kt | 1 kt | 0xFFFF |
 
 The 0x0B datum is a setting, `geo_altitude_datum: ellipsoid` or `msl`, sent in
-the ID message's capability bit 0. `GPS_ELLIPSOID_ALT` is named for the
-ellipsoid, but the `garmin_gnx375` and `navigator_adapter` plugins write GPS
-MSL altitude into it. With either of them, set `msl`. `mavlink` writes the
-ellipsoid height.
+the ID message's capability bit 0. Only `mavlink` writes `GPS_ELLIPSOID_ALT`,
+the ellipsoid height. `garmin_gnx375`, `gpsd` and `navigator_adapter` write
+their MSL height to `TALT` (GALT1/TALTSRC1). While the configured key has never
+been written and `TALT` has, the plugin sends `TALT` and sets the datum bit to
+MSL, so a GNX panel on the shipped config still sends 0x0B.
 
 ## Traffic, and a Stratux on the same tablet
 
@@ -103,6 +104,51 @@ two devices, at two latencies, and an EFB may draw it twice or let it jump
 between positions. The box cannot tell whether the tablet also hears the
 receiver, so this is a setting, not a rule. Turn it on only when the panel is
 the tablet's one source.
+
+## ForeFlight on a tablet (EFB2), and `assumed_accuracy_ft`
+
+EFB2 (AER-6290, 2026-11-22) fed ForeFlight on an iPad from the sim bench, with
+X-Plane as the only position source.
+
+- **ForeFlight drops an ownship report with NACp 0.** The device was listed and
+  attitude showed (0x65/1 is a separate message), but the iPad stayed at its
+  own location, with no altitude and no speed. The report carried a valid
+  position and GPS-valid set; only NACp was 0. A bench stand-in that wrote
+  16 ft into `GPS_ACCURACY_HORIZ` (NACp 10) brought position, altitude and
+  speed in at once. NIC stayed 0, so NIC does not gate it.
+- **Speed is groundspeed.** ForeFlight showed 133 where a pilot reads
+  airspeed: that was GPS groundspeed. The IAS (105) and TAS (119) sent in
+  0x65/1 at the FF offsets were not shown.
+- **"MkrPlane, No Towers"** in red, with a time that was not current: most
+  likely ForeFlight's ADS-B uplink status. No FIS-B is expected from a box
+  that is not an ADS-B receiver.
+- **Cutting the source** sent the iPad back to its own GPS position at once,
+  never a frozen one.
+
+So a panel whose position source writes no accuracy (X-Plane, an FMS) cannot
+place ownship in ForeFlight by default. `assumed_accuracy_ft` is the opt-in
+for that case (BACKLOG EFB5, AER-6452):
+
+- **Unset (the default), nothing changes:** NACp 0, "unknown".
+- **Set, and nothing has written `GPS_ACCURACY_HORIZ`:** NACp is the Table 10
+  bin of the setting. 16 ft gives NACp 10, as the EFB2 stand-in did.
+- **A written key always decides.** Valid, it is binned as usual. Once written
+  and then old, bad or failed, it is a receiver that lost its estimate: NACp
+  0, and the setting is not used in its place.
+- **No valid position:** NACp 0 regardless (G§3.5.1.3).
+- **It stays inside the plugin.** Nothing is written to the bus, so the
+  flight plan engine and every other reader of `GPS_ACCURACY_HORIZ` see only
+  what the source reported. (The EFB2 stand-in wrote the key; when it went
+  stale, the engine read it as a failed receiver. That is why this is a
+  setting and not a writer.)
+- A value that is not a positive number of feet is refused, logged and left
+  unset. A set value is logged as a warning at start.
+
+**The risk, named:** with the setting on, the box tells the tablet an accuracy
+its source never reported. It is meant for sim and FMS sources only. Never set
+it on a panel whose position comes from a real GPS: a receiver that writes no
+accuracy key would be reported at the assumed figure, whatever its real
+quality.
 
 ## Bluetooth
 
@@ -121,10 +167,7 @@ Android apps above.
 
 - `XGPS`/`XATT` text on UDP 49002 (the optional second output).
 - Pinging clients to keep a sleeping iPad's Wi-Fi awake.
-- ForeFlight itself. A tablet test is EFB2. With no `GPS_ACCURACY_HORIZ` writer
-  (X-Plane writes none) the ownship report carries NACp 0. ForeFlight is
-  reported to hide ownship when accuracy is unknown or worse than 100 m. EFB2
-  has to settle whether that leaves the sim bench with no ownship.
+- Traffic to a tablet: EFB2 had no TFC source on the sim bench.
 
 ## Configuration (`connections/gdl90_out.yaml`)
 
@@ -141,3 +184,4 @@ Android apps above.
 | `geo_altitude_key`, `geo_altitude_datum` | `GPS_ELLIPSOID_ALT`, `ellipsoid` | 0x0B source and datum |
 | `callsign`, `emitter_category`, `ownship_address` | `""`, `1`, `""` | ownship identity |
 | `internet_policy` | `0` | ID capability bits 1-2: 0 unrestricted, 1 expensive, 2 disallowed |
+| `assumed_accuracy_ft` | unset | sim and FMS sources only: horizontal accuracy, ft, sent as NACp while nothing has written `GPS_ACCURACY_HORIZ` (above) |

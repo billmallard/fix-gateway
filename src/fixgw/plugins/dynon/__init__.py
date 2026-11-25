@@ -81,8 +81,9 @@ class MainThread(threading.Thread):
         alt = round(int(message[24:29]) * 3.28084)  # meters to feet
 
         if status == 0:
+            # Not TALT: this is the indicated altitude, and TALT is the
+            # position receiver's MSL height (TALTSRC1, AER-6458).
             self.parent.db_write("ALT", alt)
-            self.parent.db_write("TALT", alt)
 
             turn_rate = int(message[29:33]) / 10
             self.parent.db_write("ROT", turn_rate)

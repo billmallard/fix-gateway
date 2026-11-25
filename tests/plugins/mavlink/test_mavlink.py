@@ -681,13 +681,27 @@ def pressure(hpa):
 
 def airdata_mav(database, options=None, messages=()):
     return make_mav(parent=DbParent(database), messages=list(messages),
-                    options=options or dict(DATA_OFF, ahrs=True, pressure=True))
+                    options=options or dict(DATA_OFF, ahrs=True, pressure=True, gps=True))
 
 
 def run(mav, *messages):
     mav.conn.messages.extend(messages)
     for _ in messages:
         mav.process()
+
+
+def test_talt_follows_the_gps_switch_like_lat_and_long(database):
+    """TALT is the position receiver's height, so it is written under the gps
+    switch with LAT/LONG, not under ahrs (TALTSRC1, AER-6458). An ahrs-only
+    mavlink beside another GPS must not put a second height on TALT."""
+    mav = airdata_mav(database, options=dict(DATA_OFF, ahrs=True, pressure=True))
+    run(mav, position(MSL_FT))
+    for key in ("TALT", "LAT", "LONG"):
+        assert not database.get_raw_item(key).written, key
+    mav = airdata_mav(database, options=dict(DATA_OFF, gps=True))
+    run(mav, position(MSL_FT))
+    assert database.read("TALT")[0] == MSL_FT
+    assert database.get_raw_item("LAT").written
 
 
 def test_alt_is_indicated_from_pressure_and_baro_and_talt_is_msl(database):
@@ -724,8 +738,8 @@ def test_alt_is_indicated_from_pressure_and_baro_and_talt_is_msl(database):
 def test_no_pressure_leaves_alt_unwritten(database):
     # The pressure option off, or on with no SCALED_PRESSURE yet: ALT is
     # left for its tol to age, never filled in with the GPS height.
-    for options in (dict(DATA_OFF, ahrs=True),
-                    dict(DATA_OFF, ahrs=True, pressure=True)):
+    for options in (dict(DATA_OFF, ahrs=True, gps=True),
+                    dict(DATA_OFF, ahrs=True, pressure=True, gps=True)):
         mav = airdata_mav(database, options)
         run(mav, position(MSL_FT))
         assert database.read("TALT")[0] == MSL_FT
