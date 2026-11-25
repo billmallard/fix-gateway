@@ -83,7 +83,7 @@ CHT16: {units: degC, writers: [canfix, grand_rapids_eis]}
 CHTMAX1: {units: degC, writers: [compute]}
 COURSE: {units: deg, quality: {compute: 'passthrough: the chosen source''s flags'}, on_loss: {compute: 'follows: a failed or never-written source fails the output'}, writers: [compute], selector: {module: compute, by: NAVSRC, sources: [NAV1CRS, NAV2CRS, GPSCRS]}}
 CURRNT: {units: amps, writers: [canfix], sim: [demo]}
-DALT: {units: ft, datum: 'density altitude: altd from PALT, TALT and OAT', writers: [compute]}
+DALT: {units: ft, datum: 'density altitude: altd from PALT and OAT', writers: [compute]}
 DIFFAIRPRESS: {units: Pa, writers: [mavlink]}
 EGT11: {units: degC, writers: [canfix, grand_rapids_eis], sim: [demo, fgfs]}
 EGT12: {units: degC, writers: [canfix, grand_rapids_eis], sim: [demo]}
