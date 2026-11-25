@@ -54,6 +54,13 @@ POWER_FAIL: [X728, strom_pi]
 ROLL: [canfix, dynon, mavlink, onspeed, rpi_bno055, stratux]
 ROT: [canfix, dynon, mavlink]
 TACH1: [canfix, grand_rapids_eis]
+# TALT: the one sanctioned addition (Bill, card 82b0b10b on AER-6458, 2026-11-24).
+# garmin_gnx375, gpsd and navigator_adapter moved their MSL write here off
+# GPS_ELLIPSOID_ALT, which named the wrong datum; the baseline's writer
+# entries fell (GPS_ELLIPSOID_ALT left it). It holds only while
+# test_talt_has_the_position_writers (tests/arch/test_key_writers.py) passes:
+# TALT's live writers equal LAT's and LONG's. It ends when SRC5a's position
+# select lands. A writer added without that test does not qualify.
 TALT: [garmin_gnx375, gpsd, mavlink, navigator_adapter]
 TAS: [canfix, dynon, mavlink]
 TRACK: [garmin_gnx375, gpsd, mavlink, navigator_adapter]
