@@ -69,7 +69,7 @@ entries:
   initial: 0.0
   tol: 2000
 
-- key: GPS_ELLIPSOID_ALT
+- key: TALT
   description: GPS Ellipsoid Altitude
   type: float
   min: -1500.0
@@ -167,6 +167,7 @@ def _make_thread():
         database.write(key, value)
 
     thread.parent.db_write.side_effect = _db_write
+    thread.parent.db_get_item.side_effect = database.get_raw_item
     return thread
 
 
@@ -225,7 +226,7 @@ class TestGgaParsing(unittest.TestCase):
         self.thread._handle_gga(msg)
         self.assertAlmostEqual(_db_value("LAT"), 48.1173, places=3)
         self.assertAlmostEqual(_db_value("LONG"), 11.5167, places=3)
-        self.assertAlmostEqual(_db_value("GPS_ELLIPSOID_ALT"), 545.4 * 3.28084, places=0)
+        self.assertAlmostEqual(_db_value("TALT"), 545.4 * 3.28084, places=0)
         # GGA quality 1 with 8 satellites is a 3D fix on the GPS_FIX_TYPE scale.
         self.assertEqual(_db_value("GPS_FIX_TYPE"), 3)
 
@@ -256,7 +257,7 @@ class TestGgaParsing(unittest.TestCase):
         self.thread._handle_gga(msg)
 
         self.assertEqual(_db_value("GPS_FIX_TYPE"), 3)
-        self.assertEqual(_db_value("GPS_ELLIPSOID_ALT"), 0.0)
+        self.assertEqual(_db_value("TALT"), 0.0)
 
 
 class TestFixTypeFromSentenceStream(unittest.TestCase):
@@ -284,6 +285,16 @@ class TestFixTypeFromSentenceStream(unittest.TestCase):
 
     def test_three_satellites_is_2d(self):
         self.assertEqual(self._feed(self.GGA_GPS_3), 2)
+
+    def test_talt_is_bad_below_a_3d_fix(self):
+        # GGA field 9 is metres above MSL, so TALT in feet; held or invented
+        # below a 3-D fix, so bad there (TALTSRC1, Elon's review on AER-6458).
+        self._feed(self.GGA_GPS_3)
+        talt = database.get_raw_item("TALT")
+        self.assertAlmostEqual(talt.value[0], 545.4 * 3.28084, places=0)
+        self.assertTrue(talt.bad)
+        self._feed(self.GGA_GPS_8)
+        self.assertFalse(database.get_raw_item("TALT").bad)
 
     def test_gsa_mode_overrides_satellite_count_for_one_epoch(self):
         self.assertEqual(self._feed(self.GSA_2D, self.GGA_GPS_8), 2)

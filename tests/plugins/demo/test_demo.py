@@ -145,7 +145,7 @@ def test_demo_writes_only_source_keys_and_the_editors_route_keys(db, monkeypatch
     # every key it writes is a sensor's, the engine's (DEMO3), its own three
     # (DEMO4, DEMO12), the editor's, or the traffic block (DEMO7) through the stratux
     # decoder
-    assert written - route - tfc == set(demo.SOURCE_KEYS + demo.DEMO_KEYS + (demo.LOOP_KEY,)) | set(demo.ENGINE_KEYS), \
+    assert written - route - tfc == set(demo.SOURCE_KEYS + demo.DEMO_KEYS + (demo.LOOP_KEY, demo.HEIGHT_KEY)) | set(demo.ENGINE_KEYS), \
         sorted(written - route - tfc)
     assert {"TFC1TGT", "TFCCOUNT"} <= tfc
     assert all(database.get_raw_item(k).writers == ["demo"] for k in tfc)
@@ -192,6 +192,18 @@ def test_the_restart_holds_position_bad_and_the_next_loop_clears_it(db):
     # the second loop's first position write cleared it
     first_of_loop2 = bad_mid_loop.index(True) + 1
     assert bad_mid_loop[first_of_loop2] is False
+
+
+def test_talt_is_the_models_altitude_and_goes_bad_in_the_hold(db):
+    # TALT, the SVS camera height, is the model's one MSL altitude, and it is
+    # held bad with LAT/LONG in the restart hold (TALTSRC1, AER-6458).
+    p = make({})
+    p.thread._write("ALT", 4321.0)
+    talt = database.get_raw_item("TALT")
+    assert talt.value[0] == 4321.0 and not talt.bad
+    database.write("FPLSEQ", 1)
+    demo.MainThread._clear_plan(p.thread)
+    assert database.get_raw_item("TALT").bad and database.get_raw_item("LAT").bad
 
 
 def test_renumber_follows_the_gateways_seq_and_acks():
