@@ -20,7 +20,9 @@ named for the route concepts (`Waypoint`, `Leg`, ...) are defined.
 The write detection is a port of the ARCH0 inventory (maos-workspace
 `makerplane/briefs/architecture_audit/inventory.py`): an AST walk over the
 write calls, wrapper functions that hand a parameter to a write, module
-constants that name a key, `item = get_item(KEY); item.value = v`, and the
+constants that name a key, `item = get_item(KEY); item.value = v` (and
+`.set()`, `.output_value()`, and an item from a function that returns one for
+a key parameter), a loop over a module-level table of keys, and the
 `outputs:`/`inputs:` paths of the shipped YAML (a canfix map's `inputs` are
 bus-to-database writes; a compute function's `output` is its write).  Static
 only: nothing under `plugins/` is imported.  The key catalog comes from the
@@ -61,6 +63,10 @@ SKIP_DIRS = {".git", "node_modules", "tests", "test", "doc", "docs", "evidence",
 
 # ---- FIX access API, by call name ----------------------------------------
 WRITE_CALLS = {"db_write", "write", "set_value", "setValue"}
+# Methods of an item that write it: `set(v)`, and pyEfis's `output_value()`,
+# which sends the item's value to the gateway (a local `.value =` alone does
+# not reach the bus in pyEfis).
+ITEM_WRITES = {"set", "output_value"}
 READ_CALLS = {"db_read", "read", "db_get_item", "get_item", "get_raw_item",
               "getItem", "db_get_value", "get_value"}
 
@@ -162,14 +168,21 @@ def key_pattern_match(prefix, suffix, catalog):
 
 # ---- python writes ---------------------------------------------------------
 class KeyVisitor(ast.NodeVisitor):
-    def __init__(self, catalog, consts, wrappers=None):
+    def __init__(self, catalog, consts, wrappers=None, tables=None, getters=None):
         self.wrappers = wrappers or {}
         self.cat = catalog
         self.consts = consts          # module-level NAME = "KEY"
+        self.tables = tables or {}    # module-level NAME = [keys]
+        self.getters = getters or {}  # functions returning the item for a key
         self.refs = []                # (line, key, how)
         self.items = [{}]             # scopes: var/attr name -> key
+        self.loops = []               # loop variable -> keys of its table
 
     def keys_of(self, node):
+        if isinstance(node, ast.Name):
+            for scope in reversed(self.loops):
+                if node.id in scope:
+                    return scope[node.id], "loop over %s" % scope[node.id + "/table"]
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             if node.value in self.cat:
                 return [node.value], "literal"
@@ -208,8 +221,9 @@ class KeyVisitor(ast.NodeVisitor):
         # x = get_item("KEY")  -> remember x (and self.x) for later .value writes
         if isinstance(node.value, ast.Call):
             fn = call_name(node.value)
-            if fn in READ_CALLS and node.value.args:
-                ks, _ = self.keys_of(node.value.args[0])
+            idx = 0 if fn in READ_CALLS else self.getters.get(fn)
+            if idx is not None and len(node.value.args) > idx:
+                ks, _ = self.keys_of(node.value.args[idx])
                 if ks:
                     for t in node.targets:
                         n = (t.id if isinstance(t, ast.Name) else
@@ -232,10 +246,34 @@ class KeyVisitor(ast.NodeVisitor):
             ks, how = self.keys_of(node.args[idx])
             for k in ks:
                 self.refs.append((node.lineno, k, "%s(%s)" % (fn, how)))
-        elif fn == "set" and isinstance(node.func, ast.Attribute):
+        elif fn in ITEM_WRITES and isinstance(node.func, ast.Attribute):
             for k in self.lookup_item(node.func.value) or []:
-                self.refs.append((node.lineno, k, "item.set()"))
+                self.refs.append((node.lineno, k, "item.%s()" % fn))
         self.generic_visit(node)
+
+    def visit_For(self, node):
+        # for key in TABLE / for key, v in zip(TABLE, ...) / enumerate(TABLE):
+        # the loop variable stands for each key of the table, in the body only.
+        bound = {}
+        it, tgt = node.iter, node.target
+        if isinstance(it, ast.Call) and call_name(it) == "enumerate" and it.args \
+                and isinstance(tgt, ast.Tuple) and len(tgt.elts) == 2:
+            it, tgt = it.args[0], tgt.elts[1]
+        if isinstance(it, ast.Call) and call_name(it) == "zip" and isinstance(tgt, ast.Tuple):
+            pairs = zip(it.args, tgt.elts)
+        else:
+            pairs = [(it, tgt)]
+        for src, var in pairs:
+            if isinstance(src, ast.Name) and src.id in self.tables and isinstance(var, ast.Name):
+                bound[var.id] = self.tables[src.id]
+                bound[var.id + "/table"] = src.id
+        self.visit(node.iter)
+        self.loops.append(bound)
+        for n in node.body:
+            self.visit(n)
+        self.loops.pop()
+        for n in node.orelse:
+            self.visit(n)
 
 
 def find_wrappers(tree):
@@ -275,6 +313,87 @@ def find_wrappers(tree):
                 if key in params and fn.name not in WRITE_CALLS:
                     wr[fn.name] = params.index(key)
     return wr
+
+
+def find_getters(tree):
+    """name -> positional index of the key argument, for functions that
+    return the item for a key parameter (`_item(key)`: `item =
+    self.lookup(key) ... return item`), so `x = self._item(KEY)` binds x the
+    way `x = get_item(KEY)` does."""
+    out = {}
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        params = [a.arg for a in fn.args.args if a.arg not in ("self", "cls")]
+        alias = {}
+        for n in ast.walk(fn):
+            if isinstance(n, ast.Assign) and len(n.targets) == 1 and \
+                    isinstance(n.targets[0], ast.Name):
+                k = item_of_param(n.value)
+                if k in params:
+                    alias[n.targets[0].id] = k
+        for n in ast.walk(fn):
+            if isinstance(n, ast.Return) and n.value is not None:
+                v = n.value
+                k = alias.get(v.id) if isinstance(v, ast.Name) else item_of_param(v)
+                if k in params:
+                    out[fn.name] = params.index(k)
+    return out
+
+
+def item_of_param(node):
+    """`f(key)` (any call) or `items[key]` / `items.get(key)` -> 'key'."""
+    if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Name):
+        return node.slice.id
+    if isinstance(node, ast.Call) and node.args and isinstance(node.args[0], ast.Name):
+        return node.args[0].id
+    return None
+
+
+def module_tables(tree, catalog):
+    """NAME -> keys, for module-level lists of keys: literals, a
+    comprehension over `"CASMSG{}".format(n)` or `f"CASMSG{n}"`, and `+` or
+    `list()` of tables already found."""
+    tables = {}
+
+    def keys(node):
+        if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+            ks = [e.value for e in node.elts
+                  if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+            if ks and len(ks) == len(node.elts) and all(k in catalog for k in ks):
+                return ks
+            return None
+        if isinstance(node, ast.ListComp):
+            e = node.elt
+            if isinstance(e, ast.Call) and call_name(e) == "format" and \
+                    isinstance(e.func, ast.Attribute) and isinstance(e.func.value, ast.Constant) \
+                    and isinstance(e.func.value.value, str) and e.func.value.value.count("{}") == 1:
+                pre, suf = e.func.value.value.split("{}")
+            elif isinstance(e, ast.JoinedStr) and e.values and isinstance(e.values[0], ast.Constant):
+                pre = e.values[0].value
+                suf = e.values[-1].value if len(e.values) > 1 and \
+                    isinstance(e.values[-1], ast.Constant) else ""
+            else:
+                return None
+            return key_pattern_match(pre, suf, catalog) if pre else None
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            a, b = keys(node.left), keys(node.right)
+            return a + b if a is not None and b is not None else None
+        if isinstance(node, ast.Call) and call_name(node) in ("list", "tuple") and \
+                len(node.args) == 1:
+            return keys(node.args[0])
+        if isinstance(node, ast.Name):
+            return tables.get(node.id)
+        return None
+
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            ks = keys(node.value)
+            if ks:
+                for t in node.targets:
+                    if isinstance(t, ast.Name):
+                        tables[t.id] = ks
+    return tables
 
 
 def subscript_name(node):
@@ -367,7 +486,8 @@ def scan_writes(root, catalog, repo="fix-gateway"):
                 tree = ast.parse(read(path))
             except SyntaxError:
                 continue
-            v = KeyVisitor(catalog, module_consts(tree, catalog), find_wrappers(tree))
+            v = KeyVisitor(catalog, module_consts(tree, catalog), find_wrappers(tree),
+                           module_tables(tree, catalog), find_getters(tree))
             v.visit(tree)
             found = v.refs
         elif repo == "fix-gateway":
@@ -416,13 +536,15 @@ def load_yaml(root, rel):
 
 
 def build_register(catalog, writes, selectors, old, pyefis_writes=None):
-    """The register from a scan.  Datum entries are kept from `old`; pyEfis
-    writers come from `pyefis_writes` when given, else from `old`."""
+    """The register from a scan.  Datum and `no_writer` entries are kept from
+    `old`; pyEfis writers come from `pyefis_writes` when given, else from
+    `old`."""
     found = writers_by_key(writes)
     pyefis = writers_by_key(pyefis_writes) if pyefis_writes is not None else \
         {k: {"pyefis": v["pyefis"]} for k, v in old.items() if v.get("pyefis")}
     reg = {}
-    for key in sorted(set(found) | set(pyefis)):
+    unwritten = {k for k, v in old.items() if (v or {}).get("no_writer")}
+    for key in sorted(set(found) | set(pyefis) | unwritten):
         if key not in catalog:
             continue
         e = {"units": catalog[key].get("units") or ""}
@@ -436,6 +558,8 @@ def build_register(catalog, writes, selectors, old, pyefis_writes=None):
                 e[field] = mods
         if key in selectors:
             e["selector"] = selectors[key]
+        if key in unwritten and not any(e.get(f) for f in REGISTER_LISTS):
+            e["no_writer"] = old[key]["no_writer"]
         reg[key] = e
     return reg
 
@@ -467,6 +591,8 @@ def dump_register(reg):
         "#   relay     modules that pass a client's write on (netfix, command, ...)",
         "#   selector  a compute `select`: `by` picks one of `sources`, and the",
         "#             selector is the key's only live writer",
+        "#   no_writer a key declared for a writer nothing shipped provides yet, and",
+        "#             why (a panel button's key that no shipped config wires up)",
         "#",
         "# tools/check_key_writers.py checks this file against the code; see",
         "# doc/key_writers.md for how to declare a writer.",
@@ -524,8 +650,13 @@ def check_register(catalog, writes, selectors, register):
                 if m not in found.get(key, {}).get(field, []):
                     fails.append("%s: writers.yaml lists %s under `%s`, and the scan finds no "
                                  "write from it; remove it from writers.yaml" % (key, m, field))
-        if not any(e.get(f) for f in REGISTER_LISTS):
-            fails.append("%s: writers.yaml lists no writer; remove the entry" % key)
+        written = [m for f in REGISTER_LISTS for m in e.get(f) or []]
+        if not written and not e.get("no_writer"):
+            fails.append("%s: writers.yaml lists no writer; remove the entry, or say why it "
+                         "has none in `no_writer`" % key)
+        if written and e.get("no_writer"):
+            fails.append("%s: writers.yaml says `no_writer`, and %s writes it; remove "
+                         "`no_writer`" % (key, ", ".join(written)))
         if needs_datum(key, catalog) and not e.get("datum"):
             fails.append("%s: an altitude or position key needs a `datum` in writers.yaml "
                          "(`unrecorded` if nobody has read the writer)" % key)
