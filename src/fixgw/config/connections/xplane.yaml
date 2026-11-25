@@ -96,6 +96,9 @@ xplane:
         EXTCRS:  sim/cockpit/radios/gps_course_degtm
         EXTCDI:  [sim/cockpit/radios/gps_hdef_dot, 0.4]
         EXTTF:   sim/cockpit/radios/gps_fromto
+        # Geometric height above MSL (metres) for TALT, the SVS camera height.
+        # Row 20's MSL slot already feeds ALT on the bench (TALTSRC1, AER-6458).
+        TALT:    [sim/flightmodel/position/elevation, 3.28084]
         # The FMS's sequencing state (0 normal, 1 OBS, 2 suspended; 12.0.0)
         # and its OBS course (12.1.0), read only, for comparing with the
         # engine's FPLSTATE and FPLCRS on a bench flight (OBS2, AER-6084).

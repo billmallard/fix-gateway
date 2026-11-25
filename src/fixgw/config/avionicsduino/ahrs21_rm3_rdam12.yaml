@@ -67,10 +67,11 @@ inputs:
 
   # ID 30, 10 Hz: ground speed in km/h.
   - { canid: 30, field: gs_kmh, fixid: GS, converter: kmh2kt }
-  # ID 30 GNSS altitude AMSL (ft): no GNSS-altitude key.  ALT is the
-  # indicated (baro) altitude and GPS_ELLIPSOID_ALT is height above the
-  # ellipsoid, a different datum.  (mavlink writes TALT from GNSS MSL;
-  # mapping this field to TALT is a separate decision.)
+  # ID 30 GNSS altitude AMSL (ft): not mapped.  ALT is the indicated
+  # (baro) altitude and GPS_ELLIPSOID_ALT is height above the ellipsoid.
+  # TALT is MSL, but it comes from the receiver that writes LAT/LONG
+  # (tests/arch: test_talt_has_the_position_writers), and this board
+  # sends no position.
   # - { canid: 30, field: alt_msl_ft, fixid: <none> }
 
   # ID 34, 5 Hz: UTC time and satellites in view.  No date keys.
