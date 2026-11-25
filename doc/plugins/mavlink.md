@@ -47,8 +47,13 @@ does not move `TALT`.
 - **No pressure, no `ALT`.** With `pressure` off, or before the first
   `SCALED_PRESSURE`, the plugin does not write `ALT`. It never writes the GPS
   height there. Unwritten, `ALT` goes old on its own tol, and the tape shows
-  that. A connect zeroes the attitude keys but not `ALT`, because a fresh 0 ft
-  would read as a good altitude.
+  that.
+- **A connect writes no data key.** `ROLL`, `PITCH`, `HEAD`, `AGL` and `VS`
+  are written only from the messages that carry them (`ATTITUDE`,
+  `GLOBAL_POSITION_INT`, `VFR_HUD`). Until the first one arrives after a
+  reconnect, the values from before it age old on their tol. Before SRC3
+  (AER-6542) a connect wrote 0 to each: a wings-level, 0 ft attitude that read
+  valid until the first real message.
 
 Before AER-6351 the plugin wrote `GLOBAL_POSITION_INT.alt` into both `ALT` and
 `TALT`, so the tape showed GPS height and ignored the baro knob.
