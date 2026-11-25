@@ -194,6 +194,18 @@ def test_the_restart_holds_position_bad_and_the_next_loop_clears_it(db):
     assert bad_mid_loop[first_of_loop2] is False
 
 
+def test_talt_is_the_models_altitude_and_goes_bad_in_the_hold(db):
+    # TALT, the SVS camera height, is the model's one MSL altitude, and it is
+    # held bad with LAT/LONG in the restart hold (TALTSRC1, AER-6458).
+    p = make({})
+    p.thread._write("ALT", 4321.0)
+    talt = database.get_raw_item("TALT")
+    assert talt.value[0] == 4321.0 and not talt.bad
+    database.write("FPLSEQ", 1)
+    demo.MainThread._clear_plan(p.thread)
+    assert database.get_raw_item("TALT").bad and database.get_raw_item("LAT").bad
+
+
 def test_renumber_follows_the_gateways_seq_and_acks():
     rows = [(0.0, {"FPLSEQ": 1, "LAT": 1.0}), (0.2, {"FPLCMD": "1 ACT 3"}), (9.0, {"FPLCMD": "2 RESUME"})]
     out = demo.renumber(rows, 17, 40)

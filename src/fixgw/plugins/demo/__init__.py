@@ -61,7 +61,7 @@ from fixgw.plugins.demo.engine import ENGINE_KEYS
 # The generator's sensor set (fixgw.sim.generator.SENSOR_KEYS), kept here so
 # the registry check runs before the sim package is imported; a test holds
 # the two equal.
-SOURCE_KEYS = ("MAGVAR", "GPS_FIX_TYPE", "GPS_ACCURACY_HORIZ", "ALT", "GS", "TAS", "IAS", "VS",
+SOURCE_KEYS = ("MAGVAR", "GPS_FIX_TYPE", "GPS_ACCURACY_HORIZ", "ALT", "TALT", "GS", "TAS", "IAS", "VS",
                "TRACK", "HEAD", "PITCH", "ROLL", "LAT", "LONG")
 POSITION_KEYS = ("LAT", "LONG")
 REF_PREFIX = "REF"
@@ -206,6 +206,10 @@ class MainThread(threading.Thread):
             database.get_raw_item(key).set(value, bad=False)
         else:
             database.write(key, value)
+        # The model has one altitude, MSL, so the SVS camera's TALT is the
+        # same number (TALTSRC1, AER-6458).
+        if key == "ALT":
+            database.get_raw_item("TALT").set(value, bad=False)
 
     def _read(self, key):
         return database.read(key)[0]
@@ -341,7 +345,7 @@ class MainThread(threading.Thread):
         for key, value in (("FPLSEGCNT", 0), ("FPLCOUNT", 0), ("FPLNAME", ""), ("FPLAPRTYPE", ""),
                            ("FPLSEQ", int(float(self._read("FPLSEQ"))) + 1)):
             database.write(key, value)
-        for key in POSITION_KEYS:
+        for key in POSITION_KEYS + ("TALT",):
             database.get_raw_item(key).set(self._read(key), bad=True)
 
 

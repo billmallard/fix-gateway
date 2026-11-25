@@ -85,11 +85,15 @@ class MainThread(threading.Thread):
                 self._write(tpv, "track", "TRACK")
                 self._write(tpv, "speed", "GS", MS_TO_KT)
                 self._write(tpv, "epx", "GPS_ACCURACY_HORIZ", M_TO_FT)
-            if p.mode >= 3:
                 # Height above MSL is TALT (GALT1/TALTSRC1, AER-6458).
                 # gpsd 3.20+ sends altMSL and calls alt deprecated; older
-                # gpsd sends only alt, which was MSL there.
-                self._write(tpv, "altMSL" if "altMSL" in tpv else "alt", "TALT", M_TO_FT)
+                # gpsd sends only alt, which was MSL there. In a 2-D fix the
+                # height is held or invented, so TALT is bad.
+                field = "altMSL" if "altMSL" in tpv else "alt"
+                if field in tpv:
+                    talt = self.parent.db_get_item("TALT")
+                    talt.set(tpv[field] * M_TO_FT, bad=p.mode < 3)
+            if p.mode >= 3:
                 self._write(tpv, "epv", "GPS_ACCURACY_VERTICAL", M_TO_FT)
                 self._write(tpv, "eps", "GPS_ACCURACY_SPEED", MS_TO_KT)
             time.sleep(POLL_INTERVAL)

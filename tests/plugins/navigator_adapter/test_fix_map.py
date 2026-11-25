@@ -54,6 +54,19 @@ class TestFixMapPosition(unittest.TestCase):
         self.assertAlmostEqual(_val("LONG"), -97.3, places=4)
         self.assertAlmostEqual(_val("TALT"), 1500.0, places=2)
 
+    def test_talt_is_bad_below_a_3d_fix_when_the_navigator_says(self):
+        def set_value(key, value, bad):
+            database.get_raw_item(key).set(value, bad=bad)
+
+        for fix, bad in ((2, True), (3, False), (None, False)):
+            msg = NormalizedNavMessage(
+                position=Position(lat_deg=32.7, lon_deg=-97.3, alt_ft_msl=1500.0),
+                gps_fix_type=fix,
+            )
+            apply_to_db(msg, _write, set_value=set_value)
+            self.assertAlmostEqual(_val("TALT"), 1500.0, places=2)
+            self.assertIs(database.get_raw_item("TALT").bad, bad, fix)
+
     def test_none_position_fields_not_written(self):
         database.write("LAT", 32.0)  # valid value within DB range
         msg = NormalizedNavMessage(position=Position())  # all None

@@ -66,6 +66,9 @@ def test_talt_has_the_position_writers():
     live = {k: set(reg[k].get("writers", [])) | set(reg[k].get("pyefis", []))
             for k in ("TALT", "LAT", "LONG")}
     assert live["TALT"] == live["LAT"] == live["LONG"], live
+    # The sims too, or a demo, FlightGear or X-Plane panel shows SVS UNAVAIL.
+    sim = {k: set(reg[k].get("sim", [])) for k in ("TALT", "LAT", "LONG")}
+    assert sim["TALT"] == sim["LAT"] == sim["LONG"], sim
 
 
 def test_the_declaration_records_what_arch2_found():

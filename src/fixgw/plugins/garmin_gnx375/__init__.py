@@ -176,7 +176,8 @@ class MainThread(threading.Thread):
         # A GSA counts only for the GGA that follows it, so a source that stops
         # sending GSA falls back to the satellite count after one epoch.
         gsa_mode, self._gsa_mode = self._gsa_mode, None
-        self.parent.db_write("GPS_FIX_TYPE", gps_fix_type(msg.gps_qual, msg.num_sats, gsa_mode))
+        fix_type = gps_fix_type(msg.gps_qual, msg.num_sats, gsa_mode)
+        self.parent.db_write("GPS_FIX_TYPE", fix_type)
         qual = int(msg.gps_qual) if msg.gps_qual is not None else 0
         if qual == 0:
             return
@@ -184,9 +185,11 @@ class MainThread(threading.Thread):
         self.parent.db_write("LONG", msg.longitude)
         if msg.altitude is not None:
             # GGA altitude is metres above MSL (the geoid), so it is TALT,
-            # never GPS_ELLIPSOID_ALT (GALT1/TALTSRC1, AER-6458).
+            # never GPS_ELLIPSOID_ALT (GALT1/TALTSRC1, AER-6458). Below a 3-D
+            # fix the receiver holds or invents it, so TALT is bad there.
             alt_ft = float(msg.altitude) * 3.28084
-            self.parent.db_write("TALT", alt_ft)
+            talt = self.parent.db_get_item("TALT")
+            talt.set(alt_ft, bad=fix_type < 3)
 
     def _handle_rmb(self, msg, cdi_scale):
         xtrack = rmb_cross_track_nm(msg)

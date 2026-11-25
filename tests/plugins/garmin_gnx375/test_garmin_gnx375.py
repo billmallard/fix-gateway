@@ -167,6 +167,7 @@ def _make_thread():
         database.write(key, value)
 
     thread.parent.db_write.side_effect = _db_write
+    thread.parent.db_get_item.side_effect = database.get_raw_item
     return thread
 
 
@@ -284,6 +285,16 @@ class TestFixTypeFromSentenceStream(unittest.TestCase):
 
     def test_three_satellites_is_2d(self):
         self.assertEqual(self._feed(self.GGA_GPS_3), 2)
+
+    def test_talt_is_bad_below_a_3d_fix(self):
+        # GGA field 9 is metres above MSL, so TALT in feet; held or invented
+        # below a 3-D fix, so bad there (TALTSRC1, Elon's review on AER-6458).
+        self._feed(self.GGA_GPS_3)
+        talt = database.get_raw_item("TALT")
+        self.assertAlmostEqual(talt.value[0], 545.4 * 3.28084, places=0)
+        self.assertTrue(talt.bad)
+        self._feed(self.GGA_GPS_8)
+        self.assertFalse(database.get_raw_item("TALT").bad)
 
     def test_gsa_mode_overrides_satellite_count_for_one_epoch(self):
         self.assertEqual(self._feed(self.GSA_2D, self.GGA_GPS_8), 2)

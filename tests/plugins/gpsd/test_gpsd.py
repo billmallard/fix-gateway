@@ -18,13 +18,26 @@ class FakeLog:
         self.warnings.append(message)
 
 
+class FakeItem:
+    def __init__(self, parent, key):
+        self.parent, self.key = parent, key
+
+    def set(self, value, bad=None):
+        self.parent.writes.append((self.key, value))
+        self.parent.bad[self.key] = bad
+
+
 class FakeParent:
     def __init__(self):
         self.log = FakeLog()
         self.writes = []
+        self.bad = {}
 
     def db_write(self, key, value):
         self.writes.append((key, value))
+
+    def db_get_item(self, key):
+        return FakeItem(self, key)
 
 
 def test_main_thread_logs_connect_failure(monkeypatch):
@@ -193,6 +206,16 @@ def test_absent_tpv_field_writes_nothing(monkeypatch, missing, key):
     # the rest of the report is still published
     assert written["GPS_FIX_TYPE"] == 3
     assert len(written) == 9
+
+
+def test_talt_is_bad_in_a_2d_fix_and_good_in_a_3d_fix(monkeypatch):
+    # In a 2-D fix gpsd's height is held or invented: TALT goes out bad, so
+    # the SVS camera does not fly on it (Elon's review on AER-6458).
+    parent = run_thread(monkeypatch, [poll(dict(FULL_3D, mode=2, altMSL=300.0))])
+    assert dict(parent.writes)["TALT"] == pytest.approx(300.0 * 3.28084)
+    assert parent.bad["TALT"] is True
+    parent = run_thread(monkeypatch, [poll(dict(FULL_3D, altMSL=300.0))])
+    assert parent.bad["TALT"] is False
 
 
 def test_talt_prefers_altmsl_over_the_deprecated_alt(monkeypatch):

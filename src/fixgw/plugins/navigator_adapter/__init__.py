@@ -89,12 +89,16 @@ class MainThread(threading.Thread):
             messages = self.adapter.parse_line(raw)
             for msg in messages:
                 try:
-                    apply_to_db(msg, self.parent.db_write, self.cdi_full_scale_nm)
+                    apply_to_db(msg, self.parent.db_write, self.cdi_full_scale_nm,
+                                set_value=self._set_value)
                 except Exception as exc:
                     self.log.debug(f"navigator_adapter: db write error: {exc}")
 
         if self._serial and self._serial.is_open:
             self._serial.close()
+
+    def _set_value(self, key, value, bad):
+        self.parent.db_get_item(key).set(value, bad=bad)
 
     def stop(self):
         self.getout = True
