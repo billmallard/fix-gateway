@@ -17,6 +17,7 @@ from fixgw.plugins.xplane import (
     HEADER,
     NO_VALUE,
     RREF_BASE,
+    TALT_DATAREF,
     MainThread,
     Plugin,
     _build_dataref_map,
@@ -372,7 +373,9 @@ def test_subscribe_datarefs_sends_rref_requests(mock_parent, main_thread_nav):
     main_thread_nav.sock.sendto = MagicMock(
         side_effect=lambda buf, addr: sent.append((buf, addr)))
     main_thread_nav.subscribe_datarefs(10)
-    assert len(sent) == 2
+    # The two nav datarefs, plus the sim elevation for TALT, which the config
+    # maps LAT but not TALT (TALTSRC1, AER-6458).
+    assert len(sent) == 3
     for buf, addr in sent:
         assert buf[:4] == b"RREF"
         assert addr == ("10.0.0.99", 49002)   # sent to udp_out (X-Plane receiver)
@@ -383,11 +386,14 @@ def test_subscribe_datarefs_sends_rref_requests(mock_parent, main_thread_nav):
         freq, index = struct.unpack_from("<II", buf, 5)
         assert freq == 10 and index >= RREF_BASE
         dref = buf[13:].rstrip(b"\x00")
-        assert dref.startswith(b"sim/cockpit/radios/nav1_")
+        assert (dref.startswith(b"sim/cockpit/radios/nav1_")
+                or dref == TALT_DATAREF[0].encode())
 
 
-def test_no_datarefs_config_means_empty_map(main_thread):
-    assert main_thread.dataref_map == {}     # back-compat: nav RREF is opt-in
+def test_no_datarefs_config_subscribes_only_talt(main_thread):
+    # Nav RREF is opt-in. A config that maps LAT on a data output row gets
+    # the sim elevation for TALT and nothing else (TALTSRC1, AER-6458).
+    assert list(main_thread.dataref_map.values()) == [("TALT",) + TALT_DATAREF]
 
 
 # ---------------------------------------------------------------------------
