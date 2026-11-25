@@ -155,6 +155,104 @@ def test_each_bad_field_goes_out_invalid(database, key, check):
     assert check(r)
 
 
+# --- assumed_accuracy_ft (AER-6452, BACKLOG EFB5) -----------------------------
+# X-Plane and an FMS write a position but no GPS_ACCURACY_HORIZ.  ForeFlight
+# drops an ownship report with NACp 0 (EFB2), so a sim or FMS panel may opt in
+# to an assumed accuracy.  Nothing is written to the bus.
+
+NO_ACCURACY = {k: v for k, v in GOOD.items() if k != "GPS_ACCURACY_HORIZ"}
+
+
+def ownship_nacp(database, **config):
+    return gdl90.parse_report(decode(encoder(database, **config).second(0))[0x0A][0]).nacp
+
+
+@pytest.mark.parametrize("unset", [{}, {"assumed_accuracy_ft": None}, {"assumed_accuracy_ft": ""}])
+def test_unset_assumed_accuracy_sends_nacp_0(database, unset):
+    write(database, NO_ACCURACY)
+    assert ownship_nacp(database, **unset) == 0
+
+
+@pytest.mark.parametrize(
+    "ft, nacp",
+    [
+        (5.0, 11),  # 1.5 m < 3 m
+        (16.0, 10),  # 4.9 m < 10 m, the EFB2 bench stand-in
+        (32.0, 10),  # 9.75 m < 10 m
+        (33.0, 9),  # 10.06 m: the bin is strict
+        (300.0, 8),  # 91.4 m < 92.6 m
+        ("50", 9),  # a quoted number is a number
+        (70000.0, 0),  # 21.3 km: worse than 10 NM is "unknown"
+    ],
+)
+def test_assumed_accuracy_bins_when_no_source_writes_the_key(database, ft, nacp):
+    write(database, NO_ACCURACY)
+    assert ownship_nacp(database, assumed_accuracy_ft=ft) == nacp
+
+
+def test_a_valid_accuracy_key_always_wins(database):
+    write(database, dict(GOOD, GPS_ACCURACY_HORIZ=400.0))  # 122 m -> NACp 7
+    assert ownship_nacp(database, assumed_accuracy_ft=5.0) == 7
+    assert ownship_nacp(database) == 7
+
+
+@pytest.mark.parametrize("flag", ["old", "bad", "fail"])
+def test_a_written_accuracy_key_that_lost_validity_is_not_replaced(database, flag):
+    # A real receiver that has dropped its estimate is NACp 0 with or without
+    # the setting: the setting is for a source that has no accuracy at all.
+    write(database, GOOD)
+    database.get_raw_item("GPS_ACCURACY_HORIZ").set(20.0, **{flag: True})
+    assert ownship_nacp(database, assumed_accuracy_ft=16.0) == 0
+
+
+def test_an_expired_accuracy_key_is_not_replaced(database):
+    write(database, GOOD)
+    item = database.get_raw_item("GPS_ACCURACY_HORIZ")
+    item.timestamp -= (item.tol + 1) / 1000.0
+    assert ownship_nacp(database, assumed_accuracy_ft=16.0) == 0
+
+
+def test_assumed_accuracy_does_not_make_a_position(database):
+    # No valid position: lat, lon, NIC and NACp all 0 (G§3.5.1.3).
+    write(database, {k: v for k, v in NO_ACCURACY.items() if k not in ("LAT", "LONG")})
+    msgs = decode(encoder(database, assumed_accuracy_ft=16.0).second(0))
+    assert not gdl90.parse_heartbeat(msgs[0x00][0]).gps_valid
+    r = gdl90.parse_report(msgs[0x0A][0])
+    assert r.pos_bad and r.nacp == 0
+
+
+@pytest.mark.parametrize("value", [0, -16.0, "sixteen", float("nan"), float("inf"), True, [16]])
+def test_a_bad_assumed_accuracy_is_refused_and_left_unset(database, value, caplog):
+    write(database, NO_ACCURACY)
+    with caplog.at_level(logging.ERROR, logger=LOG.name):
+        assert ownship_nacp(database, assumed_accuracy_ft=value) == 0
+    assert "assumed_accuracy_ft" in caplog.text
+
+
+def test_a_set_assumed_accuracy_is_logged_as_a_warning(database, caplog):
+    with caplog.at_level(logging.WARNING, logger=LOG.name):
+        encoder(database, assumed_accuracy_ft=16.0)
+    assert "does not report" in caplog.text
+
+
+def test_assumed_accuracy_writes_nothing_to_the_bus(database):
+    write(database, NO_ACCURACY)
+    item = database.get_raw_item("GPS_ACCURACY_HORIZ")
+    encoder(database, assumed_accuracy_ft=16.0).second(0)
+    assert not item.written
+
+
+def test_shipped_config_leaves_assumed_accuracy_unset():
+    import pathlib
+
+    import yaml
+
+    path = pathlib.Path(fixgw.__file__).parent / "config" / "connections" / "gdl90_out.yaml"
+    cfg = yaml.safe_load(path.read_text())["gdl90_out"]
+    assert "assumed_accuracy_ft" in cfg  # documented where an installer looks
+    assert out.parse_assumed_accuracy(cfg["assumed_accuracy_ft"], LOG) is None
+
+
 def test_no_geo_altitude_message_without_a_valid_key(database):
     write(database, GOOD)
     database.get_raw_item("GPS_ELLIPSOID_ALT").set(4380.0, old=True)

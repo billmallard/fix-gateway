@@ -56,6 +56,17 @@ configuration), the config-named keys of `rpi_bmp085`, `rpi_button`,
 Files under `tools/`, `examples/` and the tests are not writers: they write to a
 bench, not to an aircraft.
 
+Two shapes reach a key without naming it at the write (OUT1, AER-6521):
+
+- an item a module gets from one of its own functions that returns the item
+  for a key parameter (pyEfis's `self._item(ACK_KEY)`), then writes with
+  `.value =`, `.set()` or `.output_value()`. `output_value()` is how pyEfis
+  sends an item's value to the gateway;
+- a loop over a module-level table of keys
+  (`for key, value in zip(SLOT_KEYS, slots): db_write(key, value)`, and
+  `enumerate`), where the table is a list of key literals, a comprehension
+  over `"CASMSG{}".format(n)` or an f-string, or a `+` of such tables.
+
 The register sorts each module into one of these fields:
 
 - **`writers`**: fix-gateway plugins and compute modules. These are live writers.
@@ -147,6 +158,13 @@ check is what makes it shrink.
 
 **`VS: writers.yaml lists gone under writers, and the scan finds no write from it`.**
 The register must state today's truth, so remove the stale writer.
+
+**`HEAD: writers.yaml lists no writer; remove the entry, or say why it has none in no_writer`.**
+A key the database declares for a writer that nothing shipped provides yet
+has no writer to list. Say why in `no_writer`, as `CASACKBTN` does: the
+`rpi_button` plugin writes whatever key its `btnkey` names, and no shipped
+config names that one. When something starts writing the key, the check
+fails until `no_writer` is removed, so the note cannot go stale.
 
 **`ALT: an altitude or position key needs a datum`.**
 Say what the number is measured from: MSL, ellipsoid (HAE), indicated (baro

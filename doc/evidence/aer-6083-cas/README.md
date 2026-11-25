@@ -23,7 +23,7 @@ gateway without a display can take them:
 | Brief step | Drive | Result |
 |---|---|---|
 | 1 | `@r` every CAS key on boot; `@qCASMSG1` | All present; the report splits into its 8 fields (no `;` in the text) |
-| (C2) | CAS TEST at start | Shown 0.3 s after connect, gone after about 5 s |
+| (C2) | CAS TEST at start | Shown 0.3 s after connect, gone after about 5 s. Since AER-6497 it is held until `CASACK` covers it, and `drive.py` now acknowledges it; `drive.log` is the AER-6083 run |
 | 2 | NAV1 received, then `NAV1CDI` failed | `2\|0\|NAVFAIL\|NAV FAIL\|` 0.33 s after the fail; `NAVFAIL` true |
 | 3 | `CASACK` = `CASSEQ` | The line reads acknowledged (`2\|1\|...`); `CASTOP` 0 |
 | 4 | Clear the flag | Line gone |

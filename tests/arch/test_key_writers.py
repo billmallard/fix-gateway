@@ -262,6 +262,101 @@ def test_a_writer_that_stopped_writing_must_leave_the_register(tmp_path):
                      "write from it; remove it from writers.yaml"]
 
 
+# The pyEfis CAS model's acknowledge (pyEfis instruments/cas/model.py, #552):
+# an item from an injected lookup, behind a caching method, sent with
+# output_value().  fix-gateway's CI has no pyEfis checkout, so the shape is
+# copied here.
+CAS_MODEL = """
+    ACK_KEY = "CASACK"
+
+    class CASModel:
+        def __init__(self, lookup):
+            self.lookup = lookup
+            self._items = {}
+
+        def _item(self, key):
+            item = self._items.get(key)
+            if item is None:
+                item = self.lookup(key)
+                self._items[key] = item
+            return item
+
+        def acknowledge(self, seq):
+            item = self._item(ACK_KEY)
+            item.value = seq
+            item.output_value()
+"""
+
+
+def test_the_cas_contract_is_in_the_register(catalog, tmp_path):
+    # OUT1 (AER-6521): every CAS key has its writers recorded, so ORG-018's
+    # ratchet sees a second writer of any of them.
+    seen = {(w["key"], w["module"]) for w in ckw.scan_writes(ROOT, catalog)}
+    slots = ["CASMSG%d" % n for n in range(1, 13)]
+    assert {k for k, m in seen if m == "cas" and k.startswith("CASMSG")} == set(slots)
+    pyefis = tree(tmp_path, {"src/pyefis/instruments/cas/model.py": CAS_MODEL})
+    assert {(w["key"], w["module"], w["how"]) for w in ckw.scan_writes(pyefis, catalog, repo="pyEfis")} == \
+        {("CASACK", "pyefis/instruments/cas", "item.value ="),
+         ("CASACK", "pyefis/instruments/cas", "item.output_value()")}
+    reg = ckw.load_yaml(ROOT, ckw.REGISTER)
+    for k in slots + ["CASCNT", "CASTOP", "CASSEQ"]:
+        assert reg[k]["writers"] == ["cas"], k
+    assert reg["CASACK"]["pyefis"] == ["pyefis/instruments/cas"]
+    assert "rpi_button" in reg["CASACKBTN"]["no_writer"]
+    assert not any(reg["CASACKBTN"].get(f) for f in ckw.REGISTER_LISTS)
+    # And the ratchet now sees a second writer: a plugin that also wrote
+    # CASACK would make it a two-writer key that is not on the baseline.
+    two = dict(reg, CASACK=dict(reg["CASACK"], writers=["aaa"]))
+    assert any(f.startswith("CASACK: 2 live writers (aaa, pyefis/instruments/cas)")
+               for f in ckw.check_baseline(two, ckw.load_yaml(ROOT, ckw.BASELINE)))
+
+
+def test_a_loop_over_a_key_table_is_a_write(tmp_path):
+    root = tree(tmp_path, {"src/fixgw/plugins/aaa/__init__.py": """
+        OUT = ["VS", "HEAD"]
+        BOTH = OUT + list(("BARO",))
+        READ = ["ALT"]
+        def run(parent, vals):
+            for key, v in zip(OUT, vals):
+                parent.db_write(key, v)
+            for key in READ:
+                parent.db_read(key)
+            for i, key in enumerate(BOTH):
+                parent.db_write(key, i)
+            parent.db_write(key, 0)
+    """})
+    assert sorted((w["key"], w["line"]) for w in ckw.scan_writes(root, CAT)) == \
+        [("BARO", 11), ("HEAD", 7), ("HEAD", 11), ("VS", 7), ("VS", 11)]
+
+
+def test_output_value_on_a_fetched_item_is_a_write(tmp_path):
+    root = tree(tmp_path, {"src/pyefis/instruments/knob/__init__.py": """
+        def turn(db, v):
+            item = db.get_item("BARO")
+            item.output_value()
+            other = make("VS")
+            other.output_value()
+    """})
+    # make() is not known to return an item, so VS is not claimed.
+    assert [(w["key"], w["how"]) for w in ckw.scan_writes(root, CAT, repo="pyEfis")] == \
+        [("BARO", "item.output_value()")]
+
+
+def test_a_declared_key_with_no_writer_needs_a_reason(tmp_path):
+    root = tree(tmp_path, {"src/fixgw/plugins/aaa/__init__.py": plugin("VS")})
+    reg = {"VS": {"units": "ft", "writers": ["aaa"]}, "HEAD": {"units": "deg"}}
+    assert rules(root, reg, {}) == ["HEAD: writers.yaml lists no writer; remove the entry, or "
+                                    "say why it has none in `no_writer`"]
+    reg["HEAD"]["no_writer"] = "a panel button's key; no shipped config wires one"
+    assert rules(root, reg, {}) == []
+    # Once something writes it, the reason is stale.
+    with open(os.path.join(root, "src/fixgw/plugins/aaa/__init__.py"), "a") as f:
+        f.write('    parent.db_write("HEAD", 1)\n')
+    reg["HEAD"]["writers"] = ["aaa"]
+    assert rules(root, reg, {}) == ["HEAD: writers.yaml says `no_writer`, and aaa writes it; "
+                                    "remove `no_writer`"]
+
+
 SELECT = """
     compute:
       functions:
