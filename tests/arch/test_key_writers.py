@@ -595,3 +595,132 @@ def test_the_datum_baseline_only_shrinks():
     base3 = {"ALT": {"aaa": "indicated", "bbb": "msl", "ccc": "pressure"}}
     assert ckw.check_datum_baseline(alt(datum={"aaa": "indicated", "bbb": "msl"}), base3) == [
         "ALT: the datum baseline lists ccc, which no longer declares a datum; remove it from the entry"]
+
+
+# ---- pyEfis's item helpers (ARCHG2b, AER-6541) -----------------------------
+# Shapes copied from pyEfis `dev` (fix-gateway's CI has no pyEfis checkout):
+# the flight plan editor's bridge (flightplan/fixbridge.py), a widget's
+# BugBinding (instruments/ai/ai_widget.py) and an editor over a binding it is
+# handed (instruments/altimeter/altsel.py).
+CAT_UI = dict(CAT_FPL, **{k: {"key": k, "units": "", "type": "float", "description": k}
+                          for k in ("DTOID", "FPLS1KIND", "FPLS2KIND", "FPLS1ID", "FPLS2ID",
+                                    "ALTSEL", "BANKBUG", "HEADBUG")})
+
+FIXBRIDGE = """
+    SLOT_FIELDS = (("ID", "str", ""), ("LAT", "float", 0.0))
+    SEGMENT_FIELDS = (("KIND", "int", 0), ("ID", "str", ""))
+
+
+    def _slot_key(n, name):
+        return f"FPL{n}{name}"
+
+
+    def _seg_key(k, name):
+        return "FPLS%d%s" % (k, name)
+
+
+    class FixBridge:
+        def _get(self, key):
+            db = self._fix.db
+            item = self._items.get(key)
+            if item is None:
+                item = self._items[key] = db.get_item(key)
+            return item
+
+        def _set(self, key, value):
+            item = self._get(key)
+            item.value = value
+            item.output_value()
+
+        def publish(self, plan):
+            for i in range(1, len(plan) + 1):
+                for name, _, blank in SLOT_FIELDS:
+                    self._set(_slot_key(i, name), blank)
+            for k in range(1, 3):
+                for name, _, _ in SEGMENT_FIELDS:
+                    self._set(_seg_key(k, name), plan)
+            self._set("FPLSEQ", int(self._get("FPLSEQ").value) + 1)
+            self._set("DTOID", "KSFO")
+"""
+
+
+def pyefis_writes(root, cat=CAT_UI):
+    return sorted({(w["key"], w["module"], w["how"])
+                   for w in ckw.scan_writes(root, cat, repo="pyEfis")})
+
+
+def test_a_write_through_a_method_that_returns_the_item_is_a_write(tmp_path):
+    # fixbridge's _set(key, v) gets its item from self._get(key), not from
+    # get_item(); the scan saw none of the editor's literal writes.
+    root = tree(tmp_path, {"src/pyefis/flightplan/fixbridge.py": FIXBRIDGE})
+    lit = {(k, h) for k, _, h in pyefis_writes(root) if "literal" in h}
+    assert lit == {("FPLSEQ", "_set(literal)"), ("DTOID", "_set(literal)")}
+
+
+def test_a_key_built_by_a_name_function_is_a_write(tmp_path):
+    # _slot_key(i, name) builds FPL<i><name> for each name of SLOT_FIELDS.
+    root = tree(tmp_path, {"src/pyefis/flightplan/fixbridge.py": FIXBRIDGE})
+    built = {k for k, _, h in pyefis_writes(root) if "literal" not in h}
+    assert built == {"FPL1ID", "FPL2ID", "FPL10ID", "FPL1LAT", "FPL2LAT", "FPL10LAT",
+                     "FPLS1KIND", "FPLS2KIND", "FPLS1ID", "FPLS2ID"}
+    # FPL<n>ALT is not a slot field here, and FPLFRLAT is no slot at all.
+    assert {h for k, _, h in pyefis_writes(root) if k == "FPL1ID"} == \
+        {"_set(_slot_key() f-string FPL{n}{name})"}
+
+
+def test_an_item_from_a_binding_the_module_makes_is_a_write(tmp_path):
+    root = tree(tmp_path, {"src/pyefis/instruments/ai/ai_widget.py": """
+        class AI:
+            def __init__(self):
+                self._bank_bug = bugs.BugBinding("BANKBUG", self)
+                self._other = bugs.BugBinding("HEADBUG", self)
+
+            def step(self, v):
+                item = self._bank_bug.item
+                item.value = v
+                item.output_value()
+                return self._other.value
+    """})
+    assert pyefis_writes(root) == [
+        ("BANKBUG", "pyefis/instruments/ai", "item.output_value()"),
+        ("BANKBUG", "pyefis/instruments/ai", "item.value =")]
+
+
+EDITOR = """
+    class AltSelEditor:
+        def __init__(self, binding):
+            self.binding = binding
+
+        def write(self, value):
+            item = self.binding.item
+            item.value = value
+            %s
+"""
+
+
+def test_a_writes_comment_declares_an_item_handed_in_from_elsewhere(tmp_path):
+    # The key comes from the panel config, through another module: the scan
+    # cannot follow it, so the write says which keys it reaches.
+    root = tree(tmp_path, {
+        "src/pyefis/instruments/altimeter/altsel.py":
+            EDITOR % "item.output_value()  # writes: ALTSEL",
+        "src/pyefis/instruments/autopilot/__init__.py":
+            EDITOR % "# writes: HEADBUG, ALTSEL\n            item.output_value()"})
+    assert pyefis_writes(root) == [
+        ("ALTSEL", "pyefis/instruments/altimeter", "item.output_value() (# writes:)"),
+        ("ALTSEL", "pyefis/instruments/autopilot", "item.output_value() (# writes:)"),
+        ("HEADBUG", "pyefis/instruments/autopilot", "item.output_value() (# writes:)")]
+
+
+@pytest.mark.parametrize("line, error", [
+    ("item.output_value()  # writes: ALTSEL, NOSUCHKEY",
+     "NOSUCHKEY is not a key in the database"),
+    ("self.update()  # writes: ALTSEL", "is on no write"),
+    ("item = db.get_item('ALTSEL'); item.output_value()  # writes: ALTSEL",
+     "the scan already names the key"),
+])
+def test_a_writes_comment_must_name_keys_on_a_write_the_scan_cannot_name(tmp_path, line, error):
+    root = tree(tmp_path, {"src/pyefis/instruments/altimeter/altsel.py": EDITOR % line})
+    with pytest.raises(ckw.ScanError, match=error) as e:
+        ckw.scan_writes(root, CAT_UI, repo="pyEfis")
+    assert "src/pyefis/instruments/altimeter/altsel.py:9" in str(e.value)
