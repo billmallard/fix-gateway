@@ -4,12 +4,12 @@
 # and when a listed key has lost one -- so this file only shrinks.  Remove
 # an entry by giving the key one writer (a selector, roadmap 9.1).
 # Live writers: `writers` and `pyefis` in src/fixgw/database/writers.yaml.
-# 57 keys.
+# 56 keys.
 
 AGL: [canfix, mavlink]
 ALAT: [canfix, dynon, mavlink, rpi_bno055, stratux]
 ALONG: [mavlink, rpi_bno055]
-ALT: [canfix, dynon, grand_rapids_eis, mavlink, rpi_bmp085, stratux]
+ALT: [canfix, dynon, grand_rapids_eis, mavlink, onspeed, rpi_bmp085, stratux]
 ANORM: [mavlink, rpi_bno055]
 AOA: [canfix, onspeed]
 BARO: [canfix, grand_rapids_eis, pyefis/instruments/altimeter]
@@ -36,25 +36,31 @@ FUELQT: [compute, shadin]
 GPS_ACCURACY_HORIZ: [gpsd, mavlink]
 GPS_ACCURACY_SPEED: [gpsd, mavlink]
 GPS_ACCURACY_VERTICAL: [gpsd, mavlink]
-GPS_ELLIPSOID_ALT: [garmin_gnx375, gpsd, mavlink, navigator_adapter]
 GPS_FIX_TYPE: [garmin_gnx375, gpsd, mavlink, navigator_adapter]
 GPS_SATS_VISIBLE: [gpsd, mavlink]
 GS: [garmin_gnx375, gpsd, mavlink, navigator_adapter, stratux]
 HEAD: [canfix, mavlink, rpi_bno055, stratux]
 HOBBS1: [canfix, grand_rapids_eis]
-IAS: [canfix, mavlink, rpi_virtualwire]
+IAS: [canfix, mavlink, onspeed, rpi_virtualwire]
 LAT: [garmin_gnx375, gpsd, mavlink, navigator_adapter]
 LONG: [garmin_gnx375, gpsd, mavlink, navigator_adapter]
 OAT: [canfix, grand_rapids_eis, rpi_virtualwire]
 OILP1: [canfix, grand_rapids_eis]
 OILT1: [canfix, grand_rapids_eis]
 PALT: [compute, dynon]
-PITCH: [canfix, dynon, mavlink, rpi_bno055, stratux]
+PITCH: [canfix, dynon, mavlink, onspeed, rpi_bno055, stratux]
 POWER_FAIL: [X728, strom_pi]
-ROLL: [canfix, dynon, mavlink, rpi_bno055, stratux]
+ROLL: [canfix, dynon, mavlink, onspeed, rpi_bno055, stratux]
 ROT: [canfix, dynon, mavlink]
 TACH1: [canfix, grand_rapids_eis]
-TALT: [dynon, mavlink]
+# TALT: the one sanctioned addition (Bill, card 82b0b10b on AER-6458, 2026-11-24).
+# garmin_gnx375, gpsd and navigator_adapter moved their MSL write here off
+# GPS_ELLIPSOID_ALT, which named the wrong datum; the baseline's writer
+# entries fell (GPS_ELLIPSOID_ALT left it). It holds only while
+# test_talt_has_the_position_writers (tests/arch/test_key_writers.py) passes:
+# TALT's live writers equal LAT's and LONG's. It ends when SRC5a's position
+# select lands. A writer added without that test does not qualify.
+TALT: [garmin_gnx375, gpsd, mavlink, navigator_adapter]
 TAS: [canfix, dynon, mavlink]
 TRACK: [garmin_gnx375, gpsd, mavlink, navigator_adapter]
 VOLT: [canfix, grand_rapids_eis, mgl_serial]

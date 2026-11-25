@@ -95,6 +95,12 @@ RREF_BASE = 1000               # first request index (X-Plane echoes it back)
 # the value from looking like data, it does not say the signal is invalid.
 FLT32_MIN_NORMAL = 1.1754943508222875e-38
 
+# TALT, the SVS camera height, is written by every position source
+# (TALTSRC1, AER-6458). Installs keep the xplane.yaml they copied, and one
+# from before that change maps LAT but not TALT, so the plugin subscribes the
+# sim's elevation for it rather than leave the SVS unavailable.
+TALT_DATAREF = ("sim/flightmodel/position/elevation", 3.28084)
+
 # DREF: write a named dataref back to X-Plane. Packet is "DREF" + null + a
 # 4-byte float value + the 500-byte null-padded dataref path (509 bytes total).
 # Lets a FIX key drive a sim control (e.g. the EFIS nav-source selector setting
@@ -218,6 +224,7 @@ class MainThread(threading.Thread):
 
         # Named-dataref (RREF) subscriptions: {rref_index: (key, dataref, scale)}.
         self.dataref_map = _build_dataref_map(cfg.get("datarefs", {}))
+        self._ensure_talt()
         self.dataref_hz = int(cfg.get("dataref_hz", 10))
         # FIX -> X-Plane named-dataref writes: {fix_key: dataref}. Sent (DREF)
         # only when the FIX value changes, so a slow setpoint like the HSI
@@ -251,6 +258,20 @@ class MainThread(threading.Thread):
             "xplane: listening udp:%d, dest %s:%d; recv indices=%s, send indices=%s",
             self.udp_in, self.xplane_ip, self.udp_out,
             sorted(self.recv_map.keys()), sorted(self.send_map.keys()))
+
+    def _ensure_talt(self):
+        """Subscribe the sim's elevation for TALT when the config maps LAT
+        but nothing to TALT, so position and its height arrive together."""
+        mapped = {key for key, _dref, _scale in self.dataref_map.values()}
+        for slots in self.recv_map.values():
+            mapped.update(key for key in slots if key)
+        if "LAT" not in mapped or "TALT" in mapped:
+            return
+        index = max(self.dataref_map, default=RREF_BASE - 1) + 1
+        self.dataref_map[index] = ("TALT",) + TALT_DATAREF
+        self.log.info(
+            "xplane: config maps LAT but not TALT; subscribing %s for TALT",
+            TALT_DATAREF[0])
 
     def _drop_plain_target_rows(self):
         """The adapter keeps its targets in step both ways. A plain read of

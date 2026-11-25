@@ -97,7 +97,7 @@ taking input keys and writing an output key, re-running whenever an input
 changes. Examples in use:
 
 - `altp` / `altd` — pressure altitude `PALT` from `BARO` and `ALT`, then
-  density altitude `DALT` from `PALT`, `TALT` and `OAT`;
+  density altitude `DALT` from `PALT` and `OAT`;
 - `wrap360` for magnetic ground track (`TRACKM = TRACK + MAGVAR`);
 - `select` — an **EFIS nav-source selector**: `COURSE`/`CDI`/`GSI` = the source
   chosen by `NAVSRC` (0 = NAV1, 1 = NAV2, 2 = GPS), so the display and autopilot

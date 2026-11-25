@@ -9,15 +9,16 @@ fixed.
 
 Backlog item ARCHG1 (AER-6350). Policy: ORG-018 (maos-workspace).
 
-## The three records
+## The records
 
 | File | What it holds |
 |---|---|
-| `src/fixgw/database/writers.yaml` | One line per key that some module writes: its units, the datum of an altitude or position key, its writers by kind, and its selector if it has one. It is a design record: the gateway never loads it, and `database/*.yaml` is still the runtime truth for a key. |
+| `src/fixgw/database/writers.yaml` | One line per key that some module writes: its units, the datum of an altitude or position key, its writers by kind, and its selector if it has one. For the source keys, each writer also declares its datum, quality and failure mode (below). It is a design record: the gateway never loads it, and `database/*.yaml` is still the runtime truth for a key. |
 | `tests/arch/key_writers_baseline.yaml` | The keys allowed more than one live writer today, each with its writers. It can only shrink. |
+| `tests/arch/datum_baseline.yaml` | The keys whose writers declare more than one datum today, each writer with its datum. It can only shrink. |
 | `tests/arch/concept_names.yaml` | The files allowed to define a class named `Waypoint`, `Point`, `Position`, `Leg`, `Plan` or `Route`. |
 
-`tools/check_key_writers.py` scans the tree and checks it against all three.
+`tools/check_key_writers.py` scans the tree and checks it against all of them.
 CI runs it inside the pytest step (`tests/arch/test_key_writers.py`). A failure
 is also printed in the job summary. To run it locally:
 
@@ -37,10 +38,20 @@ The scan is static. It imports nothing from `plugins/` and finds a write when:
 - a module sets `.value` on, or calls `.set()` on, an item it got with
   `get_item("KEY")`;
 - shipped YAML names a key under a write path: a canfix map's `inputs` (bus to
-  database), and elsewhere an `output` or `outputs`, such as a compute function.
+  database), and elsewhere an `output` or `outputs`, such as a compute function;
+- a module that writes in a loop over a key table declares the table as a
+  module constant named `SOURCE_KEYS`, `ENGINE_KEYS` or `OUTPUT_GROUPS` (demo,
+  onspeed), and every key in it is a write;
+- a simulator's key map names the key: the X-Plane connection's `recv` rows
+  and `datarefs` map, and the `<output>` chunk names of the FlightGear protocol
+  file (`fix_fgfs.xml`).
 
 A key written under a computed name (`db_write(self.key, v)`) is not seen. Write
-the key as a literal or a module constant, so the record can name it.
+the key as a literal, a module constant or one of the tables above, so the
+record can name it. Unseen today, among others: `rais` (keys from the RAIS server's own
+configuration), the config-named keys of `rpi_bmp085`, `rpi_button`,
+`rpi_mcp3008` and `rpi_rotary_encoder`, and `knobster`, `megasquirt`, `mgl`,
+`rtl_433` and `tessera`.
 
 Files under `tools/`, `examples/` and the tests are not writers: they write to a
 bench, not to an aircraft.
@@ -66,6 +77,46 @@ The register sorts each module into one of these fields:
   for a live writer, so they are declared but never count as a second writer.
 - **`relay`**: netfix, command and the persisters. They pass on another
   client's write.
+
+## The provider declaration (SRC4)
+
+The writer list says who writes a key. It does not say what the number means
+when each of them writes it, and ARCH2 (AER-6349) found that they disagree:
+`GPS_ELLIPSOID_ALT` in two datums, `ALT` in four, `GPS_ACCURACY_HORIZ` as gpsd's
+`epx`, MAVLink's `h_acc` or a constant. Consumers then rebuild what is missing:
+the flight plan engine guesses that an install has no fix-type source because
+the key was never written (AER-4217), and gdl90_out needs a per-install
+`geo_altitude_datum` setting.
+
+So every writer of a source key declares, in its key's line:
+
+| Column | What it says | Tokens |
+|---|---|---|
+| `datum` | what the number is measured from; for an accuracy key, its statistic | altitude: `indicated`, `pressure`, `msl`, `ellipsoid`, `above_home`, `above_ground`, `density`; position: `wgs84`; heading and track: `magnetic`, `true`; accuracy: `p95`, `one_sigma`, `assumed`, `unstated`; and `unrecorded` |
+| `quality` | how the writer tells a reader the value is good | `bad`, `fail` (flags it sets), `passthrough` (copies its source's flags), the FIX keys it writes that qualify this one (`GPS_FIX_TYPE`, `GPS_ACCURACY_HORIZ`), or `none` |
+| `on_loss` | what the key does when the writer loses its input | `silence` (goes old after its tol), `fail`, `holds_last` (stays fresh on a dead source), `writes_zero`, `on_change` (a setting or an engine output), `follows` (a compute select) |
+| `rate_hz` | how often it writes, where the code or its doc says | a number; leave the writer out when it is not known |
+
+Each cell is `"<token>[, <token>]: note"`. The note says where the value comes
+from, and what is wrong with it if anything is:
+
+```yaml
+GPS_ELLIPSOID_ALT: {units: ft, datum: {garmin_gnx375: 'msl: NMEA GGA altitude, above the geoid (GALT1)', ...}, quality: {garmin_gnx375: 'GPS_FIX_TYPE: no accuracy key', ...}, on_loss: {...}, writers: [...]}
+```
+
+The source keys are ARCH2 section 3.2's, listed as `PROVIDER_KEYS` in the tool:
+position, GPS altitude and quality, `ALT`, attitude, accelerations and rate of
+turn, airspeed, `BARO`, the active waypoint, and the navigation guidance from
+`EXT*` to `COURSE`/`CDI`. `datum` applies to the altitude, position, heading,
+track and accuracy keys among them. Simulators declare too: a sim that puts MSL
+in `ALT` puts the wrong number in front of the pilot on the bench.
+
+The record states today's truth, wrong parts included. It was seeded from
+ARCH2 section 3.1 and read again against `dev` at `66dc8eb`. That tree has SRC1,
+SRC2 and MAVALT1. Where the code could not settle a cell, it says `unrecorded`
+or `unstated`. The gateway does not read this file, and nothing consumes the
+columns yet: pointing the engine's integrity check and gdl90_out at them is a
+follow-on.
 
 ## The checks, and what to do when one fails
 
@@ -119,8 +170,27 @@ fails until `no_writer` is removed, so the note cannot go stale.
 Say what the number is measured from: MSL, ellipsoid (HAE), indicated (baro
 corrected), pressure (29.92), or height above home or above ground, and for a
 position, the horizontal datum. Where writers differ, give a mapping per writer,
-as `ALT` and `GPS_ELLIPSOID_ALT` do. Those differences are the bugs. Write
+as `ALT` does. Those differences are the bugs. Write
 `unrecorded` only if nobody has read the writer's code yet.
+
+**`HEAD: bbb writes it and declares no `quality` in writers.yaml`.**
+A source key's writer must declare `quality` and `on_loss`, and its `datum`
+where that applies. Read the writer's code and fill the cell: what it sets on
+the key, and what it does when the device goes quiet. If you cannot tell, say
+so in the note; do not leave it out.
+
+**`ALT: writers.yaml `datum` for bbb is 'baro'; a datum is one of ...`.**
+A cell's first word comes from its column's list above. A `quality` key must
+be one the same writer writes.
+
+**`LAT: its writers declare more than one datum (...)`.**
+A key has one datum. A writer that puts a different one there needs its own
+key (GALT1 moved the GPS MSL writes from `GPS_ELLIPSOID_ALT` to `TALT`), or its conversion fixed (MAVALT1 made mavlink's
+`ALT` indicated). `unrecorded` and `unstated` count as different from
+everything, so read the code rather than leaving them on a shared key. The keys
+that disagree today are on `tests/arch/datum_baseline.yaml`. A listed key may
+not gain a writer or change a datum, and when its writers agree it must come off
+(`its writers now agree on one datum and it is still on the datum baseline`).
 
 **`class Waypoint: defined in src/.../model.py, and concept_names.yaml allows it only in ...`.**
 ARCH0 found seven shapes of a waypoint. Use one of the existing ones, or give
@@ -134,8 +204,8 @@ change: under ORG-018, INTEGRATOR holds a PR that makes it for review.
 python tools/check_key_writers.py --generate --pyefis ../pyEfis
 ```
 
-This rewrites `writers.yaml` and the baseline from the scan. It keeps the
-datums, and it takes the pyEfis writers from a pyEfis checkout when one is
+This rewrites `writers.yaml` and both baselines from the scan. It keeps the
+provider columns, and it takes the pyEfis writers from a pyEfis checkout when one is
 given, or from the existing register when not. Use it to fill in the line for a
 new key. Do not use it to make the ratchet pass: a regenerated baseline that
 grew is the thing a reviewer looks for. `test_generate_reproduces_the_committed_records`
@@ -147,6 +217,7 @@ more than one proven live writer, with the same writers. The datums were then
 read from each writer's code. The record includes what is wrong today:
 
 - `mavlink` puts MSL in `ALT`, and puts height above home in `AGL`.
-- Two of the four `GPS_ELLIPSOID_ALT` writers put MSL there.
+- Three of the four `GPS_ELLIPSOID_ALT` writers put MSL there (fixed by
+  GALT1/TALTSRC1: they write `TALT`).
 
 GALT1, MAVALT1 and ARCH1 to ARCH3 fix those keys. This change only records them.

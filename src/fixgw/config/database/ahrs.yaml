@@ -909,6 +909,14 @@ items:
   initial: 0
   tol: 2000
 
+# What GPS_ACCURACY_HORIZ means (SRC4, AER-6455; roadmap 9.1 block proposed in
+# fix-gateway's SRC4 PR): the receiver's 95 % horizontal position accuracy, in
+# feet -- the figure AC 20-138D calls HFOM (appendix 4, A4-9), and the EPU that
+# GDL-90's NACp is graded on.  It is not a protection level: integrity is HPL
+# against the alert limit (AC 20-138D appendix 1), and no key carries HPL.
+# Today's writers do not all meet this: gpsd's eph (or the radius of epx and
+# epy) has a certainty gpsd calls unknown, mavlink's h_acc names no statistic,
+# and demo writes a constant (src/fixgw/database/writers.yaml).
 - key: GPS_ACCURACY_HORIZ
   description: Accuracy of GPS Horizontal
   type: float

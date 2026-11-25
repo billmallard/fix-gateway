@@ -19,6 +19,7 @@
 #  This plugin pulls the location information from GPSD
 
 import json
+import math
 import threading
 from collections import OrderedDict
 
@@ -84,9 +85,16 @@ class MainThread(threading.Thread):
                 self._write(tpv, "lon", "LONG")
                 self._write(tpv, "track", "TRACK")
                 self._write(tpv, "speed", "GS", MS_TO_KT)
-                self._write(tpv, "epx", "GPS_ACCURACY_HORIZ", M_TO_FT)
+                self._write_horizontal_accuracy(tpv)
+                # Height above MSL is TALT (GALT1/TALTSRC1, AER-6458).
+                # gpsd 3.20+ sends altMSL and calls alt deprecated; older
+                # gpsd sends only alt, which was MSL there. In a 2-D fix the
+                # height is held or invented, so TALT is bad.
+                field = "altMSL" if "altMSL" in tpv else "alt"
+                if field in tpv:
+                    talt = self.parent.db_get_item("TALT")
+                    talt.set(tpv[field] * M_TO_FT, bad=p.mode < 3)
             if p.mode >= 3:
-                self._write(tpv, "alt", "GPS_ELLIPSOID_ALT", M_TO_FT)
                 self._write(tpv, "epv", "GPS_ACCURACY_VERTICAL", M_TO_FT)
                 self._write(tpv, "eps", "GPS_ACCURACY_SPEED", MS_TO_KT)
             time.sleep(POLL_INTERVAL)
@@ -94,6 +102,23 @@ class MainThread(threading.Thread):
     def _write(self, tpv, field, key, scale=1):
         if field in tpv:
             self.parent.db_write(key, tpv[field] * scale)
+
+    def _write_horizontal_accuracy(self, tpv):
+        """GPS_ACCURACY_HORIZ is a horizontal radius (AER-6461, ACC1).
+
+        epx alone is the longitude error, so it understated the radius
+        whenever epy was the larger. gpsd's eph is its 2-D estimate; without
+        it, the radius of the two axis errors, the way gpsd 3.25 builds hdop
+        from xdop and ydop. One axis is not a radius, so it writes nothing.
+        gpsd calls the certainty of all three unknown, guessed to be 95 %.
+        """
+        if "eph" in tpv:
+            accuracy = tpv["eph"]
+        elif "epx" in tpv and "epy" in tpv:
+            accuracy = math.hypot(tpv["epx"], tpv["epy"])
+        else:
+            return
+        self.parent.db_write("GPS_ACCURACY_HORIZ", accuracy * M_TO_FT)
 
     def stop(self):
         self.getout = True

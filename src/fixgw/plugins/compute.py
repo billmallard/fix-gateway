@@ -150,11 +150,15 @@ def altPressure(inputs, output, require_leader):
 # Density altitude
 # Standard Temperature = 15 – 1.98 * (A in ft) /1000
 # Density Altitude = Pressure Altitude + (120 * (OAT deg C - Standard Temperature))
-# inputs PALT ALTMSL OAT
+# inputs PALT OAT
+# ISA temperature is defined on pressure altitude, so A is PALT, the first
+# input, in both terms.  OAT is the last input.  Installed configs copied from
+# before DALT1 (AER-6594) list PALT, TALT, OAT: a middle input is ignored and
+# never waited on, so a panel with no TALT writer still gets DALT.
 def altDensity(inputs, output, require_leader):
-    vals = {}
-    for each in inputs:
-        vals[each] = None
+    palt = inputs[0]
+    oat = inputs[-1]
+    vals = {palt: None, oat: None}
 
     def func(key, value, parent):
         if not quorum.leader and require_leader:
@@ -168,6 +172,8 @@ def altDensity(inputs, output, require_leader):
                 if o.get_aux_value(x[1]) != value:
                     o.set_aux_value(x[1], value)
             return
+        if key not in vals:
+            return  # An ignored middle input
         vals[key] = value
         _refresh_old(vals, parent)
         flag_old = False
@@ -186,10 +192,7 @@ def altDensity(inputs, output, require_leader):
                 flag_fail = True
             if vals[each][5]:
                 flag_secfail = True
-        palt = list(vals)[0]
-        talt = list(vals)[1]
-        oat = list(vals)[2]
-        st = 15 - (1.98 * (vals[talt][0]) / 1000)
+        st = 15 - (1.98 * (vals[palt][0]) / 1000)
         da = vals[palt][0] + (120 * (vals[oat][0] - st))
         _publish(o, da, flag_old, flag_bad, flag_fail, flag_secfail)
 
