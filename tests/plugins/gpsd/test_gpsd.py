@@ -1,4 +1,5 @@
 import json
+import math
 
 import pytest
 
@@ -89,6 +90,7 @@ FULL_3D = {
     "speed": 60.0,
     "alt": 1000.0,
     "epx": 1.0,
+    "epy": 1.5,
     "epv": 2.0,
     "eps": 3.0,
 }
@@ -105,6 +107,7 @@ def test_main_thread_writes_2d_and_3d_fix_data_and_warning_path(monkeypatch):
                 "track": 123.4,
                 "speed": 50.0,
                 "epx": 2.0,
+                "epy": 2.0,
             },
             satellites=9,
         ),
@@ -120,11 +123,11 @@ def test_main_thread_writes_2d_and_3d_fix_data_and_warning_path(monkeypatch):
     assert ("LONG", -83.0) in parent.writes
     assert ("TRACK", 123.4) in parent.writes
     assert ("GS", 50.0 * 1.94384) in parent.writes
-    assert ("GPS_ACCURACY_HORIZ", 2.0 * 3.28084) in parent.writes
+    assert ("GPS_ACCURACY_HORIZ", math.hypot(2.0, 2.0) * 3.28084) in parent.writes
     assert ("GPS_SATS_VISIBLE", 10) in parent.writes
     assert ("GPS_FIX_TYPE", 3) in parent.writes
     assert ("GPS_ELLIPSOID_ALT", 1000.0 * 3.28084) in parent.writes
-    assert ("GPS_ACCURACY_HORIZ", 1.0 * 3.28084) in parent.writes
+    assert ("GPS_ACCURACY_HORIZ", math.hypot(1.0, 1.5) * 3.28084) in parent.writes
     assert ("GPS_ACCURACY_VERTICAL", 2.0 * 3.28084) in parent.writes
     assert ("GPS_ACCURACY_SPEED", 3.0 * 1.94384) in parent.writes
 
@@ -170,6 +173,7 @@ def test_main_thread_sleeps_between_polls(monkeypatch):
     "missing, key",
     [
         ("epx", "GPS_ACCURACY_HORIZ"),
+        ("epy", "GPS_ACCURACY_HORIZ"),
         ("alt", "GPS_ELLIPSOID_ALT"),
         ("epv", "GPS_ACCURACY_VERTICAL"),
         ("eps", "GPS_ACCURACY_SPEED"),
@@ -193,6 +197,40 @@ def test_absent_tpv_field_writes_nothing(monkeypatch, missing, key):
     # the rest of the report is still published
     assert written["GPS_FIX_TYPE"] == 3
     assert len(written) == 9
+
+
+def horizontal_accuracy_m(parent):
+    return [v for k, v in parent.writes if k == "GPS_ACCURACY_HORIZ"][-1] / 3.28084
+
+
+def test_horizontal_accuracy_covers_the_larger_axis(monkeypatch):
+    # ACC1 (AER-6592): the key is a horizontal radius (AER-6461). epx is the
+    # longitude error only, and the plugin wrote it alone, so a fix 30 m
+    # uncertain in latitude read as 10 m to gdl90_out and the HAL check.
+    tpv = dict(FULL_3D, epx=10.0, epy=30.0)
+
+    parent = run_thread(monkeypatch, [poll(tpv)])
+
+    assert horizontal_accuracy_m(parent) >= 30.0
+    assert horizontal_accuracy_m(parent) == pytest.approx(math.hypot(10.0, 30.0))
+
+
+def test_horizontal_accuracy_takes_gpsd_eph_when_present(monkeypatch):
+    # eph is gpsd's own 2-D figure, from the receiver or from hdop.
+    tpv = dict(FULL_3D, epx=10.0, epy=30.0, eph=40.0)
+
+    parent = run_thread(monkeypatch, [poll(tpv)])
+
+    assert horizontal_accuracy_m(parent) == pytest.approx(40.0)
+
+
+def test_eph_alone_writes_horizontal_accuracy(monkeypatch):
+    tpv = {k: v for k, v in FULL_3D.items() if k not in ("epx", "epy")}
+    tpv["eph"] = 12.0
+
+    parent = run_thread(monkeypatch, [poll(tpv)])
+
+    assert horizontal_accuracy_m(parent) == pytest.approx(12.0)
 
 
 def test_present_zero_is_still_written(monkeypatch):
