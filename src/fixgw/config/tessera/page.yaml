@@ -8,8 +8,9 @@
 #   {pulse: KEY}           True then False to a bool key, as a button would.
 #                          The TSBTN keys below are pyEfis's own touchscreen
 #                          buttons (node 1), so pyEfis runs the action it
-#                          already has for them.  pyEfis acts only while that
-#                          button is on its visible screen.
+#                          already has for them.  pyEfis's stock data
+#                          bindings run them on any screen (pyEfis #591);
+#                          an older pyEfis acts only while the button shows.
 #   {set: KEY, value: V}   one write of V.
 # A key with no `press` answers a touch with a red flash and writes nothing.
 name: SPIKE
