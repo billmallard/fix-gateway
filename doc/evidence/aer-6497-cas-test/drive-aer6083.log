@@ -1,0 +1,47 @@
+   0.05 gateway pid 6344 config /tmp/paperclip-run-aer-6497-d9c339ee-279-EGaKVg/cas2-vgv7730z/config
+   1.06 connected
+   1.07 @rCASCNT -> @rCASCNT;0;00000
+   1.07 @rCASTOP -> @rCASTOP;0;00000
+   1.07 @rCASSEQ -> @rCASSEQ;0;00000
+   1.07 @rCASACK -> @rCASACK;0;00000
+   1.07 @rCASACKBTN -> @rCASACKBTN;False;00000
+   1.07 @rNAVFAIL -> @rNAVFAIL;False;00000
+   1.07 @rCASMSG1 -> @rCASMSG1;;00000
+   1.07 @rCASMSG12 -> @rCASMSG12;;00000
+   1.07 @qCASMSG1 -> @qCASMSG1;CAS message slot 1 (LEVEL|ACK|ID|TEXT|DETAIL or empty);str;None;None;;3000;
+   1.07 PASS the CASMSG1 report splits into 8 fields
+   1.50 CAS TEST shown after 0.43 s: ['1|0|CASTEST|CAS TEST|']
+   7.65 PASS CAS TEST still shown 6 s after connect (AER-6497)
+   7.89 CAS TEST gone after 0.22 s: []
+   7.89 PASS CAS TEST clears on CASACK
+   9.43 NAVFAIL ('False', '00000') CDI ('0.1', '00000') CDIV ('1.0', '00000')
+   9.45 PASS NAVFAIL false on a received NAV1
+   9.82 NAV FAIL shown after 0.37 s: ['2|0|NAVFAIL|NAV FAIL|']
+   9.82 PASS NAV FAIL within 1 s of CDI fail
+  10.03 PASS NAV FAIL is an unacknowledged caution
+  10.04 NAVFAIL key ('True', '00000')
+  10.24 NAV FAIL acknowledged after 0.18 s: ['2|1|NAVFAIL|NAV FAIL|']
+  10.24 PASS CASACK = CASSEQ acknowledges
+  10.25 PASS CASTOP 0 with all acknowledged
+  10.71 NAV FAIL gone after 0.47 s: []
+  10.71 PASS NAV FAIL clears with the flag
+  12.90 NAVSRC 1 (NAV2 never received): NAVFAIL ('True', '00000') lines ['2|0|FUELQ3ND|FUEL QTY 3 NO DATA|']
+  12.90 PASS NAVFAIL true on an untuned NAV2
+  13.09 PASS no NAV FAIL line for a source never received
+  13.24 PASS no AP LINK LOST while the autopilot is fed
+  15.33 AP LINK LOST shown after 2.09 s: ['3|0|APLINK|AP LINK LOST|', '2|0|FUELQ3ND|FUEL QTY 3 NO DATA|']
+  15.33 PASS AP LINK LOST within 3 s of the last APENG
+  15.50 PASS AP LINK LOST is a warning (engaged)
+  15.52 PASS CASTOP 3
+  20.91 AP LINK LOST gone after the link returned after 5.40 s: ['2|0|FUELQ3ND|FUEL QTY 3 NO DATA|']
+  20.91 PASS AP LINK LOST clears about 5 s after the link is steady
+  21.08 FUEL QTY 3 NO DATA shown after 0.16 s: ['2|0|FUELQ3ND|FUEL QTY 3 NO DATA|']
+  21.08 PASS FUEL QTY 3 NO DATA after the grace
+  21.68 PASS a CASACK ahead of CASSEQ acknowledges nothing
+  25.18 flags after 3.5 s quiet: ['00000', '00000', '00000', '00000']
+  25.18 PASS CAS keys not old while running
+  25.18 status cas: [{"Running": true, "Entries": 5, "Refused": "none", "Active": 1, "Sequence": 28309562, "Evaluation errors": 0, "Callback errors": 0}]
+  25.18 CASCNT ('1', '00000') CASSEQ ('28309562', '00000') lines ['2|0|FUELQ3ND|FUEL QTY 3 NO DATA|']
+  28.30 gateway exit 0
+  28.30 gateway log lines mentioning cas with ERROR: 0
+  28.30 RESULT all checks passed

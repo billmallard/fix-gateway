@@ -96,8 +96,11 @@ def ids(database):
 
 
 def past_test(p, database):
-    """Step past CAS TEST so it is out of the list."""
-    step(p, p.test_time + 0.1)
+    """Acknowledge CAS TEST, as the pilot does at power-up, so it is out of
+    the list."""
+    step(p)
+    database.write("CASACK", database.read("CASSEQ")[0])
+    step(p, 0.1)
     assert "CASTEST" not in ids(database)
 
 
@@ -114,20 +117,106 @@ def test_shipped_catalogue_loads_without_refusals(database):
                                                  "NAVFAIL"]
 
 
-def test_cas_test_is_an_advisory_at_start_for_five_seconds(database):
-    p = make(database)
+def test_cas_test_is_an_advisory_held_until_acknowledged(database):
+    """AER-6497: a display draws 6 to 11 s after the gateway starts, so CAS
+    TEST waits for the pilot's touch, not a fixed 5 s."""
+    p = make(database, priority_catalogue())
     step(p)
     assert lines(database) == [(1, False, "CASTEST", "CAS TEST")]
-    step(p, 4.9)
+    assert database.read("CASTOP")[0] == 1
+    step(p, 15)
+    assert lines(database) == [(1, False, "CASTEST", "CAS TEST")]
+    step(p, 584.9)  # 599.9 s after start
+    assert "CASTEST" in ids(database)
+    database.write("CASACK", database.read("CASSEQ")[0])
+    step(p)  # the same cycle: the touch takes it off the glass at once
+    assert "CASTEST" not in ids(database)
+    assert database.read("CASCNT")[0] == 0
+    database.write("CASACK", database.read("CASSEQ")[0])
+    step(p, 1)
+    assert "CASTEST" not in ids(database)  # once per run
+
+
+def test_cas_test_clears_at_the_backstop_unacknowledged(database):
+    p = make(database, priority_catalogue())
+    step(p)
+    step(p, 599.9)
     assert "CASTEST" in ids(database)
     step(p, 0.2)
     assert "CASTEST" not in ids(database)
+    assert database.read("CASTOP")[0] == 0
 
 
-def test_cas_test_cannot_be_turned_off(database):
-    p = make(database, test_time=0)
+def test_the_backstop_clear_is_logged_and_an_acknowledge_is_not(database,
+                                                                 caplog):
+    p = make(database, priority_catalogue())
     step(p)
+    step(p, 600.1)
+    assert caplog.text.count("CAS TEST cleared unacknowledged") == 1
+    step(p, 1)
+    assert caplog.text.count("CAS TEST cleared unacknowledged") == 1
+    p.stop()
+    caplog.clear()
+    p = make(database, priority_catalogue())
+    step(p)
+    database.write("CASACK", database.read("CASSEQ")[0])
+    step(p)
+    step(p, 700)
+    assert "CAS TEST cleared unacknowledged" not in caplog.text
+
+
+def test_cas_test_cleared_by_the_panel_button(database):
+    p = make(database, priority_catalogue())
+    step(p, 20)
+    database.write("CASACKBTN", True)
+    step(p)
+    assert "CASTEST" not in ids(database)
+
+
+def test_cas_test_survives_acknowledges_that_do_not_cover_it(database):
+    """A CASACK below CAS TEST's sequence (an earlier run's value, re-sent on
+    reconnect) or ahead of CASSEQ was not written by anyone looking at it."""
+    t = [float(cas.SEQ_EPOCH + 1000000)]
+    p = make(database, priority_catalogue(), wallclock=lambda: t[0])
+    step(p)
+    seq = database.read("CASSEQ")[0]
+    database.write("CASACK", seq - 1)
+    step(p, 1)
+    database.write("CASACK", seq + 5)
+    step(p, 1)
+    assert lines(database) == [(1, False, "CASTEST", "CAS TEST")]
+
+
+def test_acknowledging_cas_test_leaves_a_real_alert_listed(database):
+    p = make(database, priority_catalogue())
+    database.write("HIDEBUTTON", True)  # ADV, CAUB at power-up
+    step(p)
+    database.write("CASACK", database.read("CASSEQ")[0])
+    step(p)
+    assert lines(database) == [(2, True, "CAUB", "CAUB"),
+                               (1, True, "ADV", "ADV")]
+
+
+def test_cas_test_cannot_be_turned_off_or_cut_short(database):
+    for backstop in (0, 5, 59):
+        p = make(database, priority_catalogue(), test_backstop=backstop)
+        assert p.test_backstop == cas.TEST_BACKSTOP
+        step(p, 30)
+        assert "CASTEST" in ids(database)
+        p.stop()
+
+
+def test_old_test_time_is_ignored_with_a_warning(database, caplog):
+    """Every install's copied cas.yaml says test_time: 5."""
+    p = make(database, priority_catalogue(), test_time=5)
+    assert "test_time is no longer used" in caplog.text
+    step(p, 15)
     assert "CASTEST" in ids(database)
+
+
+def test_shipped_backstop_is_ten_minutes():
+    assert shipped_config()["test_backstop"] == 600
+    assert "test_time" not in shipped_config()
 
 
 @pytest.mark.parametrize("engaged,level", [(True, 3), (False, 2)])

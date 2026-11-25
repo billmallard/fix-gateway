@@ -1,0 +1,45 @@
+   0.23 pyefis pid 19468 (pyEfis b30b785b + working tree), placement A
+  10.24 gateway pid 19682 (fix-gateway 31d91da), 10 s after the display
+  24.12 CAS TEST on the glass from 13.85 to 13.85 s after the gateway started
+  24.14 PASS step 14: CAS TEST drawn in the window after the gateway starts (proves plugin, bus, widget and glass)
+  30.32 PASS step 14: CAS TEST still drawn 20 s after the gateway started
+  30.51 PASS step 1: window draws nothing once CAS TEST is touched (0.06 s)
+  30.54 PASS step 1: CASCNT 0 over raw netfix
+  30.69 PASS step 1: no red or amber in the window area ({'red': 0, 'amber': 0})
+  32.70 PASS step 2: NAV FAIL drawn within 1 s of the CDI fail (0.5 s)
+  34.76 PASS step 2: amber in the window ([0, 855, 173, 855, 173])
+  34.76 PASS step 2: the line flashes (amber fill comes and goes over five grabs 0.3 s apart: [0, 855, 173, 855, 173])
+  34.86 PASS step 3: after the touch NAV FAIL is drawn acknowledged (caution NAV FAIL)
+  35.26 CASACK 28310476 CASSEQ 28310477
+  35.26 PASS step 3: CASACK written by the touch, at the CASSEQ drawn
+  35.97 PASS step 3: the acknowledged line is steady: never redrawn unacked, amber the same 0.5 s apart ({'red': 0, 'amber': 855}, {'red': 0, 'amber': 855})
+  37.84 PASS step 5: AP LINK LOST (warning, engaged) drawn within 3 s of the last APENG (1.85)
+  37.84 PASS step 12: the new alert flashes while the acknowledged NAV FAIL stays steady (warning unacked AP LINK LOST; caution NAV FAIL)
+  38.53 PASS step 5: red in the window
+  51.53 PASS step 18: no gap in AP LINK LOST while the link drops every 3 s (0 gaps)
+  60.08 PASS step 18: AP LINK LOST cleared 5.54 s after the link went steady (5 s clear delay)
+  60.23 PASS step 4: NAV FAIL gone when the flag clears
+  62.36 PASS step 6: AP LINK LOST is a caution when the autopilot was disengaged (caution unacked AP LINK LOST)
+  71.48 PASS step 7: FUEL QTY 3 NO DATA drawn
+  71.48 PASS step 7: after the 60 s grace, not before (61.2 s after gateway start)
+  74.59 PASS step 10: CATALOG REFUSED (advisory) drawn from status.json (caution FUEL QTY 3 NO DATA; advisory unacked CATALOG REFUSED)
+  78.13 watchdog trip logged 2.61 s after SIGSTOP; CAS drew the link alert 2.93 s after SIGSTOP
+  78.13 PASS step 9: GATEWAY LINK LOST drawn within 0.5 s of the watchdog trip (the CAS3 leg)
+  78.13 FAIL step 9: GATEWAY LINK LOST within 2.5 s of SIGSTOP end to end (brief; the watchdog leg is CERT1's, here on software GL)
+  79.13 PASS step 9: no CAS FAIL beside the link alert (['warning unacked GATEWAY LINK LOST; advisory unacked CATALOG REFUSED'])
+  79.13 PASS step 9: only local alerts drawn during link loss (warning unacked GATEWAY LINK LOST; advisory unacked CATALOG REFUSED)
+  81.54 PASS step 9: SIGCONT recovers (warning unacked AP LINK LOST; caution unacked HDG FAIL; caution unacked NAV FAIL; caution FUEL QTY 3 NO DATA; advisory unacked CATALOG REFUSED after 2.29 s)
+  81.54 before the plugin stop: warning unacked AP LINK LOST; caution unacked HDG FAIL; caution unacked NAV FAIL; caution FUEL QTY 3 NO DATA; advisory unacked CATALOG REFUSED
+  81.54 PASS step 16: two gateway messages drawn before the stop
+  85.29 PASS step 8: CAS FAIL within 4 s of the plugin stopping (3.61 s)
+  85.29 PASS step 16: neither old message drawn with CAS FAIL (caution unacked CAS FAIL)
+  86.39 PASS step 16: amber CAS FAIL, no red (the old warning) ({'red': 0, 'amber': 856})
+  89.32 gateway (for the restart) exit 0
+  97.55 PASS step 14: after a gateway restart under a running display, CAS TEST drawn (8.19 s after the restart)
+ 109.39 PASS step 14: after the restart, CAS TEST still drawn 20 s later
+ 109.67 PASS step 14: after the restart, the touch takes CAS TEST off (0.18 s)
+ 109.67 CAS TEST on the glass from 8.19 s to the touch at 20.14 s after the restart
+ 109.72 pyefis exit -15
+ 112.79 gateway exit 0
+ 112.79 PASS no traceback and no CAS poll failure in the pyEfis log ([])
+ 112.79 RESULT 1 checks failed: ["step 9: GATEWAY LINK LOST within 2.5 s of SIGSTOP end to end (brief; the watchdog leg is CERT1's, here on software GL)"]

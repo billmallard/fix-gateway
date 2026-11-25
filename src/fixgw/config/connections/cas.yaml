@@ -43,9 +43,12 @@ cas:
   load: CAS
   module: fixgw.plugins.cas
 
-  # CAS TEST, an advisory shown for this many seconds at every start. It
-  # proves plugin, bus, display and glass end to end, so it cannot be off.
-  test_time: 5
+  # CAS TEST, an advisory raised at every start. It stays until a display or
+  # the panel button acknowledges it (a touch on the window), and clears
+  # unacknowledged this many seconds after start. It proves plugin, bus,
+  # display and glass end to end, so it cannot be off; below 60 the plugin
+  # uses 600. The old test_time option is ignored, with a warning.
+  test_backstop: 600
 
   # A panel button's rising edges closer together than this are one press.
   ack_debounce: 0.5
