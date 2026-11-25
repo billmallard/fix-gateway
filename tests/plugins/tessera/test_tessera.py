@@ -94,10 +94,30 @@ def test_handshake_accepts_tessera_p4_protocol_4(rig):
     assert p.get_status()["Firmware"] == "0.9.0"
 
 
+def test_handshake_accepts_the_v3_chip_build(rig):
+    # TESS2's board 1, an ESP32-P4 v3.2 on Tessera 1.2.12, answers with this id.
+    p, panel = rig(board="tessera-p4-v3", firmware="1.2.12")
+    assert accepted(p, panel)
+    assert p.thread.connected and p.thread.counters["refused"] == 0
+    assert p.get_status()["Firmware"] == "1.2.12"
+
+
 @pytest.mark.parametrize(
     "kwargs",
-    [{"board": "esp32-other"}, {"protocol": 3}, {"protocol": 5}, {"protocol": "4"}],
-    ids=["other-board", "protocol-3", "protocol-5", "protocol-as-text"],
+    [
+        {"board": "esp32-other"},
+        {"board": "tessera-s3-ws7"},
+        {"protocol": 3},
+        {"protocol": 5},
+        {"protocol": "4"},
+    ],
+    ids=[
+        "other-board",
+        "other-tessera-board",
+        "protocol-3",
+        "protocol-5",
+        "protocol-as-text",
+    ],
 )
 def test_handshake_refuses_other_devices_and_retries(rig, kwargs):
     p, panel = rig(**kwargs)

@@ -101,7 +101,7 @@ draws it (`images/tessera/README.md` has the commands):
 | Step | What the plugin does |
 |---|---|
 | Open | Opens the port at 115200 and discards anything already waiting. |
-| Handshake | Sends `{"cmd":"get_info"}` and waits 2.5 s for the `info` answer. It accepts only `boardId` `tessera-p4` with protocol 4, and anything else is refused and retried. Press events that arrive before the answer belong to an earlier session and are dropped unanswered. |
+| Handshake | Sends `{"cmd":"get_info"}` and waits 2.5 s for the `info` answer. It accepts only the GUITION board's two ids, `tessera-p4` and `tessera-p4-v3` (the build for a v3.x ESP32-P4 chip), with protocol 4, and anything else is refused and retried. Press events that arrive before the answer belong to an earlier session and are dropped unanswered. |
 | Ping | `AD_PING` every second, including while a push waits for its answer. The panel shows NO PC after 3.5 s of silence. |
 | Push | Sends the page as `AD_CFG_BEGIN`, `AD_CFG_DATA` in 380-character chunks, and `AD_CFG_END`, but only when a shown value changed, the page differs from what the panel last accepted, and the previous push has been answered. |
 | Answer | `AD_CFG_END OK n`: accepted. With no answer in 4 s the page goes once more, and a second silence resets the link. `INVALID` and `TOO_BIG 8192` are answers about the page, so the plugin logs them and stops pushing until the next connection. A page over 8,192 bytes is never sent. |
