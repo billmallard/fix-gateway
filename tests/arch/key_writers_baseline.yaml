@@ -60,7 +60,7 @@ TACH1: [canfix, grand_rapids_eis]
 # test_talt_has_the_position_writers (tests/arch/test_key_writers.py) passes:
 # TALT's live writers equal LAT's and LONG's. It ends when SRC5a's position
 # select lands. A writer added without that test does not qualify.
-TALT: [dynon, garmin_gnx375, gpsd, mavlink, navigator_adapter]
+TALT: [garmin_gnx375, gpsd, mavlink, navigator_adapter]
 TAS: [canfix, dynon, mavlink]
 TRACK: [garmin_gnx375, gpsd, mavlink, navigator_adapter]
 VOLT: [canfix, grand_rapids_eis, mgl_serial]
