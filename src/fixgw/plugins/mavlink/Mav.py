@@ -140,8 +140,10 @@ class Mav:
 
         self.request_ids()
         self.no_msg_count = 0
-        # Init data
-        self.init()
+        # No data key is written here. A connect-time 0 read as a valid
+        # wings-level, 0 ft attitude until the first real message; the values
+        # from before a reconnect age old on their tol instead (SRC3,
+        # AER-6542). Without ahrs another source owns them anyway (AER-6068).
 
     def request_ids(self):
         for msg_id in self.ids:
@@ -442,21 +444,6 @@ class Mav:
         # TODO We need to drop out of AP mode, alert pilot if system is in a bad state
         # unhealthy GPS signal is one such state
         # Not sure what all we need to check for
-
-    def init(self):
-        # Only the ahrs option reads these keys. Without it another source
-        # owns them (the plugin is then only the autopilot source, AFC7), and
-        # zeroing them on each connect would blank its values (AER-6068).
-        if not self._ahrs:
-            return
-        self.parent.db_write("ROLL", 0)
-        self.parent.db_write("PITCH", 0)
-        self.parent.db_write("HEAD", 0)
-        self.parent.db_write("AGL", 0)
-        # Not ALT: a fresh 0 would read as a good indicated altitude until
-        # the first SCALED_PRESSURE, or for good with pressure off. Unwritten,
-        # it ages out old on its own tol (AER-6351).
-        self.parent.db_write("VS", 0)
 
     def writeIndicated(self, static):
         """ALT, indicated altitude: the pressure altitude of the static
