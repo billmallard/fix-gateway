@@ -159,6 +159,15 @@
     <node>/position/altitude-ft</node>
    </chunk>
 
+   <!-- TALT: the geometric MSL height the SVS camera reads, as the xplane
+        plugin writes it from sim elevation (TALTSRC1, AER-6458). -->
+   <chunk>
+    <name>TALT: Geometric altitude MSL (ft)</name>
+    <type>double</type>
+    <format>%.0f</format>
+    <node>/position/altitude-ft</node>
+   </chunk>
+
    <chunk>
     <name>AGL: Altitude above ground (ft)</name>
     <type>double</type>

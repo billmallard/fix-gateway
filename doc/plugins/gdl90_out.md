@@ -88,10 +88,11 @@ is not `old`, `bad` or `fail`. Validity maps through; nothing is smoothed over.
 | IAS, TAS | `IAS`, `TAS`, kt | 1 kt | 0xFFFF |
 
 The 0x0B datum is a setting, `geo_altitude_datum: ellipsoid` or `msl`, sent in
-the ID message's capability bit 0. `GPS_ELLIPSOID_ALT` is named for the
-ellipsoid, but the `garmin_gnx375` and `navigator_adapter` plugins write GPS
-MSL altitude into it. With either of them, set `msl`. `mavlink` writes the
-ellipsoid height.
+the ID message's capability bit 0. Only `mavlink` writes `GPS_ELLIPSOID_ALT`,
+the ellipsoid height. `garmin_gnx375`, `gpsd` and `navigator_adapter` write
+their MSL height to `TALT` (GALT1/TALTSRC1). While the configured key has never
+been written and `TALT` has, the plugin sends `TALT` and sets the datum bit to
+MSL, so a GNX panel on the shipped config still sends 0x0B.
 
 ## Traffic, and a Stratux on the same tablet
 

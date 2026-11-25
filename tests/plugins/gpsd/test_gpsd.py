@@ -19,13 +19,26 @@ class FakeLog:
         self.warnings.append(message)
 
 
+class FakeItem:
+    def __init__(self, parent, key):
+        self.parent, self.key = parent, key
+
+    def set(self, value, bad=None):
+        self.parent.writes.append((self.key, value))
+        self.parent.bad[self.key] = bad
+
+
 class FakeParent:
     def __init__(self):
         self.log = FakeLog()
         self.writes = []
+        self.bad = {}
 
     def db_write(self, key, value):
         self.writes.append((key, value))
+
+    def db_get_item(self, key):
+        return FakeItem(self, key)
 
 
 def test_main_thread_logs_connect_failure(monkeypatch):
@@ -126,7 +139,7 @@ def test_main_thread_writes_2d_and_3d_fix_data_and_warning_path(monkeypatch):
     assert ("GPS_ACCURACY_HORIZ", math.hypot(2.0, 2.0) * 3.28084) in parent.writes
     assert ("GPS_SATS_VISIBLE", 10) in parent.writes
     assert ("GPS_FIX_TYPE", 3) in parent.writes
-    assert ("GPS_ELLIPSOID_ALT", 1000.0 * 3.28084) in parent.writes
+    assert ("TALT", 1000.0 * 3.28084) in parent.writes
     assert ("GPS_ACCURACY_HORIZ", math.hypot(1.0, 1.5) * 3.28084) in parent.writes
     assert ("GPS_ACCURACY_VERTICAL", 2.0 * 3.28084) in parent.writes
     assert ("GPS_ACCURACY_SPEED", 3.0 * 1.94384) in parent.writes
@@ -174,7 +187,7 @@ def test_main_thread_sleeps_between_polls(monkeypatch):
     [
         ("epx", "GPS_ACCURACY_HORIZ"),
         ("epy", "GPS_ACCURACY_HORIZ"),
-        ("alt", "GPS_ELLIPSOID_ALT"),
+        ("alt", "TALT"),
         ("epv", "GPS_ACCURACY_VERTICAL"),
         ("eps", "GPS_ACCURACY_SPEED"),
         ("lat", "LAT"),
@@ -233,6 +246,26 @@ def test_eph_alone_writes_horizontal_accuracy(monkeypatch):
     assert horizontal_accuracy_m(parent) == pytest.approx(12.0)
 
 
+def test_talt_is_bad_in_a_2d_fix_and_good_in_a_3d_fix(monkeypatch):
+    # In a 2-D fix gpsd's height is held or invented: TALT goes out bad, so
+    # the SVS camera does not fly on it (Elon's review on AER-6458).
+    parent = run_thread(monkeypatch, [poll(dict(FULL_3D, mode=2, altMSL=300.0))])
+    assert dict(parent.writes)["TALT"] == pytest.approx(300.0 * 3.28084)
+    assert parent.bad["TALT"] is True
+    parent = run_thread(monkeypatch, [poll(dict(FULL_3D, altMSL=300.0))])
+    assert parent.bad["TALT"] is False
+
+
+def test_talt_prefers_altmsl_over_the_deprecated_alt(monkeypatch):
+    # gpsd 3.20+ sends altMSL and calls alt deprecated; TALT is MSL, so it
+    # takes altMSL when gpsd sends one (GALT1/TALTSRC1, AER-6458).
+    tpv = dict(FULL_3D, alt=1000.0, altMSL=970.0)
+    parent = run_thread(monkeypatch, [poll(tpv)])
+    written = dict(parent.writes)
+    assert written["TALT"] == pytest.approx(970.0 * 3.28084)
+    assert "GPS_ELLIPSOID_ALT" not in written
+
+
 def test_present_zero_is_still_written(monkeypatch):
     # A real 0 (stationary, on the ellipsoid) is a value, not an absence.
     tpv = dict(FULL_3D, speed=0.0, alt=0.0, track=0.0)
@@ -240,7 +273,7 @@ def test_present_zero_is_still_written(monkeypatch):
     parent = run_thread(monkeypatch, [poll(tpv)])
 
     assert ("GS", 0.0) in parent.writes
-    assert ("GPS_ELLIPSOID_ALT", 0.0) in parent.writes
+    assert ("TALT", 0.0) in parent.writes
     assert ("TRACK", 0.0) in parent.writes
 
 
