@@ -168,6 +168,48 @@ def test_geo_altitude_key_and_datum_are_settings(database):
     assert msgs[0x65][0][35:39] == bytes([0, 0, 0, 1])  # MSL datum bit
 
 
+def gnx_panel(database):
+    """A GNX 375, gpsd or navigator panel: TALT written, GPS_ELLIPSOID_ALT
+    never written (GALT1/TALTSRC1, AER-6458)."""
+    good = {k: v for k, v in GOOD.items() if k != "GPS_ELLIPSOID_ALT"}
+    write(database, dict(good, TALT=4410.0))
+    assert not database.get_raw_item("GPS_ELLIPSOID_ALT").written
+
+
+def test_gnx_panel_on_the_shipped_config_still_sends_geo_altitude_as_msl(database):
+    # The shipped (and every copied) config names GPS_ELLIPSOID_ALT, which
+    # only mavlink writes now.  The panel still sends 0x0B, from TALT, and
+    # the ID message says MSL instead of calling MSL an ellipsoid height.
+    gnx_panel(database)
+    msgs = decode(encoder(database, geo_altitude_key="GPS_ELLIPSOID_ALT",
+                          geo_altitude_datum="ellipsoid").second(0))
+    assert gdl90.parse_geo_altitude(msgs[0x0B][0]).alt == 4410
+    assert msgs[0x65][0][35:39] == bytes([0, 0, 0, 1])  # MSL datum bit
+
+
+def test_a_written_ellipsoid_key_is_kept_over_talt(database):
+    # A mavlink panel writes both: the configured ellipsoid key wins.
+    write(database, dict(GOOD, TALT=4410.0))
+    msgs = decode(encoder(database).second(0))
+    assert gdl90.parse_geo_altitude(msgs[0x0B][0]).alt == 4380
+    assert msgs[0x65][0][35:39] == bytes([0, 0, 0, 0])  # ellipsoid
+
+
+def test_a_stale_ellipsoid_key_does_not_fall_back_to_talt(database):
+    # Written once, then old: no 0x0B, rather than a datum that flips.
+    write(database, dict(GOOD, TALT=4410.0))
+    database.get_raw_item("GPS_ELLIPSOID_ALT").set(4380.0, old=True)
+    msgs = decode(encoder(database).second(0))
+    assert 0x0B not in msgs
+    assert msgs[0x65][0][35:39] == bytes([0, 0, 0, 0])
+
+
+def test_no_geo_altitude_when_neither_key_was_written(database):
+    good = {k: v for k, v in GOOD.items() if k != "GPS_ELLIPSOID_ALT"}
+    write(database, good)
+    assert 0x0B not in decode(encoder(database).second(0))
+
+
 @pytest.mark.parametrize("key, field", [("ROLL", 0), ("PITCH", 1), ("HEAD", 2), ("IAS", 3), ("TAS", 4)])
 def test_flagged_attitude_goes_out_invalid(database, key, field):
     invalid = (0x7FFF, 0x7FFF, 0xFFFF, 0xFFFF, 0xFFFF)

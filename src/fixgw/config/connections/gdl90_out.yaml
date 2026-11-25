@@ -32,8 +32,9 @@ gdl90_out:
   # get every target twice.
   traffic: false
   # Ownship Geometric Altitude (0x0B): the key and its datum, ellipsoid or
-  # msl.  garmin_gnx375 and navigator_adapter write GPS MSL altitude into
-  # GPS_ELLIPSOID_ALT; with either of them set msl.
+  # msl.  Only mavlink writes GPS_ELLIPSOID_ALT.  garmin_gnx375, gpsd and
+  # navigator_adapter write their MSL height to TALT; while the key below has
+  # never been written, the plugin sends TALT as msl (GALT1/TALTSRC1).
   geo_altitude_key: GPS_ELLIPSOID_ALT
   geo_altitude_datum: ellipsoid
   # Ownship identity.  callsign: A-Z and 0-9, up to 8.  emitter_category:
