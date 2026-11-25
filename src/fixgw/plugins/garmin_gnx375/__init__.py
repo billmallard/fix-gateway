@@ -40,7 +40,7 @@ FIX-Gateway keys written
   LONG                longitude (deg, decimal)
   GS                  ground speed (knots)
   TRACK               track over ground (deg true)
-  GPS_ELLIPSOID_ALT   GPS ellipsoid altitude (feet)
+  TALT                GPS altitude above MSL (feet), GGA field 9
   GPS_FIX_TYPE        contract scale: 0-1 no fix, 2 2D, 3 3D, 4 3D DGPS/WAAS,
                       5 3D RTK. Mapped from GGA quality and GSA mode by
                       fixgw.nmea_fix.gps_fix_type, written once per GGA.
@@ -176,16 +176,20 @@ class MainThread(threading.Thread):
         # A GSA counts only for the GGA that follows it, so a source that stops
         # sending GSA falls back to the satellite count after one epoch.
         gsa_mode, self._gsa_mode = self._gsa_mode, None
-        self.parent.db_write("GPS_FIX_TYPE", gps_fix_type(msg.gps_qual, msg.num_sats, gsa_mode))
+        fix_type = gps_fix_type(msg.gps_qual, msg.num_sats, gsa_mode)
+        self.parent.db_write("GPS_FIX_TYPE", fix_type)
         qual = int(msg.gps_qual) if msg.gps_qual is not None else 0
         if qual == 0:
             return
         self.parent.db_write("LAT", msg.latitude)
         self.parent.db_write("LONG", msg.longitude)
         if msg.altitude is not None:
-            # GGA altitude is in meters above MSL; convert to feet
+            # GGA altitude is metres above MSL (the geoid), so it is TALT,
+            # never GPS_ELLIPSOID_ALT (GALT1/TALTSRC1, AER-6458). Below a 3-D
+            # fix the receiver holds or invents it, so TALT is bad there.
             alt_ft = float(msg.altitude) * 3.28084
-            self.parent.db_write("GPS_ELLIPSOID_ALT", alt_ft)
+            talt = self.parent.db_get_item("TALT")
+            talt.set(alt_ft, bad=fix_type < 3)
 
     def _handle_rmb(self, msg, cdi_scale):
         xtrack = rmb_cross_track_nm(msg)

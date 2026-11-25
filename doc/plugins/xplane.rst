@@ -142,6 +142,12 @@ An array element is named with its index, ``dataref[n]``.  Quote it inside a
     # X-Plane navaid codes 3=VOR, 4=ILS, 5=LOC onto NAV1TYPE's 1=VOR, 2=LOC.
     NAV1TYPE: ["sim/cockpit/radios/nav_type[0]", {3: 1, 4: 2, 5: 2}]
 
+``TALT``, the geometric MSL height the SVS camera reads, is written by every
+position source.  When the config maps ``LAT`` (in ``recv`` or ``datarefs``)
+but nothing to ``TALT``, as a config copied before TALTSRC1 does, the plugin
+subscribes ``sim/flightmodel/position/elevation`` for it, in feet, and logs
+that it did.
+
 dataref_writes -- DREF writes (FIX to X-Plane)
 ----------------------------------------------
 

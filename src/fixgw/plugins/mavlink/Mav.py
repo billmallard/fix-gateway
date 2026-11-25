@@ -301,17 +301,19 @@ class Mav:
                 self.parent.db_write(
                     "AGL", round(msg.relative_alt / 304.8, 2)
                 )  # int32_t mm to ft
-                # alt is the autopilot's GPS/EKF height above MSL: TALT.
-                # ALT is indicated altitude, from SCALED_PRESSURE and BARO
-                # below, never this (AER-6351).
-                self.parent.db_write(
-                    "TALT", round(msg.alt / 304.8, 2)
-                )  # int32_t mm to ft
             if self._gps:
                 self.parent.db_write("LAT", msg.lat / 10000000.0)  # int32_t degE7 10**7
                 self.parent.db_write(
                     "LONG", msg.lon / 10000000.0
                 )  # int32_t degE7 10**7
+                # alt is the autopilot's GPS/EKF height above MSL: TALT.
+                # ALT is indicated altitude, from SCALED_PRESSURE and BARO
+                # below, never this (AER-6351). TALT comes from the same
+                # receiver as LAT/LONG, so it is written under the same
+                # switch (TALTSRC1, AER-6458).
+                self.parent.db_write(
+                    "TALT", round(msg.alt / 304.8, 2)
+                )  # int32_t mm to ft
         elif msg_type == "SCALED_PRESSURE":
             if self._pressure:
                 static = (msg.press_abs * 100) + self._pascal_offset
