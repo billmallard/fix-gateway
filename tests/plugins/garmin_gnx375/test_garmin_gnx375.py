@@ -69,7 +69,7 @@ entries:
   initial: 0.0
   tol: 2000
 
-- key: GPS_ELLIPSOID_ALT
+- key: TALT
   description: GPS Ellipsoid Altitude
   type: float
   min: -1500.0
@@ -225,7 +225,7 @@ class TestGgaParsing(unittest.TestCase):
         self.thread._handle_gga(msg)
         self.assertAlmostEqual(_db_value("LAT"), 48.1173, places=3)
         self.assertAlmostEqual(_db_value("LONG"), 11.5167, places=3)
-        self.assertAlmostEqual(_db_value("GPS_ELLIPSOID_ALT"), 545.4 * 3.28084, places=0)
+        self.assertAlmostEqual(_db_value("TALT"), 545.4 * 3.28084, places=0)
         # GGA quality 1 with 8 satellites is a 3D fix on the GPS_FIX_TYPE scale.
         self.assertEqual(_db_value("GPS_FIX_TYPE"), 3)
 
@@ -256,7 +256,7 @@ class TestGgaParsing(unittest.TestCase):
         self.thread._handle_gga(msg)
 
         self.assertEqual(_db_value("GPS_FIX_TYPE"), 3)
-        self.assertEqual(_db_value("GPS_ELLIPSOID_ALT"), 0.0)
+        self.assertEqual(_db_value("TALT"), 0.0)
 
 
 class TestFixTypeFromSentenceStream(unittest.TestCase):
