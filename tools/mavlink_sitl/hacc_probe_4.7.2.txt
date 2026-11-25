@@ -1,0 +1,18 @@
+GPS1_TYPE = 1.0
+GPS_TYPE = None
+SIM_GPS1_TYPE = 1.0
+SIM_GPS_TYPE = None
+SIM_GPS1_ACC = 0.30000001192092896
+SIM_GPS_ACC = None
+SIM_GPS1_HZ = 5.0
+SIM_GPS1_NUMSATS = 10.0
+SIM_GPS_NUMSATS = None
+SIM_GPS1_JAM = 0.0
+SIM_GPS1_NOISE = 0.0
+SIM_GPS_NOISE = None
+default params: 201 GPS_RAW_INT in 40 s; (fix_type, h_acc mm, v_acc mm, vel_acc mm/s, eph cm, epv cm, sats): count
+   (6, 300, 300, 0, 121, 200, 10) 201
+SIM_GPS1_ACC now 2.0
+SIM_GPS1_ACC=2.0: 111 GPS_RAW_INT in 20 s; (fix_type, h_acc mm, v_acc mm, vel_acc mm/s, eph cm, epv cm, sats): count
+   (6, 2000, 2000, 0, 121, 200, 10) 109
+   (6, 300, 300, 0, 121, 200, 10) 2

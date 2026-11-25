@@ -40,7 +40,7 @@ compute:
       inputs: ["BARO", "ALT"]
       output: PALT
     - function: altd
-      inputs: ["PALT","TALT","OAT"]
+      inputs: ["PALT","OAT"]
       output: DALT
     # XTRACK follows GPSSRC exactly like GPSCDI below, so the cross-track and
     # the needle always come from the same source: the internal plan's FPLXTK
