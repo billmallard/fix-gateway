@@ -8,12 +8,14 @@ now carry one `index: c` row per id, which the loader expands to one input per
 cylinder up to c.
 """
 
+import gc
 import importlib
 import re
 import shutil
 import time
 
 import can
+import can.interfaces.virtual as virtual
 import canfix
 import pytest
 
@@ -164,3 +166,37 @@ def test_an_index_variable_the_database_lacks(database, tmp_path):
         mapping.Mapping(_map(tmp_path, row, False))
     m = mapping.Mapping(_map(tmp_path, row, True))
     assert m.input_mapping[0x400] is None
+
+
+def test_a_stopped_plugin_costs_the_next_one_no_frame(
+    config_data, tmp_path, monkeypatch
+):
+    # AER-6615: stop() left the plugin's bus open, so it stayed on the
+    # virtual channel until the garbage collector freed it. When that
+    # happened inside VirtualBus.send, the freed bus took itself out of the
+    # receiver list send was walking, and the next receiver, the live
+    # plugin, lost the frame. CI lost CHT28 that way. The first plugin's
+    # output callbacks keep its bus alive until a new database replaces
+    # them, as the next test's _db does. Automatic collection is off and
+    # send collects at every copy, so the moment is the same every run.
+    deepcopy = virtual.deepcopy
+
+    def collect_then_copy(msg):
+        gc.collect()
+        return deepcopy(msg)
+
+    gc.disable()
+    try:
+        (tmp_path / "first").mkdir()
+        _db(tmp_path / "first", 1, 6)
+        _send(config_data, MAP_YAML, [])
+        db = _db(tmp_path, 1, 6)
+        monkeypatch.setattr(virtual, "deepcopy", collect_then_copy)
+        frames = [(0x500, i, 180.0 + i) for i in range(6)]
+        pl = _send(config_data, MAP_YAML, frames)
+    finally:
+        gc.enable()
+    assert pl.get_status()["Received Frames"] == 6
+    assert [db.read(f"CHT1{i + 1}")[0] for i in range(6)] == pytest.approx(
+        [180.0 + i for i in range(6)]
+    )
