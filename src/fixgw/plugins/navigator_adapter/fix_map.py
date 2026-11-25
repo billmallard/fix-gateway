@@ -29,7 +29,8 @@ def apply_to_db(
     if pos.lon_deg is not None:
         db_write("LONG", pos.lon_deg)
     if pos.alt_ft_msl is not None:
-        db_write("GPS_ELLIPSOID_ALT", pos.alt_ft_msl)
+        # MSL, so TALT, never GPS_ELLIPSOID_ALT (GALT1/TALTSRC1, AER-6458).
+        db_write("TALT", pos.alt_ft_msl)
 
     if msg.ground_speed_kt is not None:
         db_write("GS", msg.ground_speed_kt)

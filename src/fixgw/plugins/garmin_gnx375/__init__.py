@@ -40,7 +40,7 @@ FIX-Gateway keys written
   LONG                longitude (deg, decimal)
   GS                  ground speed (knots)
   TRACK               track over ground (deg true)
-  GPS_ELLIPSOID_ALT   GPS ellipsoid altitude (feet)
+  TALT                GPS altitude above MSL (feet), GGA field 9
   GPS_FIX_TYPE        contract scale: 0-1 no fix, 2 2D, 3 3D, 4 3D DGPS/WAAS,
                       5 3D RTK. Mapped from GGA quality and GSA mode by
                       fixgw.nmea_fix.gps_fix_type, written once per GGA.
@@ -183,9 +183,10 @@ class MainThread(threading.Thread):
         self.parent.db_write("LAT", msg.latitude)
         self.parent.db_write("LONG", msg.longitude)
         if msg.altitude is not None:
-            # GGA altitude is in meters above MSL; convert to feet
+            # GGA altitude is metres above MSL (the geoid), so it is TALT,
+            # never GPS_ELLIPSOID_ALT (GALT1/TALTSRC1, AER-6458).
             alt_ft = float(msg.altitude) * 3.28084
-            self.parent.db_write("GPS_ELLIPSOID_ALT", alt_ft)
+            self.parent.db_write("TALT", alt_ft)
 
     def _handle_rmb(self, msg, cdi_scale):
         xtrack = rmb_cross_track_nm(msg)

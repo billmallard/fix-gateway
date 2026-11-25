@@ -6,14 +6,14 @@
 # declares two datums, and when a listed key's writers or datums change
 # -- so this file only shrinks.  Remove an entry by giving each datum its
 # own key (GALT1) or by fixing the writer (MAVALT1).
-# 9 keys.
+# 8 keys.
 
 AGL: {canfix: above_ground, mavlink: above_home}
 ALT: {canfix: indicated, demo: msl, dynon: indicated, fgfs: msl, grand_rapids_eis: unrecorded, mavlink: indicated, onspeed: indicated, rpi_bmp085: indicated, stratux: pressure, xplane: msl}
 GPS_ACCURACY_HORIZ: {demo: assumed, gpsd: unstated, mavlink: unstated}
 GPS_ACCURACY_SPEED: {gpsd: unstated, mavlink: unstated}
 GPS_ACCURACY_VERTICAL: {gpsd: unstated, mavlink: unstated}
-GPS_ELLIPSOID_ALT: {garmin_gnx375: msl, gpsd: msl, mavlink: ellipsoid, navigator_adapter: msl}
 HEAD: {canfix: magnetic, demo: unrecorded, fgfs: magnetic, mavlink: 'true', rpi_bno055: magnetic, stratux: unrecorded, xplane: magnetic}
-TALT: {dynon: indicated, mavlink: msl}
+# TALT: dynon is the only writer not on msl (see key_writers_baseline.yaml).
+TALT: {dynon: indicated, garmin_gnx375: msl, gpsd: msl, mavlink: msl, navigator_adapter: msl, xplane: msl}
 TRACK: {demo: unrecorded, fgfs: 'true', garmin_gnx375: 'true', gpsd: 'true', mavlink: 'true', navigator_adapter: 'true', xplane: 'true'}

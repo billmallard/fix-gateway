@@ -55,6 +55,19 @@ def test_no_key_gains_a_second_datum_and_the_datum_baseline_only_shrinks(checks)
     assert not datum_fails, report(datum_fails)
 
 
+def test_talt_has_the_position_writers():
+    """TALT, the geometric MSL height, comes from the receiver that gives the
+    position, so its live writers are exactly LAT's and LONG's (Bill, card
+    82b0b10b on AER-6458). This is the condition on TALT's place in
+    key_writers_baseline.yaml: a source that writes height without position,
+    or position without height, fails here. SRC5a's position select, which
+    picks the whole group from one receiver, retires this test."""
+    reg = ckw.load_yaml(ROOT, ckw.REGISTER)
+    live = {k: set(reg[k].get("writers", [])) | set(reg[k].get("pyefis", []))
+            for k in ("TALT", "LAT", "LONG")}
+    assert live["TALT"] == live["LAT"] == live["LONG"], live
+
+
 def test_the_declaration_records_what_arch2_found():
     # SRC4 seeds the columns from ARCH2 section 3.1, wrong parts included.
     # These are the findings a consumer would otherwise rebuild for itself.
@@ -63,8 +76,10 @@ def test_the_declaration_records_what_arch2_found():
     def tok(key, col, m):
         return ckw.parse_cell(reg[key][col][m])[0]
 
+    # GALT1/TALTSRC1 (AER-6458): the MSL writers moved to TALT, so the
+    # ellipsoid key holds one datum.
     assert {m: tok("GPS_ELLIPSOID_ALT", "datum", m)[0] for m in reg["GPS_ELLIPSOID_ALT"]["datum"]} \
-        == {"garmin_gnx375": "msl", "gpsd": "msl", "mavlink": "ellipsoid", "navigator_adapter": "msl"}
+        == {"mavlink": "ellipsoid"}
     # Which position sources say how good the fix is: the AER-4217 question.
     has_acc = {m for m in reg["LAT"]["quality"] if "GPS_ACCURACY_HORIZ" in tok("LAT", "quality", m)}
     assert has_acc == {"gpsd", "mavlink", "demo"}
@@ -102,7 +117,8 @@ def test_the_scan_sees_the_known_writers(catalog):
     assert ("WPLAT", "flightplan") in seen           # _setval wrapper
     assert ("QVOTE1", "canfix") in seen              # f-string QVOTE{}
     assert ("APLAT", "xplane") in seen               # _write wrapper, sim
-    assert ("GPS_ELLIPSOID_ALT", "navigator_adapter") in seen
+    assert ("TALT", "navigator_adapter") in seen    # fix_map db_write
+    assert ("TALT", "xplane") in seen                # xplane.yaml datarefs, sim
     # Writers that loop over a key table (SRC4, AER-6455).
     assert ("ALT", "onspeed") in seen                # OUTPUT_GROUPS
     assert ("ALT", "demo") in seen                   # SOURCE_KEYS
