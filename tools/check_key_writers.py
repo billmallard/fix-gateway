@@ -119,7 +119,7 @@ DATUM_KEY = re.compile(r"altitude|latitude|longitude|el+ipsoid|above ground", re
 # accuracy keys also declare the datum or statistic it writes.
 PROVIDER_KEYS = (
     "LAT", "LONG", "GS", "TRACK",
-    "GPS_ELLIPSOID_ALT",
+    "GPS_ELLIPSOID_ALT", "TALT",
     "GPS_FIX_TYPE", "GPS_ACCURACY_HORIZ", "GPS_ACCURACY_VERTICAL", "GPS_ACCURACY_SPEED",
     "GPS_SATS_VISIBLE", "GPS_SATS_TRACKED",
     "ALT",

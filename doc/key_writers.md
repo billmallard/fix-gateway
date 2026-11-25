@@ -223,7 +223,7 @@ fails until `no_writer` is removed, so the note cannot go stale.
 Say what the number is measured from: MSL, ellipsoid (HAE), indicated (baro
 corrected), pressure (29.92), or height above home or above ground, and for a
 position, the horizontal datum. Where writers differ, give a mapping per writer,
-as `ALT` and `GPS_ELLIPSOID_ALT` do. Those differences are the bugs. Write
+as `ALT` does. Those differences are the bugs. Write
 `unrecorded` only if nobody has read the writer's code yet.
 
 **`HEAD: bbb writes it and declares no `quality` in writers.yaml`.**
@@ -238,7 +238,7 @@ be one the same writer writes.
 
 **`LAT: its writers declare more than one datum (...)`.**
 A key has one datum. A writer that puts a different one there needs its own
-key (GALT1 adds `GPS_MSL_ALT`), or its conversion fixed (MAVALT1 made mavlink's
+key (GALT1 moved the GPS MSL writes from `GPS_ELLIPSOID_ALT` to `TALT`), or its conversion fixed (MAVALT1 made mavlink's
 `ALT` indicated). `unrecorded` and `unstated` count as different from
 everything, so read the code rather than leaving them on a shared key. The keys
 that disagree today are on `tests/arch/datum_baseline.yaml`. A listed key may
@@ -271,6 +271,7 @@ more than one proven live writer, with the same writers. The datums were then
 read from each writer's code. The record includes what is wrong today:
 
 - `mavlink` puts MSL in `ALT`, and puts height above home in `AGL`.
-- Two of the four `GPS_ELLIPSOID_ALT` writers put MSL there.
+- Three of the four `GPS_ELLIPSOID_ALT` writers put MSL there (fixed by
+  GALT1/TALTSRC1: they write `TALT`).
 
 GALT1, MAVALT1 and ARCH1 to ARCH3 fix those keys. This change only records them.

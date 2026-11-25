@@ -191,12 +191,14 @@ class TestDynonParser(unittest.TestCase):
         self.thread._parse(_build_msg(speed_10ms=0))
         self.assertEqual(_db("TAS"), 0)
 
-    def test_altitude_status0_goes_to_alt_and_talt(self):
+    def test_altitude_status0_goes_to_alt_not_talt(self):
         # alt_m = 304 → round(304 * 3.28084) = 997 ft; status bit0=0
+        # TALT is the position receiver's MSL height, and this field is the
+        # indicated altitude, so it goes to ALT only (TALTSRC1, AER-6458).
         self.thread._parse(_build_msg(alt_m=304, status_hex="000000"))
         expected_ft = round(304 * 3.28084)
         self.assertEqual(_db("ALT"), expected_ft)
-        self.assertEqual(_db("TALT"), expected_ft)
+        self.assertFalse(database.get_raw_item("TALT").written)
 
     def test_altitude_status1_goes_to_palt(self):
         # status bit0=1 → pressure altitude path
