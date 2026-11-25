@@ -88,7 +88,13 @@ The register sorts each module into one of these fields:
 - **`sim`**: X-Plane, FlightGear, demo, replay and test plugins. They stand in
   for a live writer, so they are declared but never count as a second writer.
 - **`relay`**: netfix, command and the persisters. They pass on another
-  client's write.
+  client's write. One function is a relay inside a module that is not: the
+  flight plan engine's `_republish_route`. After a restart it writes back the
+  route block the editor last committed, unchanged and with the same
+  `FPLSEQ`, as `state_persist` restores `NAVSRC` (`doc/flightplan_keys.md`).
+  Its route-block writes are `relay: [flightplan]`. `FPLLDSEQ`, which only the
+  engine writes, stays in `writers`. `RELAY_SITES` in the scanner names the
+  function and the keys it may relay.
 
 ## The provider declaration (SRC4)
 

@@ -721,6 +721,25 @@ def row_stream_writes(root, catalog):
     return out
 
 
+# A function that writes back a commit another client made.  After a gateway
+# restart the flight plan engine republishes the route block the editor last
+# committed, unchanged and with the same FPLSEQ, and ignores its own FPLSEQ
+# while it does so: "mirroring state_persist restoring NAVSRC"
+# (doc/flightplan_keys.md).  Its route-block writes are a relay, like
+# state_persist's; any other key it writes (FPLLDSEQ) stays the module's own.
+ROUTE_BLOCK = re.compile(r"FPL(?:\d+(?:ID|LAT|LON|TYPE|PT|CRS|DST|ALT|SPD|SGI|FLAGS|CTRLAT"
+                         r"|CTRLON|TURN)|S\d+(?:KIND|ID|ENT|EXT|FIRST|LAST)"
+                         r"|COUNT|NAME|SEGCNT|APRTYPE|DBCYC|SEQ)")
+RELAY_SITES = {("src/fixgw/plugins/flightplan/__init__.py", "_republish_route"): ROUTE_BLOCK}
+
+
+def relay_spans(tree, rel):
+    """(first line, last line, key pattern) of each RELAY_SITES function in a file."""
+    names = {fn: rx for (r, fn), rx in RELAY_SITES.items() if r == rel}
+    return [(n.lineno, n.end_lineno, names[n.name]) for n in ast.walk(tree)
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in names]
+
+
 def xplane_map_writes(path, catalog):
     """The X-Plane connection's sim-to-FIX maps: the keys in each `recv`
     row, and the keys of `datarefs` (`dataref_writes` goes the other way)."""
@@ -786,6 +805,7 @@ def scan_writes(root, catalog, repo="fix-gateway"):
         cat = category(repo, mod, rel)
         if cat == "tool":
             continue
+        spans = []
         if path.endswith(".py"):
             try:
                 tree = ast.parse(read(path))
@@ -795,6 +815,7 @@ def scan_writes(root, catalog, repo="fix-gateway"):
                            module_tables(tree, catalog), find_getters(tree))
             v.visit(tree)
             found = v.refs + (table_writes(tree, catalog) if repo == "fix-gateway" else [])
+            spans = relay_spans(tree, rel) if repo == "fix-gateway" else []
         elif repo != "fix-gateway":
             continue
         elif path.endswith(".xml"):
@@ -806,7 +827,9 @@ def scan_writes(root, catalog, repo="fix-gateway"):
             if mod == "xplane":
                 found += xplane_map_writes(path, catalog)
         for line, key, how in found:
-            writes.append(dict(key=key, module=mod, category=cat, file=rel, line=line, how=how))
+            relay = any(a <= line <= b and rx.fullmatch(key) for a, b, rx in spans)
+            writes.append(dict(key=key, module=mod, category="relay" if relay else cat,
+                               file=rel, line=line, how=how))
     if repo == "fix-gateway":
         for mod, rel, line, key, how in row_stream_writes(root, catalog):
             writes.append(dict(key=key, module=mod, category=category(repo, mod),
