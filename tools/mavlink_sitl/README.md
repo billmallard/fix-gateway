@@ -21,6 +21,8 @@ No X-Plane and no hardware are involved.
 | `reengage_4.7.2_dev.log` | The same on the plugin before AFC7a: A and B went back to GUIDED, C to CRUISE. |
 | `disarm_probe_4.7.2.txt` | The probe's output. |
 | `baro_session.py` | MAVALT1 (AER-6351): turns `BARO` over netfix at four settings on the ground and three in cruise and logs `ALT`, `TALT`, `PALT`, `AIRPRESS`, then engages GUIDED and reads the `DO_REPOSITION` altitude back from the plugin's tlog. Environment hooks point a display at it and grab the screen; the runs are in `doc/evidence/aer-6351-mavlink-alt`. |
+| `hacc_probe.py` | ACC2 (AER-6593): no plugin. Reads ArduPlane's GPS and SIM_GPS parameters, logs every `GPS_RAW_INT` for 40 s on the ground, then sets `SIM_GPS1_ACC` to 2.0 m and logs 20 s more, to see where `h_acc` comes from. |
+| `hacc_probe_4.7.2.txt` | Its output: `h_acc` is a constant 300 mm, `SIM_GPS1_ACC` (0.3 m) in mm, and follows the parameter to 2000 mm. |
 
 ## Regenerate
 
@@ -36,13 +38,14 @@ PYTHONPATH=deps python3 disarm_probe.py probe
 PYTHONPATH=deps python3 reengage.py ../.. re
 PYTHONPATH=deps python3 trace.py re
 PYTHONPATH=deps python3 baro_session.py ../.. baro
+PYTHONPATH=deps python3 hacc_probe.py hacc > hacc_probe_4.7.2.txt
 # <from>: 1 s before "A start" in re/session.log; <to>: the "case A:" line
 PYTHONPATH=deps python3 cut_fixture.py re/fc.tlog ../../tests/plugins/mavlink/data/arduplane_4.7.2_reengage.tlog <from> <to>
 ```
 
 The recording used `firmware-version.txt` `4.7.2-FIRMWARE_VERSION_TYPE_OFFICIAL`
 (ArduPilot commit fb773567). The binary, the params, `deps/` and `out/` are not
-committed. SITL instances 7 (TCP 5830/5832) and 8 (5840) are used, so two
+committed. SITL instances 7 (TCP 5830/5832), 8 (5840) and 9 (5850, `hacc_probe.py`) are used, so two
 sessions can run on one host. A run takes about two minutes, most of it the
 takeoff climb.
 
