@@ -2,8 +2,9 @@
 
 Drives a Tessera touch panel as a control head. The panel shows a page of keys
 built from FIX values, and each press becomes the FIX writes the page file
-names. This is the TESS1 spike (AER-5754). It ships off by default, has been
-tested only against a scripted panel, and has not run on a real board.
+names. This is the TESS1 spike (AER-5754). It ships off by default. TESS2
+(AER-6622) ran it on a real panel on the Beelink bench; the results are under
+"On a real panel" below.
 
 Tessera is open "Stream Deck" firmware (MIT) for the GUITION JC1060P470C, an
 ESP32-P4 board with a 7 in, 1024x600 capacitive touch screen. The plugin was
@@ -132,8 +133,25 @@ The panel's port is not a UART. The firmware reads it with
 `usb_serial_jtag_read_bytes` (`main.cpp`), the ESP32-P4's native USB CDC
 device, so the 115200 is a line setting that no hardware applies. The real cost
 is USB transfer plus the panel's parse-and-redraw time. That makes 0.153 s an
-upper bound for the transfer, but it says nothing about the redraw. TESS2
-measures both on a real board.
+upper bound for the transfer, but it says nothing about the redraw.
+
+## On a real panel
+
+TESS2 (AER-6622), 2026-11-25: a GUITION board with an ESP32-P4 v3.2 chip,
+Tessera 1.2.12, the shipped 10-key page, on the Beelink with the Knobster
+beside it. Commands and raw numbers are in
+`doc/evidence/aer-6622-tessera-bench/`.
+
+| Measure | Result |
+|---|---|
+| Refresh, shipped `min_refresh` 0.1 | 9.57 pages/s, every push answered `OK`, no resend |
+| Refresh, `min_refresh` 0 | 29 pages/s, about 34 ms per push and answer |
+| Press to FIX write (firmware `AD_PRESS`, same queue as a touch) | median 1.9 ms, max 41 ms, 20 of 20 |
+| Press to pyEfis's write (HDG +, `HEADBUG`) | median 3.7 ms, max 41 ms, 10 of 10 |
+
+An answer means the firmware accepted the page, not that the glass shows it.
+The press numbers leave out the touch scan, the finger lift and the
+firmware's USB loop wait of up to 20 ms.
 
 ## Tests
 
@@ -146,8 +164,8 @@ replug the panel.
 
 ## Not covered
 
-- No real board. Timing, legibility, glove touch and the USB behaviour of a
-  panel restart are TESS2's to measure.
+- On the real panel, still not measured: press to glass, legibility, glove
+  touch, and the USB behaviour of a panel restart or an unplug.
 - Icons and images, firmware update, the panel's other screens, brightness,
   dimming and lock, and the configurator are out of scope.
 - One page only. Page switching and knob focus are open questions (AER-5754).
