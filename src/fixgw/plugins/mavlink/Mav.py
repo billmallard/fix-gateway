@@ -282,6 +282,11 @@ class Mav:
                 self.parent.db_write(
                     "GPS_ACCURACY_SPEED", round(msg.vel_acc * 0.0019438445, 2)
                 )  # int32 mm/s to knots Docs just sa "mm" I assumed/sec
+                # The key is a 95 % radius (AER-6461), but h_acc is written
+                # unscaled, in unit only. MAVLink names no statistic, and
+                # ArduPilot names two (one-sigma where it sends, RMS where it
+                # stores) while passing u-blox hAcc through as is. A factor
+                # would be a guess; writers.yaml declares it unstated (ACC2).
                 self.parent.db_write(
                     "GPS_ACCURACY_HORIZ", round(msg.h_acc / 304.8, 2)
                 )  # uint32 mm to ft

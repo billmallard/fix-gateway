@@ -457,6 +457,20 @@ def test_process_gps_no_track_when_stationary_or_cog_unknown(gs, cog):
     assert "COURSE" not in written
 
 
+def test_process_gps_h_acc_is_unit_converted_never_scaled_to_95_percent():
+    # ACC2 (AER-6593): h_acc's statistic is unstated, so it is not scaled to
+    # the key's 95 % definition. 300 mm is what ArduPlane 4.7.2 SITL sends
+    # (SIM_GPS1_ACC 0.3 m); a 1-sigma to 95 % factor would make it 2.41 ft.
+    parent = FakeParent()
+    msg = _gps_raw(9000)
+    msg.h_acc = 300
+    mav = make_mav(parent=parent, messages=[msg])
+
+    mav.process()
+
+    assert [v for k, v in parent.writes if k == "GPS_ACCURACY_HORIZ"] == [0.98]
+
+
 @pytest.mark.parametrize(
     "mode,name,message",
     [
