@@ -1,5 +1,27 @@
 # GNX 375 FIX-Gateway Plugin — Hardware Validation Guide
 
+## Which plugin to enable
+
+**New installs: enable `navigator_adapter`** (`NAVIGATOR: true`) with
+`adapter: garmin_nmea` and `baud: 9600` in `connections/navigator_adapter.yaml`.
+It is the one Garmin NMEA parser (SRC6, AER-6674).
+
+**Existing installs that enable `GARMIN_GNX375` keep working unchanged.**
+`fixgw.plugins.garmin_gnx375` is now a config alias for `navigator_adapter`
+with the `garmin_nmea` adapter: the same parser, the same keys, the same
+values. Its only differences are that the adapter is fixed and the default baud
+is 9600. Its `port`, `baud` and `cdi_full_scale_nm` settings mean what they
+always did. There is nothing to migrate.
+
+**Enable one, never both.** The two write the same keys. The gateway logs a
+warning when a second one starts.
+
+The rest of this guide is the GNX 375 hardware validation. It reads the same
+for either plugin; where it names `GARMIN_GNX375` or
+`connections/garmin_gnx375.yaml`, a new install uses `NAVIGATOR` and
+`connections/navigator_adapter.yaml`. See also
+[navigator_adapter.md](navigator_adapter.md).
+
 ---
 
 ## Prerequisites
@@ -11,7 +33,8 @@
 - Laptop or Raspberry Pi running FIX-Gateway
 
 **Software needed**
-- FIX-Gateway installed with the `garmin_gnx375` plugin
+- FIX-Gateway installed, with the `navigator_adapter` plugin (or, on an
+  existing install, its `garmin_gnx375` alias)
 - `python-serial` installed (`pip install pyserial`)
 - A serial terminal for raw verification (e.g., `minicom`, PuTTY, or `screen`)
 
@@ -205,7 +228,7 @@ After any hardware-driven adjustments, confirm the unit tests still pass:
 
 ```bash
 cd /path/to/fix-gateway
-.venv/bin/python -m pytest tests/plugins/garmin_gnx375/ -v
+.venv/bin/python -m pytest tests/plugins/garmin_gnx375/ tests/plugins/navigator_adapter/ -v
 ```
 
 All tests must pass before committing changes.
@@ -277,7 +300,8 @@ Aim to capture at least 30 seconds with:
 - A course change mid-capture to exercise the `EXTCRS` key
 - Passing the active waypoint, to exercise `EXTTF` going TO to FROM
 
-**Replay test** — add this to `test_garmin_gnx375.py`:
+**Replay test** — add this to `test_garmin_gnx375.py`. It feeds the capture
+through the plugin's line handler, the same path the serial loop uses:
 
 ```python
 import os
@@ -288,33 +312,18 @@ FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "gnx375_sample.nme
 class TestFixtureReplay(unittest.TestCase):
     def setUp(self):
         database.init(io.StringIO(DB_CONFIG))
-        self.thread = _make_thread()
+        self.pl = _make_plugin()
+        with open(FIXTURE, "rb") as f:
+            for raw in f:
+                self.pl._thread.handle_line(raw)
 
     def test_replay_produces_valid_position(self):
-        with open(FIXTURE, encoding="ascii", errors="replace") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    msg = pynmea2.parse(line)
-                    self.thread._dispatch(msg, _CDI_FULL_SCALE)
-                except pynmea2.ParseError:
-                    pass
         # After replaying a real session, position must be non-zero
         self.assertNotEqual(_db_value("LAT"), 0.0)
         self.assertNotEqual(_db_value("LONG"), 0.0)
         self.assertNotEqual(_db_value("GPS_FIX_TYPE"), 0)
 
     def test_replay_xtrack_within_range(self):
-        with open(FIXTURE, encoding="ascii", errors="replace") as f:
-            for line in f:
-                line = line.strip()
-                try:
-                    msg = pynmea2.parse(line)
-                    self.thread._dispatch(msg, _CDI_FULL_SCALE)
-                except pynmea2.ParseError:
-                    pass
         # EXTXTK must be within database bounds
         xtrack = _db_value("EXTXTK")
         self.assertGreaterEqual(xtrack, -100.0)
@@ -329,10 +338,10 @@ The `@skipUnless` decorator means the replay tests are silently skipped in CI (w
 
 **No active flight plan**: `$GPRMB` and `$GPAPB` are only transmitted when a waypoint is active. `EXTXTK`, `EXTCDI`, `EXTCRS` and `EXTTF` will not update when flying without an active destination. `LAT`, `LONG`, `GS`, `TRACK`, and `TALT` update continuously from `$GPRMC`/`$GPGGA` regardless.
 
-**`GPS_FIX_TYPE` scale**: the plugin writes the FIX contract scale (`database/ahrs.yaml`: 0-1 no fix, 2 2D, 3 3D, 4 3D with DGPS/WAAS, 5 3D with RTK), the same scale `gpsd` and `mavlink` write -- not the raw `$GPGGA` quality code. 2D vs 3D comes from `$GPGSA` when the unit sends it, otherwise from the `$GPGGA` satellites-in-use count (4 or more is 3D). A WAAS fix reads `4`; the flight-plan engine's integrity gate needs `3` or more. The mapping is `fixgw.nmea_fix.gps_fix_type`, shared with the `navigator_adapter` Garmin parser.
+**`GPS_FIX_TYPE` scale**: the plugin writes the FIX contract scale (`database/ahrs.yaml`: 0-1 no fix, 2 2D, 3 3D, 4 3D with DGPS/WAAS, 5 3D with RTK), the same scale `gpsd` and `mavlink` write -- not the raw `$GPGGA` quality code. 2D vs 3D comes from `$GPGSA` when the unit sends it, otherwise from the `$GPGGA` satellites-in-use count (4 or more is 3D). A WAAS fix reads `4`; the flight-plan engine's integrity gate needs `3` or more. The mapping is `fixgw.nmea_fix.gps_fix_type`, used by the `navigator_adapter` Garmin parser.
 
 **CDI full scale on approach**: Switch `cdi_full_scale_nm` to `0.3` when within the terminal area on a GPS approach. This matches the GNX 375's own CDI scaling in approach mode.
 
 **Port 1 as RS-422**: If your installation uses Port 1 in RS-422 mode (balanced differential), you need an RS-422 receiver on the adapter side — a standard RS-232 USB adapter will not work. Use Port 2 (RS-232 only) instead.
 
-**Universality**: This plugin parses standard NMEA 0183 sentences and will work with any Garmin navigator that supports Aviation Output 1 or any device outputting `$GPRMC`/`$GPGGA`/`$GPRMB`/`$GPAPB` sentences. This includes the GNS 430/530, GTN 650/750, GPS 175, and GNC 355.
+**Universality**: The `garmin_nmea` adapter parses standard NMEA 0183 sentences and will work with any Garmin navigator that supports Aviation Output 1 or any device outputting `$GPRMC`/`$GPGGA`/`$GPRMB`/`$GPAPB` sentences. This includes the GNS 430/530, GTN 650/750, GPS 175, and GNC 355.
