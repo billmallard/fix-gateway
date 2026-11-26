@@ -379,6 +379,18 @@ def test_a_press_writes_no_key_the_page_file_does_not_name(rig, database):
     ]
 
 
+def test_the_hdg_bug_key_pulses_pyefis_heading_bug_focus_button(rig, database):
+    """TESS2b (AER-6630): key 4 shows the bug and a press pulses TSBTN132,
+    pyEfis's heading-bug-focus button, which gives its knob to the bug."""
+    rec = Recorder()
+    database.callback_add("test", "TSBTN132", rec, None)
+    p, panel = rig()
+    assert accepted(p, panel)
+    panel.press(4)
+    assert wait_for(lambda: ("ok", 4) in panel.feedback)
+    assert rec.calls == [("TSBTN132", True), ("TSBTN132", False)]
+
+
 # -- reconnect -----------------------------------------------------------------
 
 
