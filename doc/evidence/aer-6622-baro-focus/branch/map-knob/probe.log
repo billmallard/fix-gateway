@@ -1,0 +1,8 @@
+frame 0-before MAPRANGE 1
+frame 1-focused MAPRANGE 1
+frame 2-inner-x3 MAPRANGE 1
+frame 3-push MAPRANGE 1
+frame 4-outer-up MAPRANGE 2
+frame 5-outer-down MAPRANGE 1
+frame 6-timed-out MAPRANGE 1
+rc=0
