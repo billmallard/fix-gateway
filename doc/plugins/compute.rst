@@ -34,7 +34,7 @@ with ``t: 3`` in ``database/variables.yaml``, ``FUELQt`` is ``FUELQ1``,
         output: CHTMAX1
 
       - function: altd
-        inputs: ["PALT", "TALT", "OAT"]
+        inputs: ["PALT", "OAT"]
         output: DALT
 
 Every function also accepts an optional ``require_leader`` flag:
@@ -85,10 +85,14 @@ Function catalog
         PALT = ALT_MSL + 145442.2 * (1 - (BARO / 29.92126) ** 0.190261)
 
 ``altd``
-    Density altitude from ``inputs: [PALT, ALT_MSL, OAT]`` (OAT in degrees C)::
+    Density altitude from ``inputs: [PALT, OAT]`` (OAT in degrees C)::
 
-        std_temp = 15 - 1.98 * ALT_MSL / 1000
+        std_temp = 15 - 1.98 * PALT / 1000
         DALT     = PALT + 120 * (OAT - std_temp)
+
+    ISA temperature is defined on pressure altitude, so ``PALT`` is used in
+    both terms.  An older config listing ``[PALT, TALT, OAT]`` still works:
+    the middle input is ignored and never waited on.
 
 ``xte``
     Signed cross-track error in nautical miles from
@@ -170,3 +174,10 @@ GPS2) onto X-Plane's single GPS, for the :doc:`xplane` plugin's
 The per-source keys (``GPSCRS``, ``NAV1CRS``, ...) are populated by the
 :doc:`xplane` plugin's ``datarefs`` subscriptions; on a real aircraft they would
 come from the GPS / nav-radio source plugins instead.
+
+``NAVSRC`` and the bearing-pointer selectors ``BRG1SRC`` / ``BRG2SRC`` allow
+``0`` .. ``3`` (``database/ahrs.yaml``). pyEfis's HSI labels every value in that
+range, ``3`` as ``GPS2`` in the GPS colour (ENUM2, AER-6457); nothing writes
+``3`` yet, and the ``select`` functions above have no fourth input for it. CI
+runs pyEfis's ``tests/instruments/hsi/test_source_enums.py`` against this
+tree's database, so a range widened here needs its pyEfis label first.

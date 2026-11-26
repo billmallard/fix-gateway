@@ -131,9 +131,15 @@ def main():
         log("@qCASMSG1 -> " + rep)
         check(len(rep.split(";")) == 8, "the CASMSG1 report splits into 8 fields")
         wait_for(nf, lambda l: "1|0|CASTEST|CAS TEST|" in l, 3, "CAS TEST shown")
-        gone = wait_for(nf, lambda l: not any("CASTEST" in x for x in l), 8,
+        # CAS TEST is held until acknowledged (AER-6497): touch it, as the
+        # pilot does at power-up.
+        time.sleep(6)
+        check(any("CASTEST" in x for x in lines(nf)),
+              "CAS TEST still shown 6 s after connect (AER-6497)")
+        nf.send("CASACK;{}".format(nf.read("CASSEQ")[0]))
+        gone = wait_for(nf, lambda l: not any("CASTEST" in x for x in l), 2,
                         "CAS TEST gone")
-        check(gone is not None, "CAS TEST clears after about 5 s")
+        check(gone is not None, "CAS TEST clears on CASACK")
 
         # Keep a NAV1 radio and the autopilot alive from feeder threads. Feed
         # the selects' inputs (NAV1DH -> NAV1CDIV -> CDIV), never an output:

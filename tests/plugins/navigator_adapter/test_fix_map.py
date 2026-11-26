@@ -7,6 +7,7 @@ and applies CDI scaling and sign convention.
 
 import io
 import unittest
+from unittest.mock import MagicMock
 
 import fixgw.database as database
 from fixgw.plugins.navigator_adapter.base import NormalizedNavMessage, Position, Waypoint
@@ -21,7 +22,7 @@ entries:
 - {key: LONG,              type: float, min: -180.0,  max: 180.0,   units: deg,    initial: 0.0, tol: 2000}
 - {key: GS,                type: float, min: 0.0,     max: 9999.0,  units: knots,  initial: 0.0, tol: 2000}
 - {key: TRACK,             type: float, min: 0.0,     max: 360.0,   units: deg,    initial: 0.0, tol: 2000}
-- {key: GPS_ELLIPSOID_ALT, type: float, min: -1500.0, max: 60000.0, units: ft,     initial: 0.0, tol: 2000}
+- {key: TALT, type: float, min: -1500.0, max: 60000.0, units: ft,     initial: 0.0, tol: 2000}
 - {key: GPS_FIX_TYPE,      type: int,   min: 0,       max: 9,                      initial: 0,   tol: 2000}
 - {key: XTRACK,            type: float, min: -100.0,  max: 100.0,   units: nM,     initial: 0.0, tol: 2000}
 - {key: CDI,               type: float, min: -1.0,    max: 1.0,                    initial: 0.0, tol: 2000}
@@ -52,7 +53,20 @@ class TestFixMapPosition(unittest.TestCase):
         apply_to_db(msg, _write)
         self.assertAlmostEqual(_val("LAT"), 32.7, places=4)
         self.assertAlmostEqual(_val("LONG"), -97.3, places=4)
-        self.assertAlmostEqual(_val("GPS_ELLIPSOID_ALT"), 1500.0, places=2)
+        self.assertAlmostEqual(_val("TALT"), 1500.0, places=2)
+
+    def test_talt_is_bad_below_a_3d_fix_when_the_navigator_says(self):
+        def set_value(key, value, bad):
+            database.get_raw_item(key).set(value, bad=bad)
+
+        for fix, bad in ((2, True), (3, False), (None, False)):
+            msg = NormalizedNavMessage(
+                position=Position(lat_deg=32.7, lon_deg=-97.3, alt_ft_msl=1500.0),
+                gps_fix_type=fix,
+            )
+            apply_to_db(msg, _write, set_value=set_value)
+            self.assertAlmostEqual(_val("TALT"), 1500.0, places=2)
+            self.assertIs(database.get_raw_item("TALT").bad, bad, fix)
 
     def test_none_position_fields_not_written(self):
         database.write("LAT", 32.0)  # valid value within DB range
@@ -138,6 +152,73 @@ class TestFixMapComputeOwnedKeys(unittest.TestCase):
         apply_to_db(msg, lambda key, value: written.append(key))
         self.assertTrue({"EXTCRS", "EXTCDI", "EXTTF", "EXTXTK"} <= set(written))
         self.assertFalse({"COURSE", "CDI", "XTRACK"} & set(written))
+
+
+class TestFixMapIntegrity(unittest.TestCase):
+    """SRC6 (AER-6674): a degraded or invalid navigator writes its position,
+    kinematics and EXT* guidance bad, and a valid one clears the flag. Before
+    SRC6 the field was declared and never read, so a degraded navigator read
+    as healthy."""
+
+    COVERED = ("LAT", "LONG", "TALT", "GS", "TRACK", "EXTCRS", "EXTTF", "EXTXTK", "EXTCDI")
+
+    def setUp(self):
+        database.init(io.StringIO(DB_CONFIG))
+
+    @staticmethod
+    def _set_value(key, value, bad):
+        database.get_raw_item(key).set(value, bad=bad)
+
+    def _apply(self, integrity):
+        msg = NormalizedNavMessage(
+            position=Position(lat_deg=32.7, lon_deg=-97.3, alt_ft_msl=1500.0),
+            ground_speed_kt=120.0,
+            ground_track_deg_true=45.0,
+            desired_track_deg_mag=87.0,
+            to_from=1,
+            cross_track_error_nm_signed=1.0,
+            gps_fix_type=3,
+            integrity=integrity,
+        )
+        apply_to_db(msg, _write, set_value=self._set_value)
+        return {k for k in self.COVERED if database.get_raw_item(k).bad}
+
+    def test_degraded_sets_bad_on_every_covered_key(self):
+        self.assertEqual(self._apply("degraded"), set(self.COVERED))
+        # The value still goes out with the flag: a reader decides what bad means.
+        self.assertAlmostEqual(_val("LAT"), 32.7, places=4)
+
+    def test_invalid_and_an_unknown_word_set_bad_too(self):
+        for integrity in ("invalid", "Valid", ""):
+            database.init(io.StringIO(DB_CONFIG))
+            self.assertEqual(self._apply(integrity), set(self.COVERED), integrity)
+
+    def test_valid_clears_the_flag_a_degraded_message_set(self):
+        self._apply("degraded")
+        self.assertEqual(self._apply("valid"), set())
+
+    def test_fix_type_carries_no_flag_from_it(self):
+        # GPS_FIX_TYPE is itself a quality key; its value says what the fix is.
+        msg = NormalizedNavMessage(gps_fix_type=3, integrity="degraded")
+        apply_to_db(msg, _write, set_value=self._set_value)
+        self.assertFalse(database.get_raw_item("GPS_FIX_TYPE").bad)
+
+    def test_the_plugin_passes_the_flag_through(self):
+        # A stub adapter that reports a degraded fix, through the plugin's own
+        # line handler, so the plugin's set_value is the one exercised.
+        from fixgw.plugins.navigator_adapter import MainThread
+
+        class Degraded:
+            def parse_line(self, raw):
+                return [NormalizedNavMessage(position=Position(lat_deg=32.7, lon_deg=-97.3),
+                                             integrity="degraded")]
+
+        parent = MagicMock()
+        parent.db_write.side_effect = _write
+        parent.db_get_item.side_effect = database.get_raw_item
+        MainThread(parent, Degraded(), 5.0).handle_line(b"x")
+        self.assertTrue(database.get_raw_item("LAT").bad)
+        self.assertTrue(database.get_raw_item("LONG").bad)
 
 
 class TestFixMapGpsFix(unittest.TestCase):

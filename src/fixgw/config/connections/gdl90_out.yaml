@@ -32,8 +32,9 @@ gdl90_out:
   # get every target twice.
   traffic: false
   # Ownship Geometric Altitude (0x0B): the key and its datum, ellipsoid or
-  # msl.  garmin_gnx375 and navigator_adapter write GPS MSL altitude into
-  # GPS_ELLIPSOID_ALT; with either of them set msl.
+  # msl.  Only mavlink writes GPS_ELLIPSOID_ALT.  garmin_gnx375, gpsd and
+  # navigator_adapter write their MSL height to TALT; while the key below has
+  # never been written, the plugin sends TALT as msl (GALT1/TALTSRC1).
   geo_altitude_key: GPS_ELLIPSOID_ALT
   geo_altitude_datum: ellipsoid
   # Ownship identity.  callsign: A-Z and 0-9, up to 8.  emitter_category:
@@ -46,3 +47,12 @@ gdl90_out:
   # ForeFlight internet policy while connected: 0 unrestricted, 1 expensive,
   # 2 disallowed.
   internet_policy: 0
+  # Sim and FMS sources only.  X-Plane and an FMS write a position but no
+  # GPS_ACCURACY_HORIZ, and ForeFlight ignores an ownship report whose
+  # accuracy (NACp) is unknown: it stays at the tablet's own location.  Set a
+  # horizontal accuracy in feet (e.g. 16) to send in its place while nothing
+  # has written GPS_ACCURACY_HORIZ.  The tablet is then told an accuracy the
+  # source never reported; never set it for a real GPS.  A GPS that has
+  # written the key is never overridden, even after it loses its estimate.
+  # Empty: NACp 0, "unknown".
+  assumed_accuracy_ft:

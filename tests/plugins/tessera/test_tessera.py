@@ -90,14 +90,34 @@ def test_handshake_accepts_tessera_p4_protocol_4(rig):
     assert accepted(p, panel)
     assert panel.lines()[0][1] == '{"cmd":"get_info"}'
     assert p.thread.connected and p.thread.boot_id == 1234
-    assert [k["id"] for k in panel.layout] == list(range(1, 11))
+    assert [k["id"] for k in panel.layout] == list(range(1, 13))
     assert p.get_status()["Firmware"] == "0.9.0"
+
+
+def test_handshake_accepts_the_v3_chip_build(rig):
+    # TESS2's board 1, an ESP32-P4 v3.2 on Tessera 1.2.12, answers with this id.
+    p, panel = rig(board="tessera-p4-v3", firmware="1.2.12")
+    assert accepted(p, panel)
+    assert p.thread.connected and p.thread.counters["refused"] == 0
+    assert p.get_status()["Firmware"] == "1.2.12"
 
 
 @pytest.mark.parametrize(
     "kwargs",
-    [{"board": "esp32-other"}, {"protocol": 3}, {"protocol": 5}, {"protocol": "4"}],
-    ids=["other-board", "protocol-3", "protocol-5", "protocol-as-text"],
+    [
+        {"board": "esp32-other"},
+        {"board": "tessera-s3-ws7"},
+        {"protocol": 3},
+        {"protocol": 5},
+        {"protocol": "4"},
+    ],
+    ids=[
+        "other-board",
+        "other-tessera-board",
+        "protocol-3",
+        "protocol-5",
+        "protocol-as-text",
+    ],
 )
 def test_handshake_refuses_other_devices_and_retries(rig, kwargs):
     p, panel = rig(**kwargs)
@@ -262,6 +282,39 @@ def test_a_changed_value_is_pushed_in_place(rig, database):
     assert panel.rebuilds == 1
 
 
+def test_cdi_src_shows_the_source_by_name(rig, database):
+    """TESS2 (AER-6622): key 9 showed the fixed text SRC; Bill asked for the
+    source itself, named as pyEfis's NAVSRC annunciator names it."""
+    p, panel = rig()
+    assert accepted(p, panel)
+    for value, name in ((0.0, "VLOC1"), (1.0, "VLOC2"), (2.0, "GPS")):
+        database.write("NAVSRC", value)
+        assert wait_for(lambda: tile(panel, 9)["gauge"]["t"] == name)
+    assert panel.rebuilds == 1
+
+
+@pytest.mark.parametrize(
+    "value, text",
+    [(1.0, "VLOC2"), (0.9999, "VLOC2"), (3, "GPS2"), (2.6, "GPS2"), (7.0, "7.0")],
+)
+def test_enum_names_the_nearest_whole_number_else_formats(value, text):
+    key = Page(
+        {
+            "keys": [
+                {
+                    "id": 1,
+                    "label": "SRC",
+                    "show": "NAVSRC",
+                    "enum": {0: "VLOC1", 1: "VLOC2", 2: "GPS", 3: "GPS2"},
+                }
+            ]
+        }
+    ).by_id[1]
+    tile = key.tile(lambda _key: (value, False, False, False, False))
+    assert tile["gauge"]["t"] == text
+    assert tile["color"] == "#FFFFFF"
+
+
 def test_bad_value_shows_dashes_without_a_rebuild(rig, database):
     p, panel = rig()
     assert accepted(p, panel)
@@ -297,8 +350,8 @@ def test_press_on_a_key_without_an_action_flashes_red(rig, database):
     p, panel = rig()
     assert accepted(p, panel)
     before = database.writers()
-    assert panel.press(1)
-    assert wait_for(lambda: panel.feedback == [("alert", 1)])
+    assert panel.press(8)                  # CRS: shown, no press
+    assert wait_for(lambda: panel.feedback == [("alert", 8)])
     assert database.writers() == before
 
 
@@ -359,6 +412,48 @@ def test_a_press_writes_no_key_the_page_file_does_not_name(rig, database):
     ]
 
 
+def test_the_hdg_bug_key_pulses_pyefis_heading_bug_focus_button(rig, database):
+    """TESS2b (AER-6630): key 4 shows the bug and a press pulses TSBTN132,
+    pyEfis's heading-bug-focus button, which gives its knob to the bug."""
+    rec = Recorder()
+    database.callback_add("test", "TSBTN132", rec, None)
+    p, panel = rig()
+    assert accepted(p, panel)
+    panel.press(4)
+    assert wait_for(lambda: ("ok", 4) in panel.feedback)
+    assert rec.calls == [("TSBTN132", True), ("TSBTN132", False)]
+
+
+
+@pytest.mark.parametrize(
+    "key_id, pulsed", [(10, "TSBTN139"), (11, "TSBTN137"), (12, "TSBTN138")]
+)
+def test_the_range_keys_pulse_pyefis_map_range_buttons(rig, database, key_id, pulsed):
+    """TESS2 (AER-6622): the panel had no way to change the map range.  Key
+    10 pulses pyEfis's map-range-focus button (the knob zooms the map), and
+    keys 11 and 12 its map-range-down and map-range-up buttons."""
+    rec = Recorder()
+    database.callback_add("test", pulsed, rec, None)
+    p, panel = rig()
+    assert accepted(p, panel)
+    panel.press(key_id)
+    assert wait_for(lambda: ("ok", key_id) in panel.feedback)
+    assert rec.calls == [(pulsed, True), (pulsed, False)]
+
+
+def test_the_baro_key_pulses_pyefis_baro_focus_button(rig, database):
+    """TESS2 (AER-6622): key 1 shows BARO and a press pulses TSBTN136,
+    pyEfis's baro-focus button. On the bench it had no press and flashed
+    red, so the knob could reach baro only through a touch on the glass."""
+    rec = Recorder()
+    database.callback_add("test", "TSBTN136", rec, None)
+    p, panel = rig()
+    assert accepted(p, panel)
+    panel.press(1)
+    assert wait_for(lambda: ("ok", 1) in panel.feedback)
+    assert rec.calls == [("TSBTN136", True), ("TSBTN136", False)]
+
+
 # -- reconnect -----------------------------------------------------------------
 
 
@@ -417,7 +512,7 @@ def test_shipped_page_names_only_keys_in_the_database(database):
         database.get_raw_item(key)
     for key in page.pulsed_keys():
         assert database.get_raw_item(key).typestring == "bool"
-    assert set(page.shown_keys()) == {"BARO", "HEADBUG", "COURSE", "MAPRANGE"}
+    assert set(page.shown_keys()) == {"BARO", "HEADBUG", "COURSE", "NAVSRC", "MAPRANGE"}
 
 
 def test_plugin_refuses_a_page_naming_a_missing_key(database, tmp_path):
@@ -460,6 +555,10 @@ def test_page_path_is_relative_to_the_config_directory(database):
         [{"id": 1, "label": "X", "show": "BARO", "text": "Y"}],
         [{"id": 1, "label": "X", "press": {"pulse": "A", "set": "B"}}],
         [{"id": 1, "label": "X", "icon": "ok"}],
+        [{"id": 1, "label": "X", "enum": {0: "A"}}],
+        [{"id": 1, "label": "X", "show": "BARO", "enum": {"0": "A"}}],
+        [{"id": 1, "label": "X", "show": "BARO", "enum": {0: 1}}],
+        [{"id": 1, "label": "X", "show": "BARO", "enum": {}}],
     ],
     ids=[
         "id-0",
@@ -470,6 +569,10 @@ def test_page_path_is_relative_to_the_config_directory(database):
         "show-and-text",
         "two-actions",
         "icon",
+        "enum-without-show",
+        "enum-string-value",
+        "enum-number-text",
+        "enum-empty",
     ],
 )
 def test_page_file_errors(keys):

@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 import importlib
+import math
 
 import pytest
 
@@ -37,6 +38,7 @@ class FakeParent:
             "WPLON": (-88.0, False, False, False, False, False),
             "WPNAME": ("HOME", False, False, False, False, False),
             "ALT": (1000.0, False, False, False, False, False),
+            "TALT": (1200.0, False, False, False, False, False),
         }
 
     def db_write(self, key, value):
@@ -62,7 +64,18 @@ class FakeItem:
         self.parent = parent
         self.key = key
 
-    def set(self, value, old=None):
+    min = None
+    max = None
+
+    @property
+    def written(self):
+        return self.key in self.parent.values
+
+    @property
+    def value(self):
+        return self.parent.db_read(self.key)
+
+    def set(self, value, old=None, bad=None):
         self.parent.db_write(self.key, value)
 
 
@@ -208,8 +221,8 @@ def test_constructor_requests_configured_ids_and_initializes(monkeypatch):
 
     assert mav.conn is conn
     assert conn.mav.sent
-    assert_write(parent, "ROLL", 0)
-    assert_write(parent, "VS", 0)
+    # No data key is written before a message carries it (SRC3, AER-6542).
+    assert not {key for key, _value in parent.writes} & set(INIT_KEYS)
 
 
 def test_constructor_raises_when_port_missing(monkeypatch):
@@ -291,6 +304,7 @@ def test_process_vfr_hud_writes_speed_and_vertical_speed_paths():
 
 def test_process_sensor_attitude_gps_position_pressure_and_servo_messages(monkeypatch):
     parent = FakeParent()
+    parent.values["BARO"] = (29.92126, False, False, False, False, False)
     monkeypatch.setattr(mav_module, "rot", lambda speed, roll: ("rot", speed, roll))
     mav = make_mav(
         parent=parent,
@@ -321,7 +335,7 @@ def test_process_sensor_attitude_gps_position_pressure_and_servo_messages(monkey
     assert_write(parent, "ALONG", 1.111)
     assert_write(parent, "ANORM", 3.333)
     assert_write(parent, "ROLL", 28.65)
-    assert_write(parent, "ROT", ("rot", 20.0, 0.5))
+    assert_write(parent, "ROT", ("rot", 20.0, 28.65))
     assert_write(parent, "PITCH", -14.32)
     assert_write(parent, "YAW", 57.3)
     assert_write(parent, "TRACK", 123.45)
@@ -333,7 +347,10 @@ def test_process_sensor_attitude_gps_position_pressure_and_servo_messages(monkey
     assert_write(parent, "GPS_ACCURACY_VERTICAL", 20.0)
     assert_write(parent, "HEAD", 98.76)
     assert_write(parent, "AGL", 50.0)
-    assert_write(parent, "ALT", 1000.0)
+    # ALT is from the pressure, sea-level standard at the standard setting;
+    # TALT is the GPS MSL height (AER-6351).
+    assert_write(parent, "ALT", 0.0)
+    assert ("ALT", 1000.0) not in parent.writes
     assert_write(parent, "TALT", 1000.0)
     assert_write(parent, "LAT", 40.0)
     assert_write(parent, "LONG", -88.0)
@@ -342,6 +359,70 @@ def test_process_sensor_attitude_gps_position_pressure_and_servo_messages(monkey
     assert mav._outputRoll == 250
     assert mav._outputPitch == -250
     assert mav._outputYaw == 10
+
+
+def test_rot_is_the_turn_rate_for_the_bank_in_degrees():
+    # pymavlink 2.4.42 rate_of_turn(speed, bank) takes m/s and degrees. Fed
+    # the roll in radians it read about 57x low (SRC1, AER-6405). At 30 deg
+    # and 100 kt the coordinated rate is g tan(bank) / V, about 6.3 deg/s.
+    parent = FakeParent()
+    tas_ms = 100 / 1.9438445
+    bank = math.radians(30)
+    mav = make_mav(
+        parent=parent,
+        messages=[Msg("VFR_HUD", airspeed=tas_ms, groundspeed=tas_ms, climb=0.0)]
+        + [Msg("ATTITUDE", roll=bank, pitch=0.0, yaw=0.0)] * 5,
+    )
+
+    for _ in range(6):
+        mav.process()
+
+    expected = math.degrees(9.80665 * math.tan(bank) / tas_ms)
+    rots = [v for k, v in parent.writes if k == "ROT"]
+    assert len(rots) == 5
+    for value in rots:
+        assert value == pytest.approx(expected, rel=0.01)
+
+
+def test_head_averages_across_north_not_to_the_reciprocal():
+    # HEAD is a running mean of up to 15 samples. An arithmetic mean of 359
+    # and 1 is 180; on the circle it is 0 (SRC1, AER-6405).
+    parent = FakeParent()
+    mav = make_mav(
+        parent=parent,
+        messages=[
+            Msg("GLOBAL_POSITION_INT", hdg=hdg, relative_alt=0, alt=0, lat=0, lon=0)
+            for hdg in [35900, 100] * 10
+        ],
+    )
+
+    for _ in range(20):
+        mav.process()
+
+    heads = [v for k, v in parent.writes if k == "HEAD"]
+    assert len(heads) == 20
+    for value in heads:
+        assert 0.0 <= value < 360.0
+        assert min(value, 360.0 - value) <= 1.0
+
+
+def test_head_mean_stays_inside_the_key_range():
+    # A mean a hair under 360 rounds to 360.0, which is north again: 0.0.
+    parent = FakeParent()
+    mav = make_mav(
+        parent=parent,
+        messages=[
+            Msg("GLOBAL_POSITION_INT", hdg=hdg, relative_alt=0, alt=0, lat=0, lon=0)
+            for hdg in (35999, 0, 0)
+        ],
+    )
+
+    for _ in range(3):
+        mav.process()
+
+    heads = [v for k, v in parent.writes if k == "HEAD"]
+    assert heads[0] == 359.99
+    assert heads[-1] == 0.0
 
 
 def _gps_raw(cog):
@@ -374,6 +455,20 @@ def test_process_gps_no_track_when_stationary_or_cog_unknown(gs, cog):
     written = [k for k, _ in parent.writes]
     assert "TRACK" not in written
     assert "COURSE" not in written
+
+
+def test_process_gps_h_acc_is_unit_converted_never_scaled_to_95_percent():
+    # ACC2 (AER-6593): h_acc's statistic is unstated, so it is not scaled to
+    # the key's 95 % definition. 300 mm is what ArduPlane 4.7.2 SITL sends
+    # (SIM_GPS1_ACC 0.3 m); a 1-sigma to 95 % factor would make it 2.41 ft.
+    parent = FakeParent()
+    msg = _gps_raw(9000)
+    msg.h_acc = 300
+    mav = make_mav(parent=parent, messages=[msg])
+
+    mav.process()
+
+    assert [v for k, v in parent.writes if k == "GPS_ACCURACY_HORIZ"] == [0.98]
 
 
 @pytest.mark.parametrize(
@@ -515,7 +610,8 @@ def test_link_timeout_flag_survives_plugin_writes_until_a_heartbeat(
     assert item.old is True
 
 
-# The keys Mav.init() zeroes on connect; the ahrs option is what reads each.
+# The keys Mav.init() used to zero on connect; the ahrs option is what
+# reads each.
 INIT_KEYS = ("ROLL", "PITCH", "HEAD", "AGL", "ALT", "VS")
 DATA_OFF = {
     "airspeed": False,
@@ -556,21 +652,205 @@ def test_connect_with_data_options_off_leaves_attitude_and_altitude_alone(
     }
 
 
-def test_connect_with_ahrs_on_still_zeroes_attitude_and_altitude(
+def test_connect_with_ahrs_on_writes_nothing_until_a_real_message(
     database, monkeypatch
 ):
+    # SRC3 (AER-6542): a zero written on connect is a wings-level, 0 ft
+    # attitude that reads valid until the first real message. The values
+    # from before the connect stay as they were and age old on their tol.
     for key in INIT_KEYS:
         database.write(key, 12.5)
+    before = {key: database.read(key) for key in INIT_KEYS}
 
-    connect_mav(database, monkeypatch, dict(DATA_OFF, ahrs=True))
+    mav = connect_mav(database, monkeypatch, dict(DATA_OFF, ahrs=True))
 
-    assert {key: database.read(key)[0] for key in INIT_KEYS} == {
-        key: 0 for key in INIT_KEYS
-    }
+    assert {key: database.read(key) for key in INIT_KEYS} == before
     writers = database.writers()
-    assert {key: writers.get(key) for key in INIT_KEYS} == {
-        key: ["mavlink"] for key in INIT_KEYS
+    assert {key: writers.get(key, []) for key in INIT_KEYS} == {
+        key: [] for key in INIT_KEYS
     }
+
+    # The first real messages are what write them.
+    run(
+        mav,
+        Msg("ATTITUDE", roll=math.radians(10.0), pitch=math.radians(-5.0), yaw=0.0),
+        Msg("GLOBAL_POSITION_INT", hdg=9000, relative_alt=304800, alt=609600,
+            lat=400000000, lon=-880000000),
+        Msg("VFR_HUD", airspeed=0.0, groundspeed=0.0, climb=2.54),
+    )
+    assert database.read("ROLL")[0] == pytest.approx(10.0)
+    assert database.read("PITCH")[0] == pytest.approx(-5.0)
+    assert database.read("HEAD")[0] == pytest.approx(90.0)
+    assert database.read("AGL")[0] == pytest.approx(1000.0)
+    assert database.read("VS")[0] == 500
+    writers = database.writers()
+    assert {key: writers.get(key) for key in INIT_KEYS if key != "ALT"} == {
+        key: ["mavlink"] for key in INIT_KEYS if key != "ALT"
+    }
+    # AER-6351: ALT is indicated altitude, from SCALED_PRESSURE only.
+    assert writers.get("ALT", []) == []
+
+
+# --------------------------------------------------------------------------
+# MAVALT1: ALT is indicated altitude from the static pressure and BARO; TALT
+# is the autopilot's GPS/EKF height above MSL (AER-6351)
+# --------------------------------------------------------------------------
+# Goldens from the ICAO standard atmosphere table, not from the plugin's
+# formula: 843.07 hPa is 5000 ft pressure altitude, 696.82 hPa is 10000 ft.
+ISA_5000_HPA = 843.07
+ISA_10000_HPA = 696.82
+MSL_FT = 6000.0  # GLOBAL_POSITION_INT.alt, well away from both
+
+
+def position(alt_ft):
+    return Msg("GLOBAL_POSITION_INT", hdg=0, relative_alt=0,
+               alt=round(alt_ft * 304.8), lat=400000000, lon=-880000000)
+
+
+def pressure(hpa):
+    return Msg("SCALED_PRESSURE", press_abs=hpa, press_diff=0.0)
+
+
+def airdata_mav(database, options=None, messages=()):
+    return make_mav(parent=DbParent(database), messages=list(messages),
+                    options=options or dict(DATA_OFF, ahrs=True, pressure=True, gps=True))
+
+
+def run(mav, *messages):
+    mav.conn.messages.extend(messages)
+    for _ in messages:
+        mav.process()
+
+
+def test_talt_follows_the_gps_switch_like_lat_and_long(database):
+    """TALT is the position receiver's height, so it is written under the gps
+    switch with LAT/LONG, not under ahrs (TALTSRC1, AER-6458). An ahrs-only
+    mavlink beside another GPS must not put a second height on TALT."""
+    mav = airdata_mav(database, options=dict(DATA_OFF, ahrs=True, pressure=True))
+    run(mav, position(MSL_FT))
+    for key in ("TALT", "LAT", "LONG"):
+        assert not database.get_raw_item(key).written, key
+    mav = airdata_mav(database, options=dict(DATA_OFF, gps=True))
+    run(mav, position(MSL_FT))
+    assert database.read("TALT")[0] == MSL_FT
+    assert database.get_raw_item("LAT").written
+
+
+def test_alt_is_indicated_from_pressure_and_baro_and_talt_is_msl(database):
+    mav = airdata_mav(database)
+    # The calibration offset applies to ALT as it does to AIRPRESS.
+    mav._pascal_offset = 100
+    run(mav, position(MSL_FT), pressure(ISA_5000_HPA - 1.0))
+
+    alt = database.read("ALT")
+    assert database.read("TALT")[0] == MSL_FT
+    assert database.read("AIRPRESS")[0] == pytest.approx(84307.0)
+    # BARO untouched reads its initial 29.92, about 1 ft off standard.
+    assert alt[0] == pytest.approx(5000.0, abs=3.0)
+    assert alt[2:5] == (False, False, False)
+    # compute's PALT, ALT read back to standard, is the pressure altitude.
+    assert alt[0] + mav_module.airdata.baro_offset_ft(29.92) == pytest.approx(
+        5000.0, abs=1.0)
+
+    # The pilot turns the knob 1 inHg up: the tape rises about 915 ft at the
+    # same pressure (near sea level 1 inHg is about 915 ft), TALT does not.
+    database.write("BARO", 30.92)
+    run(mav, position(MSL_FT), pressure(ISA_5000_HPA - 1.0))
+    assert 905.0 < database.read("ALT")[0] - alt[0] < 925.0
+    assert database.read("TALT")[0] == MSL_FT
+
+    # A climb moves ALT with the pressure, TALT with the GPS.
+    database.write("BARO", 29.92126)
+    run(mav, position(MSL_FT + 100.0), pressure(ISA_10000_HPA - 1.0))
+    assert database.read("ALT")[0] == pytest.approx(10000.0, abs=3.0)
+    assert database.read("TALT")[0] == MSL_FT + 100.0
+    assert database.writers()["ALT"] == ["mavlink"]
+
+
+def test_no_pressure_leaves_alt_unwritten(database):
+    # The pressure option off, or on with no SCALED_PRESSURE yet: ALT is
+    # left for its tol to age, never filled in with the GPS height.
+    for options in (dict(DATA_OFF, ahrs=True, gps=True),
+                    dict(DATA_OFF, ahrs=True, pressure=True, gps=True)):
+        mav = airdata_mav(database, options)
+        run(mav, position(MSL_FT))
+        assert database.read("TALT")[0] == MSL_FT
+        assert database.read("ALT")[0] == 0.0
+        assert database.writers().get("ALT", []) == []
+    # Pressure off: a SCALED_PRESSURE does not reach ALT either.
+    mav = airdata_mav(database, dict(DATA_OFF, ahrs=True))
+    run(mav, pressure(ISA_5000_HPA))
+    assert database.writers().get("ALT", []) == []
+
+
+def test_alt_without_ahrs_is_another_sources(database):
+    # As the autopilot source only (AFC7, AER-6068) the plugin does not own
+    # ALT, even with pressure on.
+    mav = airdata_mav(database, dict(DATA_OFF, pressure=True))
+    run(mav, pressure(ISA_5000_HPA))
+    assert database.read("AIRPRESS")[0] == pytest.approx(84307.0)
+    assert database.writers().get("ALT", []) == []
+
+
+def test_alt_is_bad_while_baro_is_unusable_or_alt_out_of_range(database):
+    mav = airdata_mav(database)
+    database.write("BARO", 20.0)  # in BARO's range, but no real setting
+    run(mav, pressure(ISA_5000_HPA))
+    assert database.read("ALT")[3] is True
+    database.write("BARO", 29.92)
+    run(mav, pressure(ISA_5000_HPA))
+    assert database.read("ALT")[3] is False
+    database.get_raw_item("BARO").fail = True
+    run(mav, pressure(ISA_5000_HPA))
+    assert database.read("ALT")[3] is True
+    database.get_raw_item("BARO").fail = False
+    # A failed sensor's 0 hPa is 145,000 ft: clamped to 60,000 and bad.
+    run(mav, pressure(0.0))
+    assert database.read("ALT")[0] == 60000.0
+    assert database.read("ALT")[3] is True
+
+
+def guided_mav(database):
+    mav = airdata_mav(database)
+    mav._apstat = "ARMED"
+    mav._apwpv = True
+    database.write("WPLAT", 40.0)
+    database.write("WPLON", -88.0)
+    database.write("WPNAME", "HOME")
+    return mav
+
+
+def test_reposition_holds_the_msl_altitude_not_the_indicated(database):
+    mav = guided_mav(database)
+    database.write("BARO", 30.92)
+    run(mav, position(MSL_FT), pressure(ISA_5000_HPA))
+    assert abs(database.read("ALT")[0] - MSL_FT) > 50.0
+
+    for change_mode in (True, False):
+        mav.setMode("GUIDED", change_mode=change_mode)
+        kind, args = mav.conn.mav.sent[-1]
+        assert kind == "int"
+        assert args[3] == mav_module.mavutil.mavlink.MAV_CMD_DO_REPOSITION
+        assert args[2] == mav_module.mavutil.mavlink.MAV_FRAME_GLOBAL
+        assert args[12] == pytest.approx(MSL_FT * 0.3048)
+
+
+def test_reposition_without_a_usable_msl_altitude_sends_nothing(database):
+    mav = guided_mav(database)
+    run(mav, pressure(ISA_5000_HPA))  # ALT good, TALT never written
+    mav.setMode("GUIDED")
+    assert mav.conn.mav.sent == []
+    assert database.read("MAVMSG")[0] == "No MSL Altitude"
+    assert mav._apreq == "INIT"
+    for flag in ("old", "bad", "fail"):
+        run(mav, position(MSL_FT))
+        setattr(database.get_raw_item("TALT"), flag, True)
+        mav.setMode("GUIDED")
+        assert mav.conn.mav.sent == [], flag
+        setattr(database.get_raw_item("TALT"), flag, False)
+    run(mav, position(MSL_FT))
+    mav.setMode("GUIDED")
+    assert mav.conn.mav.sent[-1][1][12] == pytest.approx(MSL_FT * 0.3048)
 
 
 def test_reconnected_link_clears_old_left_by_previous_connection(

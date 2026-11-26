@@ -1,0 +1,19 @@
+BARO at start 29.92
+MARK before 13:29:50
+before the press, ENC3 +1: BARO 29.92 (unchanged)
+MARK focused 13:29:52
+ENC3 +1: BARO 29.93, want 29.93
+ENC3 +1: BARO 29.94, want 29.94
+ENC3 +1: BARO 29.95, want 29.95
+ENC3 +1: BARO 29.96, want 29.96
+ENC3 +1: BARO 29.97, want 29.97
+MARK turned 13:29:55
+ENC3 -1: BARO 29.96, want 29.96
+ENC3 -1: BARO 29.95, want 29.95
+ENC3 -1: BARO 29.94, want 29.94
+ENC3 -1: BARO 29.93, want 29.93
+ENC3 -1: BARO 29.92, want 29.92
+MARK timed_out 13:30:09
+after the timeout, ENC3 +1: BARO 29.92 (unchanged)
+BARO at end 29.92 start 29.92
+RESULT PASS

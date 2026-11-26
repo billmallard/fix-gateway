@@ -1,0 +1,80 @@
+# Keys allowed more than one live writer today (ARCHG1, AER-6350), each with
+# the writers it has.  tests/arch/test_key_writers.py fails when a key not
+# listed here gains a second live writer, when a listed key gains a writer,
+# and when a listed key has lost one -- so this file only shrinks.  Remove
+# an entry by giving the key one writer (a selector, roadmap 9.1).
+# Live writers: `writers` and `pyefis` in src/fixgw/database/writers.yaml.
+# 55 keys.
+
+AGL: [canfix, mavlink]
+ALAT: [canfix, dynon, mavlink, rpi_bno055, stratux]
+ALONG: [mavlink, rpi_bno055]
+ALT: [canfix, dynon, grand_rapids_eis, mavlink, onspeed, rpi_bmp085, stratux]
+ANORM: [mavlink, rpi_bno055]
+AOA: [canfix, onspeed]
+BARO: [canfix, grand_rapids_eis, pyefis/instruments/altimeter]
+BAT_REMAINING: [X728, strom_pi]
+CHT11: [canfix, grand_rapids_eis]
+CHT12: [canfix, grand_rapids_eis]
+CHT13: [canfix, grand_rapids_eis]
+CHT14: [canfix, grand_rapids_eis]
+CHT15: [canfix, grand_rapids_eis]
+CHT16: [canfix, grand_rapids_eis]
+EGT11: [canfix, grand_rapids_eis]
+EGT12: [canfix, grand_rapids_eis]
+EGT13: [canfix, grand_rapids_eis]
+EGT14: [canfix, grand_rapids_eis]
+EGT15: [canfix, grand_rapids_eis]
+EGT16: [canfix, grand_rapids_eis]
+# FPLCMD: a sanctioned addition (Bill, card bc9865d2 on AER-6518, 2026-11-25).
+# A seq-arbitrated command channel, not a second source: the pyEfis editor's
+# fixbridge.command and the HSI's _send_fpl_command each send one past the
+# highest seq on the bus (the last FPLCMD or FPLCMDACK), and acks are matched
+# by seq. The HSI keeps its own copy of the rule because rule R1 bars core from
+# importing the flight-plan package; a pyEfis test (test_hsi_gps_obs.py) holds
+# the two copies together. A selector cannot apply: a command has no source to
+# choose between.
+FPLCMD: [pyefis/flightplan, pyefis/instruments/hsi]
+FUELF1: [canfix, shadin]
+FUELQ1: [canfix, grand_rapids_eis]
+FUELQT: [compute, shadin]
+GPS_ACCURACY_HORIZ: [gpsd, mavlink]
+GPS_ACCURACY_SPEED: [gpsd, mavlink]
+GPS_ACCURACY_VERTICAL: [gpsd, mavlink]
+GPS_FIX_TYPE: [gpsd, mavlink, navigator_adapter]
+GPS_SATS_VISIBLE: [gpsd, mavlink]
+GS: [gpsd, mavlink, navigator_adapter, stratux]
+HEAD: [canfix, mavlink, rpi_bno055, stratux]
+HEADBUG: [pyefis/instruments/autopilot, pyefis/instruments/hsi]
+HOBBS1: [canfix, grand_rapids_eis]
+IAS: [canfix, mavlink, onspeed, rpi_virtualwire]
+IASSEL: [pyefis/instruments/airspeed, pyefis/instruments/autopilot]
+LAT: [gpsd, mavlink, navigator_adapter]
+LONG: [gpsd, mavlink, navigator_adapter]
+OAT: [canfix, grand_rapids_eis, rpi_virtualwire]
+OILP1: [canfix, grand_rapids_eis]
+OILT1: [canfix, grand_rapids_eis]
+PALT: [compute, dynon]
+PITCH: [canfix, dynon, mavlink, onspeed, rpi_bno055, stratux]
+POWER_FAIL: [X728, strom_pi]
+ROLL: [canfix, dynon, mavlink, onspeed, rpi_bno055, stratux]
+ROT: [canfix, dynon, mavlink]
+TACH1: [canfix, grand_rapids_eis]
+# TALT: a sanctioned addition (Bill, card 82b0b10b on AER-6458, 2026-11-24).
+# garmin_gnx375, gpsd and navigator_adapter moved their MSL write here off
+# GPS_ELLIPSOID_ALT, which named the wrong datum; the baseline's writer
+# entries fell (GPS_ELLIPSOID_ALT left it). It holds only while
+# test_talt_has_the_position_writers (tests/arch/test_key_writers.py) passes:
+# TALT's live writers equal LAT's and LONG's. It ends when SRC5a's position
+# select lands. A writer added without that test does not qualify.
+# garmin_gnx375 left every position key when SRC6 made it an alias for
+# navigator_adapter (AER-6674).
+TALT: [gpsd, mavlink, navigator_adapter]
+TAS: [canfix, dynon, mavlink]
+TRACK: [gpsd, mavlink, navigator_adapter]
+VOLT: [canfix, grand_rapids_eis, mgl_serial]
+VS: [canfix, dynon, mavlink, stratux]
+WPLAT: [flightplan, ifly, navigator_adapter]
+WPLON: [flightplan, ifly, navigator_adapter]
+WPNAME: [flightplan, ifly, navigator_adapter]
+YAW: [dynon, mavlink]

@@ -18,6 +18,8 @@
 from pymavlink import mavutil
 from pymavlink.mavextra import rate_of_turn as rot
 
+from fixgw import airdata
+
 from os import stat
 import math
 import time
@@ -138,8 +140,10 @@ class Mav:
 
         self.request_ids()
         self.no_msg_count = 0
-        # Init data
-        self.init()
+        # No data key is written here. A connect-time 0 read as a valid
+        # wings-level, 0 ft attitude until the first real message; the values
+        # from before a reconnect age old on their tol instead (SRC3,
+        # AER-6542). Without ahrs another source owns them anyway (AER-6068).
 
     def request_ids(self):
         for msg_id in self.ids:
@@ -240,7 +244,8 @@ class Mav:
         elif msg_type == "ATTITUDE":
             if self._ahrs:
                 self.parent.db_write("ROLL", round(math.degrees(msg.roll), 2))
-                roll = self.avg("ROLL", msg.roll, 2)
+                # rate_of_turn takes m/s and degrees; msg.roll is radians.
+                roll = self.avg("ROLL", math.degrees(msg.roll), 2)
                 rtas = self.get_avg("RTAS", 2)
                 self.parent.db_write("ROT", rot(rtas, roll))
                 self.parent.db_write("PITCH", round(math.degrees(msg.pitch), 2))
@@ -279,6 +284,11 @@ class Mav:
                 self.parent.db_write(
                     "GPS_ACCURACY_SPEED", round(msg.vel_acc * 0.0019438445, 2)
                 )  # int32 mm/s to knots Docs just sa "mm" I assumed/sec
+                # The key is a 95 % radius (AER-6461), but h_acc is written
+                # unscaled, in unit only. MAVLink names no statistic, and
+                # ArduPilot names two (one-sigma where it sends, RMS where it
+                # stores) while passing u-blox hAcc through as is. A factor
+                # would be a guess; writers.yaml declares it unstated (ACC2).
                 self.parent.db_write(
                     "GPS_ACCURACY_HORIZ", round(msg.h_acc / 304.8, 2)
                 )  # uint32 mm to ft
@@ -288,28 +298,30 @@ class Mav:
 
         elif msg_type == "GLOBAL_POSITION_INT":
             if self._ahrs:
-                head = self.avg("HEAD", msg.hdg / 100, 2)
+                head = self.avg_angle("HEAD", msg.hdg / 100, 2)
                 self.parent.db_write("HEAD", head)  # uint16_t cdeg
                 self.parent.db_write(
                     "AGL", round(msg.relative_alt / 304.8, 2)
-                )  # int32_t mm to ft
-                # Seems like MSD is TALT and ALT should be indicated, not sure hoe to get both:
-                self.parent.db_write(
-                    "ALT", round(msg.alt / 304.8, 2)
-                )  # int32_t mm to ft
-                self.parent.db_write(
-                    "TALT", round(msg.alt / 304.8, 2)
                 )  # int32_t mm to ft
             if self._gps:
                 self.parent.db_write("LAT", msg.lat / 10000000.0)  # int32_t degE7 10**7
                 self.parent.db_write(
                     "LONG", msg.lon / 10000000.0
                 )  # int32_t degE7 10**7
+                # alt is the autopilot's GPS/EKF height above MSL: TALT.
+                # ALT is indicated altitude, from SCALED_PRESSURE and BARO
+                # below, never this (AER-6351). TALT comes from the same
+                # receiver as LAT/LONG, so it is written under the same
+                # switch (TALTSRC1, AER-6458).
+                self.parent.db_write(
+                    "TALT", round(msg.alt / 304.8, 2)
+                )  # int32_t mm to ft
         elif msg_type == "SCALED_PRESSURE":
             if self._pressure:
-                self.parent.db_write(
-                    "AIRPRESS", round((msg.press_abs * 100) + self._pascal_offset, 4)
-                )  # float hPa to Pa
+                static = (msg.press_abs * 100) + self._pascal_offset
+                self.parent.db_write("AIRPRESS", round(static, 4))  # float hPa to Pa
+                if self._ahrs:
+                    self.writeIndicated(static)
                 self.parent.db_write(
                     "DIFFAIRPRESS", round(msg.press_diff * 100, 4)
                 )  # float hPa to Pa
@@ -440,18 +452,38 @@ class Mav:
         # unhealthy GPS signal is one such state
         # Not sure what all we need to check for
 
-    def init(self):
-        # Only the ahrs option reads these keys. Without it another source
-        # owns them (the plugin is then only the autopilot source, AFC7), and
-        # zeroing them on each connect would blank its values (AER-6068).
-        if not self._ahrs:
-            return
-        self.parent.db_write("ROLL", 0)
-        self.parent.db_write("PITCH", 0)
-        self.parent.db_write("HEAD", 0)
-        self.parent.db_write("AGL", 0)
-        self.parent.db_write("ALT", 0)
-        self.parent.db_write("VS", 0)
+    def writeIndicated(self, static):
+        """ALT, indicated altitude: the pressure altitude of the static
+        pressure in Pa, read against the altimeter setting, as an altimeter
+        shows it (and compute's PALT gives the pressure altitude back).
+
+        BARO is a setting with no tol; its current value is the schema
+        initial, 29.92, until someone sets it. ALT is bad while BARO is bad,
+        failed or implausible, or when the value is outside ALT's range (the
+        database would clamp it to a plausible-looking limit).
+        """
+        setting, _ann, _old, bad, fail, _sec = self.parent.db_read("BARO")
+        # A negative pressure (a bad calibration offset) would make the
+        # power complex: take it as 0 Pa, out of range and so bad.
+        alt = airdata.pressure_altitude_ft(max(static, 0.0)) - airdata.baro_offset_ft(
+            setting
+        )
+        item = self.parent.db_get_item("ALT")
+        bad = bool(bad or fail or not airdata.baro_plausible(setting))
+        if (item.min is not None and alt < item.min) or (
+            item.max is not None and alt > item.max
+        ):
+            bad = True
+        item.set(round(alt, 2), bad=bad)
+
+    def mslAltitude(self):
+        """TALT in ft, the MSL altitude a DO_REPOSITION holds, or None when it
+        is not a usable reading (never written, old, bad or failed)."""
+        item = self.parent.db_get_item("TALT")
+        value, _ann, old, bad, fail, _sec = item.value
+        if not item.written or old or bad or fail:
+            return None
+        return value
 
     def reportMode(self, mode, msg):
         """The mode a HEARTBEAT reports: the only writer of MAVMODE and
@@ -648,6 +680,13 @@ class Mav:
             if not self.parent.quorum.leader:
                 return
             if mode == "GUIDED":
+                # MAV_FRAME_GLOBAL altitude is MSL, so the reposition holds
+                # TALT. ALT is indicated and differs by the BARO correction.
+                # With no usable TALT, send nothing rather than 0 m MSL.
+                msl = self.mslAltitude()
+                if msl is None:
+                    self.parent.db_write("MAVMSG", "No MSL Altitude")
+                    return
                 # Request is for guided mode so we need to set the mode differently
                 self._waypoint = f"{self.parent.db_read('WPLON')[0]}{self.parent.db_read('WPLAT')[0]}{self.parent.db_read('WPNAME')[0]}"
                 message = self.conn.mav.command_int_encode(
@@ -665,8 +704,7 @@ class Mav:
                     0,  # loiter direction
                     int(self.parent.db_read("WPLAT")[0] * 10**7),  # int32_t degE7
                     int(self.parent.db_read("WPLON")[0] * 10**7),
-                    self.parent.db_read("ALT")[0]
-                    * 0.3048,  # altitude ALT is in ft, mavlink uses meters
+                    msl * 0.3048,  # TALT is in ft, mavlink uses meters
                 )
             else:
                 message = self.conn.mav.command_long_encode(
@@ -695,6 +733,16 @@ class Mav:
         if len(self._data[item]) > self._max_average:
             self._data[item].pop(0)
         return round(statistics.mean(self._data[item]), decimals)
+
+    def avg_angle(self, item, value, decimals):
+        # The mean on the circle, so 359 and 1 average to 0, not 180.
+        self._data[item].append(value)
+        if len(self._data[item]) > self._max_average:
+            self._data[item].pop(0)
+        s = sum(math.sin(math.radians(a)) for a in self._data[item])
+        c = sum(math.cos(math.radians(a)) for a in self._data[item])
+        # Modulo after rounding too: 359.999 rounds to 360.0, which is 0.
+        return round(math.degrees(math.atan2(s, c)) % 360, decimals) % 360
 
     def get_avg(self, item, decimals):
         if len(self._data[item]) > 0:

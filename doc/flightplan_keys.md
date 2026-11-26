@@ -1,4 +1,4 @@
-# Flight plan FIX keys (FP1, PA3, PA4, PA13, RS1, TURN3, HOLDENT1, OBS2)
+# Flight plan FIX keys (FP1, PA3, PA4, PA13, RS1, TURN3, HOLDENT1, OBS2, EFB4)
 
 Spec: [fix-gateway#22](https://github.com/billmallard/fix-gateway/issues/22)
 (FP1), [fix-gateway#27](https://github.com/billmallard/fix-gateway/issues/27)
@@ -17,9 +17,13 @@ out of PA4 -- arcs, altitude-terminated legs, holds and procedure turns.
 RS1 adds the segment table: which slots are "V27 from GVO to AVOLS", which
 are the departure, and so on, so no display has to guess.
 
-One key, one writer, with a single documented exception: after a gateway
-restart the engine (FP2) republishes the route block and bumps `FPLSEQ`
-itself, mirroring `state_persist` restoring `NAVSRC`.
+One key, one writer, with two documented exceptions. First, after a gateway
+restart the engine (FP2) republishes the route block and writes `FPLSEQ`
+itself, mirroring `state_persist` restoring `NAVSRC`. It republishes the seq
+stored with the route, not a new one, so `FPLSEQ` and `FPLLDSEQ` come back
+at the values they held before the restart. Second, `FPLCMD` has two pyEfis
+writers, the flight plan editor and the HSI, arbitrated by `seq` (Bill, card
+`bc9865d2` on AER-6518, 2026-11-25; see "Command channel").
 
 ## Route block
 
@@ -297,6 +301,30 @@ table in RS1, where each one sits on the segment it names.
 | `FPLAPRTYPE` | str | editor | Loaded approach type (ILS/LOC/RNAV/VOR/NDB/GPS...) |
 | `FPLDBCYC` | str | editor | Nav database AIRAC cycle the loaded procedure(s) came from, e.g. `"2609"` -- PA9 annunciates when it has expired (guardrail 3: annunciate, never refuse the load) |
 
+## Pending import (EFB4)
+
+A plan received from an EFB as a Garmin `.fpl` (`fpl_exchange`,
+`doc/plugins/fpl_exchange.md`), waiting for the pilot. It is never flown and
+is never a route slot: the editor shows it, and Accept commits it through
+the route block above, as any edit. `tol: 0`, not persisted.
+
+| Key | Type | Range | Writer | Meaning |
+|---|---|---|---|---|
+| `FPLIMP1..100 ID` | str | `[A-Z0-9]`, 1..12 chars | fpl_exchange | Point ident (a Garmin identifier, which may be longer than `FPLfID`'s 6) |
+| `FPLIMP1..100 LAT` / `LON` | float | +-90 / +-180 deg | fpl_exchange | Point position |
+| `FPLIMP1..100 TYPE` | int | 1 airport, 2 VOR, 3 NDB, 4 fix, 5 user (as `FPLfTYPE`) | fpl_exchange | Point type |
+| `FPLIMPCOUNT` | int | 0..100 | fpl_exchange | Points in use |
+| `FPLIMPNAME` | str | `[A-Z0-9 /]`, <=25 chars | fpl_exchange | Route name from the file |
+| `FPLIMPSEQ` | int | >=0, 0 = nothing received since start | fpl_exchange | Counter, written last after every point, `FPLIMPCOUNT` and `FPLIMPNAME` |
+| `FPLIMPDONE` | int | >=0 | editor | The `FPLIMPSEQ` the pilot has accepted or rejected |
+
+A plan is pending while `FPLIMPSEQ > 0` and `FPLIMPDONE` differs from it. The
+editor acts on `FPLIMPSEQ` changing; on Accept it writes the points into the
+route block (TF legs, one segment) and commits with `FPLSEQ`, and either way
+it then writes `FPLIMPDONE = FPLIMPSEQ`. A newer upload replaces an older
+pending plan. Altitudes, speeds, airways and procedures do not cross: the
+format carries none of them (`doc/plugins/fpl_exchange.md`, "What crosses").
+
 ## Direct-To staging
 
 | Key | Type | Writer | Meaning |
@@ -307,9 +335,23 @@ table in RS1, where each one sits on the segment it names.
 
 ## Command channel
 
-`FPLCMD` grammar: `"<seq> VERB [arg]"` (Appendix C). `seq` is a positive,
-strictly-increasing integer per editor session -- a repeated identical
-command is still a new event, and it gives the editor an ack to wait on.
+`FPLCMD` grammar: `"<seq> VERB [arg]"` (Appendix C). `seq` is a positive
+integer, and every writer takes it from the bus: one past the highest seq in
+the last `FPLCMD` or `FPLCMDACK`. A repeated identical command is still a new
+event, and the seq gives its writer an ack to match.
+
+**Two writers (Bill, card `bc9865d2` on AER-6518, 2026-11-25).** `FPLCMD` is
+a command channel, not a value: each write is an event and there is no source
+for a `select` to choose. pyEfis has two writers, the flight plan editor
+(`FixBridge.command`) and the HSI (`_send_fpl_command`, which sends `OBS`
+from the CRS knob). Both use the bus rule above and match their ack by seq.
+Within one pyEfis process, where reads and writes are serialised, that keeps
+`seq` strictly increasing across both writers. Two displays on one gateway
+are not covered: each reads and then writes, so both can send the same seq.
+A third writer, or a second display commanding the same gateway, needs its
+own ruling. `tests/arch/key_writers_baseline.yaml` fails when a new module
+writes `FPLCMD`; it cannot see a second display, which runs the same modules.
+The engine does not check seq order; it acks whatever seq it is sent.
 Verbs: `ACT <slot>`, `DTO` (no arg: use the staged `DTO*` keys; with a slot
 arg, direct-to that plan waypoint), `DTOX`, `SUSP`, `RESUME`,
 `SCALE <0.3|1.0|2.0|AUTO>`, `OBS <deg>`, `OBS OFF` (OBS2). PA3 reserves `PROC`, `PROCX` and `AWY` for
@@ -376,7 +418,7 @@ sequence to, and the box stays on the fix.
 
 | Key | Type | Writer | Meaning |
 |---|---|---|---|
-| `FPLCMD` | str | editor | The command string |
+| `FPLCMD` | str | editor, HSI (seq-arbitrated, card `bc9865d2`) | The command string |
 | `FPLCMDACK` | int | engine | `= seq` on success, `-seq` on rejection |
 | `FPLMSG` | str | engine | Last message / rejection reason. Commands: `NO PLAN`, `BAD SLOT`, `NO POSITION`, `PARSE`, a sequence trace like `SEQ GVO -> RZS` (or, PA13, `SEQ ALT -> <ident>` when a `CA`/`FA` leg terminates on altitude with no fix of its own), or (PA4, off a vector leg) `RESUME NAV -> <ident>` / `NO NEXT LEG`, or (PA13, on a flying `HM` hold) `HOLD EXIT ARMED`, or `NO NEXT LEG` when that hold is the last slot, or (OBS2) `OBS <deg>` / `OBS OFF` / `NOT IN OBS` / `IN OBS` and the `OBS N/A ...` refusals above, or (AER-6294) `ACT N/A TURNED` / `ACT N/A NO TRACK` / `ACT N/A TOO CLOSE` for an `ACT` onto a coded `DF` whose turn cannot be flown as ruled (the `DF` section). An accepted commit that drops the active leg (HOLDFIX0): `ACTIVE LEG REMOVED` / `ACTIVE LEG CHANGED` / `ACTIVE LEG AMBIGUOUS`, written after `FPLLDSEQ`. Route loads (PA4/PA13, guardrail 1): `"UNSUPP <PT> <ident>"` for an unrecognized terminator, or `"BADTURN <PT> <ident>"` / `"BADRADIUS <PT> <ident>"` / `"BADCENTER <PT> <ident>"` / `"BADALT <PT> <ident>"` / `"BADLEGLEN <PT> <ident>"` for a recognized Tier-2 type missing the fields its geometry needs, or (RS1) one of the `SEG...` reasons in the segment table section -- either way the whole route is rejected, not just that leg. A new code needs plain words in pyEfis (`pyefis/flightplan/refusal.py`) first: CI runs pyEfis's `test_refusal.py` against this engine and fails on a code with none (AER-6212) |
 
@@ -384,16 +426,16 @@ sequence to, and the box stays on the fix.
 
 | Key | Type | Range | Meaning |
 |---|---|---|---|
-| `FPLSTATE` | int | 0 NONE, 1 LEG, 2 DIRECT, 3 SUSP, 4 OBS | Engine state. 4 (OBS2): GPS OBS mode, a pilot course through the TO waypoint (command channel above). An older gateway never writes 4 |
+| `FPLSTATE` | int | 0 NONE, 1 LEG, 2 DIRECT, 3 SUSP, 4 OBS | Engine state. 4 (OBS2): GPS OBS mode, a pilot course through the TO waypoint (command channel above). An older gateway never writes 4. A new value needs its pyEfis display entry first: CI runs pyEfis's `test_engine_enums.py` against this engine (AER-6293) |
 | `FPLSUSPMAP` | int | 0/1 | Suspended at the MAP (G49): 1 only while `FPLSTATE = 3` is the MAP auto-suspend, where `FPLCMD RESUME` flies the missed approach (`FPLAPR` -> 3). 0 for any other state, including a pilot `SUSP` past the MAP (held from before the MAP, or after a missed with no MAHP leg), where RESUME only un-suspends. A display shows "Fly the missed" on 1 and "Resume" otherwise; with the key absent (older gateway) it shows "Resume" |
 | `FPLACTLEG` | int | 0..100 | Slot of the TO waypoint, 0 = none |
 | `FPLPHASE` | str | `ENR` / `TERM` / `LNAV` / `LOI` / `VECTORS` / `HOLD` / `PTURN` / `0.30 NM` / `1.00 NM` / `""` | Flight-phase annunciation. `VECTORS` (PA4, guardrail 4) wins over everything else while the active leg is `VA`/`VM`/`FM`/`VI` -- `FPLSTATE` is also forced to `SUSP` and `FPLCRS`/`FPLXTK`/`FPLCDI`/`WPDIS`/`WPETE`/`FPLREMDIS`/`FPLREMETE` all read 0 (the box invents no heading, and no distance to one either). `HOLD` (PA13) shows while flying a published `HM`/`HF`/`HA` circuit, `PTURN` while flying a `PI` procedure turn -- both keep live course/cross-track guidance, unlike `VECTORS` |
-| `FPLAPR` | int | 0 none, 1 armed, 2 active, 3 missed | Approach state |
+| `FPLAPR` | int | 0 none, 1 armed, 2 active, 3 missed | Approach state. A new value needs its pyEfis display entry first: CI runs pyEfis's `test_engine_enums.py` against this engine (AER-6293) |
 | `FPLINTEG` | bool | | Integrity gate satisfied for the current phase |
 | `CDISCALE` | float | 0.3..2.0 nm | Full-scale deflection (ramps 1.0 -> 0.3 nm over the 2 nm before the FAF) |
 | `FPLCRS` | float | 0..359.9 deg magnetic | Desired track (DTK) |
 | `FPLXTK` | float | +-100 nm, positive = right of track | Cross-track error, same sign convention as `XTRACK`. In a fly-by turn, from turn start to the end of the turn's arc, it is measured from that arc (AER-4715) |
-| `FPLCDI` | float | -1..+1 | `-FPLXTK / CDISCALE`, clamped -- the sign convention `garmin_gnx375/__init__.py:167-169` uses, so the HSI needle behaves identically for the internal plan and an external navigator |
+| `FPLCDI` | float | -1..+1 | `-FPLXTK / CDISCALE`, clamped -- the sign convention `fixgw.nmea_fix.cdi_from_cross_track` uses for `EXTCDI`, so the HSI needle behaves identically for the internal plan and an external navigator |
 | `FPLTF` | int | 0/1/2 | TO/FROM |
 | `FPLFRLAT` / `FPLFRLON` | float | deg | FROM point of the active leg (previous waypoint, or the direct-to activation point). Flagged `fail` whenever there is no FROM point (NULLWP1): no plan active, and during failed guidance, where the engine blanks it to 0.0 |
 | `WPFROM` / `WPNEXT` | str | <=6 chars | FROM and NEXT waypoint idents |
@@ -405,7 +447,7 @@ sequence to, and the box stays on the fix.
 | `FPLALERT` | bool | | Waypoint sequencing alert (10 s or 1 nm before turn start, whichever is longer; at a fly-by fix the waypoint itself sequences later, at the turn bisector) |
 | `FPLTURN` | str | `"L"` / `"R"` / `""` | Commanded turn direction (AER-4541): the coded direction while the engine flies the turn that opens a `DF`, `""` otherwise and during failed guidance. One writer, the engine. A display annunciates it and never derives it from `FPLfTURN` and the track; with the key absent (older gateway, or a database edited before AER-4541, which the engine logs once) it shows nothing |
 | `FPLHOLDSLOT` | int | 0..100 | Slot of the hold `FPLHOLDENT` describes (HOLDENT1): the active slot if it is a hold, else the first hold after it, or the first hold in the plan when none is active (plan loaded but not activated, or an off-route direct-to). 0 = no hold. One writer, the engine |
-| `FPLHOLDENT` | str | `"DIRECT"` / `"TEARDROP"` / `"PARALLEL"` / `""` | AIM 5-3-8 entry for the hold at `FPLHOLDSLOT` (HOLDENT1). From the fix on (`FPLHOLDCOMMIT` true) it is the entry the engine is flying. Before the fix it is predicted with the same `hold_entry` call, from the same arrival track the engine will take on reaching the fix: the great circle into the fix of the leg that reaches it (for `TF X` then `HM X`, the `TF`'s leg, from the slot before it; for a hold with its own leg, from the slot before the hold; from a direct-to's activation point). Where that leg's start is not known until the aircraft is there (after a `CA`/`FA` or vector leg, at slot 1, or a `DF` whose coded turn is not yet flown), the line from the aircraft to the fix stands in until it is. `""` with no hold, or with the aircraft over the fix and no planned leg to predict from. Kept through failed guidance, like `FPLACTSEG`. One writer, the engine. A display shows it and never derives an entry from the plan and the track; with the key absent (older gateway, or a database edited before HOLDENT1, which the engine logs once) it shows no entry |
+| `FPLHOLDENT` | str | `"DIRECT"` / `"TEARDROP"` / `"PARALLEL"` / `""` | AIM 5-3-8 entry for the hold at `FPLHOLDSLOT` (HOLDENT1). From the fix on (`FPLHOLDCOMMIT` true) it is the entry the engine is flying. Before the fix it is predicted with the same `hold_entry` call, from the same arrival track the engine will take on reaching the fix: the great circle into the fix of the leg that reaches it (for `TF X` then `HM X`, the `TF`'s leg, from the slot before it; for a hold with its own leg, from the slot before the hold; from a direct-to's activation point). Where that leg's start is not known until the aircraft is there (after a `CA`/`FA` or vector leg, at slot 1, or a `DF` whose coded turn is not yet flown), the line from the aircraft to the fix stands in until it is. `""` with no hold, or with the aircraft over the fix and no planned leg to predict from. Kept through failed guidance, like `FPLACTSEG`. One writer, the engine. A display shows it and never derives an entry from the plan and the track; with the key absent (older gateway, or a database edited before HOLDENT1, which the engine logs once) it shows no entry. A new value needs its pyEfis display entry first: CI runs pyEfis's `test_engine_enums.py` against this engine (AER-6293) |
 | `FPLHOLDCOMMIT` | bool | | `FPLHOLDENT` is the entry being flown (HOLDENT1): true from reaching the hold fix until the hold is left (or the plan reloads, or a new activation starts the leg again), false while it is a prediction. A restart mid-hold restores it with the entry from the state file |
 
 `WPLAT`/`WPLON`/`WPNAME` (`database/mavlink.yaml`) are pre-existing keys; the
@@ -538,6 +580,8 @@ The specific points a merge with upstream would have to reconcile:
   for something else.
 - The route block and segment table: `FPLf*` (15 fields, `FPLfTA` the
   engine's), `FPLS1..100` (6 fields), `FPLSEGCNT`, `FPLCOUNT`, `FPLNAME`, `FPLSEQ`, `FPLLDSEQ`.
+- The pending-import block (EFB4): `FPLIMPf*` (4 fields), `FPLIMPCOUNT`,
+  `FPLIMPNAME`, `FPLIMPSEQ`, `FPLIMPDONE`.
 - PA3 and RS1 were both breaking changes inside the fork (Bill lifted the
   compatibility constraint, procedures brief section 3.2 and route
   segments brief section 3). There is no upstream version to stay

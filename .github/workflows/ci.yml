@@ -37,6 +37,8 @@ jobs:
         sudo apt install -y libegl1
         python -m pip install --upgrade pip
         pip install flake8 pytest pytest-qt pytest-env pytest-cov
+        # Test only: validates .fpl documents against Garmin's schema (EFB4).
+        pip install lxml
         pip install -e .[qt,sim]
         # CERT7: the environment the tests ran in, so a promotion's lock file can be
         # checked against it.
@@ -54,13 +56,34 @@ jobs:
         # and pyEfis's test-evidence page are built from (TV11).
         pytest --junitxml=reports/junit.xml -o junit_family=xunit1
 
+    # ARCHG1 (AER-6350): the architecture ratchet runs inside the pytest step
+    # (tests/arch); this prints its report, which names the fix for each
+    # failure, to the job summary where a reviewer sees it first.
+    - name: Every FIX key write is declared; no new multi-writer key or route-concept class
+      if: always() && steps.pytest.outcome != 'skipped'
+      run: |
+        rc=0; python tools/check_key_writers.py > reports/key_writers.txt || rc=$?
+        cat reports/key_writers.txt
+        if [ $rc -ne 0 ]; then
+          { echo "### Architecture ratchet (doc/key_writers.md)"; echo; echo '```'
+            cat reports/key_writers.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+        fi
+        exit $rc
+
     # AER-6212: a new FPLMSG code needs plain words in pyEfis
     # (pyefis/flightplan/refusal.py) before it lands here. pyEfis's own CI runs
     # this test against our dev, so a code that landed first turned every pyEfis
     # PR red (fix-gateway #213, then #219/#223). Run it here, from pyEfis dev,
     # against this tree's engine: the pyEfis words merge first, then the code.
     # After the main pytest run, so a bare `pytest` never collects _pyefis.
-    - name: Check out pyEfis's FPLMSG words
+    # AER-6293: the same for the engine's FPLSTATE, FPLAPR and FPLHOLDENT
+    # values, which pyEfis renders through tables in its widget modules
+    # (test_engine_enums.py reads both sides as source, no Qt).
+    # ENUM2 (AER-6457): and for the NAVSRC / BRG1SRC / BRG2SRC ranges in
+    # database/ahrs.yaml, which the HSI labels through tables in its module
+    # (test_source_enums.py, the same way): widen a range here only once
+    # pyEfis labels the new value.
+    - name: Check out pyEfis's FPLMSG words and engine-value tables
       uses: actions/checkout@v6
       with:
         repository: billmallard/pyEfis
@@ -69,16 +92,25 @@ jobs:
         sparse-checkout: |
           src/pyefis/__init__.py
           src/pyefis/flightplan/
+          src/pyefis/instruments/flight_plan/__init__.py
+          src/pyefis/instruments/nav_status/__init__.py
+          src/pyefis/instruments/map/layers/flight_plan.py
+          src/pyefis/instruments/hsi/__init__.py
           tests/flightplan/test_refusal.py
+          tests/flightplan/test_engine_enums.py
+          tests/instruments/hsi/test_source_enums.py
         sparse-checkout-cone-mode: false
-    - name: Every FPLMSG code the engine can write has pyEfis words
+    - name: Every FPLMSG code and enum value the engine can write has its pyEfis entry
       env:
         FIXGW_FLIGHTPLAN_ENGINE: ${{ github.workspace }}/src/fixgw/plugins/flightplan/engine.py
+        FIXGW_AHRS_DB: ${{ github.workspace }}/src/fixgw/config/database/ahrs.yaml
         PYTHONPATH: _pyefis/src
       # pyEfis's conftest and pyproject options are not ours; this test needs neither.
       run: >-
         pytest -p no:cacheprovider -c /dev/null --noconftest --rootdir=_pyefis
         _pyefis/tests/flightplan/test_refusal.py
+        _pyefis/tests/flightplan/test_engine_enums.py
+        _pyefis/tests/instruments/hsi/test_source_enums.py
 
     - name: Test evidence record and job summary
       if: always() && steps.pytest.outcome != 'skipped'

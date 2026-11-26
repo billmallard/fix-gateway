@@ -11,8 +11,8 @@
 #  "no fix" and a WAAS fix read as "2D", so the flight-plan engine's >= 3 gate
 #  failed every guidance output from a Garmin navigator.
 #
-#  Shared by the garmin_gnx375 plugin and the navigator_adapter Garmin NMEA
-#  adapter so the two NMEA writers of the key cannot drift apart again.
+#  Used by the navigator_adapter Garmin NMEA adapter, the one Garmin NMEA
+#  parser since SRC6 made garmin_gnx375 its alias (AER-6674).
 
 # GGA quality codes that are a GNSS position solution. 6 (estimated / dead
 # reckoning), 7 (manual input) and 8 (simulator) are not, and map to no fix.

@@ -8,20 +8,30 @@
 #   {pulse: KEY}           True then False to a bool key, as a button would.
 #                          The TSBTN keys below are pyEfis's own touchscreen
 #                          buttons (node 1), so pyEfis runs the action it
-#                          already has for them.  pyEfis acts only while that
-#                          button is on its visible screen.
+#                          already has for them.  pyEfis's stock data
+#                          bindings run them on any screen (pyEfis #591);
+#                          an older pyEfis acts only while the button shows.
 #   {set: KEY, value: V}   one write of V.
 # A key with no `press` answers a touch with a red flash and writes nothing.
 name: SPIKE
 keys:
-  - {id: 1, label: BARO, show: BARO, format: "{:.2f}"}
+  # A press gives pyEfis's knob to the baro setting (baro-focus).
+  - {id: 1, label: BARO, show: BARO, format: "{:.2f}", press: {pulse: TSBTN136}}
   - {id: 2, label: BARO, text: "-", press: {pulse: TSBTN11}}    # baro-down-invisible
   - {id: 3, label: BARO, text: "+", press: {pulse: TSBTN12}}    # baro-up-invisible
-  - {id: 4, label: HDG BUG, show: HEADBUG, format: "{:03.0f}"}
+  # A press gives pyEfis's knob to the heading bug (heading-bug-focus).
+  - {id: 4, label: HDG BUG, show: HEADBUG, format: "{:03.0f}", press: {pulse: TSBTN132}}
   - {id: 5, label: HDG, text: "-", press: {pulse: TSBTN129}}    # heading-bug-down
   - {id: 6, label: HDG, text: "+", press: {pulse: TSBTN131}}    # heading-bug-up
   - {id: 7, label: HDG, text: SYNC, press: {pulse: TSBTN130}}   # heading-bug-sync
   - {id: 8, label: CRS, show: COURSE, format: "{:03.0f}"}
-  - {id: 9, label: CDI SRC, text: SRC, press: {pulse: TSBTN133}}  # cdi-source
-  # pyEfis has no map-range button yet, so this key only shows the index.
-  - {id: 10, label: MAP RANGE, show: MAPRANGE}
+  # Shows the CDI source by name, as pyEfis's NAVSRC annunciator does.
+  - {id: 9, label: CDI SRC, show: NAVSRC, enum: {0: VLOC1, 1: VLOC2, 2: GPS, 3: GPS2},
+     press: {pulse: TSBTN133}}  # cdi-source
+  # The map's range ladder index.  A map follows MAPRANGE only if its
+  # range_key names it, and each screen's ladder gives the index its range.
+  # A press gives pyEfis's knob to the map range (map-range-focus): the inner
+  # knob zooms smoothly, the outer ring steps the ladder, a push snaps.
+  - {id: 10, label: MAP RANGE, show: MAPRANGE, press: {pulse: TSBTN139}}
+  - {id: 11, label: RANGE, text: "-", press: {pulse: TSBTN137}}  # map-range-down
+  - {id: 12, label: RANGE, text: "+", press: {pulse: TSBTN138}}  # map-range-up

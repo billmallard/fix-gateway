@@ -1,0 +1,29 @@
+# fpl_exchange test data
+
+- `FlightPlanv1.xsd`: Garmin's published FlightPlan v1 schema, unchanged,
+  from https://www8.garmin.com/xmlschemas/FlightPlanv1.xsd (fetched
+  2026-11-22, 12237 bytes, sha256
+  `40e94cfae5885ddd0303ffa471bc45a080206f450da33ec73927c45fff83f35e`). The
+  tests validate against it with lxml. To refresh and check it:
+
+      curl -sS -o FlightPlanv1.xsd https://www8.garmin.com/xmlschemas/FlightPlanv1.xsd
+      sha256sum FlightPlanv1.xsd
+
+- `handmade_full.fpl`: written by hand from the schema to use every optional
+  element (author, link, created, elevation, comment, extensions,
+  `xsi:schemaLocation`, `INT-VRP`, a user waypoint with an empty country code,
+  a table entry the route does not use). It is **not** a ForeFlight export.
+
+- `foreflight/`: `.fpl` files exported from ForeFlight (*Send To > Share FPL
+  file > Save to Files*), one per route, named for the route, for example
+  `ksba_v27_ksmx.fpl`. Only Bill can make these. `test_fpl.py` reads, schema-checks
+  (after undoing ForeFlight's departures) and round-trips every file here.
+  Keep the bytes as ForeFlight sent them (UTF-16 with a BOM; `.gitattributes`
+  marks them binary), except that the tail number is blanked.
+  - `ksba_kphx.fpl`: KSBA to KPHX, 17 points, built and edited in ForeFlight
+    on Bill's iPad and uploaded at the bench, 2026-11-22 (AER-6321); taken
+    from the bench packet log.
+  - `ksba_kpmd.fpl`: KSBA to KPMD, 13 points, the second upload at the same
+    session, the one that reached `FPLIMP*` on the bench bus; taken from the
+    bench packet log (`efb4.sh pcap`, TCP 8080 on the hotspot) and the form
+    part extracted with `fpl_exchange._form_file`.

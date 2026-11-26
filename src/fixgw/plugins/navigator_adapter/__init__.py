@@ -86,21 +86,33 @@ class MainThread(threading.Thread):
             if not raw:
                 continue
 
-            messages = self.adapter.parse_line(raw)
-            for msg in messages:
-                try:
-                    apply_to_db(msg, self.parent.db_write, self.cdi_full_scale_nm)
-                except Exception as exc:
-                    self.log.debug(f"navigator_adapter: db write error: {exc}")
+            self.handle_line(raw)
 
         if self._serial and self._serial.is_open:
             self._serial.close()
+
+    def handle_line(self, raw: bytes):
+        """Parse one raw line and write what it carries to the database."""
+        for msg in self.adapter.parse_line(raw):
+            try:
+                apply_to_db(msg, self.parent.db_write, self.cdi_full_scale_nm,
+                            set_value=self._set_value)
+            except Exception as exc:
+                self.log.debug(f"navigator_adapter: db write error: {exc}")
+
+    def _set_value(self, key, value, bad):
+        self.parent.db_get_item(key).set(value, bad=bad)
 
     def stop(self):
         self.getout = True
 
 
 class Plugin(plugin.PluginBase):
+    # Running instances. The database names a key's writer by module, and the
+    # garmin_gnx375 alias runs this module's code, so two navigators enabled at
+    # once write the same keys without its second-writer warning (SRC6).
+    _running: set = set()
+
     def __init__(self, name, config, config_meta):
         super().__init__(name, config, config_meta)
 
@@ -117,9 +129,17 @@ class Plugin(plugin.PluginBase):
         self._thread = MainThread(self, self._adapter, cdi_scale)
 
     def run(self):
+        others = sorted(p.name for p in Plugin._running)
+        if others:
+            self.log.warning(
+                f"navigator_adapter: {self.name} writes the same keys as {', '.join(others)}, "
+                "already running; enable one navigator"
+            )
+        Plugin._running.add(self)
         self._thread.start()
 
     def stop(self):
+        Plugin._running.discard(self)
         self._thread.stop()
         if self._thread.is_alive():
             self._thread.join(2.0)

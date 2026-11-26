@@ -1,0 +1,26 @@
+fpl_exchange:
+  load: FPL_EXCHANGE
+  module: fixgw.plugins.fpl_exchange
+  # Garmin .fpl flight-plan exchange with an EFB app (ForeFlight and others)
+  # over the panel's Wi-Fi: a small web page on the tablet's browser that
+  # offers the loaded plan as a .fpl download and takes a .fpl upload.  An
+  # upload becomes a pending plan (FPLIMP* keys), which is never flown until
+  # the pilot accepts it on the FPL page.  Supplemental only.  Ships off: turn
+  # it on with FPL_EXCHANGE: true under enabled: in preferences.yaml.custom.
+  # Design, tap counts and what a plan loses: doc/plugins/fpl_exchange.md.
+  #
+  # Where to listen.  "" is every interface; set the Wi-Fi interface's
+  # address to keep it off a wired network.
+  host: ""
+  port: 8080
+  # Networks a client may connect from, e.g. ["192.168.10.0/24"].  The page
+  # is unauthenticated: anything that reaches it can read the loaded plan
+  # and post a pending one.  Empty accepts any IPv4 client; an entry that
+  # does not parse accepts nobody.
+  allow: []
+  # The largest .fpl accepted, in bytes (at most 1048576).  A 100-point
+  # route from ForeFlight is under 50000.
+  max_upload_bytes: 131072
+  # Each direction can be turned off alone.
+  download: true
+  upload: true
