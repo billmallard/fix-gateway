@@ -63,6 +63,19 @@ navigator:
 Only non-`None` fields are written. Fields not populated by a sentence are left
 unchanged in the database.
 
+### Quality flags
+
+A record's `integrity` field (`valid`, `degraded` or `invalid`) sets `bad` on
+every key it carries that is a measurement or guidance: `LAT`, `LONG`, `TALT`,
+`GS`, `TRACK` and the four `EXT*` keys. Anything but `valid` sets it, and a
+`valid` record clears it (SRC6, AER-6674). `GPS_FIX_TYPE` is a quality key
+itself, and the waypoint keys name a fix, so neither takes the flag. `TALT` is
+also bad below a 3-D fix, when the record carries a fix type.
+
+The built-in `garmin_nmea` adapter does not set `integrity` yet: every record
+it makes is `valid`, as before. An adapter that knows its navigator is degraded
+sets the field, and the flag follows with no change here.
+
 The navigator is an **external navigator**: its guidance goes to the `EXT*`
 inputs, and compute's `GPSSRC` select (`connections/compute.yaml`) routes them
 into `GPSCRS`/`GPSCDI`/`GPSTF`, which its `NAVSRC` select routes into

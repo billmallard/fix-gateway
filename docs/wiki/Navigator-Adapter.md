@@ -53,7 +53,10 @@ plan or external navigator*).
 
 ## When the navigator goes quiet
 
-The plugin does not set quality flags itself. When sentences stop, the keys go
+A record that says the navigator is `degraded` or `invalid` writes its
+position, `GS`, `TRACK` and `EXT*` keys `bad`, and a `valid` one clears the
+flag; `TALT` is also bad below a 3-D fix. The built-in `garmin_nmea` adapter
+always says `valid` today. When sentences stop, the keys go
 `old` through their `tol`: 2 s for `LAT`, `LONG`, `GS`, `TRACK` and
 `GPS_FIX_TYPE`, 5 s for the `EXT*` keys. If the serial port cannot be opened,
 or a read fails, the plugin logs the error and stops reading; it does not

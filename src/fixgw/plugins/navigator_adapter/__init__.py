@@ -86,16 +86,19 @@ class MainThread(threading.Thread):
             if not raw:
                 continue
 
-            messages = self.adapter.parse_line(raw)
-            for msg in messages:
-                try:
-                    apply_to_db(msg, self.parent.db_write, self.cdi_full_scale_nm,
-                                set_value=self._set_value)
-                except Exception as exc:
-                    self.log.debug(f"navigator_adapter: db write error: {exc}")
+            self.handle_line(raw)
 
         if self._serial and self._serial.is_open:
             self._serial.close()
+
+    def handle_line(self, raw: bytes):
+        """Parse one raw line and write what it carries to the database."""
+        for msg in self.adapter.parse_line(raw):
+            try:
+                apply_to_db(msg, self.parent.db_write, self.cdi_full_scale_nm,
+                            set_value=self._set_value)
+            except Exception as exc:
+                self.log.debug(f"navigator_adapter: db write error: {exc}")
 
     def _set_value(self, key, value, bad):
         self.parent.db_get_item(key).set(value, bad=bad)
