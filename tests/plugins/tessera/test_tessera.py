@@ -317,8 +317,8 @@ def test_press_on_a_key_without_an_action_flashes_red(rig, database):
     p, panel = rig()
     assert accepted(p, panel)
     before = database.writers()
-    assert panel.press(1)
-    assert wait_for(lambda: panel.feedback == [("alert", 1)])
+    assert panel.press(8)                  # CRS: shown, no press
+    assert wait_for(lambda: panel.feedback == [("alert", 8)])
     assert database.writers() == before
 
 
@@ -389,6 +389,20 @@ def test_the_hdg_bug_key_pulses_pyefis_heading_bug_focus_button(rig, database):
     panel.press(4)
     assert wait_for(lambda: ("ok", 4) in panel.feedback)
     assert rec.calls == [("TSBTN132", True), ("TSBTN132", False)]
+
+
+
+def test_the_baro_key_pulses_pyefis_baro_focus_button(rig, database):
+    """TESS2 (AER-6622): key 1 shows BARO and a press pulses TSBTN136,
+    pyEfis's baro-focus button. On the bench it had no press and flashed
+    red, so the knob could reach baro only through a touch on the glass."""
+    rec = Recorder()
+    database.callback_add("test", "TSBTN136", rec, None)
+    p, panel = rig()
+    assert accepted(p, panel)
+    panel.press(1)
+    assert wait_for(lambda: ("ok", 1) in panel.feedback)
+    assert rec.calls == [("TSBTN136", True), ("TSBTN136", False)]
 
 
 # -- reconnect -----------------------------------------------------------------

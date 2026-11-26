@@ -39,12 +39,14 @@ the second row. The shipped page, `config/tessera/page.yaml`, shows baro,
 heading bug, course and map range, with baro and heading keys. A press on
 the HDG BUG key pulses `TSBTN132`, pyEfis's `heading-bug-focus` button, which
 gives pyEfis's knob to the heading bug as a touch on its readout would
-(pyEfis `focus` action, AER-6630):
+(pyEfis `focus` action, AER-6630). A press on the BARO key pulses `TSBTN136`,
+pyEfis's `baro-focus` button, which does the same for the altimeter tape's baro
+box (AER-6622):
 
 ```yaml
 name: SPIKE
 keys:
-  - {id: 1, label: BARO, show: BARO, format: "{:.2f}"}
+  - {id: 1, label: BARO, show: BARO, format: "{:.2f}", press: {pulse: TSBTN136}}
   - {id: 3, label: BARO, text: "+", press: {pulse: TSBTN12}}
   - {id: 10, label: MAP RANGE, show: MAPRANGE}
 ```

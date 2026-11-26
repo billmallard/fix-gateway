@@ -15,7 +15,8 @@
 # A key with no `press` answers a touch with a red flash and writes nothing.
 name: SPIKE
 keys:
-  - {id: 1, label: BARO, show: BARO, format: "{:.2f}"}
+  # A press gives pyEfis's knob to the baro setting (baro-focus).
+  - {id: 1, label: BARO, show: BARO, format: "{:.2f}", press: {pulse: TSBTN136}}
   - {id: 2, label: BARO, text: "-", press: {pulse: TSBTN11}}    # baro-down-invisible
   - {id: 3, label: BARO, text: "+", press: {pulse: TSBTN12}}    # baro-up-invisible
   # A press gives pyEfis's knob to the heading bug (heading-bug-focus).
