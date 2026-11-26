@@ -3,8 +3,10 @@
 # listed here gains a second live writer, when a listed key gains a writer,
 # and when a listed key has lost one -- so this file only shrinks.  Remove
 # an entry by giving the key one writer (a selector, roadmap 9.1).
-# Live writers: `writers` and `pyefis` in src/fixgw/database/writers.yaml.
-# 59 keys.
+# Live writers: `writers` in src/fixgw/database/writers.yaml, and `pyefis`,
+# whose modules are the panel, one writer.  A pilot setting whose external
+# writers follow the panel (`echo`) is not here (ARCHG3b).
+# 56 keys.
 
 AGL: [canfix, mavlink]
 ALAT: [canfix, dynon, mavlink, rpi_bno055, stratux]
@@ -12,7 +14,7 @@ ALONG: [mavlink, rpi_bno055]
 ALT: [canfix, dynon, grand_rapids_eis, mavlink, onspeed, rpi_bmp085, stratux]
 ANORM: [mavlink, rpi_bno055]
 AOA: [canfix, onspeed]
-BARO: [canfix, grand_rapids_eis, pyefis/instruments/altimeter]
+BARO: [canfix, grand_rapids_eis, pyefis]
 BAT_REMAINING: [X728, strom_pi]
 CHT11: [canfix, grand_rapids_eis]
 CHT12: [canfix, grand_rapids_eis]
@@ -30,15 +32,6 @@ EXTCDI: [garmin_gnx375, navigator_adapter]
 EXTCRS: [garmin_gnx375, navigator_adapter]
 EXTTF: [garmin_gnx375, navigator_adapter]
 EXTXTK: [garmin_gnx375, navigator_adapter]
-# FPLCMD: a sanctioned addition (Bill, card bc9865d2 on AER-6518, 2026-11-25).
-# A seq-arbitrated command channel, not a second source: the pyEfis editor's
-# fixbridge.command and the HSI's _send_fpl_command each send one past the
-# highest seq on the bus (the last FPLCMD or FPLCMDACK), and acks are matched
-# by seq. The HSI keeps its own copy of the rule because rule R1 bars core from
-# importing the flight-plan package; a pyEfis test (test_hsi_gps_obs.py) holds
-# the two copies together. A selector cannot apply: a command has no source to
-# choose between.
-FPLCMD: [pyefis/flightplan, pyefis/instruments/hsi]
 FUELF1: [canfix, shadin]
 FUELQ1: [canfix, grand_rapids_eis]
 FUELQT: [compute, shadin]
@@ -49,10 +42,8 @@ GPS_FIX_TYPE: [garmin_gnx375, gpsd, mavlink, navigator_adapter]
 GPS_SATS_VISIBLE: [gpsd, mavlink]
 GS: [garmin_gnx375, gpsd, mavlink, navigator_adapter, stratux]
 HEAD: [canfix, mavlink, rpi_bno055, stratux]
-HEADBUG: [pyefis/instruments/autopilot, pyefis/instruments/hsi]
 HOBBS1: [canfix, grand_rapids_eis]
 IAS: [canfix, mavlink, onspeed, rpi_virtualwire]
-IASSEL: [pyefis/instruments/airspeed, pyefis/instruments/autopilot]
 LAT: [garmin_gnx375, gpsd, mavlink, navigator_adapter]
 LONG: [garmin_gnx375, gpsd, mavlink, navigator_adapter]
 OAT: [canfix, grand_rapids_eis, rpi_virtualwire]
