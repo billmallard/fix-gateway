@@ -10,7 +10,7 @@ Each side was staged with `bench-deploy.sh` (owner AVIONICS):
 
 | Side | pyEfis | fix-gateway |
 |---|---|---|
-| branch | `aer-6630/panel-focus` 4251ead5 | `aer-6630/hdg-bug-focus-key` 8912789 |
+| branch | `aer-6630/panel-focus` e203f90f (dev with pyEfis #601 merged in) | `aer-6630/hdg-bug-focus-key` 1ec726f |
 | dev | `dev` 5143414f | `dev` 8c92684 |
 
 The deploy copied the new stock files into the active config: page key 4 with
@@ -43,14 +43,18 @@ ring, 000° throughout. `branch/clip.mp4` is the whole glass at 10 fps across
 the branch run (x11grab). The full frames are in `branch/` and `dev/`, scaled
 to 960x540.
 
-## A defect this run found: the attitude display goes black (AER-6639)
+## The black attitude display in the first run (AER-6639, fixed by pyEfis #601)
 
-On the branch, the attitude area goes black once HDG takes focus
-(`branch/frame-focused.png`), and it stays black until pyEfis restarts. A
-plain touch on the HDG readout does the same on dev, with no AER-6630 code
-(`touch-dev/`, `touch_dev.sh`). A touch on the baro box does not. AER-6639
-tracks the defect. It is in the HSI's focus state, not in the new action.
-These PRs stay drafts until it is fixed.
+The first branch run, at 4251ead5, showed the attitude area black from the
+press onwards. AER-6639 traced that to the SIGUSR1 screenshot
+`bench-deploy.sh` takes after each deploy. After that screenshot, the next
+repaint of any widget over the attitude display composes it black. HDG focus
+was only the first repaint, and with X-Plane off nothing redrew the attitude
+display afterwards. It had nothing to do with the focus action. pyEfis #601
+repaints the GL widgets after the screenshot. The frames, log and clip here
+come from the rerun with #601 merged in, after the same deploy screenshot:
+the attitude display draws in every frame (mean of the sky region 144 in
+all four).
 
 ## Not shown here
 
