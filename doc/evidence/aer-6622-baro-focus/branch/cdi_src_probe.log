@@ -1,0 +1,6 @@
+NAVSRC at start 1.0 VLOC2
+press: NAVSRC 2.0 panel shows GPS
+press: NAVSRC 0.0 panel shows VLOC1
+press: NAVSRC 1.0 panel shows VLOC2
+RESULT PASS
+rc=0
