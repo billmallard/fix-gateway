@@ -12,6 +12,7 @@
 #                          bindings run them on any screen (pyEfis #591);
 #                          an older pyEfis acts only while the button shows.
 #   {set: KEY, value: V}   one write of V.
+# A key with `icon` shows that symbol instead of a value (doc/plugins/tessera.md).
 # A key with no `press` answers a touch with a red flash and writes nothing.
 name: SPIKE
 keys:
@@ -35,3 +36,6 @@ keys:
   - {id: 10, label: MAP RANGE, show: MAPRANGE, press: {pulse: TSBTN139}}
   - {id: 11, label: RANGE, text: "-", press: {pulse: TSBTN137}}  # map-range-down
   - {id: 12, label: RANGE, text: "+", press: {pulse: TSBTN138}}  # map-range-up
+  # The gear opens pyEfis's system menu (Data Status, About, Screens), the
+  # same menu as the corner swipe on the display (MENU1b).
+  - {id: 18, label: MENU, icon: settings, press: {pulse: SYSMENU}}
