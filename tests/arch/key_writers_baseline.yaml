@@ -6,7 +6,7 @@
 # Live writers: `writers` in src/fixgw/database/writers.yaml, and `pyefis`,
 # whose modules are the panel, one writer.  A pilot setting whose external
 # writers follow the panel (`echo`) is not here (ARCHG3b).
-# 56 keys.
+# 52 keys.
 
 AGL: [canfix, mavlink]
 ALAT: [canfix, dynon, mavlink, rpi_bno055, stratux]
@@ -28,24 +28,20 @@ EGT13: [canfix, grand_rapids_eis]
 EGT14: [canfix, grand_rapids_eis]
 EGT15: [canfix, grand_rapids_eis]
 EGT16: [canfix, grand_rapids_eis]
-EXTCDI: [garmin_gnx375, navigator_adapter]
-EXTCRS: [garmin_gnx375, navigator_adapter]
-EXTTF: [garmin_gnx375, navigator_adapter]
-EXTXTK: [garmin_gnx375, navigator_adapter]
 FUELF1: [canfix, shadin]
 FUELQ1: [canfix, grand_rapids_eis]
 FUELQT: [compute, shadin]
 GPS_ACCURACY_HORIZ: [gpsd, mavlink]
 GPS_ACCURACY_SPEED: [gpsd, mavlink]
 GPS_ACCURACY_VERTICAL: [gpsd, mavlink]
-GPS_FIX_TYPE: [garmin_gnx375, gpsd, mavlink, navigator_adapter]
+GPS_FIX_TYPE: [gpsd, mavlink, navigator_adapter]
 GPS_SATS_VISIBLE: [gpsd, mavlink]
-GS: [garmin_gnx375, gpsd, mavlink, navigator_adapter, stratux]
+GS: [gpsd, mavlink, navigator_adapter, stratux]
 HEAD: [canfix, mavlink, rpi_bno055, stratux]
 HOBBS1: [canfix, grand_rapids_eis]
 IAS: [canfix, mavlink, onspeed, rpi_virtualwire]
-LAT: [garmin_gnx375, gpsd, mavlink, navigator_adapter]
-LONG: [garmin_gnx375, gpsd, mavlink, navigator_adapter]
+LAT: [gpsd, mavlink, navigator_adapter]
+LONG: [gpsd, mavlink, navigator_adapter]
 OAT: [canfix, grand_rapids_eis, rpi_virtualwire]
 OILP1: [canfix, grand_rapids_eis]
 OILT1: [canfix, grand_rapids_eis]
@@ -62,9 +58,11 @@ TACH1: [canfix, grand_rapids_eis]
 # test_talt_has_the_position_writers (tests/arch/test_key_writers.py) passes:
 # TALT's live writers equal LAT's and LONG's. It ends when SRC5a's position
 # select lands. A writer added without that test does not qualify.
-TALT: [garmin_gnx375, gpsd, mavlink, navigator_adapter]
+# garmin_gnx375 left every position key when SRC6 made it an alias for
+# navigator_adapter (AER-6674).
+TALT: [gpsd, mavlink, navigator_adapter]
 TAS: [canfix, dynon, mavlink]
-TRACK: [garmin_gnx375, gpsd, mavlink, navigator_adapter]
+TRACK: [gpsd, mavlink, navigator_adapter]
 VOLT: [canfix, grand_rapids_eis, mgl_serial]
 VS: [canfix, dynon, mavlink, stratux]
 WPLAT: [flightplan, ifly, navigator_adapter]

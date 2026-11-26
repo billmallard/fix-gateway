@@ -53,7 +53,10 @@ plan or external navigator*).
 
 ## When the navigator goes quiet
 
-The plugin does not set quality flags itself. When sentences stop, the keys go
+A record that says the navigator is `degraded` or `invalid` writes its
+position, `GS`, `TRACK` and `EXT*` keys `bad`, and a `valid` one clears the
+flag; `TALT` is also bad below a 3-D fix. The built-in `garmin_nmea` adapter
+always says `valid` today. When sentences stop, the keys go
 `old` through their `tol`: 2 s for `LAT`, `LONG`, `GS`, `TRACK` and
 `GPS_FIX_TYPE`, 5 s for the `EXT*` keys. If the serial port cannot be opened,
 or a read fails, the plugin logs the error and stops reading; it does not
@@ -61,8 +64,10 @@ reconnect until the gateway restarts.
 
 ## Things to know
 
-- **One writer per key.** The `garmin_gnx375` plugin writes the same `EXT*`
-  keys, and `gpsd`, `xplane` and other GPS sources write `LAT`/`LONG`. Enable
-  one of them.
+- **One writer per key.** `gpsd`, `xplane` and other GPS sources write
+  `LAT`/`LONG` too. Enable one of them.
+- **The `garmin_gnx375` plugin is this plugin.** It is a config alias with the
+  `garmin_nmea` adapter and a 9600 default baud, kept so existing installs work
+  (SRC6). A new install enables `navigator_adapter`; never enable both.
 - **The GPS bearing pointer** (`GPSBRG`) is computed from the internal plan's
   `WPLAT`/`WPLON`, not from the navigator.

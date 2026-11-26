@@ -25,7 +25,17 @@ import yaml
 
 from . import protocol
 
-_KEY_FIELDS = {"id", "label", "show", "format", "text", "press", "color", "confirm"}
+_KEY_FIELDS = {
+    "id",
+    "label",
+    "show",
+    "format",
+    "enum",
+    "text",
+    "press",
+    "color",
+    "confirm",
+}
 
 VALUE_COLOR = "#FFFFFF"
 OLD_COLOR = "#FFB000"  # a stale value: still shown, in amber
@@ -61,6 +71,7 @@ class Key:
         self.text = str(entry.get("text", ""))
         if self.show is not None and "text" in entry:
             raise PageError("key {}: show and text are exclusive".format(self.id))
+        self.enum = _enum(self.id, entry)
         self.color = entry.get("color", VALUE_COLOR)
         # Passed to the panel as given: the panel, not this plugin, is the
         # judge of a colour (an INVALID answer is handled like any other).
@@ -82,10 +93,7 @@ class Key:
             if bad or fail:
                 text, color = BAD_TEXT, BAD_COLOR
             else:
-                try:
-                    text = self.format.format(value)
-                except (ValueError, TypeError):
-                    text = str(value)
+                text = self._text(value)
                 if old:
                     color = OLD_COLOR
         tile = {
@@ -98,6 +106,20 @@ class Key:
             tile["cf"] = 1
         return tile
 
+    def _text(self, value):
+        if self.enum is not None:
+            # A value is named by its nearest whole number, so a float key
+            # such as NAVSRC (1.0) finds its name; one with no name falls
+            # through to `format`.
+            try:
+                return self.enum[int(round(float(value)))]
+            except (KeyError, ValueError, TypeError, OverflowError):
+                pass
+        try:
+            return self.format.format(value)
+        except (ValueError, TypeError):
+            return str(value)
+
     def writes(self):
         """The (key, value) writes one press makes, in order."""
         if not self.press:
@@ -108,6 +130,21 @@ class Key:
             # False, so a pyEfis button bound to the key acts once.
             return [(key, True), (key, False)]
         return [(key, value)]
+
+
+def _enum(key_id, entry):
+    """`enum: {0: VLOC1, ...}`: the text for each whole-number value of
+    `show`, as pyEfis's annunciator lamps name NAVSRC."""
+    enum = entry.get("enum")
+    if enum is None:
+        return None
+    if entry.get("show") is None:
+        raise PageError("key {}: enum needs show".format(key_id))
+    if not isinstance(enum, dict) or not enum or not all(
+        type(v) is int and isinstance(t, str) for v, t in enum.items()
+    ):
+        raise PageError("key {}: enum maps whole numbers to text".format(key_id))
+    return dict(enum)
 
 
 def _press(key_id, press):
