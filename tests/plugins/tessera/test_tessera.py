@@ -282,6 +282,39 @@ def test_a_changed_value_is_pushed_in_place(rig, database):
     assert panel.rebuilds == 1
 
 
+def test_cdi_src_shows_the_source_by_name(rig, database):
+    """TESS2 (AER-6622): key 9 showed the fixed text SRC; Bill asked for the
+    source itself, named as pyEfis's NAVSRC annunciator names it."""
+    p, panel = rig()
+    assert accepted(p, panel)
+    for value, name in ((0.0, "VLOC1"), (1.0, "VLOC2"), (2.0, "GPS")):
+        database.write("NAVSRC", value)
+        assert wait_for(lambda: tile(panel, 9)["gauge"]["t"] == name)
+    assert panel.rebuilds == 1
+
+
+@pytest.mark.parametrize(
+    "value, text",
+    [(1.0, "VLOC2"), (0.9999, "VLOC2"), (3, "GPS2"), (2.6, "GPS2"), (7.0, "7.0")],
+)
+def test_enum_names_the_nearest_whole_number_else_formats(value, text):
+    key = Page(
+        {
+            "keys": [
+                {
+                    "id": 1,
+                    "label": "SRC",
+                    "show": "NAVSRC",
+                    "enum": {0: "VLOC1", 1: "VLOC2", 2: "GPS", 3: "GPS2"},
+                }
+            ]
+        }
+    ).by_id[1]
+    tile = key.tile(lambda _key: (value, False, False, False, False))
+    assert tile["gauge"]["t"] == text
+    assert tile["color"] == "#FFFFFF"
+
+
 def test_bad_value_shows_dashes_without_a_rebuild(rig, database):
     p, panel = rig()
     assert accepted(p, panel)
@@ -463,7 +496,7 @@ def test_shipped_page_names_only_keys_in_the_database(database):
         database.get_raw_item(key)
     for key in page.pulsed_keys():
         assert database.get_raw_item(key).typestring == "bool"
-    assert set(page.shown_keys()) == {"BARO", "HEADBUG", "COURSE", "MAPRANGE"}
+    assert set(page.shown_keys()) == {"BARO", "HEADBUG", "COURSE", "NAVSRC", "MAPRANGE"}
 
 
 def test_plugin_refuses_a_page_naming_a_missing_key(database, tmp_path):
@@ -506,6 +539,10 @@ def test_page_path_is_relative_to_the_config_directory(database):
         [{"id": 1, "label": "X", "show": "BARO", "text": "Y"}],
         [{"id": 1, "label": "X", "press": {"pulse": "A", "set": "B"}}],
         [{"id": 1, "label": "X", "icon": "ok"}],
+        [{"id": 1, "label": "X", "enum": {0: "A"}}],
+        [{"id": 1, "label": "X", "show": "BARO", "enum": {"0": "A"}}],
+        [{"id": 1, "label": "X", "show": "BARO", "enum": {0: 1}}],
+        [{"id": 1, "label": "X", "show": "BARO", "enum": {}}],
     ],
     ids=[
         "id-0",
@@ -516,6 +553,10 @@ def test_page_path_is_relative_to_the_config_directory(database):
         "show-and-text",
         "two-actions",
         "icon",
+        "enum-without-show",
+        "enum-string-value",
+        "enum-number-text",
+        "enum-empty",
     ],
 )
 def test_page_file_errors(keys):

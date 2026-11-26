@@ -57,6 +57,7 @@ keys:
 | `label` | The text under the key, up to 24 characters. |
 | `show` | A FIX key whose value is the key's centre text. |
 | `format` | A Python format for `show`, default `{}`. The panel shows 7 characters at most. |
+| `enum` | Text for each whole-number value of `show`, as `{0: VLOC1, 1: VLOC2, 2: GPS, 3: GPS2}` names NAVSRC. A value is looked up by its nearest whole number; one with no name is shown through `format`. |
 | `text` | Fixed centre text instead of `show`. |
 | `press` | `{pulse: KEY}` writes True then False to a bool key. `{set: KEY, value: V}` writes V once. |
 | `color` | The centre text colour as `#RRGGBB`. The panel decides whether a colour is valid. |
