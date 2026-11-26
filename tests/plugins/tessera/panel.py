@@ -98,6 +98,7 @@ class ScriptedPanel:
         link_path,
         boot_id=1234,
         board=BOARD_ID,
+        firmware="0.9.0",
         protocol=4,
         reset="poweron",
         layout_max=LAYOUT_MAX,
@@ -105,6 +106,7 @@ class ScriptedPanel:
         self.link_path = link_path
         self.boot_id = boot_id
         self.board = board
+        self.firmware = firmware
         self.protocol = protocol
         self.reset = reset
         self.layout_max = layout_max
@@ -241,7 +243,7 @@ class ScriptedPanel:
                     {
                         "type": "info",
                         "boardId": self.board,
-                        "firmwareVersion": "0.9.0",
+                        "firmwareVersion": self.firmware,
                         "protocol": self.protocol,
                         "bootId": self.boot_id,
                         "uptime": 5,

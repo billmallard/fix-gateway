@@ -20,7 +20,12 @@ they mirror.
 
 import json
 
-BOARD_ID = "tessera-p4"
+# The GUITION JC1060P470C, under the two ids Tessera's builds report for it:
+# `tessera-p4` for an ESP32-P4 chip below revision v3, `tessera-p4-v3` for a
+# v3.x chip (TESS2's board 1 is a v3.2).  Tessera's own host/panel_serial.py
+# (v1.2.12) lists four more ids, for other boards with other screens; the page
+# here is laid out for this board's 1024x600 grid, so those stay refused.
+BOARD_IDS = frozenset({"tessera-p4", "tessera-p4-v3"})
 # BACKLOG TESS: accept protocol 4 only.  Protocol 4 is the firmware this
 # plugin was written against; an older one lacks fields we may use later and
 # a newer one is unknown.
@@ -53,7 +58,7 @@ class Rejected(Exception):
 
 def check_info(info):
     """Raise Rejected unless `info` is a supported panel's get_info answer."""
-    if info.get("boardId") != BOARD_ID:
+    if info.get("boardId") not in BOARD_IDS:
         raise Rejected("a different device (board {!r})".format(info.get("boardId")))
     protocol = info.get("protocol")
     if type(protocol) is not int or protocol not in SUPPORTED_PROTOCOLS:
