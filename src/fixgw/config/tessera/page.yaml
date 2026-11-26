@@ -25,6 +25,8 @@ keys:
   - {id: 6, label: HDG, text: "+", press: {pulse: TSBTN131}}    # heading-bug-up
   - {id: 7, label: HDG, text: SYNC, press: {pulse: TSBTN130}}   # heading-bug-sync
   - {id: 8, label: CRS, show: COURSE, format: "{:03.0f}"}
-  - {id: 9, label: CDI SRC, text: SRC, press: {pulse: TSBTN133}}  # cdi-source
+  # Shows the CDI source by name, as pyEfis's NAVSRC annunciator does.
+  - {id: 9, label: CDI SRC, show: NAVSRC, enum: {0: VLOC1, 1: VLOC2, 2: GPS, 3: GPS2},
+     press: {pulse: TSBTN133}}  # cdi-source
   # pyEfis has no map-range button yet, so this key only shows the index.
   - {id: 10, label: MAP RANGE, show: MAPRANGE}
