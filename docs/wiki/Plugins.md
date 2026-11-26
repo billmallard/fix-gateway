@@ -38,7 +38,7 @@ connection file; write one and wire it in as **[[Configuration]]** describes.
 | `gpsd` | position, track, ground speed, GPS altitude, fix type and accuracy from a `gpsd` daemon |
 | `stratux` | GDL90 from a Stratux: ADS-B traffic (`TFC*`), AHRS and ground speed. The receiver's own position, integrity and GPS altitude go to its `STX*` keys, never `LAT`/`LONG`, and receiver health and GPS quality come from its `/getStatus` page. AHRS over Wi-Fi drives the attitude display: set `source:` to the receiver's address (the health poll needs it too). Traffic matching `ownship_address` (in the connection file, or top-level in `preferences.yaml.custom`) is not shown. With `fisb: true` (off by default; the receiver needs UAT enabled) it also decodes FIS-B text weather and NEXRAD into the plugin, not into FIX keys; a NetFIX client asks for one station's text weather with `@xweather` ([[NetFIX Protocol]]). See [`doc/plugins/stratux.md`](https://github.com/billmallard/fix-gateway/blob/dev/doc/plugins/stratux.md) |
 | `navigator_adapter` | an external navigator's RS-232 NMEA: position and `EXT*` guidance, see **[[Navigator Adapter]]** |
-| `garmin_gnx375` | Garmin GNX 375 NMEA: position and `EXT*` guidance (GPS and nav only) |
+| `garmin_gnx375` | an alias for `navigator_adapter` with the `garmin_nmea` adapter, kept for existing installs; a new install enables `navigator_adapter` |
 | `ifly` | next waypoint (`WPNAME`, `WPLAT`, `WPLON`) from the iFly EFB over UDP; experimental |
 
 ### Buses & autopilots

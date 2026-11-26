@@ -64,8 +64,10 @@ reconnect until the gateway restarts.
 
 ## Things to know
 
-- **One writer per key.** The `garmin_gnx375` plugin writes the same `EXT*`
-  keys, and `gpsd`, `xplane` and other GPS sources write `LAT`/`LONG`. Enable
-  one of them.
+- **One writer per key.** `gpsd`, `xplane` and other GPS sources write
+  `LAT`/`LONG` too. Enable one of them.
+- **The `garmin_gnx375` plugin is this plugin.** It is a config alias with the
+  `garmin_nmea` adapter and a 9600 default baud, kept so existing installs work
+  (SRC6). A new install enables `navigator_adapter`; never enable both.
 - **The GPS bearing pointer** (`GPSBRG`) is computed from the internal plan's
   `WPLAT`/`WPLON`, not from the navigator.

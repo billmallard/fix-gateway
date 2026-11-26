@@ -106,7 +106,13 @@ latest `$GPRMC` magnetic variation; if the navigator sends a true bearing and
 no variation, `EXTCRS` is not written rather than a true course labelled
 magnetic.
 
-Typical serial settings: 9600 baud, 8N1.
+Typical serial settings: 9600 baud, 8N1. Aviation Output 1 is fixed at 9600,
+so set `baud: 9600`; the shipped `connections/navigator_adapter.yaml` says 4800.
+
+This is the only Garmin NMEA parser. The `garmin_gnx375` plugin is a config
+alias for this plugin with this adapter, kept for existing installs (SRC6); a
+new install enables `navigator_adapter`. See
+[garmin_gnx375.md](garmin_gnx375.md) for the GNX 375 hardware guide.
 
 ---
 
