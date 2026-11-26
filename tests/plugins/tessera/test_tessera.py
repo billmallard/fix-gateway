@@ -425,10 +425,13 @@ def test_the_hdg_bug_key_pulses_pyefis_heading_bug_focus_button(rig, database):
 
 
 
-@pytest.mark.parametrize("key_id, pulsed", [(11, "TSBTN137"), (12, "TSBTN138")])
+@pytest.mark.parametrize(
+    "key_id, pulsed", [(10, "TSBTN139"), (11, "TSBTN137"), (12, "TSBTN138")]
+)
 def test_the_range_keys_pulse_pyefis_map_range_buttons(rig, database, key_id, pulsed):
-    """TESS2 (AER-6622): the panel had no way to change the map range.  Keys
-    11 and 12 pulse pyEfis's map-range-down and map-range-up buttons."""
+    """TESS2 (AER-6622): the panel had no way to change the map range.  Key
+    10 pulses pyEfis's map-range-focus button (the knob zooms the map), and
+    keys 11 and 12 its map-range-down and map-range-up buttons."""
     rec = Recorder()
     database.callback_add("test", pulsed, rec, None)
     p, panel = rig()

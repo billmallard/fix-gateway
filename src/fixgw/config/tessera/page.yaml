@@ -30,6 +30,8 @@ keys:
      press: {pulse: TSBTN133}}  # cdi-source
   # The map's range ladder index.  A map follows MAPRANGE only if its
   # range_key names it, and each screen's ladder gives the index its range.
-  - {id: 10, label: MAP RANGE, show: MAPRANGE}
+  # A press gives pyEfis's knob to the map range (map-range-focus): the inner
+  # knob zooms smoothly, the outer ring steps the ladder, a push snaps.
+  - {id: 10, label: MAP RANGE, show: MAPRANGE, press: {pulse: TSBTN139}}
   - {id: 11, label: RANGE, text: "-", press: {pulse: TSBTN137}}  # map-range-down
   - {id: 12, label: RANGE, text: "+", press: {pulse: TSBTN138}}  # map-range-up

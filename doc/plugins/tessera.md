@@ -43,7 +43,10 @@ gives pyEfis's knob to the heading bug as a touch on its readout would
 pyEfis's `baro-focus` button, which does the same for the altimeter tape's baro
 box (AER-6622). The RANGE - and + keys pulse `TSBTN137` and `TSBTN138`, pyEfis's
 `map-range-down` and `map-range-up` buttons, which step `MAPRANGE` one rung of
-the map's range ladder. A map follows them only if its `range_key` names
+the map's range ladder. A press on MAP RANGE pulses `TSBTN139`, pyEfis's
+`map-range-focus` button, which gives the knob to the map: the inner knob
+zooms smoothly, the outer ring steps the ladder, and a push snaps to the
+nearest rung. A map follows any of these only if its `range_key` names
 `MAPRANGE`:
 
 ```yaml
