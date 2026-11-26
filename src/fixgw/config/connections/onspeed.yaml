@@ -17,5 +17,5 @@ onspeed:
   attitude: false   # PITCH and ROLL
   airspeed: false   # IAS
   altitude: false   # ALT: pressure altitude corrected to BARO. Lags in a
-                    # climb: firmware without OnSpeed-Gen2#1 smooths it
+                    # climb: firmware before OnSpeed-Gen2 9d95126 smooths it
                     # over about 10 s (doc/plugins/onspeed.md).

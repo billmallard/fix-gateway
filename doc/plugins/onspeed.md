@@ -109,7 +109,8 @@ Quality of these outputs:
 
 - **Altitude lags in a climb or descent by about 10 seconds' worth, unless
   the box runs firmware with
-  [OnSpeed-Gen2#1](https://github.com/billmallard/OnSpeed-Gen2/pull/1).**
+  [OnSpeed-Gen2#1](https://github.com/billmallard/OnSpeed-Gen2/pull/1)**
+  (merged to `master` as `9d95126`).
   Firmware before that change smooths pressure altitude before sending it,
   much more heavily than anything else (`DisplaySerial.ino` at `be1481c`: an
   exponential filter with `alpha = 2/(20+1)/10` per 100 ms frame, a time
