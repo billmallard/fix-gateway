@@ -221,8 +221,8 @@ def test_constructor_requests_configured_ids_and_initializes(monkeypatch):
 
     assert mav.conn is conn
     assert conn.mav.sent
-    assert_write(parent, "ROLL", 0)
-    assert_write(parent, "VS", 0)
+    # No data key is written before a message carries it (SRC3, AER-6542).
+    assert not {key for key, _value in parent.writes} & set(INIT_KEYS)
 
 
 def test_constructor_raises_when_port_missing(monkeypatch):
@@ -610,7 +610,8 @@ def test_link_timeout_flag_survives_plugin_writes_until_a_heartbeat(
     assert item.old is True
 
 
-# The keys Mav.init() zeroes on connect; the ahrs option is what reads each.
+# The keys Mav.init() used to zero on connect; the ahrs option is what
+# reads each.
 INIT_KEYS = ("ROLL", "PITCH", "HEAD", "AGL", "ALT", "VS")
 DATA_OFF = {
     "airspeed": False,
@@ -651,25 +652,42 @@ def test_connect_with_data_options_off_leaves_attitude_and_altitude_alone(
     }
 
 
-def test_connect_with_ahrs_on_still_zeroes_attitude_but_not_altitude(
+def test_connect_with_ahrs_on_writes_nothing_until_a_real_message(
     database, monkeypatch
 ):
+    # SRC3 (AER-6542): a zero written on connect is a wings-level, 0 ft
+    # attitude that reads valid until the first real message. The values
+    # from before the connect stay as they were and age old on their tol.
     for key in INIT_KEYS:
         database.write(key, 12.5)
+    before = {key: database.read(key) for key in INIT_KEYS}
 
-    connect_mav(database, monkeypatch, dict(DATA_OFF, ahrs=True))
+    mav = connect_mav(database, monkeypatch, dict(DATA_OFF, ahrs=True))
 
-    zeroed = [key for key in INIT_KEYS if key != "ALT"]
-    assert {key: database.read(key)[0] for key in zeroed} == {
-        key: 0 for key in zeroed
-    }
+    assert {key: database.read(key) for key in INIT_KEYS} == before
     writers = database.writers()
-    assert {key: writers.get(key) for key in zeroed} == {
-        key: ["mavlink"] for key in zeroed
+    assert {key: writers.get(key, []) for key in INIT_KEYS} == {
+        key: [] for key in INIT_KEYS
     }
-    # AER-6351: a fresh 0 ft would read as a good indicated altitude until
-    # the first SCALED_PRESSURE, or for good with pressure off.
-    assert database.read("ALT")[0] == 12.5
+
+    # The first real messages are what write them.
+    run(
+        mav,
+        Msg("ATTITUDE", roll=math.radians(10.0), pitch=math.radians(-5.0), yaw=0.0),
+        Msg("GLOBAL_POSITION_INT", hdg=9000, relative_alt=304800, alt=609600,
+            lat=400000000, lon=-880000000),
+        Msg("VFR_HUD", airspeed=0.0, groundspeed=0.0, climb=2.54),
+    )
+    assert database.read("ROLL")[0] == pytest.approx(10.0)
+    assert database.read("PITCH")[0] == pytest.approx(-5.0)
+    assert database.read("HEAD")[0] == pytest.approx(90.0)
+    assert database.read("AGL")[0] == pytest.approx(1000.0)
+    assert database.read("VS")[0] == 500
+    writers = database.writers()
+    assert {key: writers.get(key) for key in INIT_KEYS if key != "ALT"} == {
+        key: ["mavlink"] for key in INIT_KEYS if key != "ALT"
+    }
+    # AER-6351: ALT is indicated altitude, from SCALED_PRESSURE only.
     assert writers.get("ALT", []) == []
 
 

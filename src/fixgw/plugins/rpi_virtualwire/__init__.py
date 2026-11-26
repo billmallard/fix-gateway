@@ -41,8 +41,6 @@ class MainThread(threading.Thread):
         self.count = 0
         self.ias = 0
         self.oat = 0
-        self.ias_W_S = 0
-        self.oat_W_S = 0
         self.smooted = 0.8
         pigpio.exceptions = False
         self.rxpin = (
@@ -64,37 +62,41 @@ class MainThread(threading.Thread):
                 break
             time.sleep(0.25)
             self.count += 1
+            # Write only what a message carries. With no message nothing is
+            # rewritten, so a dead radio lets IAS and OAT age old on their
+            # tol instead of holding the last value fresh (SRC3, AER-6542).
             try:
                 while self.rx.ready():
-                    try:
-                        msg = str("".join(chr(c) for c in self.rx.get()))
-                    except:
-                        msg = [400, -50]
-                        # print msg
-                        pass
-                    msg = msg.split(",")
-                    if float(msg[0]) < 400:
-                        init_ias = float(msg[0])
-                        self.ias = float(
-                            (self.ias * self.smooted)
-                            + (1.0 - self.smooted) * (init_ias)
-                        )
-                        self.ias_W_S = 3
-                    if float(msg[1]) > -50:
-                        self.oat = float(msg[1])
-                        self.oat_W_S = 3
-                    else:
-                        self.ias_W_S = 2
-                        self.oat_W_S = 2
-            except:
-                self.ias_W_S = 2
-                self.oat_W_S = 2
-                pass
-            self.parent.db_write("IAS", int(self.ias))
-            self.parent.db_write("OAT", self.oat)
-            self.parent.db_write("IASW", self.ias_W_S)
-            self.parent.db_write("OATW", self.oat_W_S)
+                    self.receive(self.rx.get())
+            except Exception as e:
+                self.log.debug("virtualwire receive failed: {}".format(e))
         self.running = False
+
+    def receive(self, data):
+        """One "ias, oat" message. 400 and -50 are the sender's no-reading
+        values; each flags its own key and writes no value."""
+        try:
+            fields = "".join(chr(c) for c in data).split(",")
+            init_ias = float(fields[0])
+            oat = float(fields[1])
+        except (TypeError, ValueError, IndexError):
+            self.parent.db_write("IASW", 2)
+            self.parent.db_write("OATW", 2)
+            return
+        if init_ias < 400:
+            self.ias = float(
+                (self.ias * self.smooted) + (1.0 - self.smooted) * (init_ias)
+            )
+            self.parent.db_write("IAS", int(self.ias))
+            self.parent.db_write("IASW", 3)
+        else:
+            self.parent.db_write("IASW", 2)
+        if oat > -50:
+            self.oat = oat
+            self.parent.db_write("OAT", self.oat)
+            self.parent.db_write("OATW", 3)
+        else:
+            self.parent.db_write("OATW", 2)
 
     def stop(self):
         self.rx.cancel()

@@ -203,6 +203,12 @@ class Plugin(plugin.PluginBase):
                 pass
         if self.thread.is_alive():
             raise plugin.PluginFail
+        # Close the bus we opened in run(). Left open, it stays on the channel
+        # until the garbage collector frees it, and on the virtual interface
+        # that removal can skip another receiver's copy of a frame being sent
+        # at that moment (AER-6615). There is no bus if run() never got there.
+        if hasattr(self, "bus"):
+            self.bus.shutdown()
 
     def get_status(self):
         x = OrderedDict()
