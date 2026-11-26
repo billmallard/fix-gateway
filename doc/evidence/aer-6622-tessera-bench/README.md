@@ -79,3 +79,10 @@ flock -w 900 /tmp/pyefis-bench.lock python3 press_probe.py 6 HEADBUG 10 HEADBUG 
 Both probes talk to netfix on a raw socket. Do not use
 `fixgw.netfix.Client.stop()` against a shared gateway: it sends `@xkill`,
 which stops fixgw.
+
+## Bill's photos (2026-11-26)
+
+`photos/IMG_3647.jpg` and `photos/IMG_3649.jpg` were taken by Bill at the
+bench with the panel in front of the Beelink's PFD. They are downsized to
+1600 px from his originals on AER-6622. The panel and the PFD agree:
+BARO 30.12 and the heading bug at 144.

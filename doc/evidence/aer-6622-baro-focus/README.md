@@ -50,3 +50,25 @@ The strip, from this directory:
         x = i * (w + 10); out.paste(im, (x, 40)); d.text((x + 4, 12), n, fill="black")
     out.save("baro-box-strip.png")
     PY
+
+## CDI SRC shows the source (Bill, the same session)
+
+The CDI SRC key showed the fixed text `SRC`. It now shows `NAVSRC` through
+the page's new `enum` field (`{0: VLOC1, 1: VLOC2, 2: GPS, 3: GPS2}`, the
+names pyEfis's annunciator uses for NAVSRC). A press still pulses pyEfis's
+cdi-source button.
+
+`branch/cdi_src_probe.log`: RESULT PASS. Three firmware presses of key 9
+(`AD_PRESS 9`) stepped NAVSRC from 1 to 2, 0 and 1, and the log prints the
+name the page gives each value. pyEfis's button wraps NAVSRC through 0, 1
+and 2, so GPS2 never appears from a press. The probe reads the name from
+the page file. The glass of the panel is Bill's eye, and no frame of it is
+taken.
+
+The first attempt at the probe expected a cycle of four. Because of a shell
+fallback it also ran twice, and it left NAVSRC on VLOC2. The corrected
+probe ran once, and one more press put NAVSRC back on GPS (2.0), where it
+started.
+
+    cd ~/bench-scratch
+    flock -w 900 /tmp/pyefis-bench.lock python3 -u cdi_src_probe.py
