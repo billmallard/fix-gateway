@@ -181,20 +181,27 @@ AER-6623), and the check counts them the same way:
 - **A pilot setting may have the panel and external devices as writers.** The
   settings are `ALTSEL`, `VSSEL`, `IASSEL`, `HEADBUG`, `NAV1CRS`, `NAV2CRS` and
   `BARO`, marked `kind: setting` in the register. Each external writer in
-  `writers` declares an `echo` cell, which says how it keeps from fighting the
-  panel:
+  `writers` declares an `echo` cell, which says whether it keeps from fighting
+  the panel:
 
 | `echo` token | What the writer does |
 |---|---|
 | `echo_rule` | Writes only when its device's value has moved past its eps from the value it last agreed with the bus. Holds a value it was sent until the device shows it, or a settle time passes. The reference is X-Plane's autopilot adapter (`plugins/xplane/autopilot.py`, `_sync_from_sim` and `_sync_to_sim`). |
-| `device_holds` | The device holds the setting. The panel's value is sent to it, and what the device reports is written back without being resent: canfix's node-specific `ParameterSet` out, the node's broadcast in, and the output's resend exclusion. |
-| `overwrites` | Writes its device's value whatever the panel set. |
+| `overwrites` | Anything short of the echo rule: it writes each value its device reports, whatever the panel set. |
 
-A setting whose external writers all declare `echo_rule` or `device_holds` is
-allowed its writers, and it is not on the baseline. A setting with an
-`overwrites` writer is counted as any other key. `BARO` is on the baseline for
-this reason: `grand_rapids_eis` writes the EIS's own baro field on every frame,
-so a setting made on the panel lasts until the next frame. Simulators do not
+A setting whose external writers all declare `echo_rule` is allowed its
+writers, and it is not on the baseline. A setting with an `overwrites` writer is
+counted as any other key. 9.1(b) names only the echo rule (MAOS-DESIGN
+`3c3970f`), so a device that holds the setting itself is `overwrites` too.
+`BARO` is on the baseline for this reason, with both of its devices:
+
+- `grand_rapids_eis` writes the EIS's own baro field on every frame and never
+  takes the panel's, so a setting made on the panel lasts until the next frame.
+- `canfix` sends the panel's value to the CAN-FIX node as a node-specific
+  `ParameterSet` and writes back every broadcast the node sends. It does not
+  resend what it just received, but nothing holds the panel's value until the
+  node shows it, so a broadcast sent before the node applied the set puts the
+  old value back on the bus. Simulators do not
 declare an echo, because they never count as a writer.
 
 The list of settings is `SETTING_KEYS` in the tool, not the register. Adding a

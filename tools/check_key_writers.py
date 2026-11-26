@@ -182,13 +182,12 @@ ECHO = {
     "echo_rule",     # writes only when its device moved past its eps from the value it last
                      # agreed with the bus, and holds a value it was sent until the device
                      # shows it or a settle time passes (xplane/autopilot.py)
-    "device_holds",  # the device holds the setting: the panel's value is sent to it, and
-                     # what the device reports is written back, never resent (canfix)
-    "overwrites",    # writes its device's value whatever the panel set
+    "overwrites",    # anything short of that: it writes each value its device reports,
+                     # whatever the panel set (MAOS-DESIGN 3c3970f names only the echo rule)
 }
-# The echoes that let a setting have the panel and the device as writers.
+# The echo that lets a setting have the panel and the device as writers.
 # A key with an `overwrites` writer is counted as any other key.
-ECHO_FOLLOWS = {"echo_rule", "device_holds"}
+ECHO_FOLLOWS = {"echo_rule"}
 
 FIX_DECLARE = ("declare it in src/fixgw/database/writers.yaml and add the roadmap "
                "9.1 block (doc/key_writers.md)")
@@ -1183,8 +1182,8 @@ def dump_register(reg):
         "#   on_loss   per writer: silence, fail, holds_last, writes_zero, on_change",
         "#             or follows -- what the key does when the writer loses its input",
         "#   rate_hz   per writer, where the code or its doc states it",
-        "#   echo      per external writer of a setting: echo_rule, device_holds or",
-        "#             overwrites -- how it keeps from fighting the panel",
+        "#   echo      per external writer of a setting: echo_rule or overwrites --",
+        "#             whether it keeps from fighting the panel",
         "#   writers   live writers in fix-gateway: plugins and compute modules",
         "#   pyefis    live writers in pyEfis (ARCHG2 checks these from pyEfis's side);",
         "#             together they are the panel, one writer",

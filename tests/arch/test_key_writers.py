@@ -458,24 +458,24 @@ def baro(**cols):
 def test_a_setting_s_device_writer_must_declare_an_echo():
     assert ckw.check_settings(baro()) == [
         "BARO: %s writes a pilot setting and declares no `echo` in writers.yaml; say how it "
-        "keeps from fighting the panel: device_holds, echo_rule, overwrites "
+        "keeps from fighting the panel: echo_rule, overwrites "
         "(doc/key_writers.md)" % m for m in ("canfix", "grand_rapids_eis")]
     # Without an echo, the key is counted as any other.
     assert ckw.check_baseline(baro(), {})[0].startswith("BARO: 3 live writers")
-    reg = baro(echo={"canfix": "device_holds: note", "grand_rapids_eis": "echo_rule"})
+    reg = baro(echo={"canfix": "echo_rule: note", "grand_rapids_eis": "echo_rule"})
     assert ckw.check_settings(reg) == []
     assert ckw.check_baseline(reg, {}) == []
     assert ckw.build_baseline(reg) == {}
 
 
 def test_a_setting_with_a_device_that_overwrites_the_panel_stays_on_the_baseline():
-    reg = baro(echo={"canfix": "device_holds", "grand_rapids_eis": "overwrites: every frame"})
+    reg = baro(echo={"canfix": "echo_rule", "grand_rapids_eis": "overwrites: every frame"})
     assert ckw.check_settings(reg) == []
     assert ckw.check_baseline(reg, {})[0].startswith(
         "BARO: 3 live writers (canfix, grand_rapids_eis, pyefis), and it is not on the baseline")
     assert ckw.check_baseline(reg, {"BARO": ["canfix", "grand_rapids_eis", "pyefis"]}) == []
     # When every device follows the panel, the entry must come off.
-    reg = baro(echo={"canfix": "device_holds", "grand_rapids_eis": "echo_rule"})
+    reg = baro(echo={"canfix": "echo_rule", "grand_rapids_eis": "echo_rule"})
     assert ckw.check_baseline(reg, {"BARO": ["canfix", "grand_rapids_eis", "pyefis"]}) == [
         "BARO: a pilot setting whose external writers all follow the panel (roadmap 9.1), "
         "and still on the baseline; remove it from tests/arch/key_writers_baseline.yaml"]
@@ -504,9 +504,13 @@ def test_a_listed_setting_must_be_marked_and_kind_has_one_value():
 def test_an_echo_cell_outside_its_vocabulary_fails():
     reg = baro(echo={"canfix": "polite", "grand_rapids_eis": "echo_rule"})
     assert ckw.check_columns(CAT, reg, provider_keys=()) == [
-        "BARO: writers.yaml `echo` for canfix is 'polite'; echo is one of device_holds, "
-        "echo_rule, overwrites, then \": note\""]
+        "BARO: writers.yaml `echo` for canfix is 'polite'; echo is one of echo_rule, "
+        "overwrites, then \": note\""]
     assert ckw.check_baseline(reg, {})[0].startswith("BARO: 3 live writers")
+    # 9.1(b) names only the echo rule (MAOS-DESIGN 3c3970f): a device that
+    # holds the setting itself, as a CAN-FIX node does, is not a token of its own.
+    reg = baro(echo={"canfix": "device_holds", "grand_rapids_eis": "echo_rule"})
+    assert len(ckw.check_columns(CAT, reg, provider_keys=())) == 1
 
 
 # The pyEfis CAS model's acknowledge (pyEfis instruments/cas/model.py, #552):

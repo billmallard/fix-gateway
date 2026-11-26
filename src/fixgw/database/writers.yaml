@@ -15,8 +15,8 @@
 #   on_loss   per writer: silence, fail, holds_last, writes_zero, on_change
 #             or follows -- what the key does when the writer loses its input
 #   rate_hz   per writer, where the code or its doc states it
-#   echo      per external writer of a setting: echo_rule, device_holds or
-#             overwrites -- how it keeps from fighting the panel
+#   echo      per external writer of a setting: echo_rule or overwrites --
+#             whether it keeps from fighting the panel
 #   writers   live writers in fix-gateway: plugins and compute modules
 #   pyefis    live writers in pyEfis (ARCHG2 checks these from pyEfis's side);
 #             together they are the panel, one writer
@@ -55,7 +55,7 @@ APMSG: {units: '', sim: [xplane]}
 APVERT: {units: '', sim: [xplane]}
 APVERTARM: {units: '', sim: [xplane]}
 BANKBUG: {units: deg, pyefis: [pyefis/instruments/ai]}
-BARO: {units: inHg, kind: setting, quality: {canfix: 'passthrough: the CAN-FIX sender''s quality and failure flags', grand_rapids_eis: 'none: the checksum is read and never checked', pyefis/instruments/altimeter: none, xplane: none}, on_loss: {canfix: 'silence, fail: the sender''s fail flag is passed through', grand_rapids_eis: 'silence: a bad frame writes nothing', pyefis/instruments/altimeter: 'on_change: the pilot''s setting; BARO has no tol', xplane: 'on_change: the sim''s baro knob, copied to BARO when the pilot did not just set it'}, echo: {canfix: 'device_holds: the CAN-FIX node holds the setting; the panel''s BARO is sent to it as a node-specific ParameterSet (config/canfix/map.yaml outputs, owner False), the node''s broadcast is written back, and a value just received is not resent (canfix/mapping.py output exclude)', grand_rapids_eis: 'overwrites: writes the EIS''s own baro field on every frame and never takes the panel''s, so a panel setting lasts until the next frame'}, writers: [canfix, grand_rapids_eis], pyefis: [pyefis/instruments/altimeter], sim: [xplane]}
+BARO: {units: inHg, kind: setting, quality: {canfix: 'passthrough: the CAN-FIX sender''s quality and failure flags', grand_rapids_eis: 'none: the checksum is read and never checked', pyefis/instruments/altimeter: none, xplane: none}, on_loss: {canfix: 'silence, fail: the sender''s fail flag is passed through', grand_rapids_eis: 'silence: a bad frame writes nothing', pyefis/instruments/altimeter: 'on_change: the pilot''s setting; BARO has no tol', xplane: 'on_change: the sim''s baro knob, copied to BARO when the pilot did not just set it'}, echo: {canfix: 'overwrites: writes every broadcast the CAN-FIX node sends. The panel''s BARO is sent to the node as a node-specific ParameterSet (config/canfix/map.yaml outputs, owner False), and a value just received is not resent (canfix/mapping.py output exclude), but nothing holds the panel''s value until the node shows it', grand_rapids_eis: 'overwrites: writes the EIS''s own baro field on every frame and never takes the panel''s, so a panel setting lasts until the next frame'}, writers: [canfix, grand_rapids_eis], pyefis: [pyefis/instruments/altimeter], sim: [xplane]}
 BAT_CHARGING: {units: '', writers: [strom_pi]}
 BAT_REMAINING: {units: '', writers: [X728, strom_pi]}
 BAT_VOLTAGE: {units: '', writers: [X728]}
