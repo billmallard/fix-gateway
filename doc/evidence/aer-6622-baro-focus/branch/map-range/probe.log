@@ -1,0 +1,6 @@
+start MAPRANGE 2
+press key 12: MAPRANGE 3
+press key 12: MAPRANGE 4
+press key 11: MAPRANGE 3
+press key 11: MAPRANGE 2
+rc=0
