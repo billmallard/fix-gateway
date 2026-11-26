@@ -107,16 +107,28 @@ Quality of these outputs:
 
 ### Source limitations to know before relying on them
 
-- **Altitude lags in a climb or descent by about 10 seconds' worth.** The
-  firmware smooths pressure altitude before sending it, much more heavily
-  than anything else (`DisplaySerial.ino`: an exponential filter with
-  `alpha = 2/(20+1)/10` per 100 ms frame, a time constant of about 10.4 s, on
-  top of its Kalman filter). At a steady 1000 fpm the sent altitude is about
-  173 ft behind; after levelling off the error is about 107 ft at 5 s, 67 ft at
-  10 s and 26 ft at 20 s. VSI is not smoothed that way. A pilot levelling off
-  on this altimeter would overshoot, and a comparator against another lane's
-  `ALT` would see that much disagreement in every climb. The fix belongs in
-  OnSpeed's firmware.
+- **Altitude lags in a climb or descent by about 10 seconds' worth, unless
+  the box runs firmware with
+  [OnSpeed-Gen2#1](https://github.com/billmallard/OnSpeed-Gen2/pull/1)**
+  (merged to `master` as `9d95126`).
+  Firmware before that change smooths pressure altitude before sending it,
+  much more heavily than anything else (`DisplaySerial.ino` at `be1481c`: an
+  exponential filter with `alpha = 2/(20+1)/10` per 100 ms frame, a time
+  constant of about 10.4 s, on top of its Kalman filter). At a steady
+  1000 fpm the sent altitude is about 173 ft behind; after levelling off the
+  error is about 107 ft at 5 s, 67 ft at 10 s and 26 ft at 20 s. VSI is not
+  smoothed that way. A pilot levelling off on this altimeter would overshoot,
+  and a comparator against another lane's `ALT` would see that much
+  disagreement in every climb.
+  OnSpeed-Gen2#1 sends the Kalman altitude unsmoothed in the ONSPEED format
+  (the G3X format keeps the smoothing). Its host replay
+  (`Software/HostTests/DisplaySerialAltLag/`, a synthetic 1000 fpm climb, not
+  a flight log) puts the climb lag at 0.3 ft instead of 173.7 ft, and the
+  level-off error at about 1 ft by 5 s. Level jitter rises from 0.36 to
+  0.50 ft (1 sd). The lag is gone only once that firmware is flashed; the
+  sentence carries no firmware version, so the plugin cannot tell which
+  build it is reading. Treat `ALT` as lagged until the box is known to run
+  it.
 - **IAS** is the box's own pitot reading (with its CAS curve applied, if one
   is enabled), smoothed by a 15-sample median and a 10-sample mean at 50 Hz:
   about 0.25 s of delay. In a firmware build with `SPHERICAL_PROBE` defined
