@@ -76,15 +76,46 @@ Two shapes reach a key without naming it at the write (OUT1, AER-6521):
   `enumerate`), where the table is a list of key literals, a comprehension
   over `"CASMSG{}".format(n)` or an f-string, or a `+` of such tables.
 
+Four more shapes are pyEfis's (ARCHG2b, AER-6541):
+
+- a function that hands its key to an item from such a getter
+  (`fixbridge._set(key, v)`: `item = self._get(key)`, then `.value =` and
+  `.output_value()`) is a write wrapper, so `self._set("FPLSEQ", n)` is a write;
+- a function whose whole body returns a key name built from its parameters
+  (`_slot_key(n, name)`: `return f"FPL{n}{name}"`) resolves at each call, with
+  the call's arguments in the placeholders;
+- a loop over a module-level tuple of rows written out in the source binds
+  each name to its column (`for name, _, blank in SLOT_FIELDS`). X-Plane's
+  autopilot adapter copies its dials into `ALTSEL`, `HEADBUG` and the rest
+  this way, from `TARGETS`;
+- an item from a binding the module makes for a key
+  (`self._bank_bug = bugs.BugBinding("BANKBUG", self)`, then
+  `self._bank_bug.item`).
+
+Where the key comes from the panel config through another module, a static
+scan cannot follow it: the altimeter's ALTSEL editor writes whatever
+`alt_bug_dbkey` names. The write then says which keys it reaches, in a comment
+on its line, or alone on the line above it:
+
+```python
+item.output_value()  # writes: ALTSEL
+```
+
+The comment must sit on a write the scan cannot name, and name keys the
+database has; otherwise the scan stops with the file and line (a `ScanError`).
+So a declaration cannot go stale silently: when the write moves or the scan
+learns to name it, the comment has to change. Name the keys the shipped panels
+use. A panel config that points the editor at another key is not seen.
+
 The register sorts each module into one of these fields:
 
 - **`writers`**: fix-gateway plugins and compute modules. These are live writers.
 - **`pyefis`**: pyEfis instruments, such as the altimeter knob on `BARO` and the
   HSI on `NAVSRC`. These are live writers too. fix-gateway cannot scan pyEfis,
-  so these are declared by hand. ARCHG2 checks them from pyEfis's side. The
-  flight-plan editor writes the route block, `FPLSEQ`, `DTO*` and `FPLCMD`
-  through `fixbridge._set`, which the pyEfis scan cannot follow: those entries
-  are declared by reading the code, not by a scan.
+  so `--generate --pyefis` fills them from a scan of a pyEfis checkout, and
+  ARCHG2 checks them from pyEfis's side. Writes whose keys come only from a
+  panel's config (`hmi` actions, `button`, `listbox`, the kiosk defaults, live
+  bindings, a gauge's encoder) are not seen.
 - **`sim`**: X-Plane, FlightGear, demo, replay and test plugins. They stand in
   for a live writer, so they are declared but never count as a second writer.
 - **`relay`**: netfix, command and the persisters. They pass on another
