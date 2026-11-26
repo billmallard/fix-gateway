@@ -100,3 +100,36 @@ default boots at a different range once it is bound. The same index is why
 the panel's MAP RANGE key shows a number, not a range.
 
     flock -w 900 /tmp/pyefis-bench.lock sh map_range_probe.sh aer6622-rng
+
+## The Knobster zooms the map (Bill, the same session)
+
+Bill asked for the knob to zoom the map to any range, not only the ladder's,
+and approved the proposal on AER-6622. MAP RANGE (key 10) now pulses
+`TSBTN139`, pyEfis's `map-range-focus` button, which gives the map the knob.
+The inner knob zooms 1.25x a detent (a wheel notch), clockwise wider. The
+outer ring steps one rung, and a push snaps to the nearest rung.
+
+`branch/map-knob/probe.log` and `map-knob-strip.png` (the map's status text,
+x 1255-1555, y 15-70, scaled 2x nearest-neighbour), from `map_knob_probe.py`.
+Knob writes go to the bus as the Knobster plugin writes them (ENC3, ENC4,
+BTN3):
+
+| Frame | Step | Map |
+|---|---|---|
+| 0-before | - | 10 NM, no ring |
+| 1-focused | firmware press of key 10 | 10 NM, cyan ring and edit icon |
+| 2-inner-x3 | ENC3 +1 three times | 20 NM (10 x 1.25^3 = 19.5) |
+| 3-push | BTN3 | 10 NM, ring kept |
+| 4-outer-up | ENC4 +1 | 50 NM |
+| 5-outer-down | ENC4 -1 | 10 NM |
+| 6-timed-out | 11 s with no input from the probe | **8 NM, ring still on** |
+
+Frame 6 is not the probe. 8 NM is one inner detent anticlockwise from 10, and
+the probe wrote only +1 to ENC3. Afterwards ENC3 read -1 on the bus, which a
+turn of the real knob at the bench would write. That turn restarted the
+timeout. `map_knob_timeout_retest.py` tried again (frames 7 to 9). The map
+read 26, 16 and 6.4 NM across it, and the probe wrote none of those, so
+someone was turning the knob during the run. I stopped probing.
+
+**Not proven on the bench: the timeout.** The unit test
+`test_the_map_knob_times_out_like_a_touch` (pyEfis) covers it.
