@@ -1,0 +1,19 @@
+HEADBUG at start 0.0
+MARK before 02:43:38
+before the press, ENC3 +1: HEADBUG 0.0 (unchanged)
+MARK focused 02:43:40
+ENC3 +1: HEADBUG 1.0, want 1.0
+ENC3 +1: HEADBUG 2.0, want 2.0
+ENC3 +1: HEADBUG 3.0, want 3.0
+ENC3 +1: HEADBUG 4.0, want 4.0
+ENC3 +1: HEADBUG 5.0, want 5.0
+MARK turned 02:43:43
+ENC3 -1: HEADBUG 4.0, want 4.0
+ENC3 -1: HEADBUG 3.0, want 3.0
+ENC3 -1: HEADBUG 2.0, want 2.0
+ENC3 -1: HEADBUG 1.0, want 1.0
+ENC3 -1: HEADBUG 0.0, want 0.0
+MARK timed_out 02:43:58
+after the timeout, ENC3 +1: HEADBUG 0.0 (unchanged)
+HEADBUG at end 0.0 start 0.0
+RESULT PASS
