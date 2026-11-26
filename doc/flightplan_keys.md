@@ -17,9 +17,13 @@ out of PA4 -- arcs, altitude-terminated legs, holds and procedure turns.
 RS1 adds the segment table: which slots are "V27 from GVO to AVOLS", which
 are the departure, and so on, so no display has to guess.
 
-One key, one writer, with a single documented exception: after a gateway
-restart the engine (FP2) republishes the route block and bumps `FPLSEQ`
-itself, mirroring `state_persist` restoring `NAVSRC`.
+One key, one writer, with two documented exceptions. First, after a gateway
+restart the engine (FP2) republishes the route block and writes `FPLSEQ`
+itself, mirroring `state_persist` restoring `NAVSRC`. It republishes the seq
+stored with the route, not a new one, so `FPLSEQ` and `FPLLDSEQ` come back
+at the values they held before the restart. Second, `FPLCMD` has two pyEfis
+writers, the flight plan editor and the HSI, arbitrated by `seq` (Bill, card
+`bc9865d2` on AER-6518, 2026-11-25; see "Command channel").
 
 ## Route block
 
@@ -309,9 +313,23 @@ format carries none of them (`doc/plugins/fpl_exchange.md`, "What crosses").
 
 ## Command channel
 
-`FPLCMD` grammar: `"<seq> VERB [arg]"` (Appendix C). `seq` is a positive,
-strictly-increasing integer per editor session -- a repeated identical
-command is still a new event, and it gives the editor an ack to wait on.
+`FPLCMD` grammar: `"<seq> VERB [arg]"` (Appendix C). `seq` is a positive
+integer, and every writer takes it from the bus: one past the highest seq in
+the last `FPLCMD` or `FPLCMDACK`. A repeated identical command is still a new
+event, and the seq gives its writer an ack to match.
+
+**Two writers (Bill, card `bc9865d2` on AER-6518, 2026-11-25).** `FPLCMD` is
+a command channel, not a value: each write is an event and there is no source
+for a `select` to choose. pyEfis has two writers, the flight plan editor
+(`FixBridge.command`) and the HSI (`_send_fpl_command`, which sends `OBS`
+from the CRS knob). Both use the bus rule above and match their ack by seq.
+Within one pyEfis process, where reads and writes are serialised, that keeps
+`seq` strictly increasing across both writers. Two displays on one gateway
+are not covered: each reads and then writes, so both can send the same seq.
+A third writer, or a second display commanding the same gateway, needs its
+own ruling. `tests/arch/key_writers_baseline.yaml` fails when a new module
+writes `FPLCMD`; it cannot see a second display, which runs the same modules.
+The engine does not check seq order; it acks whatever seq it is sent.
 Verbs: `ACT <slot>`, `DTO` (no arg: use the staged `DTO*` keys; with a slot
 arg, direct-to that plan waypoint), `DTOX`, `SUSP`, `RESUME`,
 `SCALE <0.3|1.0|2.0|AUTO>`, `OBS <deg>`, `OBS OFF` (OBS2). PA3 reserves `PROC`, `PROCX` and `AWY` for
@@ -378,7 +396,7 @@ sequence to, and the box stays on the fix.
 
 | Key | Type | Writer | Meaning |
 |---|---|---|---|
-| `FPLCMD` | str | editor | The command string |
+| `FPLCMD` | str | editor, HSI (seq-arbitrated, card `bc9865d2`) | The command string |
 | `FPLCMDACK` | int | engine | `= seq` on success, `-seq` on rejection |
 | `FPLMSG` | str | engine | Last message / rejection reason. Commands: `NO PLAN`, `BAD SLOT`, `NO POSITION`, `PARSE`, a sequence trace like `SEQ GVO -> RZS` (or, PA13, `SEQ ALT -> <ident>` when a `CA`/`FA` leg terminates on altitude with no fix of its own), or (PA4, off a vector leg) `RESUME NAV -> <ident>` / `NO NEXT LEG`, or (PA13, on a flying `HM` hold) `HOLD EXIT ARMED`, or `NO NEXT LEG` when that hold is the last slot, or (OBS2) `OBS <deg>` / `OBS OFF` / `NOT IN OBS` / `IN OBS` and the `OBS N/A ...` refusals above. An accepted commit that drops the active leg (HOLDFIX0): `ACTIVE LEG REMOVED` / `ACTIVE LEG CHANGED` / `ACTIVE LEG AMBIGUOUS`, written after `FPLLDSEQ`. Route loads (PA4/PA13, guardrail 1): `"UNSUPP <PT> <ident>"` for an unrecognized terminator, or `"BADTURN <PT> <ident>"` / `"BADRADIUS <PT> <ident>"` / `"BADCENTER <PT> <ident>"` / `"BADALT <PT> <ident>"` / `"BADLEGLEN <PT> <ident>"` for a recognized Tier-2 type missing the fields its geometry needs, or (RS1) one of the `SEG...` reasons in the segment table section -- either way the whole route is rejected, not just that leg. A new code needs plain words in pyEfis (`pyefis/flightplan/refusal.py`) first: CI runs pyEfis's `test_refusal.py` against this engine and fails on a code with none (AER-6212) |
 
