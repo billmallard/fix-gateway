@@ -2031,6 +2031,7 @@ FPLIMP9LAT: {units: '', datum: {fpl_exchange: 'wgs84: the uploaded .fpl file''s 
 FPLIMP9LON: {units: '', datum: {fpl_exchange: 'wgs84: the uploaded .fpl file''s <lat>/<lon>; Garmin''s FlightPlan v1 schema (Latitude_t, Longitude_t) is WGS84 decimal degrees'}, writers: [fpl_exchange]}
 FPLIMP9TYPE: {units: '', writers: [fpl_exchange]}
 FPLIMPCOUNT: {units: '', writers: [fpl_exchange]}
+FPLIMPDONE: {units: '', pyefis: [pyefis/flightplan]}
 FPLIMPNAME: {units: '', writers: [fpl_exchange]}
 FPLIMPSEQ: {units: '', writers: [fpl_exchange]}
 FPLINTEG: {units: '', writers: [flightplan]}

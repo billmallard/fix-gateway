@@ -369,8 +369,9 @@ def test_the_register_records_the_flight_plan_writers():
     for k in ("DTOID", "DTOLAT", "DTOLON", "DTOTYPE"):
         assert reg[k]["pyefis"] == ["pyefis/flightplan"], k
     assert reg["BRG1SRC"]["pyefis"] == ["pyefis/instruments/hsi"]
-    # The pyEfis editor has not been built to write FPLIMPDONE yet.
-    assert "FPLIMPDONE" not in reg
+    # The pyEfis editor answers a pending import (EFB4b, AER-6706); the
+    # plugin only reads it.
+    assert reg["FPLIMPDONE"] == {"units": "", "pyefis": ["pyefis/flightplan"]}
 
 
 def test_a_second_live_writer_fails_even_when_declared(tmp_path):
