@@ -4,7 +4,7 @@
 # and when a listed key has lost one -- so this file only shrinks.  Remove
 # an entry by giving the key one writer (a selector, roadmap 9.1).
 # Live writers: `writers` and `pyefis` in src/fixgw/database/writers.yaml.
-# 57 keys.
+# 59 keys.
 
 AGL: [canfix, mavlink]
 ALAT: [canfix, dynon, mavlink, rpi_bno055, stratux]
@@ -49,8 +49,10 @@ GPS_FIX_TYPE: [garmin_gnx375, gpsd, mavlink, navigator_adapter]
 GPS_SATS_VISIBLE: [gpsd, mavlink]
 GS: [garmin_gnx375, gpsd, mavlink, navigator_adapter, stratux]
 HEAD: [canfix, mavlink, rpi_bno055, stratux]
+HEADBUG: [pyefis/instruments/autopilot, pyefis/instruments/hsi]
 HOBBS1: [canfix, grand_rapids_eis]
 IAS: [canfix, mavlink, onspeed, rpi_virtualwire]
+IASSEL: [pyefis/instruments/airspeed, pyefis/instruments/autopilot]
 LAT: [garmin_gnx375, gpsd, mavlink, navigator_adapter]
 LONG: [garmin_gnx375, gpsd, mavlink, navigator_adapter]
 OAT: [canfix, grand_rapids_eis, rpi_virtualwire]
