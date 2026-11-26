@@ -327,8 +327,10 @@ Within one pyEfis process, where reads and writes are serialised, that keeps
 `seq` strictly increasing across both writers. Two displays on one gateway
 are not covered: each reads and then writes, so both can send the same seq.
 A third writer, or a second display commanding the same gateway, needs its
-own ruling. `tests/arch/key_writers_baseline.yaml` fails when a new module
-writes `FPLCMD`; it cannot see a second display, which runs the same modules.
+own ruling. The writer check counts pyEfis's modules as one writer, the
+panel (roadmap 9.1, ARCHG3b), so `tests/arch/test_key_writers.py` fails when a
+fix-gateway module writes `FPLCMD`. It cannot see a third pyEfis writer, nor a
+second display, which runs the same modules.
 The engine does not check seq order; it acks whatever seq it is sent.
 Verbs: `ACT <slot>`, `DTO` (no arg: use the staged `DTO*` keys; with a slot
 arg, direct-to that plan waypoint), `DTOX`, `SUSP`, `RESUME`,
