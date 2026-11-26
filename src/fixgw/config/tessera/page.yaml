@@ -28,5 +28,8 @@ keys:
   # Shows the CDI source by name, as pyEfis's NAVSRC annunciator does.
   - {id: 9, label: CDI SRC, show: NAVSRC, enum: {0: VLOC1, 1: VLOC2, 2: GPS, 3: GPS2},
      press: {pulse: TSBTN133}}  # cdi-source
-  # pyEfis has no map-range button yet, so this key only shows the index.
+  # The map's range ladder index.  A map follows MAPRANGE only if its
+  # range_key names it, and each screen's ladder gives the index its range.
   - {id: 10, label: MAP RANGE, show: MAPRANGE}
+  - {id: 11, label: RANGE, text: "-", press: {pulse: TSBTN137}}  # map-range-down
+  - {id: 12, label: RANGE, text: "+", press: {pulse: TSBTN138}}  # map-range-up

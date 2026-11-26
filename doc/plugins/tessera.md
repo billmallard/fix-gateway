@@ -41,7 +41,10 @@ the HDG BUG key pulses `TSBTN132`, pyEfis's `heading-bug-focus` button, which
 gives pyEfis's knob to the heading bug as a touch on its readout would
 (pyEfis `focus` action, AER-6630). A press on the BARO key pulses `TSBTN136`,
 pyEfis's `baro-focus` button, which does the same for the altimeter tape's baro
-box (AER-6622):
+box (AER-6622). The RANGE - and + keys pulse `TSBTN137` and `TSBTN138`, pyEfis's
+`map-range-down` and `map-range-up` buttons, which step `MAPRANGE` one rung of
+the map's range ladder. A map follows them only if its `range_key` names
+`MAPRANGE`:
 
 ```yaml
 name: SPIKE

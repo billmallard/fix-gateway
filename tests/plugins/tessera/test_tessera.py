@@ -90,7 +90,7 @@ def test_handshake_accepts_tessera_p4_protocol_4(rig):
     assert accepted(p, panel)
     assert panel.lines()[0][1] == '{"cmd":"get_info"}'
     assert p.thread.connected and p.thread.boot_id == 1234
-    assert [k["id"] for k in panel.layout] == list(range(1, 11))
+    assert [k["id"] for k in panel.layout] == list(range(1, 13))
     assert p.get_status()["Firmware"] == "0.9.0"
 
 
@@ -423,6 +423,19 @@ def test_the_hdg_bug_key_pulses_pyefis_heading_bug_focus_button(rig, database):
     assert wait_for(lambda: ("ok", 4) in panel.feedback)
     assert rec.calls == [("TSBTN132", True), ("TSBTN132", False)]
 
+
+
+@pytest.mark.parametrize("key_id, pulsed", [(11, "TSBTN137"), (12, "TSBTN138")])
+def test_the_range_keys_pulse_pyefis_map_range_buttons(rig, database, key_id, pulsed):
+    """TESS2 (AER-6622): the panel had no way to change the map range.  Keys
+    11 and 12 pulse pyEfis's map-range-down and map-range-up buttons."""
+    rec = Recorder()
+    database.callback_add("test", pulsed, rec, None)
+    p, panel = rig()
+    assert accepted(p, panel)
+    panel.press(key_id)
+    assert wait_for(lambda: ("ok", key_id) in panel.feedback)
+    assert rec.calls == [(pulsed, True), (pulsed, False)]
 
 
 def test_the_baro_key_pulses_pyefis_baro_focus_button(rig, database):
