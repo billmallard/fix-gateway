@@ -36,7 +36,10 @@ Then set the port in `connections/tessera.yaml`:
 
 The panel has 18 keys, 6 across and 3 down. Id 1 is top left, and id 7 starts
 the second row. The shipped page, `config/tessera/page.yaml`, shows baro,
-heading bug, course and map range, with baro and heading keys:
+heading bug, course and map range, with baro and heading keys. A press on
+the HDG BUG key pulses `TSBTN132`, pyEfis's `heading-bug-focus` button, which
+gives pyEfis's knob to the heading bug as a touch on its readout would
+(pyEfis `focus` action, AER-6630):
 
 ```yaml
 name: SPIKE
