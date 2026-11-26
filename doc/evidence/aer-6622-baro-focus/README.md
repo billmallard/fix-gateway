@@ -72,3 +72,31 @@ started.
 
     cd ~/bench-scratch
     flock -w 900 /tmp/pyefis-bench.lock python3 -u cdi_src_probe.py
+
+## Map range from the panel (Bill, the same session)
+
+The MAP RANGE key showed the ladder index and flashed red, and nothing on the
+panel could change the range. Keys 11 and 12 (RANGE - and +) now pulse
+pyEfis's `map-range-down` and `map-range-up` buttons (`TSBTN137`, `TSBTN138`),
+which step `MAPRANGE` by one and stop at the ends.
+
+The bench's live screen, `screens/managed.yaml`, had no `range_key` on its
+moving map, so no key could move it. I added `range_key: MAPRANGE` to the
+active config on the bench, with a backup beside it. That is a bench config
+change, not part of either PR.
+
+`branch/map-range/probe.log` and `map-range-strip.png`: key 12, 12, 11, 11
+stepped MAPRANGE 2, 3, 4, 3, 2. The map's range readout followed: 50, 200,
+500, 200 and 50 NM. The strip crops the map's status text at x 1255-1555,
+y 20-110 and scales it 2x nearest-neighbour.
+
+**Found on the way:** the map came up at 50 NM, not its 10 NM. `MAPRANGE` is
+an index into the map's own ladder, and fix-gateway's database initial of 2
+means 10 NM on the default ladder (2,5,10,...). On this screen's ladder
+(2,10,50,200,500,2000), 2 is 50 NM. On the bench I set `MAPRANGE = 1` in
+`init_data/custom.ini` (backed up), wrote 1 to the bus, and the map is back
+at 10 NM. The general problem stays: a screen whose ladder differs from the
+default boots at a different range once it is bound. The same index is why
+the panel's MAP RANGE key shows a number, not a range.
+
+    flock -w 900 /tmp/pyefis-bench.lock sh map_range_probe.sh aer6622-rng
