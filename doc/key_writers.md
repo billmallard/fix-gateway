@@ -167,6 +167,39 @@ or `unstated`. The gateway does not read this file, and nothing consumes the
 columns yet: pointing the engine's integrity check and gdl90_out at them is a
 follow-on.
 
+## Writers by class (ARCHG3b)
+
+Roadmap 9.1 counts writers by class (Bill, 2026-11-26, card 08ec3c22 on
+AER-6623), and the check counts them the same way:
+
+- **A sensed or derived value has one live writer.** Rival sources reach it
+  through a `select`. The baseline above is the debt against this rule.
+- **The panel is one writer.** All of a key's `pyefis` modules count as one
+  writer, `pyefis`, so the HSI and the autopilot panel both moving `HEADBUG` is
+  one writer. The register still lists each module, so ARCHG2 can check each
+  one from pyEfis's side. The baseline names the panel `pyefis`.
+- **A pilot setting may have the panel and external devices as writers.** The
+  settings are `ALTSEL`, `VSSEL`, `IASSEL`, `HEADBUG`, `NAV1CRS`, `NAV2CRS` and
+  `BARO`, marked `kind: setting` in the register. Each external writer in
+  `writers` declares an `echo` cell, which says how it keeps from fighting the
+  panel:
+
+| `echo` token | What the writer does |
+|---|---|
+| `echo_rule` | Writes only when its device's value has moved past its eps from the value it last agreed with the bus. Holds a value it was sent until the device shows it, or a settle time passes. The reference is X-Plane's autopilot adapter (`plugins/xplane/autopilot.py`, `_sync_from_sim` and `_sync_to_sim`). |
+| `device_holds` | The device holds the setting. The panel's value is sent to it, and what the device reports is written back without being resent: canfix's node-specific `ParameterSet` out, the node's broadcast in, and the output's resend exclusion. |
+| `overwrites` | Writes its device's value whatever the panel set. |
+
+A setting whose external writers all declare `echo_rule` or `device_holds` is
+allowed its writers, and it is not on the baseline. A setting with an
+`overwrites` writer is counted as any other key. `BARO` is on the baseline for
+this reason: `grand_rapids_eis` writes the EIS's own baro field on every frame,
+so a setting made on the panel lasts until the next frame. Simulators do not
+declare an echo, because they never count as a writer.
+
+The list of settings is `SETTING_KEYS` in the tool, not the register. Adding a
+key to it is Bill's ruling, so a `kind: setting` on any other key fails.
+
 ## The checks, and what to do when one fails
 
 **`ALT: newplugin writes it (src/...:42) and writers.yaml does not list newplugin`.**
@@ -244,6 +277,21 @@ everything, so read the code rather than leaving them on a shared key. The keys
 that disagree today are on `tests/arch/datum_baseline.yaml`. A listed key may
 not gain a writer or change a datum, and when its writers agree it must come off
 (`its writers now agree on one datum and it is still on the datum baseline`).
+
+**`BARO: canfix writes a pilot setting and declares no echo in writers.yaml`.**
+A device that writes a pilot setting must say how it treats the panel's value.
+Read the plugin and choose the `echo` token that describes what it does today
+(the table above). If it ignores the panel, write `overwrites`. The key then
+stays a counted multi-writer key until the plugin is fixed.
+
+**`VS: writers.yaml marks it kind: setting, and roadmap 9.1 names only ...`.**
+Only the seven settings may carry `kind: setting`. A new setting needs Bill's
+ruling, then a change to `SETTING_KEYS`, which a reviewer sees. An `echo` cell on
+a key that is not a setting fails for the same reason.
+
+**`BARO: a pilot setting whose external writers all follow the panel, and still on the baseline`.**
+Good news: every device now follows the panel. Delete the entry from
+`tests/arch/key_writers_baseline.yaml`.
 
 **`class Waypoint: defined in src/.../model.py, and concept_names.yaml allows it only in ...`.**
 ARCH0 found seven shapes of a waypoint. Use one of the existing ones, or give
