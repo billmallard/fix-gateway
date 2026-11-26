@@ -14,4 +14,4 @@ GPS_ACCURACY_HORIZ: {demo: assumed, gpsd: unstated, mavlink: unstated}
 GPS_ACCURACY_SPEED: {gpsd: unstated, mavlink: unstated}
 GPS_ACCURACY_VERTICAL: {gpsd: unstated, mavlink: unstated}
 HEAD: {canfix: magnetic, demo: unrecorded, fgfs: magnetic, mavlink: 'true', rpi_bno055: magnetic, stratux: unrecorded, xplane: magnetic}
-TRACK: {demo: unrecorded, fgfs: 'true', garmin_gnx375: 'true', gpsd: 'true', mavlink: 'true', navigator_adapter: 'true', xplane: 'true'}
+TRACK: {demo: unrecorded, fgfs: 'true', gpsd: 'true', mavlink: 'true', navigator_adapter: 'true', xplane: 'true'}

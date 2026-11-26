@@ -111,7 +111,8 @@ class GarminNmeaAdapter(ParserAdapter):
         return None
 
     def _parse_gga(self, msg) -> NormalizedNavMessage | None:
-        # A GSA counts only for the GGA that follows it (see garmin_gnx375).
+        # A GSA counts only for the GGA that follows it, so a source that stops
+        # sending GSA falls back to the satellite count after one epoch.
         gsa_mode, self._gsa_mode = self._gsa_mode, None
         qual = int(msg.gps_qual) if msg.gps_qual is not None else 0
         out = NormalizedNavMessage(gps_fix_type=gps_fix_type(msg.gps_qual, msg.num_sats, gsa_mode))

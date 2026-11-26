@@ -18,6 +18,13 @@
 
 """FIX-Gateway plugin for the Garmin GNX 375 (and compatible Garmin GPS navigators).
 
+A config alias for ``navigator_adapter`` with ``adapter: garmin_nmea``, kept so
+existing installs that load this module keep working (SRC6, Bill's ruling on
+AER-6409). It has no parser of its own: the adapter's Garmin NMEA parser reads
+the sentences and its ``fix_map`` writes the keys. New installs should load
+``navigator_adapter`` instead. The one difference is the default baud, 9600 here
+(Aviation Output 1) and 4800 there.
+
 Reads NMEA 0183 sentences from the GNX 375 RS-232 serial port (Aviation Output 1
 format, 9600 8N1 by default) and writes navigation state into the FIX-Gateway
 database.
@@ -63,163 +70,17 @@ In $GPRMB the steer-direction flag encodes this as:
   'R' (steer right to return) → aircraft is LEFT of course  → XTE negative
 """
 
-import threading
-from collections import OrderedDict
-
-import pynmea2
-import serial
-import fixgw.plugin as plugin
-from fixgw.nmea_fix import (
-    apb_guidance,
-    cdi_from_cross_track,
-    gps_fix_type,
-    rmb_cross_track_nm,
-    rmc_magvar_east,
-)
-
+from fixgw.plugins.navigator_adapter import Plugin as NavigatorPlugin
 
 _DEFAULT_BAUD = 9600
-_DEFAULT_CDI_FULL_SCALE_NM = 5.0  # enroute GPS full-scale; use 0.3 for approach
+_ADAPTER = "garmin_nmea"
 
 
-class MainThread(threading.Thread):
-    def __init__(self, parent):
-        super().__init__()
-        self.daemon = True
-        self.getout = False
-        self.parent = parent
-        self.log = parent.log
-        self._serial = None
-        self._gsa_mode = None
-        self._magvar_east = None
-
-    def run(self):
-        try:
-            self._serial = serial.Serial(
-                self.parent.config["port"],
-                int(self.parent.config.get("baud", _DEFAULT_BAUD)),
-                timeout=1.0,
-            )
-        except serial.SerialException as exc:
-            self.log.error(f"garmin_gnx375: cannot open {self.parent.config['port']}: {exc}")
-            return
-
-        cdi_scale = float(self.parent.config.get("cdi_full_scale_nm", _DEFAULT_CDI_FULL_SCALE_NM))
-
-        while not self.getout:
-            try:
-                raw = self._serial.readline()
-            except serial.SerialException as exc:
-                self.log.error(f"garmin_gnx375: serial read error: {exc}")
-                break
-
-            if not raw:
-                continue
-
-            try:
-                line = raw.decode("ascii", errors="replace").strip()
-            except Exception:
-                continue
-
-            try:
-                msg = pynmea2.parse(line)
-            except pynmea2.ParseError:
-                continue
-
-            try:
-                self._dispatch(msg, cdi_scale)
-            except Exception as exc:
-                self.log.debug(f"garmin_gnx375: dispatch error on {line!r}: {exc}")
-
-        if self._serial and self._serial.is_open:
-            self._serial.close()
-
-    def stop(self):
-        self.getout = True
-
-    # ------------------------------------------------------------------
-    # Sentence handlers
-    # ------------------------------------------------------------------
-
-    def _dispatch(self, msg, cdi_scale):
-        stype = msg.sentence_type
-        if stype == "RMC":
-            self._handle_rmc(msg)
-        elif stype == "GGA":
-            self._handle_gga(msg)
-        elif stype == "GSA":
-            self._handle_gsa(msg)
-        elif stype == "RMB":
-            self._handle_rmb(msg, cdi_scale)
-        elif stype == "APB":
-            self._handle_apb(msg)
-
-    def _handle_rmc(self, msg):
-        if msg.status != "A":
-            return
-        # Held for APB, which may give the desired track as a true bearing.
-        magvar = rmc_magvar_east(msg)
-        if magvar is not None:
-            self._magvar_east = magvar
-        self.parent.db_write("LAT", msg.latitude)
-        self.parent.db_write("LONG", msg.longitude)
-        if msg.spd_over_grnd is not None:
-            self.parent.db_write("GS", float(msg.spd_over_grnd))
-        if msg.true_course is not None:
-            self.parent.db_write("TRACK", float(msg.true_course))
-
-    def _handle_gsa(self, msg):
-        # Held for the next GGA, which writes GPS_FIX_TYPE once per epoch.
-        self._gsa_mode = msg.mode_fix_type
-
-    def _handle_gga(self, msg):
-        # A GSA counts only for the GGA that follows it, so a source that stops
-        # sending GSA falls back to the satellite count after one epoch.
-        gsa_mode, self._gsa_mode = self._gsa_mode, None
-        fix_type = gps_fix_type(msg.gps_qual, msg.num_sats, gsa_mode)
-        self.parent.db_write("GPS_FIX_TYPE", fix_type)
-        qual = int(msg.gps_qual) if msg.gps_qual is not None else 0
-        if qual == 0:
-            return
-        self.parent.db_write("LAT", msg.latitude)
-        self.parent.db_write("LONG", msg.longitude)
-        if msg.altitude is not None:
-            # GGA altitude is metres above MSL (the geoid), so it is TALT,
-            # never GPS_ELLIPSOID_ALT (GALT1/TALTSRC1, AER-6458). Below a 3-D
-            # fix the receiver holds or invents it, so TALT is bad there.
-            alt_ft = float(msg.altitude) * 3.28084
-            talt = self.parent.db_get_item("TALT")
-            talt.set(alt_ft, bad=fix_type < 3)
-
-    def _handle_rmb(self, msg, cdi_scale):
-        xtrack = rmb_cross_track_nm(msg)
-        if xtrack is None:
-            return
-        self.parent.db_write("EXTXTK", xtrack)
-        self.parent.db_write("EXTCDI", cdi_from_cross_track(xtrack, cdi_scale))
-
-    def _handle_apb(self, msg):
-        dtk, to_from = apb_guidance(msg, self._magvar_east)
-        self.parent.db_write("EXTTF", to_from)
-        if dtk is not None:
-            self.parent.db_write("EXTCRS", dtk)
-
-
-class Plugin(plugin.PluginBase):
+class Plugin(NavigatorPlugin):
     def __init__(self, name, config, config_meta):
+        config = dict(config)
+        config.setdefault("baud", _DEFAULT_BAUD)
+        # This module is the Garmin parser by name; another adapter is a
+        # navigator_adapter config, not this one.
+        config["adapter"] = _ADAPTER
         super().__init__(name, config, config_meta)
-        self.thread = MainThread(self)
-        self.status = OrderedDict()
-
-    def run(self):
-        self.thread.start()
-
-    def stop(self):
-        self.thread.stop()
-        if self.thread.is_alive():
-            self.thread.join(2.0)
-        if self.thread.is_alive():
-            raise plugin.PluginFail
-
-    def get_status(self):
-        return self.status
