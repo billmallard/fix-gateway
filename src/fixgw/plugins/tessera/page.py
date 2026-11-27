@@ -13,7 +13,8 @@
 """One Tessera page from a YAML file: what each key shows, what a press writes.
 
 Every key is drawn as a gauge tile with an empty ring: its centre text is the
-FIX value (or fixed text) and its label sits underneath.  The firmware updates
+FIX value (or fixed text) and its label sits underneath.  A key with an `icon`
+is drawn as that icon instead, and never changes.  The firmware updates
 a tile's label, colour and gauge text in place, but rebuilds the whole grid
 when anything else changes, which drops a press that is waiting for feedback
 (deck_model.c same_structure, ui.cpp build_keys).  So a refresh only ever
@@ -35,7 +36,36 @@ _KEY_FIELDS = {
     "press",
     "color",
     "confirm",
+    "icon",
 }
+
+# The names the firmware draws as a symbol (ui.cpp fallback_icon, the same in
+# 0.9.0 and 1.2.12).  It draws any other name as a tick, so a typo is refused
+# here rather than shown.
+ICONS = frozenset(
+    {
+        "ok",
+        "close",
+        "settings",
+        "home",
+        "folder",
+        "download",
+        "refresh",
+        "play",
+        "pause",
+        "stop",
+        "plus",
+        "minus",
+        "loop",
+        "list",
+        "upload",
+        "bolt",
+        "bell",
+        "wifi",
+        "trash",
+        "edit",
+    }
+)
 
 VALUE_COLOR = "#FFFFFF"
 OLD_COLOR = "#FFB000"  # a stale value: still shown, in amber
@@ -72,6 +102,7 @@ class Key:
         if self.show is not None and "text" in entry:
             raise PageError("key {}: show and text are exclusive".format(self.id))
         self.enum = _enum(self.id, entry)
+        self.icon = _icon(self.id, entry)
         self.color = entry.get("color", VALUE_COLOR)
         # Passed to the panel as given: the panel, not this plugin, is the
         # judge of a colour (an INVALID answer is handled like any other).
@@ -87,6 +118,13 @@ class Key:
 
     def tile(self, read):
         """The key's layout entry, the shown value read through `read`."""
+        if self.icon:
+            return {
+                "id": self.id,
+                "label": self.label,
+                "color": self.color,
+                "icon": self.icon,
+            }
         text, color = self.text, self.color
         if self.show:
             value, _annunciate, old, bad, fail = read(self.show)[:5]
@@ -145,6 +183,22 @@ def _enum(key_id, entry):
     ):
         raise PageError("key {}: enum maps whole numbers to text".format(key_id))
     return dict(enum)
+
+
+def _icon(key_id, entry):
+    """`icon: settings`: the key shows a symbol instead of a value.  The
+    firmware draws a key's icon only when it has no gauge (ui.cpp
+    build_keys), so an icon key has no `show` or `text`."""
+    icon = entry.get("icon")
+    if icon is None:
+        return None
+    if icon not in ICONS:
+        raise PageError(
+            "key {}: icon {!r} is not one of {}".format(key_id, icon, sorted(ICONS))
+        )
+    if "show" in entry or "text" in entry:
+        raise PageError("key {}: icon excludes show and text".format(key_id))
+    return icon
 
 
 def _press(key_id, press):

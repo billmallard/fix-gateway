@@ -1,0 +1,19 @@
+2026-11-26T21:47:57Z
+tessera status: tessera": {"Running": true, "Port": "/dev/tessera", "Connected": true, "Firmware": "1.2.12", "Boot Id": 3874942053, "Connects": 1, "Refused": 0, "Pushes": 2, "Acks": 2, "Resends": 0, "Invalid": 0, "Too Big": 0, "Presses": 1, "Alerts": 0, "Pings": 90, "Restarts": 0, "Last Error": ""}, "Connection: cas": {"Running": true, "Entries": 4, "Refused": "none", "Active": 2, "Sequence": 28503988, "Evaluatio
+SYSMENU before: @rSYSMENU;False;00000
+ 0.176 frame /home/pyefis/bench-scratch/aer-6704/m0_before.png
+ 0.176 AD_PRESS 18 (first)
+ 0.177 netfix SYSMENU;True;00000
+ 0.177 netfix SYSMENU;False;00000
+ 1.848 frame /home/pyefis/bench-scratch/aer-6704/m1_open.png
+ 3.851 AD_PRESS 18 (second, menu open)
+ 3.853 netfix SYSMENU;True;00000
+ 3.853 netfix SYSMENU;False;00000
+ 5.520 frame /home/pyefis/bench-scratch/aer-6704/m2_second_press_while_open.png
+14.706 frame /home/pyefis/bench-scratch/aer-6704/m3_after_idle_close.png
+SYSMENU after: @rSYSMENU;False;00000
+rc=0
+Nov 26 21:47:41 beelinkpyefis xinit[1890853]: INFO:20261126-21:47:41:pyefis.system_menu - system menu: opened by SYSMENU
+Nov 26 21:47:51 beelinkpyefis xinit[1890853]: INFO:20261126-21:47:51:pyefis.system_menu - system menu: closed after 10 s idle
+Nov 26 21:47:57 beelinkpyefis xinit[1890853]: INFO:20261126-21:47:57:pyefis.system_menu - system menu: opened by SYSMENU
+Nov 26 21:48:07 beelinkpyefis xinit[1890853]: INFO:20261126-21:48:07:pyefis.system_menu - system menu: closed after 10 s idle
