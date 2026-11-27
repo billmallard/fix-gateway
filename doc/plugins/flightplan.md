@@ -108,7 +108,13 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   one — the same great circle the engine has always flown. A `DF` with a
   coded turn direction first turns that way on a standard-rate circle, then
   flies the tangent to its fix, annunciated on `FPLTURN` (AER-4541,
-  `doc/flightplan_keys.md`). `CF` and (PA13)
+  `doc/flightplan_keys.md`). `ACT` on a `DF` starts it from the aircraft
+  and flies its coded turn from `TRACK`, the true ground track, read when
+  the command arrives, when the fix is more than 90 deg off the nose away
+  from the coded side. Within that, or with no good `TRACK`, `ACT` is
+  refused (`ACT N/A TURNED` / `ACT N/A NO TRACK` / `ACT N/A TOO CLOSE`)
+  and the active leg is kept. `DTO` and a `RESUME` off vectors fly the
+  line, the short way (AER-6294). `CF` and (PA13)
   `CA` fly the leg's published `FPLfCRS` (magnetic, converted with the
   current `MAGVAR`) instead of a bearing derived from the previous slot: a
   synthetic FROM point 50 nm behind the fix, on the reciprocal of that
@@ -134,7 +140,8 @@ listed in full, with types/ranges/writers, in `doc/flightplan_keys.md`
   vector leg activates the next slot from the aircraft's actual position,
   not a resumed track, or posts `"NO NEXT LEG"` and stays suspended if
   there is nothing after it. A `TF` or `DF` next leg is then the line from
-  the aircraft to its fix, like a `DTO`, with no `DF` coded turn. A `CF`
+  the aircraft to its fix, like a `DTO`, with no `DF` coded turn even
+  with `TRACK` known: the `RESUME` is a fresh "proceed direct" (AER-6294). A `CF`
   next leg is flown on its coded course, so `RESUME` is an intercept of
   that course and the needle shows how far off it the aircraft is
   (fix-gateway #174). `WPFROM` reads empty in both cases: the vector leg

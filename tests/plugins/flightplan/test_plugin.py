@@ -941,3 +941,38 @@ def test_state_file_config_placeholder_resolves_under_the_config_directory(datab
     assert pl.thread.state_file == str(config_dir / "x.json")
     pl.thread._restore()
     assert pl.thread.engine.route_name == "INFLIGHT"
+
+
+def test_act_on_a_coded_df_turns_from_the_track_on_the_bus(database, tmp_path):
+    # AER-6294: the plugin hands TRACK, the true ground track, to ACT, and a
+    # coded DF turns from it. From 2 nm short of B, C is 99 deg right of the
+    # track and coded L, the long way: more than 90 deg off the nose on
+    # the side away from the turn, so ACT flies it. An old TRACK is no
+    # track: ACT is refused, and B stays the active leg.
+    pl = flightplan.Plugin("flightplan", make_config(tmp_path), {})
+    database.write("GPS_FIX_TYPE", 3)
+    a = (34.0, -118.0)
+    b = geo.destination_point(*a, 90.0, 10.0)
+    c = geo.destination_point(*b, 200.0, 10.0)
+    write_route(database, [engine.Waypoint("A", *a), engine.Waypoint("B", *b),
+                           engine.Waypoint("C", *c, pt="DF", turn="L")], seq=1)
+    ac = geo.destination_point(*b, 270.0, 2.0)  # 2 nm short of B, on A-B
+    database.write("LAT", ac[0])
+    database.write("LONG", ac[1])
+    database.write("GS", 120.0)
+    database.write("MAGVAR", 0.0)
+    database.write("FPLCMD", "1 ACT 2")
+    pl.thread._run_update_cycle()
+
+    database.write("TRACK", 90.0)
+    database.get_raw_item("TRACK").old = True
+    database.write("FPLCMD", "2 ACT 3")
+    assert database.read("FPLCMDACK")[0] == -2
+    assert database.read("FPLMSG")[0] == engine.ACT_DF_NO_TRACK_REASON
+    assert database.read("WPNAME")[0] == "B"
+
+    database.write("TRACK", 90.0)
+    database.get_raw_item("TRACK").old = False
+    database.write("FPLCMD", "3 ACT 3")
+    assert database.read("FPLCMDACK")[0] == 3, database.read("FPLMSG")[0]
+    assert database.read("FPLTURN")[0] == "L"
