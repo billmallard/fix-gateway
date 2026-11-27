@@ -163,10 +163,32 @@ direction, and nothing sequences. The fix before such a `DF` gets no fly-by
 turn (`FPLfTA` 0): it sequences abeam, and the `DF`'s turn starts there.
 The turn starts where the engine knows the arrival track: sequencing into the
 `DF` from the leg before it, and `RESUME` at the MAP into a missed approach
-that opens with one. A `DF` started by `ACT`, `DTO` or a `RESUME` off a
-vector leg flies the line, the short way, because the engine has no track
-for it. So does a `DF` whose fix lies inside the turn's circle, where no
-tangent reaches it; 8260.58D C-3.a requires a published DF's fix outside it.
+that opens with one. `ACT` on a `DF` means the leg before it is done, so it
+flies the coded turn too, from the aircraft's position and `TRACK` (the true
+ground track) when the command arrives. `ACT` on any `DF` starts it from the
+aircraft, never from the slot before it: a `DF` has no FROM fix (FAA-H-8083-16B
+p.6-7, "an unspecified track starting from an undefined position"), and after a
+`CA` that slot is only a stand-in for where the climb ends. `ACT` flies the
+coded turn only when the fix is more than 90 deg off the nose, on the side away
+from the coded turn; on the coded side the coded turn is the short way, and is
+flown too. Within 90 deg on the away side the aircraft has already turned
+toward the fix, and the coded turn would be most of a circle (355 deg with the
+fix 5 deg off the nose), so `ACT` is refused with `ACT N/A TURNED`, pointing
+the pilot to `DTO`. It is refused the same way with `TRACK` old, bad or absent
+(`ACT N/A NO TRACK`), and with the fix inside the turn's circle
+(`ACT N/A TOO CLOSE`). A refused `ACT` changes nothing: the leg already active
+keeps its guidance, so a coupled autopilot keeps flying it (Bill, AER-6294).
+The 90 deg comes from no source; it is his ruling. An `ACT` onto a `DF` with
+no turn coded flies the line from the aircraft. The turn's radius comes from
+the `GS` of the last update, also when nothing was active.
+
+A `DTO` to a `DF` and a `RESUME` off a vector leg fly the line, the short way,
+even with `TRACK` known. Each is a fresh "proceed direct": the line from
+present position, as every pilot's guide describes a direct-to, and on vectors
+ATC owns the turn. No public source settles which way an off-sequence `DF`
+turns; this split is Bill's ruling (AER-6294). A `DF` whose fix lies inside
+the turn's circle, where no tangent reaches it, also flies the line; 8260.58D
+C-3.a requires a published DF's fix outside it.
 
 ## Route segment table (RS1)
 
@@ -327,8 +349,10 @@ Within one pyEfis process, where reads and writes are serialised, that keeps
 `seq` strictly increasing across both writers. Two displays on one gateway
 are not covered: each reads and then writes, so both can send the same seq.
 A third writer, or a second display commanding the same gateway, needs its
-own ruling. `tests/arch/key_writers_baseline.yaml` fails when a new module
-writes `FPLCMD`; it cannot see a second display, which runs the same modules.
+own ruling. The writer check counts pyEfis's modules as one writer, the
+panel (roadmap 9.1, ARCHG3b), so `tests/arch/test_key_writers.py` fails when a
+fix-gateway module writes `FPLCMD`. It cannot see a third pyEfis writer, nor a
+second display, which runs the same modules.
 The engine does not check seq order; it acks whatever seq it is sent.
 Verbs: `ACT <slot>`, `DTO` (no arg: use the staged `DTO*` keys; with a slot
 arg, direct-to that plan waypoint), `DTOX`, `SUSP`, `RESUME`,
@@ -398,7 +422,7 @@ sequence to, and the box stays on the fix.
 |---|---|---|---|
 | `FPLCMD` | str | editor, HSI (seq-arbitrated, card `bc9865d2`) | The command string |
 | `FPLCMDACK` | int | engine | `= seq` on success, `-seq` on rejection |
-| `FPLMSG` | str | engine | Last message / rejection reason. Commands: `NO PLAN`, `BAD SLOT`, `NO POSITION`, `PARSE`, a sequence trace like `SEQ GVO -> RZS` (or, PA13, `SEQ ALT -> <ident>` when a `CA`/`FA` leg terminates on altitude with no fix of its own), or (PA4, off a vector leg) `RESUME NAV -> <ident>` / `NO NEXT LEG`, or (PA13, on a flying `HM` hold) `HOLD EXIT ARMED`, or `NO NEXT LEG` when that hold is the last slot, or (OBS2) `OBS <deg>` / `OBS OFF` / `NOT IN OBS` / `IN OBS` and the `OBS N/A ...` refusals above. An accepted commit that drops the active leg (HOLDFIX0): `ACTIVE LEG REMOVED` / `ACTIVE LEG CHANGED` / `ACTIVE LEG AMBIGUOUS`, written after `FPLLDSEQ`. Route loads (PA4/PA13, guardrail 1): `"UNSUPP <PT> <ident>"` for an unrecognized terminator, or `"BADTURN <PT> <ident>"` / `"BADRADIUS <PT> <ident>"` / `"BADCENTER <PT> <ident>"` / `"BADALT <PT> <ident>"` / `"BADLEGLEN <PT> <ident>"` for a recognized Tier-2 type missing the fields its geometry needs, or (RS1) one of the `SEG...` reasons in the segment table section -- either way the whole route is rejected, not just that leg. A new code needs plain words in pyEfis (`pyefis/flightplan/refusal.py`) first: CI runs pyEfis's `test_refusal.py` against this engine and fails on a code with none (AER-6212) |
+| `FPLMSG` | str | engine | Last message / rejection reason. Commands: `NO PLAN`, `BAD SLOT`, `NO POSITION`, `PARSE`, a sequence trace like `SEQ GVO -> RZS` (or, PA13, `SEQ ALT -> <ident>` when a `CA`/`FA` leg terminates on altitude with no fix of its own), or (PA4, off a vector leg) `RESUME NAV -> <ident>` / `NO NEXT LEG`, or (PA13, on a flying `HM` hold) `HOLD EXIT ARMED`, or `NO NEXT LEG` when that hold is the last slot, or (OBS2) `OBS <deg>` / `OBS OFF` / `NOT IN OBS` / `IN OBS` and the `OBS N/A ...` refusals above, or (AER-6294) `ACT N/A TURNED` / `ACT N/A NO TRACK` / `ACT N/A TOO CLOSE` for an `ACT` onto a coded `DF` whose turn cannot be flown as ruled (the `DF` section). An accepted commit that drops the active leg (HOLDFIX0): `ACTIVE LEG REMOVED` / `ACTIVE LEG CHANGED` / `ACTIVE LEG AMBIGUOUS`, written after `FPLLDSEQ`. Route loads (PA4/PA13, guardrail 1): `"UNSUPP <PT> <ident>"` for an unrecognized terminator, or `"BADTURN <PT> <ident>"` / `"BADRADIUS <PT> <ident>"` / `"BADCENTER <PT> <ident>"` / `"BADALT <PT> <ident>"` / `"BADLEGLEN <PT> <ident>"` for a recognized Tier-2 type missing the fields its geometry needs, or (RS1) one of the `SEG...` reasons in the segment table section -- either way the whole route is rejected, not just that leg. A new code needs plain words in pyEfis (`pyefis/flightplan/refusal.py`) first: CI runs pyEfis's `test_refusal.py` against this engine and fails on a code with none (AER-6212) |
 
 ## Engine outputs (FP2 writes; `tol: 5000`)
 

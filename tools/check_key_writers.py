@@ -41,6 +41,12 @@ and, for the provider declaration (SRC4, AER-6455), the per-writer `datum`,
 keys, with `tests/arch/datum_baseline.yaml`: the keys whose writers declare
 more than one datum today.  It may only shrink.
 
+Writers count by class, as roadmap 9.1 states them (ARCHG3b, AER-6683): a
+key's pyEfis modules are the panel, one writer; and a pilot setting
+(`SETTING_KEYS`, `kind: setting` in the register) may have the panel and
+external devices as writers, when each device declares an `echo` that follows
+the panel.
+
 `--generate` rewrites the records from the scan.  It keeps what a scan cannot
 know -- the provider columns and the pyEfis writers -- from the existing register,
 or takes the pyEfis writers from a scan of a pyEfis checkout when one is given.
@@ -132,7 +138,7 @@ PROVIDER_KEYS = (
 )
 DIRECTION_KEYS = {"HEAD", "TRACK"}
 STATISTIC_KEYS = {"GPS_ACCURACY_HORIZ", "GPS_ACCURACY_VERTICAL", "GPS_ACCURACY_SPEED"}
-COLUMNS = ("datum", "quality", "on_loss", "rate_hz")
+COLUMNS = ("datum", "quality", "on_loss", "rate_hz", "echo")
 
 # A cell is "<token>[, <token>...][: note]".
 DATUMS = {
@@ -162,6 +168,26 @@ ON_LOSS = {
     "on_change",    # a setting or an engine output, written when it changes
     "follows",      # a compute select: the chosen source's value and flags
 }
+
+# ---- writer classes (ARCHG3b, AER-6683) ----------------------------------
+# Roadmap 9.1 counts writers by class (Bill, 2026-11-26, card 08ec3c22 on
+# AER-6623).  The panel, all of pyEfis's modules together, is one writer.
+# A pilot setting may be written by the panel and by external devices, each
+# device under the echo rule; extending the list of settings is Bill's
+# ruling, so it lives here, and a `kind: setting` on another key fails.
+SETTING_KEYS = ("ALTSEL", "VSSEL", "IASSEL", "HEADBUG", "NAV1CRS", "NAV2CRS", "BARO")
+PANEL = "pyefis"
+# How an external writer of a setting keeps from fighting the panel.
+ECHO = {
+    "echo_rule",     # writes only when its device moved past its eps from the value it last
+                     # agreed with the bus, and holds a value it was sent until the device
+                     # shows it or a settle time passes (xplane/autopilot.py)
+    "overwrites",    # anything short of that: it writes each value its device reports,
+                     # whatever the panel set (MAOS-DESIGN 3c3970f names only the echo rule)
+}
+# The echo that lets a setting have the panel and the device as writers.
+# A key with an `overwrites` writer is counted as any other key.
+ECHO_FOLLOWS = {"echo_rule"}
 
 FIX_DECLARE = ("declare it in src/fixgw/database/writers.yaml and add the roadmap "
                "9.1 block (doc/key_writers.md)")
@@ -1018,6 +1044,30 @@ def live_writers(entry):
     return set(entry.get("writers") or []) | set(entry.get("pyefis") or [])
 
 
+def counted_writers(entry):
+    """The live writers as roadmap 9.1 counts them: every pyEfis module of a
+    key is the panel, one writer."""
+    return set(entry.get("writers") or []) | ({PANEL} if entry.get("pyefis") else set())
+
+
+def echo_of(entry, m):
+    echo = entry.get("echo")
+    if not isinstance(echo, dict) or not isinstance(echo.get(m), str):
+        return None
+    return parse_cell(echo[m])[0][0]
+
+
+def settled_setting(key, entry):
+    """A pilot setting whose every external writer follows the panel: the
+    panel and those writers are allowed together."""
+    return (key in SETTING_KEYS and entry.get("kind") == "setting"
+            and all(echo_of(entry, m) in ECHO_FOLLOWS for m in entry.get("writers") or []))
+
+
+def multi_writer(key, entry):
+    return len(counted_writers(entry)) > 1 and not settled_setting(key, entry)
+
+
 # ---- records ---------------------------------------------------------------
 def load_yaml(root, rel):
     p = os.path.join(root, rel)
@@ -1043,6 +1093,8 @@ def build_register(catalog, writes, selectors, old, pyefis_writes=None):
         if key not in catalog:
             continue
         e = {"units": catalog[key].get("units") or ""}
+        if (old.get(key) or {}).get("kind") is not None:
+            e["kind"] = old[key]["kind"]
         if (old.get(key) or {}).get("datum") and numeric(key, catalog):
             e["datum"] = old[key]["datum"]
         elif needs_datum(key, catalog):
@@ -1107,8 +1159,8 @@ def build_datum_baseline(register):
 
 
 def build_baseline(register):
-    return {k: sorted(live_writers(e)) for k, e in sorted(register.items())
-            if len(live_writers(e)) > 1}
+    return {k: sorted(counted_writers(e)) for k, e in sorted(register.items())
+            if multi_writer(k, e)}
 
 
 def dump_register(reg):
@@ -1118,6 +1170,8 @@ def dump_register(reg):
         "#",
         "# One entry per key that some module writes:",
         "#   units     the catalog's units (database.yaml)",
+        "#   kind      `setting` on the pilot settings of roadmap 9.1, which the panel",
+        "#             and external devices may both write (ARCHG3b)",
         "#   datum     altitude, position, heading, track and accuracy keys: the datum",
         "#             (or, for accuracy, the statistic) each writer puts on the bus.",
         "#             A mapping is per writer, and where they differ the key is wrong",
@@ -1128,8 +1182,11 @@ def dump_register(reg):
         "#   on_loss   per writer: silence, fail, holds_last, writes_zero, on_change",
         "#             or follows -- what the key does when the writer loses its input",
         "#   rate_hz   per writer, where the code or its doc states it",
+        "#   echo      per external writer of a setting: echo_rule or overwrites --",
+        "#             whether it keeps from fighting the panel",
         "#   writers   live writers in fix-gateway: plugins and compute modules",
-        "#   pyefis    live writers in pyEfis (ARCHG2 checks these from pyEfis's side)",
+        "#   pyefis    live writers in pyEfis (ARCHG2 checks these from pyEfis's side);",
+        "#             together they are the panel, one writer",
         "#   sim       simulators and replays, which stand in for a live writer",
         "#   relay     modules that pass a client's write on (netfix, command, ...)",
         "#   selector  a compute `select`: `by` picks one of `sources`, and the",
@@ -1178,7 +1235,9 @@ def dump_baseline(base):
         "# listed here gains a second live writer, when a listed key gains a writer,",
         "# and when a listed key has lost one -- so this file only shrinks.  Remove",
         "# an entry by giving the key one writer (a selector, roadmap 9.1).",
-        "# Live writers: `writers` and `pyefis` in src/fixgw/database/writers.yaml.",
+        "# Live writers: `writers` in src/fixgw/database/writers.yaml, and `pyefis`,",
+        "# whose modules are the panel, one writer.  A pilot setting whose external",
+        "# writers follow the panel (`echo`) is not here (ARCHG3b).",
         "# %d keys." % len(base),
         "",
     ]
@@ -1258,8 +1317,8 @@ def check_baseline(register, baseline):
     writer, and an entry for a key no longer multi-written."""
     fails = []
     for key, e in sorted(register.items()):
-        live = live_writers(e)
-        if len(live) < 2 or e.get("selector"):
+        live = counted_writers(e)
+        if not multi_writer(key, e) or e.get("selector"):
             continue
         if key not in baseline:
             fails.append("%s: %d live writers (%s), and it is not on the baseline; %s"
@@ -1271,14 +1330,47 @@ def check_baseline(register, baseline):
                          % (key, ", ".join(sorted(live - allowed)), ", ".join(sorted(allowed)),
                             upper_first(FIX_SELECTOR.format(key=key))))
     for key in sorted(baseline):
-        live = live_writers(register.get(key) or {})
+        e = register.get(key) or {}
+        live = counted_writers(e)
         allowed = set(baseline[key] or [])
-        if len(live) < 2:
+        if len(live) > 1 and settled_setting(key, e):
+            fails.append("%s: a pilot setting whose external writers all follow the panel "
+                         "(roadmap 9.1), and still on the baseline; remove it from "
+                         "tests/arch/key_writers_baseline.yaml" % key)
+        elif len(live) < 2:
             fails.append("%s: now has %d live writer(s) and is still on the baseline; remove "
                          "it from tests/arch/key_writers_baseline.yaml" % (key, len(live)))
         elif allowed - live:
             fails.append("%s: lost writer(s) %s; remove them from its baseline entry"
                          % (key, ", ".join(sorted(allowed - live))))
+    return fails
+
+
+def check_settings(register):
+    """Failures in the writer classes: a `kind` that is not `setting`, a
+    setting off SETTING_KEYS or a listed one not marked, an `echo` on a key
+    that is not a setting, and an external writer of a setting with no echo."""
+    fails = []
+    for key, e in sorted(register.items()):
+        kind = e.get("kind")
+        if kind is not None and kind != "setting":
+            fails.append("%s: writers.yaml `kind` is %r; the only kind is `setting`" % (key, kind))
+        elif kind == "setting" and key not in SETTING_KEYS:
+            fails.append("%s: writers.yaml marks it `kind: setting`, and roadmap 9.1 names only "
+                         "%s as pilot settings.  Adding one is Bill's ruling, then a change to "
+                         "SETTING_KEYS in tools/check_key_writers.py" % (key, ", ".join(SETTING_KEYS)))
+        elif kind is None and key in SETTING_KEYS:
+            fails.append("%s: a pilot setting (roadmap 9.1); mark it `kind: setting` in "
+                         "writers.yaml" % key)
+        if e.get("echo") is not None and not (kind == "setting" and key in SETTING_KEYS):
+            fails.append("%s: writers.yaml gives `echo` on a key that is not a pilot setting; "
+                         "remove it" % key)
+        elif kind == "setting" and key in SETTING_KEYS:
+            for m in e.get("writers") or []:
+                if not isinstance(e.get("echo"), dict) or m not in e["echo"]:
+                    fails.append("%s: %s writes a pilot setting and declares no `echo` in "
+                                 "writers.yaml; say how it keeps from fighting the panel: %s "
+                                 "(doc/key_writers.md)" % (key, m, ", ".join(sorted(ECHO))))
     return fails
 
 
@@ -1297,6 +1389,10 @@ def cell_fails(key, m, col, cell, register, catalog):
         if len(toks) != 1 or toks[0] not in DATUMS:
             fails.append("%s is %r; a datum is one of %s, then \": note\""
                          % (where, ", ".join(toks), ", ".join(sorted(DATUMS))))
+    elif col == "echo":
+        if len(toks) != 1 or toks[0] not in ECHO:
+            fails.append("%s is %r; echo is one of %s, then \": note\""
+                         % (where, ", ".join(toks), ", ".join(sorted(ECHO))))
     elif col == "on_loss":
         bad = [t for t in toks if t not in ON_LOSS]
         if bad:
@@ -1442,7 +1538,8 @@ def run_checks(root=ROOT, catalog=None):
             check_baseline(register, baseline),
             check_concepts(root, load_yaml(root, CONCEPTS)),
             check_columns(catalog, register),
-            check_datum_baseline(register, load_yaml(root, DATUM_BASELINE)))
+            check_datum_baseline(register, load_yaml(root, DATUM_BASELINE)),
+            check_settings(register))
 
 
 def generate(root, pyefis_root=None):

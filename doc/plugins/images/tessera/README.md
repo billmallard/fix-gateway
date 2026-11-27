@@ -23,7 +23,7 @@ cd $D
 
 # 0. The layout: the shipped page with sample values, from a fix-gateway checkout
 #    (copy spike_page.json from this directory, or regenerate it):
-#    PYTHONPATH=src python3 -c "from fixgw.plugins.tessera import protocol; from fixgw.plugins.tessera.page import Page; v={'BARO':29.92,'HEADBUG':275.0,'COURSE':93.0,'MAPRANGE':2}; print(protocol.layout_payload(Page.load('src/fixgw/config/tessera/page.yaml').buttons(lambda k: (v[k],False,False,False,False,False))))" > $D/spike_page.json
+#    PYTHONPATH=src python3 -c "from fixgw.plugins.tessera import protocol; from fixgw.plugins.tessera.page import Page; v={'BARO':29.92,'HEADBUG':275.0,'COURSE':93.0,'NAVSRC':2.0,'MAPRANGE':2}; print(protocol.layout_payload(Page.load('src/fixgw/config/tessera/page.yaml').buttons(lambda k: (v[k],False,False,False,False,False))))" > $D/spike_page.json
 
 # 1. Source
 curl -sSL -o tessera.tar.gz https://codeload.github.com/catorendal-a11y/tessera-deck/tar.gz/5ab2486e01595c0049fabdc8d0433145654d970e

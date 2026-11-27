@@ -1566,8 +1566,10 @@ def test_resume_from_vectors_sequences_onto_next_leg_direct_from_aircraft_positi
 @pytest.mark.parametrize("pt,turn", [("TF", ""), ("DF", ""), ("DF", "R")])
 def test_resume_from_vectors_flies_a_tf_or_df_next_leg_direct_from_the_aircraft(pt, turn):
     # fix-gateway #174: the line from where the aircraft is, so the needle
-    # reads centred at the RESUME. A DF's coded turn is not flown: the
-    # engine knows no track to turn from (_df_turn_start).
+    # reads centred at the RESUME. A DF's coded turn is not flown, even with
+    # the track known: off vectors the RESUME is a fresh "proceed direct",
+    # and on vectors ATC owns the turn (Bill, AER-6294). The track given is
+    # one where the coded R is the long way round.
     e = engine.Engine()
     route = vector_route()
     route[2] = engine.Waypoint("ENRTRY", 0.0, nm_to_deg_lon(25.0), type=engine.TYPE_FIX, pt=pt, turn=turn)
@@ -1576,7 +1578,7 @@ def test_resume_from_vectors_flies_a_tf_or_df_next_leg_direct_from_the_aircraft(
     e.update(0.0, nm_to_deg_lon(1.0), 120.0, 0.0, True, None, None, 1000.0)
 
     ac = (3.0 / 60.0, nm_to_deg_lon(6.0))  # 3 nm north of the next leg's line
-    e.handle_command("2 RESUME", (ac[0], ac[1], True))
+    e.handle_command("2 RESUME", (ac[0], ac[1], True, 0.0))
     out = e.update(ac[0], ac[1], 120.0, 0.0, True, None, None, 1001.0)
     assert out["state"] == engine.STATE_LEG and out["wp_name"] == "ENRTRY"
     assert out["xtk"] == pytest.approx(0.0, abs=1e-3)

@@ -47,7 +47,11 @@ the map's range ladder. A press on MAP RANGE pulses `TSBTN139`, pyEfis's
 `map-range-focus` button, which gives the knob to the map: the inner knob
 zooms smoothly, the outer ring steps the ladder, and a push snaps to the
 nearest rung. A map follows any of these only if its `range_key` names
-`MAPRANGE`:
+`MAPRANGE`. The MENU key, bottom right, is a gear: a press pulses `SYSMENU`,
+which opens pyEfis's system menu (Data Status, About, Screens). This is the same
+menu as the corner swipe on the display (MENU1, pyEfis `system_menu.py`). pyEfis
+opens it on the change from false to true, so a press while it is open does
+nothing:
 
 ```yaml
 name: SPIKE
@@ -55,6 +59,7 @@ keys:
   - {id: 1, label: BARO, show: BARO, format: "{:.2f}", press: {pulse: TSBTN136}}
   - {id: 3, label: BARO, text: "+", press: {pulse: TSBTN12}}
   - {id: 10, label: MAP RANGE, show: MAPRANGE}
+  - {id: 18, label: MENU, icon: settings, press: {pulse: SYSMENU}}
 ```
 
 | Field | Meaning |
@@ -65,6 +70,7 @@ keys:
 | `format` | A Python format for `show`, default `{}`. The panel shows 7 characters at most. |
 | `enum` | Text for each whole-number value of `show`, as `{0: VLOC1, 1: VLOC2, 2: GPS, 3: GPS2}` names NAVSRC. A value is looked up by its nearest whole number; one with no name is shown through `format`. |
 | `text` | Fixed centre text instead of `show`. |
+| `icon` | A symbol instead of a value, with no `show` or `text`. One of the names the firmware draws (`ui.cpp` `fallback_icon`): `settings` (a gear), `ok`, `close`, `home`, `folder`, `download`, `refresh`, `play`, `pause`, `stop`, `plus`, `minus`, `loop`, `list`, `upload`, `bolt`, `bell`, `wifi`, `trash`, `edit`. The firmware draws any other name as a tick, so the plugin refuses it. |
 | `press` | `{pulse: KEY}` writes True then False to a bool key. `{set: KEY, value: V}` writes V once. |
 | `color` | The centre text colour as `#RRGGBB`. The panel decides whether a colour is valid. |
 | `confirm` | `true`: the press is sent only after a 600 ms hold (the panel's `cf`). |
@@ -89,12 +95,15 @@ on every screen, bind its key with a pyEfis data binding.
 
 ### How a key is drawn
 
-Every key is a gauge tile with an empty ring: the centre text inside the ring
+Every value key is a gauge tile with an empty ring: the centre text inside the ring
 and the label underneath. The firmware changes a tile's label, colour and
 gauge text in place, but any other change rebuilds the whole grid, and a
 rebuild drops a press that is waiting for its feedback (`deck_model.c`
 `same_structure`, `ui.cpp` `build_keys`). So a refresh changes only those
-fields:
+fields. A key with an `icon` is drawn as that symbol, with the label
+underneath, and a refresh never changes it. The firmware draws a key's icon
+only when the key has no gauge (`ui.cpp` `build_keys`). Value keys keep
+these rules:
 
 | Shown value | Centre text | Colour |
 |---|---|---|
@@ -178,6 +187,7 @@ replug the panel.
 
 - On the real panel, still not measured: press to glass, legibility, glove
   touch, and the USB behaviour of a panel restart or an unplug.
-- Icons and images, firmware update, the panel's other screens, brightness,
-  dimming and lock, and the configurator are out of scope.
+- Images, the Lucide icon pack (`lc:` names), firmware update, the panel's
+  other screens, brightness, dimming and lock, and the configurator are out of
+  scope.
 - One page only. Page switching and knob focus are open questions (AER-5754).
