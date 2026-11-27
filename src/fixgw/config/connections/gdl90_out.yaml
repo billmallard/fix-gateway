@@ -48,11 +48,12 @@ gdl90_out:
   # 2 disallowed.
   internet_policy: 0
   # Sim and FMS sources only.  X-Plane and an FMS write a position but no
-  # GPS_ACCURACY_HORIZ, and ForeFlight ignores an ownship report whose
-  # accuracy (NACp) is unknown: it stays at the tablet's own location.  Set a
-  # horizontal accuracy in feet (e.g. 16) to send in its place while nothing
-  # has written GPS_ACCURACY_HORIZ.  The tablet is then told an accuracy the
-  # source never reported; never set it for a real GPS.  A GPS that has
-  # written the key is never overridden, even after it loses its estimate.
-  # Empty: NACp 0, "unknown".
+  # GPS_ACCURACY_HORIZ or GPS_ACCURACY_VERTICAL.  ForeFlight ignores an
+  # ownship report whose accuracy (NACp) is unknown, so it stays at the
+  # tablet's own location, and it shows no altitude without a VFOM.  Set an
+  # accuracy in feet (e.g. 16) to send as NACp and VFOM while nothing has
+  # written the matching key.  The tablet is then told an accuracy the source
+  # never reported; never set it for a real GPS.  A GPS that has written a key
+  # is never overridden, even after it loses its estimate.
+  # Empty: NACp 0, "unknown", and VFOM "not available".
   assumed_accuracy_ft:

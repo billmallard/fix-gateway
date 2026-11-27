@@ -82,7 +82,7 @@ is not `old`, `bad` or `fail`. Validity maps through; nothing is smoothed over.
 | Call sign | `callsign` setting | A-Z, 0-9, space-padded to 8 | spaces |
 | Emitter category | `emitter_category` setting | default 1, light | |
 | Geometric altitude | `geo_altitude_key` (default `GPS_ELLIPSOID_ALT`), ft | signed, 5 ft | message not sent |
-| VFOM | `GPS_ACCURACY_VERTICAL`, ft | metres, holds at 0x7FFE; vertical warning 0 | 0x7FFF, "not available" |
+| VFOM | `GPS_ACCURACY_VERTICAL`, ft | metres, holds at 0x7FFE; vertical warning 0 | 0x7FFF, "not available". With `assumed_accuracy_ft` set and the key never written, the setting in metres (below). |
 | Roll, pitch | `ROLL`, `PITCH`, deg | 0.1 deg; + right wing down, + nose up | 0x7FFF |
 | Heading | `HEAD`, deg magnetic | 0.1 deg, bit 15 set (magnetic) | 0xFFFF |
 | IAS, TAS | `IAS`, `TAS`, kt | 1 kt | 0xFFFF |
@@ -116,9 +116,11 @@ X-Plane as the only position source.
   position and GPS-valid set; only NACp was 0. A bench stand-in that wrote
   16 ft into `GPS_ACCURACY_HORIZ` (NACp 10) brought position, altitude and
   speed in at once. NIC stayed 0, so NIC does not gate it.
-- **Speed is groundspeed.** ForeFlight showed 133 where a pilot reads
-  airspeed: that was GPS groundspeed. The IAS (105) and TAS (119) sent in
-  0x65/1 at the FF offsets were not shown.
+- **Speed: corrected by EFB5.** Bill read 133 kt, which matched GPS
+  groundspeed; the IAS (105) and TAS (119) in 0x65/1 were not seen. Which
+  ForeFlight box he read it from was not recorded. In EFB5 (below) the
+  airspeed box showed IAS, so this line no longer says ForeFlight shows
+  groundspeed where a pilot reads airspeed.
 - **"MkrPlane, No Towers"** in red, with a time that was not current: most
   likely ForeFlight's ADS-B uplink status. No FIS-B is expected from a box
   that is not an ADS-B receiver.
@@ -143,6 +145,35 @@ for that case (BACKLOG EFB5, AER-6452):
   setting and not a writer.)
 - A value that is not a positive number of feet is refused, logged and left
   unset. A set value is logged as a warning at start.
+
+## ForeFlight altitude needs a VFOM (EFB5, EFB5b)
+
+The EFB5 iPad check (AER-6452, 2026-11-27) ran with `assumed_accuracy_ft: 16`
+and no stand-in. The ownship was placed and moving, but altitude and vertical
+speed showed X.
+
+- **Speed:** ForeFlight's airspeed box showed 105-106 kt, the IAS from 0x65/1.
+  The ownship GS on the wire was 141 kt, the same as bus `GS` (a tailwind; TAS
+  119).
+- **Altitude and vertical speed need a VFOM.** The wire carried a valid 0x0A
+  pressure altitude (7,900 ft) and VS, and a 0x0B geometric altitude
+  (7,905 ft) with VFOM 0x7FFF, "not available", because nothing writes
+  `GPS_ACCURACY_VERTICAL`. A 5-minute bench stand-in wrote that key at 25 ft,
+  which put VFOM 8 m on the wire, and ForeFlight then showed about 7,900 ft.
+  So ForeFlight gates altitude on 0x0B's VFOM, not on 0x0A's pressure
+  altitude.
+
+So the same setting supplies VFOM (BACKLOG EFB5b, AER-6754; Bill's ruling,
+2026-11-27). There is no second setting. While nothing has written
+`GPS_ACCURACY_VERTICAL`, VFOM is `assumed_accuracy_ft` in metres, nearest
+(16 ft gives 5 m). Every rule above holds for VFOM too:
+
+- Unset: 0x7FFF, "not available".
+- A valid written key always wins.
+- A key that was written and is now old, bad or failed stays 0x7FFF, with the
+  setting on or off.
+- No height key valid: no 0x0B, as before. The setting never makes a height.
+- Nothing is written to the bus.
 
 **The risk, named:** with the setting on, the box tells the tablet an accuracy
 its source never reported. It is meant for sim and FMS sources only. Never set
@@ -184,4 +215,4 @@ Android apps above.
 | `geo_altitude_key`, `geo_altitude_datum` | `GPS_ELLIPSOID_ALT`, `ellipsoid` | 0x0B source and datum |
 | `callsign`, `emitter_category`, `ownship_address` | `""`, `1`, `""` | ownship identity |
 | `internet_policy` | `0` | ID capability bits 1-2: 0 unrestricted, 1 expensive, 2 disallowed |
-| `assumed_accuracy_ft` | unset | sim and FMS sources only: horizontal accuracy, ft, sent as NACp while nothing has written `GPS_ACCURACY_HORIZ` (above) |
+| `assumed_accuracy_ft` | unset | sim and FMS sources only: accuracy, ft, sent as NACp while nothing has written `GPS_ACCURACY_HORIZ`, and as VFOM while nothing has written `GPS_ACCURACY_VERTICAL` (above) |
