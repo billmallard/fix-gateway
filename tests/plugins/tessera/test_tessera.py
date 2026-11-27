@@ -90,7 +90,7 @@ def test_handshake_accepts_tessera_p4_protocol_4(rig):
     assert accepted(p, panel)
     assert panel.lines()[0][1] == '{"cmd":"get_info"}'
     assert p.thread.connected and p.thread.boot_id == 1234
-    assert [k["id"] for k in panel.layout] == list(range(1, 13))
+    assert [k["id"] for k in panel.layout] == list(range(1, 13)) + [18]
     assert p.get_status()["Firmware"] == "0.9.0"
 
 
@@ -454,6 +454,23 @@ def test_the_baro_key_pulses_pyefis_baro_focus_button(rig, database):
     assert rec.calls == [("TSBTN136", True), ("TSBTN136", False)]
 
 
+def test_the_menu_key_is_a_gear_that_pulses_pyefis_sysmenu(rig, database):
+    """MENU1b (AER-6704): key 18 is a gear, and a press pulses SYSMENU, the
+    key whose rising edge opens pyEfis's system menu (MENU1, AER-5892)."""
+    rec = Recorder()
+    database.callback_add("test", "SYSMENU", rec, None)
+    p, panel = rig()
+    assert accepted(p, panel)
+    gear = tile(panel, 18)
+    assert gear["label"] == "MENU"
+    assert gear["icon"] == "settings"
+    # The firmware draws the icon only on a key with no gauge (ui.cpp build_keys).
+    assert "gauge" not in gear
+    panel.press(18)
+    assert wait_for(lambda: ("ok", 18) in panel.feedback)
+    assert rec.calls == [("SYSMENU", True), ("SYSMENU", False)]
+
+
 # -- reconnect -----------------------------------------------------------------
 
 
@@ -554,7 +571,9 @@ def test_page_path_is_relative_to_the_config_directory(database):
         [{"id": 1, "label": "X"}, {"id": 1, "label": "Y"}],
         [{"id": 1, "label": "X", "show": "BARO", "text": "Y"}],
         [{"id": 1, "label": "X", "press": {"pulse": "A", "set": "B"}}],
-        [{"id": 1, "label": "X", "icon": "ok"}],
+        [{"id": 1, "label": "X", "icon": "gear"}],
+        [{"id": 1, "label": "X", "icon": "settings", "show": "BARO"}],
+        [{"id": 1, "label": "X", "icon": "settings", "text": "Y"}],
         [{"id": 1, "label": "X", "enum": {0: "A"}}],
         [{"id": 1, "label": "X", "show": "BARO", "enum": {"0": "A"}}],
         [{"id": 1, "label": "X", "show": "BARO", "enum": {0: 1}}],
@@ -568,7 +587,9 @@ def test_page_path_is_relative_to_the_config_directory(database):
         "duplicate",
         "show-and-text",
         "two-actions",
-        "icon",
+        "unknown-icon",
+        "icon-and-show",
+        "icon-and-text",
         "enum-without-show",
         "enum-string-value",
         "enum-number-text",
