@@ -235,8 +235,9 @@ def parse_assumed_accuracy(value, log):
         log.error("assumed_accuracy_ft: %r is not a positive number of feet; leaving it unset" % (value,))
         return None
     log.warning(
-        "gdl90_out: assumed_accuracy_ft %g in effect: with no GPS_ACCURACY_HORIZ writer, "
-        "the ownship report claims an accuracy the source does not report" % ft
+        "gdl90_out: assumed_accuracy_ft %g in effect: with no GPS_ACCURACY_HORIZ or "
+        "GPS_ACCURACY_VERTICAL writer, the ownship report and geo altitude claim an "
+        "accuracy the source does not report" % ft
     )
     return ft
 TRAFFIC_KEY = re.compile(r"^TFC(\d+)TGT$")
@@ -298,12 +299,7 @@ class Encoder(object):
         v = self.r.valid
         lat, lon = pos if pos is not None else (None, None)
         nacp = 0
-        epu_ft = v("GPS_ACCURACY_HORIZ")
-        if epu_ft is None and not self.r.written("GPS_ACCURACY_HORIZ"):
-            # Only a source that has never written the key gets the setting.
-            # A written key that is now old, bad or failed is a real receiver
-            # that lost its estimate, and that stays NACp 0.
-            epu_ft = self.assumed_epu_ft
+        epu_ft = self.accuracy_ft("GPS_ACCURACY_HORIZ")
         if pos is not None and epu_ft is not None:
             nacp = messages.nacp_code(epu_ft / FT_PER_M)
         return messages.report(
@@ -321,6 +317,16 @@ class Encoder(object):
             emitter=self.emitter,
             callsign=self.callsign,
         )
+
+    def accuracy_ft(self, key):
+        """The accuracy key's value, or assumed_accuracy_ft when no source has
+        ever written the key (EFB5, EFB5b: the one setting supplies NACp and
+        VFOM).  A written key that is now old, bad or failed is a real
+        receiver that lost its estimate, and that stays "not available"."""
+        ft = self.r.valid(key)
+        if ft is None and not self.r.written(key):
+            ft = self.assumed_epu_ft
+        return ft
 
     def geo_source(self):
         """(key, msl) the geo altitude and the ID message's datum come from.
@@ -347,7 +353,7 @@ class Encoder(object):
         alt = self.r.valid(key)
         if alt is None:
             return None
-        vfom_ft = self.r.valid("GPS_ACCURACY_VERTICAL")
+        vfom_ft = self.accuracy_ft("GPS_ACCURACY_VERTICAL")
         vfom_m = None if vfom_ft is None else vfom_ft / FT_PER_M
         return messages.geo_altitude(alt, vfom_m)
 
