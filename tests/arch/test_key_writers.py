@@ -55,6 +55,11 @@ def test_no_key_gains_a_second_datum_and_the_datum_baseline_only_shrinks(checks)
     assert not datum_fails, report(datum_fails)
 
 
+def test_the_pilot_settings_are_marked_and_their_devices_declare_an_echo(checks):
+    setting_fails = checks[5]
+    assert not setting_fails, report(setting_fails)
+
+
 def test_talt_has_the_position_writers():
     """TALT, the geometric MSL height, comes from the receiver that gives the
     position, so its live writers are exactly LAT's and LONG's (Bill, card
@@ -388,7 +393,7 @@ def test_a_pyefis_writer_counts_as_a_live_writer(tmp_path):
     register = {"BARO": {"units": "inHg", "writers": ["aaa"],
                          "pyefis": ["pyefis/instruments/altimeter"]}}
     assert "not on the baseline" in rules(root, register, {})[0]
-    assert rules(root, register, {"BARO": ["aaa", "pyefis/instruments/altimeter"]}) == []
+    assert rules(root, register, {"BARO": ["aaa", "pyefis"]}) == []
 
 
 def test_a_sim_writer_is_declared_but_is_not_a_second_writer(tmp_path):
@@ -424,6 +429,88 @@ def test_a_writer_that_stopped_writing_must_leave_the_register(tmp_path):
     fails = rules(root, {"VS": {"units": "ft", "writers": ["aaa", "gone"]}}, {"VS": ["aaa", "gone"]})
     assert fails == ["VS: writers.yaml lists gone under `writers`, and the scan finds no "
                      "write from it; remove it from writers.yaml"]
+
+
+# ---- writers by class (ARCHG3b, AER-6683) ----------------------------------
+# Roadmap 9.1 (Bill, 2026-11-26, card 08ec3c22 on AER-6623): the panel is one
+# writer, and a pilot setting may have the panel and external devices as
+# writers, each device under the echo rule.
+def test_one_panel_with_two_widget_writers_is_one_writer():
+    reg = {"HEADBUG": {"units": "deg", "pyefis": ["pyefis/instruments/autopilot",
+                                                  "pyefis/instruments/hsi"]}}
+    assert ckw.check_baseline(reg, {}) == []
+    assert ckw.build_baseline(reg) == {}
+    # The panel and a plugin are still two writers, and the panel is named once.
+    reg = {"VS": {"units": "ft", "writers": ["aaa"],
+                  "pyefis": ["pyefis/instruments/a", "pyefis/instruments/b"]}}
+    assert ckw.check_baseline(reg, {})[0].startswith(
+        "VS: 2 live writers (aaa, pyefis), and it is not on the baseline")
+    assert ckw.check_baseline(reg, {"VS": ["aaa", "pyefis"]}) == []
+
+
+def baro(**cols):
+    e = {"units": "inHg", "kind": "setting", "writers": ["canfix", "grand_rapids_eis"],
+         "pyefis": ["pyefis/instruments/altimeter"]}
+    e.update(cols)
+    return {"BARO": e}
+
+
+def test_a_setting_s_device_writer_must_declare_an_echo():
+    assert ckw.check_settings(baro()) == [
+        "BARO: %s writes a pilot setting and declares no `echo` in writers.yaml; say how it "
+        "keeps from fighting the panel: echo_rule, overwrites "
+        "(doc/key_writers.md)" % m for m in ("canfix", "grand_rapids_eis")]
+    # Without an echo, the key is counted as any other.
+    assert ckw.check_baseline(baro(), {})[0].startswith("BARO: 3 live writers")
+    reg = baro(echo={"canfix": "echo_rule: note", "grand_rapids_eis": "echo_rule"})
+    assert ckw.check_settings(reg) == []
+    assert ckw.check_baseline(reg, {}) == []
+    assert ckw.build_baseline(reg) == {}
+
+
+def test_a_setting_with_a_device_that_overwrites_the_panel_stays_on_the_baseline():
+    reg = baro(echo={"canfix": "echo_rule", "grand_rapids_eis": "overwrites: every frame"})
+    assert ckw.check_settings(reg) == []
+    assert ckw.check_baseline(reg, {})[0].startswith(
+        "BARO: 3 live writers (canfix, grand_rapids_eis, pyefis), and it is not on the baseline")
+    assert ckw.check_baseline(reg, {"BARO": ["canfix", "grand_rapids_eis", "pyefis"]}) == []
+    # When every device follows the panel, the entry must come off.
+    reg = baro(echo={"canfix": "echo_rule", "grand_rapids_eis": "echo_rule"})
+    assert ckw.check_baseline(reg, {"BARO": ["canfix", "grand_rapids_eis", "pyefis"]}) == [
+        "BARO: a pilot setting whose external writers all follow the panel (roadmap 9.1), "
+        "and still on the baseline; remove it from tests/arch/key_writers_baseline.yaml"]
+
+
+def test_a_key_not_on_the_settings_list_cannot_be_marked_a_setting():
+    reg = {"VS": {"units": "ft", "kind": "setting", "writers": ["aaa", "bbb"],
+                  "echo": {"aaa": "echo_rule", "bbb": "echo_rule"}}}
+    fails = ckw.check_settings(reg)
+    assert fails == [
+        "VS: writers.yaml marks it `kind: setting`, and roadmap 9.1 names only ALTSEL, VSSEL, "
+        "IASSEL, HEADBUG, NAV1CRS, NAV2CRS, BARO as pilot settings.  Adding one is Bill's "
+        "ruling, then a change to SETTING_KEYS in tools/check_key_writers.py",
+        "VS: writers.yaml gives `echo` on a key that is not a pilot setting; remove it"]
+    # Nor does the mark let its writers past the baseline.
+    assert ckw.check_baseline(reg, {})[0].startswith("VS: 2 live writers (aaa, bbb)")
+
+
+def test_a_listed_setting_must_be_marked_and_kind_has_one_value():
+    assert ckw.check_settings({"BARO": {"units": "inHg", "writers": ["canfix"]}}) == [
+        "BARO: a pilot setting (roadmap 9.1); mark it `kind: setting` in writers.yaml"]
+    assert ckw.check_settings(baro(kind="command", echo=None)) == [
+        "BARO: writers.yaml `kind` is 'command'; the only kind is `setting`"]
+
+
+def test_an_echo_cell_outside_its_vocabulary_fails():
+    reg = baro(echo={"canfix": "polite", "grand_rapids_eis": "echo_rule"})
+    assert ckw.check_columns(CAT, reg, provider_keys=()) == [
+        "BARO: writers.yaml `echo` for canfix is 'polite'; echo is one of echo_rule, "
+        "overwrites, then \": note\""]
+    assert ckw.check_baseline(reg, {})[0].startswith("BARO: 3 live writers")
+    # 9.1(b) names only the echo rule (MAOS-DESIGN 3c3970f): a device that
+    # holds the setting itself, as a CAN-FIX node does, is not a token of its own.
+    reg = baro(echo={"canfix": "device_holds", "grand_rapids_eis": "echo_rule"})
+    assert len(ckw.check_columns(CAT, reg, provider_keys=())) == 1
 
 
 # The pyEfis CAS model's acknowledge (pyEfis instruments/cas/model.py, #552):
@@ -471,7 +558,7 @@ def test_the_cas_contract_is_in_the_register(catalog, tmp_path):
     # And the ratchet now sees a second writer: a plugin that also wrote
     # CASACK would make it a two-writer key that is not on the baseline.
     two = dict(reg, CASACK=dict(reg["CASACK"], writers=["aaa"]))
-    assert any(f.startswith("CASACK: 2 live writers (aaa, pyefis/instruments/cas)")
+    assert any(f.startswith("CASACK: 2 live writers (aaa, pyefis)")
                for f in ckw.check_baseline(two, ckw.load_yaml(ROOT, ckw.BASELINE)))
 
 
@@ -805,9 +892,9 @@ def test_the_register_records_the_pyefis_item_helper_writes():
     # its TARGETS table: a sim writer, so not a second live writer.
     for k in ("ALTSEL", "VSSEL", "IASSEL", "HEADBUG", "NAV1CRS", "NAV2CRS", "BARO"):
         assert "xplane" in reg[k]["sim"], k
-    # Two pyEfis surfaces edit one pilot-set key: on the baseline, by Bill's
-    # ruling on the ARCHG2b packet (AER-6493), until a selector item says
-    # otherwise.
+    # Two pyEfis surfaces edit one key.  They were on the baseline by Bill's
+    # ruling on the ARCHG2b packet (AER-6493); they are the panel, one writer,
+    # since roadmap 9.1 counts by class (ARCHG3b), so they are off it.
     base = ckw.load_yaml(ROOT, ckw.BASELINE)
     for k in ("FPLCMD", "HEADBUG", "IASSEL"):
-        assert base[k] == pyefis[k], k
+        assert len(pyefis[k]) == 2 and k not in base, k
