@@ -3,9 +3,8 @@
 # GitHub only acts on "Fixes #N" when a PR merges into the default branch, and
 # this repo's default is the production branch: day-to-day work merges into
 # dev. Without this, an issue the PR says it fixes stays open after the merge.
-# Same-repo references only (#N or this-owner/this-repo#N): the workflow token
-# cannot write to other repositories, and backlog issues live in the repo
-# where their code lands.
+# Same-repo references only (#N): the workflow token cannot write to other
+# repositories, and backlog issues live in the repo where their code lands.
 name: close-linked-issues
 
 on:
@@ -27,12 +26,25 @@ jobs:
           script: |
             const pr = context.payload.pull_request;
             const { owner, repo } = context.repo;
-            const text = `${pr.title}\n${pr.body || ''}`;
-            const re = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+(?:([\w.-]+)\/([\w.-]+))?#(\d+)\b/gi;
+            // The strict rule INTEGRATOR applies (pr_integration.md, FLOW10): a line
+            // of the body must START with Closes, Fixes or Resolves (any tense),
+            // followed by #N references. A line carrying a condition or a question
+            // does not count, nor does a keyword in mid-sentence ("does NOT close
+            // #39"). Same rule as closing_claims in maos-workspace
+            // processes/paperclip/scripts/issue_close_candidates.py.
+            const lead = /^(?:[-*>]\s+|\*\*|__)+/;
+            const claim = /^(close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b(?:\*\*|__)?\s*:?(?:\*\*|__)?\s*((?:#\d+(?:\s*(?:,|and|&)\s*)?)+)(.*)$/i;
+            const condition = /\b(once|when|if|until|after|unless)\b/i;
             const nums = new Set();
-            for (const m of text.matchAll(re)) {
-              if (m[1] && (m[1].toLowerCase() !== owner.toLowerCase() || m[2].toLowerCase() !== repo.toLowerCase())) continue;
-              nums.add(Number(m[3]));
+            for (const raw of (pr.body || '').split(/\r?\n/)) {
+              const line = raw.trim().replace(lead, '');
+              const m = line.match(claim);
+              if (!m) continue;
+              if (condition.test(m[3]) || line.includes('?')) {
+                core.info(`skipped conditional closing line: ${line}`);
+                continue;
+              }
+              for (const r of m[2].matchAll(/#(\d+)/g)) nums.add(Number(r[1]));
             }
             for (const n of nums) {
               if (n === pr.number) continue;
