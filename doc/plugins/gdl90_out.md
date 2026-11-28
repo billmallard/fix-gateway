@@ -116,11 +116,10 @@ X-Plane as the only position source.
   position and GPS-valid set; only NACp was 0. A bench stand-in that wrote
   16 ft into `GPS_ACCURACY_HORIZ` (NACp 10) brought position, altitude and
   speed in at once. NIC stayed 0, so NIC does not gate it.
-- **Speed: corrected by EFB5.** Bill read 133 kt, which matched GPS
-  groundspeed; the IAS (105) and TAS (119) in 0x65/1 were not seen. Which
-  ForeFlight box he read it from was not recorded. In EFB5 (below) the
-  airspeed box showed IAS, so this line no longer says ForeFlight shows
-  groundspeed where a pilot reads airspeed.
+- **Speed is groundspeed.** ForeFlight showed 133 where a pilot reads
+  airspeed: that was GPS groundspeed. The IAS (105) and TAS (119) sent in
+  0x65/1 at the FF offsets were not shown. EFB5b's photo confirms it: the
+  tape is labelled "GS KTS" (below).
 - **"MkrPlane, No Towers"** in red, with a time that was not current: most
   likely ForeFlight's ADS-B uplink status. No FIS-B is expected from a box
   that is not an ADS-B receiver.
@@ -152,9 +151,10 @@ The EFB5 iPad check (AER-6452, 2026-11-27) ran with `assumed_accuracy_ft: 16`
 and no stand-in. The ownship was placed and moving, but altitude and vertical
 speed showed X.
 
-- **Speed:** ForeFlight's airspeed box showed 105-106 kt, the IAS from 0x65/1.
-  The ownship GS on the wire was 141 kt, the same as bus `GS` (a tailwind; TAS
-  119).
+- **Speed:** the session read ForeFlight's speed box as 105-106 kt, which
+  matched the IAS in 0x65/1 while the ownship GS on the wire was 141 kt. No
+  photo recorded the box's label, and EFB5b's labelled photo (below)
+  contradicts it.
 - **Altitude and vertical speed need a VFOM.** The wire carried a valid 0x0A
   pressure altitude (7,900 ft) and VS, and a 0x0B geometric altitude
   (7,905 ft) with VFOM 0x7FFF, "not available", because nothing writes
@@ -174,6 +174,15 @@ So the same setting supplies VFOM (BACKLOG EFB5b, AER-6754; Bill's ruling,
   setting on or off.
 - No height key valid: no 0x0B, as before. The setting never makes a height.
 - Nothing is written to the bus.
+
+**EFB5b iPad check (AER-6754, 2026-11-28 00:29Z).** The bench ran this code
+with `assumed_accuracy_ft: 16` and no stand-in. ForeFlight's attitude page
+showed altitude 7,910 ft, labelled "GPS ALT", and VS 0, both matching pyEfis.
+A wire decode at the same time gave 0x0B 7,905 ft with VFOM 5 m (the setting),
+and 0x0A PALT 7,900, VS 0, NACp 10. ForeFlight's speed tape is labelled
+"GS KTS". It read 93, the wire GS (pyEfis's map: GS 93), while 0x65/1 carried
+IAS 105 and TAS 119. So ForeFlight's tape shows groundspeed, not the IAS
+this plugin sends. Photos: `doc/evidence/aer-6754-efb5b-ipad/`.
 
 **The risk, named:** with the setting on, the box tells the tablet an accuracy
 its source never reported. It is meant for sim and FMS sources only. Never set
