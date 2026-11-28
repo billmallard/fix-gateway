@@ -253,6 +253,67 @@ def test_shipped_config_leaves_assumed_accuracy_unset():
     assert out.parse_assumed_accuracy(cfg["assumed_accuracy_ft"], LOG) is None
 
 
+# --- the same setting supplies VFOM (AER-6754, BACKLOG EFB5b) -----------------
+# ForeFlight showed no altitude or vertical speed while 0x0B carried VFOM
+# 0x7FFF, because nothing writes GPS_ACCURACY_VERTICAL (EFB5 iPad check).
+
+def geo_vfom(database, **config):
+    return gdl90.parse_geo_altitude(decode(encoder(database, **config).second(0))[0x0B][0])
+
+
+def test_unset_assumed_accuracy_sends_vfom_not_available(database):
+    write(database, NO_ACCURACY)
+    g = geo_vfom(database)
+    assert g.vfom_bad and g.alt == 4380
+
+
+@pytest.mark.parametrize("ft, metres", [(16.0, 5), (25.0, 8), (1.0, 0), ("50", 15)])
+def test_assumed_accuracy_supplies_vfom_when_no_source_writes_the_key(database, ft, metres):
+    # 25 ft is the EFB5 stand-in that put VFOM 8 m on the wire.
+    write(database, NO_ACCURACY)
+    assert not database.get_raw_item("GPS_ACCURACY_VERTICAL").written
+    g = geo_vfom(database, assumed_accuracy_ft=ft)
+    assert not g.vfom_bad and g.vfom == metres
+
+
+def test_a_valid_vertical_accuracy_key_always_wins(database):
+    write(database, dict(NO_ACCURACY, GPS_ACCURACY_VERTICAL=100.0))  # 30.5 m
+    assert geo_vfom(database, assumed_accuracy_ft=16.0).vfom == 30
+    assert geo_vfom(database).vfom == 30
+
+
+@pytest.mark.parametrize("flag", ["old", "bad", "fail"])
+def test_a_written_vertical_accuracy_key_that_lost_validity_is_not_replaced(database, flag):
+    write(database, dict(NO_ACCURACY, GPS_ACCURACY_VERTICAL=30.0))
+    database.get_raw_item("GPS_ACCURACY_VERTICAL").set(30.0, **{flag: True})
+    assert geo_vfom(database, assumed_accuracy_ft=16.0).vfom_bad
+
+
+def test_an_expired_vertical_accuracy_key_is_not_replaced(database):
+    write(database, dict(NO_ACCURACY, GPS_ACCURACY_VERTICAL=30.0))
+    item = database.get_raw_item("GPS_ACCURACY_VERTICAL")
+    item.timestamp -= (item.tol + 1) / 1000.0
+    assert geo_vfom(database, assumed_accuracy_ft=16.0).vfom_bad
+
+
+def test_assumed_accuracy_does_not_make_a_geo_altitude(database):
+    # The setting is a figure of merit only: no height key, no 0x0B.
+    write(database, {k: v for k, v in NO_ACCURACY.items() if k != "GPS_ELLIPSOID_ALT"})
+    assert 0x0B not in decode(encoder(database, assumed_accuracy_ft=16.0).second(0))
+
+
+def test_assumed_vfom_writes_nothing_to_the_bus(database):
+    write(database, NO_ACCURACY)
+    encoder(database, assumed_accuracy_ft=16.0).second(0)
+    assert not database.get_raw_item("GPS_ACCURACY_VERTICAL").written
+
+
+@pytest.mark.parametrize("value", [0, -16.0, "sixteen", float("nan"), True])
+def test_a_bad_assumed_accuracy_leaves_vfom_not_available(database, value):
+    write(database, NO_ACCURACY)
+    assert geo_vfom(database, assumed_accuracy_ft=value).vfom_bad
+
+
 def test_no_geo_altitude_message_without_a_valid_key(database):
     write(database, GOOD)
     database.get_raw_item("GPS_ELLIPSOID_ALT").set(4380.0, old=True)
