@@ -904,6 +904,10 @@ def remapFunction(inputs, output, table, require_leader):
     # table[round(index)] (clamped). Translates one selector scheme into
     # another -- e.g. collapsing NAVSRC's optional dual GPS (GPS1=2, GPS2=3) onto
     # X-Plane's single HSI_source_select GPS (2) via table [0, 1, 2, 2].
+    # The output carries the index's old, bad, fail and secfail flags, so a
+    # failed glideslope flag (NAV1GSF -> NAV1GSNF) reads failed, not as a
+    # valid glideslope stamped fresh by the callback that carried the failure
+    # (CMP1, AER-6834).  Like every other function, a failed output reads 0.0.
     def func(key, value, parent):
         if not quorum.leader and require_leader:
             return
@@ -911,7 +915,7 @@ def remapFunction(inputs, output, table, require_leader):
             return
         i = max(0, min(len(table) - 1, int(round(value[0]))))
         o = parent.db_get_item(output)
-        o.value = float(table[i])
+        _publish(o, float(table[i]), value[2], value[3], value[4], value[5])
 
     return func
 
